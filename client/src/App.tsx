@@ -24,6 +24,9 @@ import {
   VendorCreditsPage,
   VendorPaymentsPage,
 } from "./pages/documents";
+import { TransactionNewPage } from "./pages/transaction-new";
+import { PaymentNewPage } from "./pages/payment-new";
+import { ExpenseNewPage } from "./pages/expense-new";
 
 export function App() {
   const { user, loading } = useAuth();
@@ -40,16 +43,26 @@ export function App() {
         <Route path="/items" component={ItemsPage} />
         <Route path="/banking" component={BankingPage} />
         <Route path="/sales/customers" component={CustomersPage} />
+        <Route path="/sales/estimates/new">{() => <TransactionNewPage kind="estimate" />}</Route>
         <Route path="/sales/estimates" component={EstimatesPage} />
+        <Route path="/sales/sales-orders/new">{() => <TransactionNewPage kind="sales-order" />}</Route>
         <Route path="/sales/sales-orders" component={SalesOrdersPage} />
+        <Route path="/sales/invoices/new">{() => <TransactionNewPage kind="invoice" />}</Route>
         <Route path="/sales/invoices" component={InvoicesPage} />
+        <Route path="/sales/payments/new">{() => <PaymentNewPage side="customer" />}</Route>
         <Route path="/sales/payments" component={CustomerPaymentsPage} />
+        <Route path="/sales/credit-notes/new">{() => <TransactionNewPage kind="credit-note" />}</Route>
         <Route path="/sales/credit-notes" component={CreditNotesPage} />
         <Route path="/purchases/vendors" component={VendorsPage} />
+        <Route path="/purchases/expenses/new" component={ExpenseNewPage} />
         <Route path="/purchases/expenses" component={ExpensesPage} />
+        <Route path="/purchases/orders/new">{() => <TransactionNewPage kind="purchase-order" />}</Route>
         <Route path="/purchases/orders" component={PurchaseOrdersPage} />
+        <Route path="/purchases/bills/new">{() => <TransactionNewPage kind="bill" />}</Route>
         <Route path="/purchases/bills" component={BillsPage} />
+        <Route path="/purchases/payments/new">{() => <PaymentNewPage side="vendor" />}</Route>
         <Route path="/purchases/payments" component={VendorPaymentsPage} />
+        <Route path="/purchases/vendor-credits/new">{() => <TransactionNewPage kind="vendor-credit" />}</Route>
         <Route path="/purchases/vendor-credits" component={VendorCreditsPage} />
         <Route path="/accountant/journals" component={JournalsPage} />
         <Route path="/accountant/accounts" component={AccountsPage} />

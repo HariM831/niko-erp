@@ -1,4 +1,5 @@
 import { type ReactNode, useState } from "react";
+import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
 
@@ -22,6 +23,8 @@ interface ListPageProps<T> {
   views?: ListView[];
   searchPlaceholder?: string;
   newLabel?: string;
+  /** Route for the create form; renders the "+ New" button when set. */
+  newPath?: string;
   onNew?: () => void;
   onRowClick?: (row: T) => void;
   rowKey: (row: T) => string;
@@ -38,12 +41,15 @@ export function ListPage<T>({
   views,
   searchPlaceholder,
   newLabel,
+  newPath,
   onNew,
   onRowClick,
   rowKey,
 }: ListPageProps<T>) {
+  const [, navigate] = useLocation();
   const [activeView, setActiveView] = useState(0);
   const [search, setSearch] = useState("");
+  const handleNew = onNew ?? (newPath ? () => navigate(newPath) : undefined);
 
   const params = new URLSearchParams(views?.[activeView]?.params ?? {});
   if (search) params.set("search", search);
@@ -85,9 +91,9 @@ export function ListPage<T>({
               className="w-56 rounded-md border px-3 py-1.5 text-[13px] focus:border-brand-500 focus:outline-none"
             />
           )}
-          {onNew && (
+          {handleNew && (
             <button
-              onClick={onNew}
+              onClick={handleNew}
               className="rounded-md bg-brand-500 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-brand-600"
             >
               + {newLabel ?? "New"}
@@ -106,8 +112,8 @@ export function ListPage<T>({
         ) : !data?.length ? (
           <div className="p-12 text-center text-sm text-gray-500">
             No records yet.
-            {onNew && (
-              <button onClick={onNew} className="ml-1 text-brand-600 hover:underline">
+            {handleNew && (
+              <button onClick={handleNew} className="ml-1 text-brand-600 hover:underline">
                 Create the first one
               </button>
             )}

@@ -48,6 +48,7 @@ export const InvoicesPage = () => (
     rowKey={(r) => r.id}
     views={statusViews(["draft", "sent", "partially_paid", "paid", "void"])}
     newLabel="New Invoice"
+    newPath="/sales/invoices/new"
     columns={docColumns("invoiceDate", { balance: "balanceDue" })}
   />
 );
@@ -59,6 +60,7 @@ export const EstimatesPage = () => (
     rowKey={(r) => r.id}
     views={statusViews(["draft", "sent", "accepted", "declined", "invoiced"])}
     newLabel="New Estimate"
+    newPath="/sales/estimates/new"
     columns={docColumns("estimateDate", {})}
   />
 );
@@ -70,6 +72,7 @@ export const SalesOrdersPage = () => (
     rowKey={(r) => r.id}
     views={statusViews(["draft", "confirmed", "closed", "void"])}
     newLabel="New Sales Order"
+    newPath="/sales/sales-orders/new"
     columns={docColumns("orderDate", {})}
   />
 );
@@ -80,6 +83,7 @@ export const CustomerPaymentsPage = () => (
     endpoint="/api/sales/payments"
     rowKey={(r) => r.id}
     newLabel="Record Payment"
+    newPath="/sales/payments/new"
     columns={[
       { key: "date", header: "Date", render: (r) => formatDate(r.paymentDate as string) },
       { key: "number", header: "Number", render: (r) => <span className="font-medium text-brand-600">{r.number}</span> },
@@ -97,6 +101,7 @@ export const CreditNotesPage = () => (
     rowKey={(r) => r.id}
     views={statusViews(["open", "closed", "void"])}
     newLabel="New Credit Note"
+    newPath="/sales/credit-notes/new"
     columns={docColumns("creditNoteDate", { balance: "balance" })}
   />
 );
@@ -108,6 +113,7 @@ export const PurchaseOrdersPage = () => (
     rowKey={(r) => r.id}
     views={statusViews(["draft", "issued", "partially_billed", "billed", "closed", "cancelled"])}
     newLabel="New Purchase Order"
+    newPath="/purchases/orders/new"
     columns={docColumns("orderDate", {})}
   />
 );
@@ -119,6 +125,7 @@ export const BillsPage = () => (
     rowKey={(r) => r.id}
     views={statusViews(["open", "partially_paid", "paid", "void"])}
     newLabel="New Bill"
+    newPath="/purchases/bills/new"
     columns={docColumns("billDate", { balance: "balanceDue" })}
   />
 );
@@ -129,6 +136,7 @@ export const VendorPaymentsPage = () => (
     endpoint="/api/purchases/payments"
     rowKey={(r) => r.id}
     newLabel="Record Payment"
+    newPath="/purchases/payments/new"
     columns={[
       { key: "date", header: "Date", render: (r) => formatDate(r.paymentDate as string) },
       { key: "number", header: "Number", render: (r) => <span className="font-medium text-brand-600">{r.number}</span> },
@@ -145,6 +153,7 @@ export const VendorCreditsPage = () => (
     rowKey={(r) => r.id}
     views={statusViews(["open", "closed", "void"])}
     newLabel="New Vendor Credit"
+    newPath="/purchases/vendor-credits/new"
     columns={docColumns("creditDate", { balance: "balance" })}
   />
 );
@@ -155,6 +164,7 @@ export const ExpensesPage = () => (
     endpoint="/api/purchases/expenses"
     rowKey={(r) => r.id}
     newLabel="Record Expense"
+    newPath="/purchases/expenses/new"
     columns={[
       { key: "date", header: "Date", render: (r) => formatDate(r.expenseDate as string) },
       { key: "number", header: "Number", render: (r) => <span className="font-medium text-brand-600">{r.number}</span> },
