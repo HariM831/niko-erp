@@ -4,6 +4,8 @@ import connectPgSimple from "connect-pg-simple";
 import { pool } from "./db";
 import { authRouter } from "./routes/auth";
 import { accountingRouter } from "./routes/accounting";
+import { contactsRouter } from "./routes/contacts";
+import { itemsRouter, taxesRouter } from "./routes/items";
 import { requireAuth } from "./lib/rbac";
 
 const SESSION_SECRET = process.env.SESSION_SECRET;
@@ -53,6 +55,9 @@ app.use((req, res, next) => {
 
 app.use("/api/auth", authRouter);
 app.use("/api/accounting", requireAuth, accountingRouter);
+app.use("/api/contacts", requireAuth, contactsRouter);
+app.use("/api/items", requireAuth, itemsRouter);
+app.use("/api/taxes", requireAuth, taxesRouter);
 
 // Central error handler — no stack/message leaks.
 app.use(
