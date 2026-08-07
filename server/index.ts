@@ -5,6 +5,7 @@ import { pool } from "./db";
 import { authRouter } from "./routes/auth";
 import { accountingRouter } from "./routes/accounting";
 import { contactsRouter } from "./routes/contacts";
+import { contactInsightsRouter } from "./routes/contact-insights";
 import { itemsRouter, taxesRouter } from "./routes/items";
 import { salesRouter } from "./routes/sales";
 import { salesDocumentsRouter } from "./routes/sales-documents";
@@ -61,6 +62,7 @@ app.use((req, res, next) => {
 
 app.use("/api/auth", authRouter);
 app.use("/api/accounting", requireAuth, accountingRouter);
+app.use("/api/contacts", requireAuth, contactInsightsRouter);
 app.use("/api/contacts", requireAuth, contactsRouter);
 app.use("/api/items", requireAuth, itemsRouter);
 app.use("/api/taxes", requireAuth, taxesRouter);

@@ -264,6 +264,31 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
     queryFn: () => api<DetailDoc>(`${config!.endpoint}/${id}`),
     enabled: !!config,
   });
+  const contactId = (doc?.customerId ?? doc?.vendorId) as string | undefined;
+  const { data: contact } = useQuery({
+    queryKey: ["contact-mini", contactId],
+    queryFn: () =>
+      api<{
+        displayName: string;
+        gstin?: string;
+        addresses: Array<{ kind: string; line1?: string; city?: string; state?: string; pincode?: string }>;
+      }>(`/api/contacts/${contactId}`),
+    enabled: !!contactId,
+  });
+  const { data: org } = useQuery({
+    queryKey: ["org"],
+    queryFn: () =>
+      api<{
+        name: string;
+        address?: string;
+        city?: string;
+        state?: string;
+        pincode?: string;
+        gstin?: string;
+        phone?: string;
+        email?: string;
+      } | null>("/api/settings/org"),
+  });
 
   if (!config) return <div className="p-8 text-sm text-gray-500">Unknown document type.</div>;
   if (isLoading) return <div className="p-8 text-sm text-gray-500">Loading…</div>;
@@ -292,34 +317,35 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
   const visibleActions = config.actions.filter((a) => a.when.includes(doc.status));
   const balance = doc.balanceDue ?? doc.balance;
 
+  const docTitle =
+    kind === "invoice" ? "TAX INVOICE" : config.titlePrefix.toUpperCase();
+  const billingAddr = contact?.addresses?.find((a) => a.kind === "billing");
+  const isSales = ["invoice", "estimate", "sales-order", "credit-note"].includes(kind);
+
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b bg-white px-6 py-3">
+      <header className="flex items-center justify-between border-b bg-white px-6 py-2.5 print:hidden">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate(config.listPath)} className="text-gray-400 hover:text-gray-700">
             ←
           </button>
-          <h1 className="text-lg font-semibold">
-            {config.titlePrefix} {doc.number}
-          </h1>
+          <h1 className="text-base font-semibold">{doc.number}</h1>
           <StatusBadge status={doc.status} />
         </div>
-        <div className="flex items-center gap-2 print:hidden">
+        <div className="flex items-center gap-1 text-[13px]">
           <button
             onClick={() => window.print()}
-            className="rounded-md border px-3 py-1.5 text-[13px] font-medium hover:bg-gray-50"
+            className="rounded px-2.5 py-1.5 font-medium text-gray-700 hover:bg-gray-100"
           >
-            Print / PDF
+            PDF/Print
           </button>
           {visibleActions.map((a) => (
             <button
               key={a.label}
               disabled={busy}
               onClick={() => void runAction(a)}
-              className={`rounded-md px-3 py-1.5 text-[13px] font-medium disabled:opacity-50 ${
-                a.danger
-                  ? "border border-red-200 text-red-600 hover:bg-red-50"
-                  : "bg-brand-500 text-white hover:bg-brand-600"
+              className={`rounded px-2.5 py-1.5 font-medium disabled:opacity-50 ${
+                a.danger ? "text-red-600 hover:bg-red-50" : "text-brand-700 hover:bg-brand-50"
               }`}
             >
               {a.label}
@@ -328,129 +354,196 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
         </div>
       </header>
 
-      {error && <p className="border-b bg-red-50 px-6 py-2 text-sm text-red-700">{error}</p>}
+      {error && <p className="border-b bg-red-50 px-6 py-2 text-sm text-red-700 print:hidden">{error}</p>}
 
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="mx-auto max-w-3xl rounded-lg border bg-white p-8 shadow-sm">
-          <div className="mb-6 flex items-start justify-between">
-            <div>
-              <div className="text-xl font-semibold">{config.titlePrefix}</div>
-              <div className="text-sm text-gray-500"># {doc.number}</div>
-            </div>
-            <div className="text-right text-sm">
-              <div className="text-gray-500">Date</div>
-              <div className="font-medium">{formatDate(doc[config.dateField] as string)}</div>
-              {doc.dueDate ? (
-                <>
-                  <div className="mt-1 text-gray-500">Due Date</div>
-                  <div className="font-medium">{formatDate(doc.dueDate as string)}</div>
-                </>
-              ) : null}
-            </div>
+      {doc.status === "sent" && kind === "invoice" && Number(doc.balanceDue) > 0 && (
+        <div className="flex items-center justify-between border-b bg-brand-50/60 px-6 py-2.5 text-[13px] print:hidden">
+          <span>
+            <strong>What&apos;s next?</strong> The invoice is out — record the payment when it arrives.
+          </span>
+          <button
+            onClick={() => navigate("/sales/payments/new")}
+            className="rounded-md bg-brand-500 px-3 py-1.5 font-medium text-white hover:bg-brand-600"
+          >
+            Record Payment
+          </button>
+        </div>
+      )}
+
+      <div className="flex-1 overflow-y-auto bg-gray-100 p-6 print:bg-white print:p-0">
+        <div className="relative mx-auto max-w-3xl overflow-hidden border bg-white shadow-sm print:border-0 print:shadow-none">
+          <div
+            className={`absolute -left-10 top-5 w-36 -rotate-45 py-1 text-center text-[11px] font-semibold uppercase tracking-wider text-white print:hidden ${
+              doc.status === "paid" || doc.status === "closed"
+                ? "bg-green-600"
+                : doc.status === "void" || doc.status === "cancelled"
+                  ? "bg-red-500"
+                  : doc.status === "draft"
+                    ? "bg-gray-400"
+                    : "bg-brand-500"
+            }`}
+          >
+            {doc.status.replace(/_/g, " ")}
           </div>
 
-          <table className="mb-4 w-full text-[13px]">
-            <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
-              <tr>
-                <th className="border-y px-3 py-2">#</th>
-                <th className="border-y px-3 py-2">Item & Description</th>
-                <th className="border-y px-3 py-2 text-right">Qty</th>
-                <th className="border-y px-3 py-2 text-right">Rate</th>
-                <th className="border-y px-3 py-2 text-right">Disc %</th>
-                <th className="border-y px-3 py-2 text-right">Tax</th>
-                <th className="border-y px-3 py-2 text-right">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {doc.lines.map((l, i) => (
-                <tr key={l.id} className="border-b">
-                  <td className="px-3 py-2 text-gray-500">{i + 1}</td>
-                  <td className="px-3 py-2">
-                    <div className="font-medium">{l.name}</div>
-                    {l.description && <div className="text-xs text-gray-500">{l.description}</div>}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums">
-                    {Number(l.quantity)} {l.unit ?? ""}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums">{formatMoney(l.rate)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{Number(l.discountPercent)}%</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{formatMoney(l.taxAmount)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{formatMoney(l.amount)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <div className="ml-auto w-72 text-[13px]">
-            <div className="mb-1 flex justify-between">
-              <span>Sub Total</span>
-              <span className="tabular-nums">{formatMoney(doc.subTotal)}</span>
+          <div className="p-10">
+            <div className="mb-8 flex items-start justify-between">
+              <div className="text-[13px]">
+                <div className="text-base font-bold">{org?.name || "Your Business"}</div>
+                {org?.address && <div className="text-gray-600">{org.address}</div>}
+                <div className="text-gray-600">
+                  {[org?.city, org?.state, org?.pincode].filter(Boolean).join(", ")}
+                </div>
+                {org?.gstin && <div className="text-gray-600">GSTIN {org.gstin}</div>}
+                {org?.phone && <div className="text-gray-600">{org.phone}</div>}
+              </div>
+              <div className="text-right">
+                <div className="text-2xl font-bold tracking-wide text-gray-800">{docTitle}</div>
+                <div className="mt-1 text-[13px] text-gray-500"># {doc.number}</div>
+                <div className="mt-4 text-[13px]">
+                  <span className="text-gray-500">Balance Due</span>
+                  <div className="text-lg font-bold tabular-nums">
+                    {formatMoney(balance ?? doc.total)}
+                  </div>
+                </div>
+              </div>
             </div>
-            {Number(doc.discountTotal) > 0 && (
-              <div className="mb-1 flex justify-between text-gray-600">
-                <span>Discount</span>
-                <span className="tabular-nums">− {formatMoney(doc.discountTotal)}</span>
-              </div>
-            )}
-            {Number(doc.cgst) > 0 && (
-              <div className="mb-1 flex justify-between">
-                <span>CGST</span>
-                <span className="tabular-nums">{formatMoney(doc.cgst)}</span>
-              </div>
-            )}
-            {Number(doc.sgst) > 0 && (
-              <div className="mb-1 flex justify-between">
-                <span>SGST</span>
-                <span className="tabular-nums">{formatMoney(doc.sgst)}</span>
-              </div>
-            )}
-            {Number(doc.igst) > 0 && (
-              <div className="mb-1 flex justify-between">
-                <span>IGST</span>
-                <span className="tabular-nums">{formatMoney(doc.igst)}</span>
-              </div>
-            )}
-            {Number(doc.roundOff) !== 0 && (
-              <div className="mb-1 flex justify-between text-gray-600">
-                <span>Round Off</span>
-                <span className="tabular-nums">{formatMoney(doc.roundOff)}</span>
-              </div>
-            )}
-            <div className="flex justify-between border-t pt-2 text-base font-semibold">
-              <span>Total</span>
-              <span className="tabular-nums">{formatMoney(doc.total)}</span>
-            </div>
-            {balance !== undefined && (
-              <div className="mt-1 flex justify-between font-medium text-amber-700">
-                <span>Balance</span>
-                <span className="tabular-nums">{formatMoney(balance)}</span>
-              </div>
-            )}
-          </div>
 
-          {!!doc.payments?.length && (
-            <div className="mt-8">
-              <h3 className="mb-2 text-sm font-semibold">Payments</h3>
-              <table className="w-full text-[13px]">
-                <thead className="text-left text-xs uppercase tracking-wide text-gray-500">
-                  <tr>
-                    <th className="border-y px-3 py-2">Payment #</th>
-                    <th className="border-y px-3 py-2">Date</th>
-                    <th className="border-y px-3 py-2 text-right">Amount Applied</th>
-                  </tr>
-                </thead>
+            <div className="mb-8 flex items-end justify-between text-[13px]">
+              <div>
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                  {isSales ? "Bill To" : "Vendor"}
+                </div>
+                <div className="font-semibold text-brand-700">{contact?.displayName ?? "—"}</div>
+                {billingAddr?.line1 && <div className="text-gray-600">{billingAddr.line1}</div>}
+                <div className="text-gray-600">
+                  {[billingAddr?.city, billingAddr?.state, billingAddr?.pincode].filter(Boolean).join(", ")}
+                </div>
+                {contact?.gstin && <div className="text-gray-600">GSTIN {contact.gstin}</div>}
+              </div>
+              <table className="text-right text-[13px]">
                 <tbody>
-                  {doc.payments.map((p, i) => (
-                    <tr key={i} className="border-b">
-                      <td className="px-3 py-2 font-medium text-brand-600">{p.paymentNumber}</td>
-                      <td className="px-3 py-2">{formatDate(p.paymentDate)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatMoney(p.amountApplied)}</td>
+                  <tr>
+                    <td className="pr-4 text-gray-500">{config.titlePrefix} Date :</td>
+                    <td className="font-medium">{formatDate(doc[config.dateField] as string)}</td>
+                  </tr>
+                  {doc.dueDate ? (
+                    <tr>
+                      <td className="pr-4 text-gray-500">Due Date :</td>
+                      <td className="font-medium">{formatDate(doc.dueDate as string)}</td>
                     </tr>
-                  ))}
+                  ) : null}
+                  {doc.reference ? (
+                    <tr>
+                      <td className="pr-4 text-gray-500">Reference :</td>
+                      <td className="font-medium">{doc.reference}</td>
+                    </tr>
+                  ) : null}
                 </tbody>
               </table>
             </div>
-          )}
+
+            <table className="mb-6 w-full text-[13px]">
+              <thead>
+                <tr className="bg-gray-800 text-left text-xs uppercase tracking-wide text-white">
+                  <th className="px-3 py-2 font-medium">#</th>
+                  <th className="px-3 py-2 font-medium">Item &amp; Description</th>
+                  <th className="px-3 py-2 text-right font-medium">Qty</th>
+                  <th className="px-3 py-2 text-right font-medium">Rate</th>
+                  <th className="px-3 py-2 text-right font-medium">Tax</th>
+                  <th className="px-3 py-2 text-right font-medium">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {doc.lines.map((l, i) => (
+                  <tr key={l.id} className="border-b">
+                    <td className="px-3 py-2.5 text-gray-500">{i + 1}</td>
+                    <td className="px-3 py-2.5">
+                      <div className="font-medium">{l.name}</div>
+                      {l.description && <div className="text-xs text-gray-500">{l.description}</div>}
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">
+                      {Number(l.quantity)} {l.unit ?? ""}
+                    </td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">{formatMoney(l.rate)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">{formatMoney(l.taxAmount)}</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums">{formatMoney(l.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div className="ml-auto w-72 text-[13px]">
+              <div className="mb-1 flex justify-between">
+                <span className="text-gray-600">Sub Total</span>
+                <span className="tabular-nums">{formatMoney(doc.subTotal)}</span>
+              </div>
+              {Number(doc.discountTotal) > 0 && (
+                <div className="mb-1 flex justify-between text-gray-600">
+                  <span>Discount</span>
+                  <span className="tabular-nums">− {formatMoney(doc.discountTotal)}</span>
+                </div>
+              )}
+              {Number(doc.cgst) > 0 && (
+                <div className="mb-1 flex justify-between text-gray-600">
+                  <span>CGST</span>
+                  <span className="tabular-nums">{formatMoney(doc.cgst)}</span>
+                </div>
+              )}
+              {Number(doc.sgst) > 0 && (
+                <div className="mb-1 flex justify-between text-gray-600">
+                  <span>SGST</span>
+                  <span className="tabular-nums">{formatMoney(doc.sgst)}</span>
+                </div>
+              )}
+              {Number(doc.igst) > 0 && (
+                <div className="mb-1 flex justify-between text-gray-600">
+                  <span>IGST</span>
+                  <span className="tabular-nums">{formatMoney(doc.igst)}</span>
+                </div>
+              )}
+              {Number(doc.roundOff) !== 0 && (
+                <div className="mb-1 flex justify-between text-gray-600">
+                  <span>Round Off</span>
+                  <span className="tabular-nums">{formatMoney(doc.roundOff)}</span>
+                </div>
+              )}
+              <div className="mt-2 flex justify-between border-t-2 border-gray-800 pt-2 text-sm font-bold">
+                <span>Total</span>
+                <span className="tabular-nums">{formatMoney(doc.total)}</span>
+              </div>
+              {balance !== undefined && (
+                <div className="mt-1 flex justify-between rounded bg-gray-100 px-2 py-1.5 font-semibold">
+                  <span>Balance Due</span>
+                  <span className="tabular-nums">{formatMoney(balance)}</span>
+                </div>
+              )}
+            </div>
+
+            {!!doc.payments?.length && (
+              <div className="mt-10 print:hidden">
+                <h3 className="mb-2 text-sm font-semibold">Payments Received</h3>
+                <table className="w-full text-[13px]">
+                  <thead className="text-left text-xs uppercase tracking-wide text-gray-500">
+                    <tr>
+                      <th className="border-y px-3 py-2">Payment #</th>
+                      <th className="border-y px-3 py-2">Date</th>
+                      <th className="border-y px-3 py-2 text-right">Amount Applied</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {doc.payments.map((p, i) => (
+                      <tr key={i} className="border-b">
+                        <td className="px-3 py-2 font-medium text-brand-600">{p.paymentNumber}</td>
+                        <td className="px-3 py-2">{formatDate(p.paymentDate)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{formatMoney(p.amountApplied)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

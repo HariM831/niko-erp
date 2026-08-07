@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 import {
   bankAccounts,
@@ -134,8 +134,9 @@ salesRouter.get("/invoices", requirePermission("sales", "view"), async (req, res
   if (from) conditions.push(gte(invoices.invoiceDate, from));
   if (to) conditions.push(lte(invoices.invoiceDate, to));
   const rows = await db
-    .select()
+    .select({ ...getTableColumns(invoices), contactName: contacts.displayName })
     .from(invoices)
+    .leftJoin(contacts, eq(contacts.id, invoices.customerId))
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(desc(invoices.invoiceDate))
     .limit(200);
@@ -360,8 +361,9 @@ salesRouter.get("/payments", requirePermission("sales", "view"), async (req, res
   if (from) conditions.push(gte(customerPayments.paymentDate, from));
   if (to) conditions.push(lte(customerPayments.paymentDate, to));
   const rows = await db
-    .select()
+    .select({ ...getTableColumns(customerPayments), contactName: contacts.displayName })
     .from(customerPayments)
+    .leftJoin(contacts, eq(contacts.id, customerPayments.customerId))
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(desc(customerPayments.paymentDate))
     .limit(200);

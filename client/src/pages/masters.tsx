@@ -40,6 +40,7 @@ export const CustomersPage = () => (
     searchPlaceholder="Search customers…"
     newLabel="New Customer"
     newPath="/sales/customers/new"
+    rowPath={(r) => `/sales/customers/${r.id}`}
     columns={contactColumns}
   />
 );
@@ -52,6 +53,7 @@ export const VendorsPage = () => (
     searchPlaceholder="Search vendors…"
     newLabel="New Vendor"
     newPath="/purchases/vendors/new"
+    rowPath={(r) => `/purchases/vendors/${r.id}`}
     columns={contactColumns}
   />
 );

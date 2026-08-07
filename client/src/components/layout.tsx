@@ -1,6 +1,7 @@
 import { type ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "../auth";
+import { TopBar } from "./topbar";
 
 interface NavChild {
   label: string;
@@ -64,7 +65,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden">
-      <aside className="flex w-56 flex-col bg-sidebar text-gray-300">
+      <aside className="flex w-56 flex-col bg-sidebar text-gray-300 print:hidden">
         <div className="flex h-14 items-center gap-2 border-b border-white/10 px-4">
           <span className="grid h-8 w-8 place-items-center rounded bg-brand-500 font-bold text-white">
             E
@@ -124,7 +125,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </button>
         </div>
       </aside>
-      <main className="flex-1 overflow-y-auto">{children}</main>
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <TopBar />
+        <main className="flex-1 overflow-y-auto">{children}</main>
+      </div>
     </div>
   );
 }

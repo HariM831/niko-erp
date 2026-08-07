@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 import {
   accounts,
@@ -154,8 +154,9 @@ purchasesRouter.get("/orders", requirePermission("purchases", "view"), async (re
   if (from) conditions.push(gte(purchaseOrders.orderDate, from));
   if (to) conditions.push(lte(purchaseOrders.orderDate, to));
   const rows = await db
-    .select()
+    .select({ ...getTableColumns(purchaseOrders), contactName: contacts.displayName })
     .from(purchaseOrders)
+    .leftJoin(contacts, eq(contacts.id, purchaseOrders.vendorId))
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(desc(purchaseOrders.orderDate))
     .limit(200);
@@ -411,8 +412,9 @@ purchasesRouter.get("/bills", requirePermission("purchases", "view"), async (req
   if (from) conditions.push(gte(bills.billDate, from));
   if (to) conditions.push(lte(bills.billDate, to));
   const rows = await db
-    .select()
+    .select({ ...getTableColumns(bills), contactName: contacts.displayName })
     .from(bills)
+    .leftJoin(contacts, eq(contacts.id, bills.vendorId))
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(desc(bills.billDate))
     .limit(200);
@@ -523,8 +525,9 @@ purchasesRouter.get("/payments", requirePermission("purchases", "view"), async (
   if (from) conditions.push(gte(vendorPayments.paymentDate, from));
   if (to) conditions.push(lte(vendorPayments.paymentDate, to));
   const rows = await db
-    .select()
+    .select({ ...getTableColumns(vendorPayments), contactName: contacts.displayName })
     .from(vendorPayments)
+    .leftJoin(contacts, eq(contacts.id, vendorPayments.vendorId))
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(desc(vendorPayments.paymentDate))
     .limit(200);
@@ -662,8 +665,9 @@ purchasesRouter.get(
     if (vendorId) conditions.push(eq(vendorCredits.vendorId, vendorId));
     if (status) conditions.push(eq(vendorCredits.status, status as typeof vendorCredits.$inferSelect.status));
     const rows = await db
-      .select()
+      .select({ ...getTableColumns(vendorCredits), contactName: contacts.displayName })
       .from(vendorCredits)
+      .leftJoin(contacts, eq(contacts.id, vendorCredits.vendorId))
       .where(conditions.length ? and(...conditions) : undefined)
       .orderBy(desc(vendorCredits.creditDate))
       .limit(200);
@@ -847,8 +851,9 @@ purchasesRouter.get("/expenses", requirePermission("purchases", "view"), async (
   if (from) conditions.push(gte(expenses.expenseDate, from));
   if (to) conditions.push(lte(expenses.expenseDate, to));
   const rows = await db
-    .select()
+    .select({ ...getTableColumns(expenses), contactName: contacts.displayName })
     .from(expenses)
+    .leftJoin(contacts, eq(contacts.id, expenses.vendorId))
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(desc(expenses.expenseDate))
     .limit(200);

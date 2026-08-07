@@ -29,6 +29,7 @@ import { PaymentNewPage } from "./pages/payment-new";
 import { ExpenseNewPage } from "./pages/expense-new";
 import { DocumentDetailPage } from "./pages/document-detail";
 import { ContactNewPage } from "./pages/contact-new";
+import { ContactDetailPage } from "./pages/contact-detail";
 import { ItemNewPage } from "./pages/item-new";
 import { JournalNewPage } from "./pages/journal-new";
 import { BankAccountNewPage, BankingDetailPage } from "./pages/banking-detail";
@@ -52,6 +53,7 @@ export function App() {
         <Route path="/banking/:id">{(p) => <BankingDetailPage bankAccountId={p.id!} />}</Route>
         <Route path="/banking" component={BankingPage} />
         <Route path="/sales/customers/new">{() => <ContactNewPage type="customer" />}</Route>
+        <Route path="/sales/customers/:id">{(p) => <ContactDetailPage id={p.id!} />}</Route>
         <Route path="/sales/customers" component={CustomersPage} />
         <Route path="/sales/estimates/new">{() => <TransactionNewPage kind="estimate" />}</Route>
         <Route path="/sales/estimates/:id">{(p) => <DocumentDetailPage kind="estimate" id={p.id!} />}</Route>
@@ -68,6 +70,7 @@ export function App() {
         <Route path="/sales/credit-notes/:id">{(p) => <DocumentDetailPage kind="credit-note" id={p.id!} />}</Route>
         <Route path="/sales/credit-notes" component={CreditNotesPage} />
         <Route path="/purchases/vendors/new">{() => <ContactNewPage type="vendor" />}</Route>
+        <Route path="/purchases/vendors/:id">{(p) => <ContactDetailPage id={p.id!} />}</Route>
         <Route path="/purchases/vendors" component={VendorsPage} />
         <Route path="/purchases/expenses/new" component={ExpenseNewPage} />
         <Route path="/purchases/expenses" component={ExpensesPage} />

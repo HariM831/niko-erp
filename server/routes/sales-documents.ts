@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gte, lte } from "drizzle-orm";
 import { z } from "zod";
 import {
   contacts,
@@ -83,8 +83,9 @@ salesDocumentsRouter.get(
     if (from) conditions.push(gte(estimates.estimateDate, from));
     if (to) conditions.push(lte(estimates.estimateDate, to));
     const rows = await db
-      .select()
+      .select({ ...getTableColumns(estimates), contactName: contacts.displayName })
       .from(estimates)
+      .leftJoin(contacts, eq(contacts.id, estimates.customerId))
       .where(conditions.length ? and(...conditions) : undefined)
       .orderBy(desc(estimates.estimateDate))
       .limit(200);
@@ -262,8 +263,9 @@ salesDocumentsRouter.get(
     if (from) conditions.push(gte(salesOrders.orderDate, from));
     if (to) conditions.push(lte(salesOrders.orderDate, to));
     const rows = await db
-      .select()
+      .select({ ...getTableColumns(salesOrders), contactName: contacts.displayName })
       .from(salesOrders)
+      .leftJoin(contacts, eq(contacts.id, salesOrders.customerId))
       .where(conditions.length ? and(...conditions) : undefined)
       .orderBy(desc(salesOrders.orderDate))
       .limit(200);
@@ -377,8 +379,9 @@ salesDocumentsRouter.get(
     if (customerId) conditions.push(eq(creditNotes.customerId, customerId));
     if (status) conditions.push(eq(creditNotes.status, status as typeof creditNotes.$inferSelect.status));
     const rows = await db
-      .select()
+      .select({ ...getTableColumns(creditNotes), contactName: contacts.displayName })
       .from(creditNotes)
+      .leftJoin(contacts, eq(contacts.id, creditNotes.customerId))
       .where(conditions.length ? and(...conditions) : undefined)
       .orderBy(desc(creditNotes.creditNoteDate))
       .limit(200);

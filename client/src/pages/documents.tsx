@@ -17,6 +17,7 @@ function docColumns(dateKey: string, opts: { balance?: "balanceDue" | "balance" 
   const cols = [
     { key: "date", header: "Date", render: (r: DocRow) => formatDate(r[dateKey] as string) },
     { key: "number", header: "Number", render: (r: DocRow) => <span className="font-medium text-brand-600">{r.number}</span> },
+    { key: "contact", header: "Name", render: (r: DocRow) => <span>{(r.contactName as string) ?? "—"}</span> },
     { key: "status", header: "Status", render: (r: DocRow) => <StatusBadge status={r.status} /> },
     {
       key: "amount",
@@ -90,6 +91,7 @@ export const CustomerPaymentsPage = () => (
     columns={[
       { key: "date", header: "Date", render: (r) => formatDate(r.paymentDate as string) },
       { key: "number", header: "Number", render: (r) => <span className="font-medium text-brand-600">{r.number}</span> },
+      { key: "contact", header: "Customer", render: (r) => String(r.contactName ?? "—") },
       { key: "mode", header: "Mode", render: (r) => String(r.mode ?? "").replace(/_/g, " ") },
       { key: "amount", header: "Amount", align: "right", render: (r) => formatMoney(r.amount) },
       { key: "unapplied", header: "Unapplied", align: "right", render: (r) => formatMoney(r.unappliedAmount) },
@@ -146,6 +148,7 @@ export const VendorPaymentsPage = () => (
     columns={[
       { key: "date", header: "Date", render: (r) => formatDate(r.paymentDate as string) },
       { key: "number", header: "Number", render: (r) => <span className="font-medium text-brand-600">{r.number}</span> },
+      { key: "contact", header: "Vendor", render: (r) => String(r.contactName ?? "—") },
       { key: "tds", header: "TDS", align: "right", render: (r) => formatMoney(r.tdsAmount as string) },
       { key: "amount", header: "Amount", align: "right", render: (r) => formatMoney(r.amount) },
     ]}
