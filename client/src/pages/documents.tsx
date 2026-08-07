@@ -49,6 +49,7 @@ export const InvoicesPage = () => (
     views={statusViews(["draft", "sent", "partially_paid", "paid", "void"])}
     newLabel="New Invoice"
     newPath="/sales/invoices/new"
+    rowPath={(r) => `/sales/invoices/${r.id}`}
     columns={docColumns("invoiceDate", { balance: "balanceDue" })}
   />
 );
@@ -61,6 +62,7 @@ export const EstimatesPage = () => (
     views={statusViews(["draft", "sent", "accepted", "declined", "invoiced"])}
     newLabel="New Estimate"
     newPath="/sales/estimates/new"
+    rowPath={(r) => `/sales/estimates/${r.id}`}
     columns={docColumns("estimateDate", {})}
   />
 );
@@ -73,6 +75,7 @@ export const SalesOrdersPage = () => (
     views={statusViews(["draft", "confirmed", "closed", "void"])}
     newLabel="New Sales Order"
     newPath="/sales/sales-orders/new"
+    rowPath={(r) => `/sales/sales-orders/${r.id}`}
     columns={docColumns("orderDate", {})}
   />
 );
@@ -102,6 +105,7 @@ export const CreditNotesPage = () => (
     views={statusViews(["open", "closed", "void"])}
     newLabel="New Credit Note"
     newPath="/sales/credit-notes/new"
+    rowPath={(r) => `/sales/credit-notes/${r.id}`}
     columns={docColumns("creditNoteDate", { balance: "balance" })}
   />
 );
@@ -114,6 +118,7 @@ export const PurchaseOrdersPage = () => (
     views={statusViews(["draft", "issued", "partially_billed", "billed", "closed", "cancelled"])}
     newLabel="New Purchase Order"
     newPath="/purchases/orders/new"
+    rowPath={(r) => `/purchases/orders/${r.id}`}
     columns={docColumns("orderDate", {})}
   />
 );
@@ -126,6 +131,7 @@ export const BillsPage = () => (
     views={statusViews(["open", "partially_paid", "paid", "void"])}
     newLabel="New Bill"
     newPath="/purchases/bills/new"
+    rowPath={(r) => `/purchases/bills/${r.id}`}
     columns={docColumns("billDate", { balance: "balanceDue" })}
   />
 );
@@ -154,6 +160,7 @@ export const VendorCreditsPage = () => (
     views={statusViews(["open", "closed", "void"])}
     newLabel="New Vendor Credit"
     newPath="/purchases/vendor-credits/new"
+    rowPath={(r) => `/purchases/vendor-credits/${r.id}`}
     columns={docColumns("creditDate", { balance: "balance" })}
   />
 );

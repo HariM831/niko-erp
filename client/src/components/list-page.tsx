@@ -27,6 +27,8 @@ interface ListPageProps<T> {
   newPath?: string;
   onNew?: () => void;
   onRowClick?: (row: T) => void;
+  /** Route to open when a row is clicked. */
+  rowPath?: (row: T) => string;
   rowKey: (row: T) => string;
 }
 
@@ -44,12 +46,14 @@ export function ListPage<T>({
   newPath,
   onNew,
   onRowClick,
+  rowPath,
   rowKey,
 }: ListPageProps<T>) {
   const [, navigate] = useLocation();
   const [activeView, setActiveView] = useState(0);
   const [search, setSearch] = useState("");
   const handleNew = onNew ?? (newPath ? () => navigate(newPath) : undefined);
+  const handleRow = onRowClick ?? (rowPath ? (row: T) => navigate(rowPath(row)) : undefined);
 
   const params = new URLSearchParams(views?.[activeView]?.params ?? {});
   if (search) params.set("search", search);
@@ -136,8 +140,8 @@ export function ListPage<T>({
               {data.map((row) => (
                 <tr
                   key={rowKey(row)}
-                  onClick={() => onRowClick?.(row)}
-                  className={`border-b hover:bg-brand-50/40 ${onRowClick ? "cursor-pointer" : ""}`}
+                  onClick={() => handleRow?.(row)}
+                  className={`border-b hover:bg-brand-50/40 ${handleRow ? "cursor-pointer" : ""}`}
                 >
                   {columns.map((c) => (
                     <td
