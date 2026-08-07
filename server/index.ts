@@ -1,0 +1,66 @@
+import express from "express";
+import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
+import { pool } from "./db";
+import { authRouter } from "./routes/auth";
+import { accountingRouter } from "./routes/accounting";
+import { requireAuth } from "./lib/rbac";
+
+const SESSION_SECRET = process.env.SESSION_SECRET;
+if (!SESSION_SECRET) throw new Error("SESSION_SECRET must be set");
+
+const app = express();
+const isProd = process.env.NODE_ENV === "production";
+
+app.set("trust proxy", 1);
+app.use(express.json({ limit: "2mb" }));
+
+const PgStore = connectPgSimple(session);
+app.use(
+  session({
+    store: new PgStore({ pool, tableName: "user_sessions", createTableIfMissing: true }),
+    secret: SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    rolling: true,
+    cookie: {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: "lax",
+      maxAge: 8 * 60 * 60 * 1000,
+    },
+  }),
+);
+
+// Origin check for state-changing requests. Unlike Niko, a missing Origin
+// header on a mutating request is rejected (browsers always send it;
+// API clients must set it or use a token flow added later).
+app.use((req, res, next) => {
+  if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
+    const origin = req.headers.origin ?? req.headers.referer;
+    if (!origin) return res.status(403).json({ error: "Missing Origin header" });
+    const host = req.headers.host;
+    try {
+      if (new URL(origin).host !== host) {
+        return res.status(403).json({ error: "Cross-origin request rejected" });
+      }
+    } catch {
+      return res.status(403).json({ error: "Invalid Origin header" });
+    }
+  }
+  next();
+});
+
+app.use("/api/auth", authRouter);
+app.use("/api/accounting", requireAuth, accountingRouter);
+
+// Central error handler — no stack/message leaks.
+app.use(
+  (err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  },
+);
+
+const port = Number(process.env.PORT ?? 3000);
+app.listen(port, () => console.log(`eggsy server listening on :${port}`));

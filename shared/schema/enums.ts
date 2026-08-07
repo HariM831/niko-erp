@@ -1,0 +1,110 @@
+import { pgEnum } from "drizzle-orm/pg-core";
+
+export const accountType = pgEnum("account_type", [
+  "asset",
+  "liability",
+  "equity",
+  "income",
+  "expense",
+]);
+
+export const journalStatus = pgEnum("journal_status", [
+  "draft",
+  "posted",
+  "reversed",
+]);
+
+export const journalSourceType = pgEnum("journal_source_type", [
+  "manual",
+  "invoice",
+  "customer_payment",
+  "credit_note",
+  "bill",
+  "vendor_payment",
+  "vendor_credit",
+  "expense",
+  "inventory_adjustment",
+  "opening_balance",
+  "depreciation",
+  "banking",
+]);
+
+export const contactType = pgEnum("contact_type", ["customer", "vendor"]);
+
+export const gstTreatment = pgEnum("gst_treatment", [
+  "registered_business",
+  "registered_composition",
+  "unregistered_business",
+  "consumer",
+  "overseas",
+  "special_economic_zone",
+]);
+
+export const itemType = pgEnum("item_type", ["goods", "service"]);
+
+export const estimateStatus = pgEnum("estimate_status", [
+  "draft",
+  "sent",
+  "accepted",
+  "declined",
+  "invoiced",
+  "expired",
+]);
+
+export const salesOrderStatus = pgEnum("sales_order_status", [
+  "draft",
+  "confirmed",
+  "closed",
+  "void",
+]);
+
+export const invoiceStatus = pgEnum("invoice_status", [
+  "draft",
+  "sent",
+  "partially_paid",
+  "paid",
+  "void",
+]);
+
+export const billStatus = pgEnum("bill_status", [
+  "draft",
+  "open",
+  "partially_paid",
+  "paid",
+  "void",
+]);
+
+export const purchaseOrderStatus = pgEnum("purchase_order_status", [
+  "draft",
+  "issued",
+  "partially_billed",
+  "billed",
+  "closed",
+  "cancelled",
+]);
+
+export const creditNoteStatus = pgEnum("credit_note_status", [
+  "draft",
+  "open",
+  "closed",
+  "void",
+]);
+
+export const paymentMode = pgEnum("payment_mode", [
+  "cash",
+  "bank_transfer",
+  "upi",
+  "cheque",
+  "card",
+]);
+
+export const bankTxnDirection = pgEnum("bank_txn_direction", [
+  "debit",
+  "credit",
+]);
+
+export const bankTxnMatchStatus = pgEnum("bank_txn_match_status", [
+  "unmatched",
+  "matched",
+  "excluded",
+]);
