@@ -1,0 +1,115 @@
+import { inArray } from "drizzle-orm";
+import { orgProfile, taxes } from "@shared/schema";
+import type { Tx } from "../db";
+
+/** All arithmetic in integer paise to avoid float drift; output as "0.00" strings. */
+const toPaise = (s: string | number | undefined): number =>
+  Math.round(Number(s ?? 0) * 100);
+const fromPaise = (p: number): string => (p / 100).toFixed(2);
+
+export interface DocLineInput {
+  itemId?: string;
+  accountId?: string;
+  name: string;
+  description?: string;
+  hsnOrSac?: string;
+  quantity: string;
+  unit?: string;
+  rate: string;
+  discountPercent?: string;
+  taxId?: string;
+}
+
+export interface ComputedLine extends DocLineInput {
+  taxAmount: string;
+  amount: string;
+  lineOrder: number;
+}
+
+export interface ComputedTotals {
+  subTotal: string;
+  discountTotal: string;
+  cgst: string;
+  sgst: string;
+  igst: string;
+  roundOff: string;
+  total: string;
+  lines: ComputedLine[];
+}
+
+/**
+ * Compute line amounts and header totals server-side. Client-sent amounts are
+ * never trusted. GST splits CGST/SGST when the place of supply matches the
+ * org's home state, else IGST. Grand total is rounded to the nearest rupee
+ * with the difference recorded as roundOff (Zoho behaviour).
+ */
+export async function computeDocumentTotals(
+  tx: Tx,
+  lines: DocLineInput[],
+  placeOfSupplyState: string | null | undefined,
+): Promise<ComputedTotals> {
+  const taxIds = [...new Set(lines.map((l) => l.taxId).filter((v): v is string => !!v))];
+  const taxRows = taxIds.length
+    ? await tx.select().from(taxes).where(inArray(taxes.id, taxIds))
+    : [];
+  const rateByTax = new Map(taxRows.map((t) => [t.id, Number(t.rate)]));
+  for (const id of taxIds) {
+    if (!rateByTax.has(id)) throw new Error(`Unknown tax: ${id}`);
+  }
+
+  const [org] = await tx
+    .select({ stateCode: orgProfile.stateCode })
+    .from(orgProfile)
+    .limit(1);
+  const homeState = org?.stateCode ?? null;
+  const interState =
+    !!placeOfSupplyState && !!homeState && placeOfSupplyState !== homeState;
+
+  let subTotalP = 0;
+  let discountP = 0;
+  let taxTotalP = 0;
+
+  const computed: ComputedLine[] = lines.map((l, i) => {
+    const qty = Number(l.quantity);
+    const rateP = toPaise(l.rate);
+    const grossP = Math.round(qty * rateP);
+    const discPct = Number(l.discountPercent ?? 0);
+    const lineDiscP = Math.round((grossP * discPct) / 100);
+    const netP = grossP - lineDiscP;
+    const taxRate = l.taxId ? (rateByTax.get(l.taxId) ?? 0) : 0;
+    const taxP = Math.round((netP * taxRate) / 100);
+
+    subTotalP += grossP;
+    discountP += lineDiscP;
+    taxTotalP += taxP;
+
+    return {
+      ...l,
+      discountPercent: discPct.toFixed(3),
+      taxAmount: fromPaise(taxP),
+      amount: fromPaise(netP),
+      lineOrder: i,
+    };
+  });
+
+  const cgstP = interState ? 0 : Math.round(taxTotalP / 2);
+  const sgstP = interState ? 0 : taxTotalP - cgstP;
+  const igstP = interState ? taxTotalP : 0;
+
+  const rawTotalP = subTotalP - discountP + taxTotalP;
+  const roundedTotalP = Math.round(rawTotalP / 100) * 100;
+  const roundOffP = roundedTotalP - rawTotalP;
+
+  return {
+    subTotal: fromPaise(subTotalP),
+    discountTotal: fromPaise(discountP),
+    cgst: fromPaise(cgstP),
+    sgst: fromPaise(sgstP),
+    igst: fromPaise(igstP),
+    roundOff: fromPaise(roundOffP),
+    total: fromPaise(roundedTotalP),
+    lines: computed,
+  };
+}
+
+export { toPaise, fromPaise };
