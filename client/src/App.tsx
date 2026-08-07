@@ -34,6 +34,26 @@ import { ItemNewPage } from "./pages/item-new";
 import { JournalNewPage } from "./pages/journal-new";
 import { BankAccountNewPage, BankingDetailPage } from "./pages/banking-detail";
 import { SettingsPage } from "./pages/settings";
+import { DocumentSplitView } from "./components/split-view";
+
+const SPLIT: Record<string, { endpoint: string; basePath: string; title: string; newPath: string; dateKey: string }> = {
+  invoice: { endpoint: "/api/sales/invoices", basePath: "/sales/invoices", title: "Invoices", newPath: "/sales/invoices/new", dateKey: "invoiceDate" },
+  estimate: { endpoint: "/api/sales/estimates", basePath: "/sales/estimates", title: "Estimates", newPath: "/sales/estimates/new", dateKey: "estimateDate" },
+  "sales-order": { endpoint: "/api/sales/sales-orders", basePath: "/sales/sales-orders", title: "Sales Orders", newPath: "/sales/sales-orders/new", dateKey: "orderDate" },
+  "credit-note": { endpoint: "/api/sales/credit-notes", basePath: "/sales/credit-notes", title: "Credit Notes", newPath: "/sales/credit-notes/new", dateKey: "creditNoteDate" },
+  bill: { endpoint: "/api/purchases/bills", basePath: "/purchases/bills", title: "Bills", newPath: "/purchases/bills/new", dateKey: "billDate" },
+  "purchase-order": { endpoint: "/api/purchases/orders", basePath: "/purchases/orders", title: "Purchase Orders", newPath: "/purchases/orders/new", dateKey: "orderDate" },
+  "vendor-credit": { endpoint: "/api/purchases/vendor-credits", basePath: "/purchases/vendor-credits", title: "Vendor Credits", newPath: "/purchases/vendor-credits/new", dateKey: "creditDate" },
+};
+
+function SplitDetail({ kind, id }: { kind: string; id: string }) {
+  const cfg = SPLIT[kind]!;
+  return (
+    <DocumentSplitView {...cfg} activeId={id}>
+      <DocumentDetailPage kind={kind} id={id} />
+    </DocumentSplitView>
+  );
+}
 
 export function App() {
   const { user, loading } = useAuth();
@@ -56,18 +76,18 @@ export function App() {
         <Route path="/sales/customers/:id">{(p) => <ContactDetailPage id={p.id!} />}</Route>
         <Route path="/sales/customers" component={CustomersPage} />
         <Route path="/sales/estimates/new">{() => <TransactionNewPage kind="estimate" />}</Route>
-        <Route path="/sales/estimates/:id">{(p) => <DocumentDetailPage kind="estimate" id={p.id!} />}</Route>
+        <Route path="/sales/estimates/:id">{(p) => <SplitDetail kind="estimate" id={p.id!} />}</Route>
         <Route path="/sales/estimates" component={EstimatesPage} />
         <Route path="/sales/sales-orders/new">{() => <TransactionNewPage kind="sales-order" />}</Route>
-        <Route path="/sales/sales-orders/:id">{(p) => <DocumentDetailPage kind="sales-order" id={p.id!} />}</Route>
+        <Route path="/sales/sales-orders/:id">{(p) => <SplitDetail kind="sales-order" id={p.id!} />}</Route>
         <Route path="/sales/sales-orders" component={SalesOrdersPage} />
         <Route path="/sales/invoices/new">{() => <TransactionNewPage kind="invoice" />}</Route>
-        <Route path="/sales/invoices/:id">{(p) => <DocumentDetailPage kind="invoice" id={p.id!} />}</Route>
+        <Route path="/sales/invoices/:id">{(p) => <SplitDetail kind="invoice" id={p.id!} />}</Route>
         <Route path="/sales/invoices" component={InvoicesPage} />
         <Route path="/sales/payments/new">{() => <PaymentNewPage side="customer" />}</Route>
         <Route path="/sales/payments" component={CustomerPaymentsPage} />
         <Route path="/sales/credit-notes/new">{() => <TransactionNewPage kind="credit-note" />}</Route>
-        <Route path="/sales/credit-notes/:id">{(p) => <DocumentDetailPage kind="credit-note" id={p.id!} />}</Route>
+        <Route path="/sales/credit-notes/:id">{(p) => <SplitDetail kind="credit-note" id={p.id!} />}</Route>
         <Route path="/sales/credit-notes" component={CreditNotesPage} />
         <Route path="/purchases/vendors/new">{() => <ContactNewPage type="vendor" />}</Route>
         <Route path="/purchases/vendors/:id">{(p) => <ContactDetailPage id={p.id!} />}</Route>
@@ -75,15 +95,15 @@ export function App() {
         <Route path="/purchases/expenses/new" component={ExpenseNewPage} />
         <Route path="/purchases/expenses" component={ExpensesPage} />
         <Route path="/purchases/orders/new">{() => <TransactionNewPage kind="purchase-order" />}</Route>
-        <Route path="/purchases/orders/:id">{(p) => <DocumentDetailPage kind="purchase-order" id={p.id!} />}</Route>
+        <Route path="/purchases/orders/:id">{(p) => <SplitDetail kind="purchase-order" id={p.id!} />}</Route>
         <Route path="/purchases/orders" component={PurchaseOrdersPage} />
         <Route path="/purchases/bills/new">{() => <TransactionNewPage kind="bill" />}</Route>
-        <Route path="/purchases/bills/:id">{(p) => <DocumentDetailPage kind="bill" id={p.id!} />}</Route>
+        <Route path="/purchases/bills/:id">{(p) => <SplitDetail kind="bill" id={p.id!} />}</Route>
         <Route path="/purchases/bills" component={BillsPage} />
         <Route path="/purchases/payments/new">{() => <PaymentNewPage side="vendor" />}</Route>
         <Route path="/purchases/payments" component={VendorPaymentsPage} />
         <Route path="/purchases/vendor-credits/new">{() => <TransactionNewPage kind="vendor-credit" />}</Route>
-        <Route path="/purchases/vendor-credits/:id">{(p) => <DocumentDetailPage kind="vendor-credit" id={p.id!} />}</Route>
+        <Route path="/purchases/vendor-credits/:id">{(p) => <SplitDetail kind="vendor-credit" id={p.id!} />}</Route>
         <Route path="/purchases/vendor-credits" component={VendorCreditsPage} />
         <Route path="/accountant/journals/new" component={JournalNewPage} />
         <Route path="/accountant/journals" component={JournalsPage} />

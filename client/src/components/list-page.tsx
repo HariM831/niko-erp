@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
@@ -30,11 +30,14 @@ interface ListPageProps<T> {
   /** Route to open when a row is clicked. */
   rowPath?: (row: T) => string;
   rowKey: (row: T) => string;
+  /** Highlighted row (used by the split view). */
+  activeKey?: string;
+  compact?: boolean;
 }
 
 /**
- * Zoho Books-style list view: saved-filter tabs across the top, search,
- * a "+ New" primary action, and a full-width data table.
+ * Books-style list view: "All <Title> ▾" saved-view dropdown, a "+ New"
+ * primary action, checkbox column, and a compact full-width table.
  */
 export function ListPage<T>({
   title,
@@ -48,39 +51,79 @@ export function ListPage<T>({
   onRowClick,
   rowPath,
   rowKey,
+  activeKey,
+  compact,
 }: ListPageProps<T>) {
   const [, navigate] = useLocation();
   const [activeView, setActiveView] = useState(0);
+  const [viewsOpen, setViewsOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const viewsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const close = (e: MouseEvent) => {
+      if (viewsRef.current && !viewsRef.current.contains(e.target as Node)) setViewsOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, []);
+
   const handleNew = onNew ?? (newPath ? () => navigate(newPath) : undefined);
   const handleRow = onRowClick ?? (rowPath ? (row: T) => navigate(rowPath(row)) : undefined);
 
   const params = new URLSearchParams(views?.[activeView]?.params ?? {});
   if (search) params.set("search", search);
   const qs = params.toString();
-  const url = qs ? `${endpoint}?${qs}` : endpoint;
+  const url = qs ? `${endpoint}${endpoint.includes("?") ? "&" : "?"}${qs}` : endpoint;
 
   const { data, isLoading, error } = useQuery({
     queryKey: [endpoint, views?.[activeView]?.label ?? "all", search],
     queryFn: () => api<T[]>(url),
   });
 
+  const allSelected = !!data?.length && data.every((r) => selected.has(rowKey(r)));
+  const toggleAll = () =>
+    setSelected(allSelected ? new Set() : new Set(data?.map(rowKey) ?? []));
+  const toggleOne = (k: string) =>
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+
+  const viewLabel = views?.[activeView]?.label ?? "All";
+  const cellPad = compact ? "px-3 py-2" : "px-4 py-2.5";
+
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b bg-white px-6 py-3">
-        <div className="flex items-center gap-3">
-          <h1 className="text-lg font-semibold">{title}</h1>
-          {views && (
-            <div className="flex gap-1 rounded-md bg-gray-100 p-0.5 text-[13px]">
+      <header className="flex items-center justify-between bg-white px-5 py-3">
+        <div className="relative" ref={viewsRef}>
+          <button
+            onClick={() => views && setViewsOpen((o) => !o)}
+            className="flex items-center gap-1.5 text-lg font-semibold text-gray-800"
+          >
+            {viewLabel === "All" ? `All ${title}` : `${viewLabel} ${title}`}
+            {views && <span className="text-xs text-brand-500">▼</span>}
+          </button>
+          {viewsOpen && views && (
+            <div className="absolute left-0 top-9 z-20 w-52 rounded-lg border bg-white py-1 shadow-lg">
+              <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                Default Filters
+              </div>
               {views.map((v, i) => (
                 <button
                   key={v.label}
-                  onClick={() => setActiveView(i)}
-                  className={`rounded px-2.5 py-1 ${
-                    i === activeView ? "bg-white font-medium shadow-sm" : "text-gray-600 hover:text-gray-900"
+                  onClick={() => {
+                    setActiveView(i);
+                    setViewsOpen(false);
+                  }}
+                  className={`block w-full px-3 py-1.5 text-left text-[13px] capitalize hover:bg-brand-50 ${
+                    i === activeView ? "bg-brand-50 font-medium text-brand-700" : ""
                   }`}
                 >
-                  {v.label}
+                  {v.label === "All" ? `All ${title}` : v.label}
                 </button>
               ))}
             </div>
@@ -92,21 +135,24 @@ export function ListPage<T>({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={searchPlaceholder}
-              className="w-56 rounded-md border px-3 py-1.5 text-[13px] focus:border-brand-500 focus:outline-none"
+              className="w-52 rounded-md border px-3 py-1.5 text-[13px] focus:border-brand-500 focus:outline-none"
             />
           )}
           {handleNew && (
             <button
               onClick={handleNew}
-              className="rounded-md bg-brand-500 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-brand-600"
+              className="rounded-md bg-brand-500 px-3.5 py-1.5 text-[13px] font-medium text-white hover:bg-brand-600"
             >
-              + {newLabel ?? "New"}
+              + New
             </button>
           )}
+          <button className="rounded-md border px-2 py-1.5 text-[13px] text-gray-500 hover:bg-gray-50" title="More">
+            ⋯
+          </button>
         </div>
       </header>
 
-      <div className="flex-1 overflow-auto">
+      <div className="flex-1 overflow-auto border-t">
         {isLoading ? (
           <div className="p-8 text-center text-sm text-gray-500">Loading…</div>
         ) : error ? (
@@ -124,12 +170,15 @@ export function ListPage<T>({
           </div>
         ) : (
           <table className="w-full text-[13px]">
-            <thead className="sticky top-0 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+            <thead className="sticky top-0 z-10 bg-gray-50 text-left text-[11px] uppercase tracking-wide text-gray-500">
               <tr>
+                <th className={`w-9 border-b ${cellPad}`}>
+                  <input type="checkbox" checked={allSelected} onChange={toggleAll} className="accent-brand-500" />
+                </th>
                 {columns.map((c) => (
                   <th
                     key={c.key}
-                    className={`border-b px-4 py-2.5 font-medium ${c.align === "right" ? "text-right" : ""}`}
+                    className={`border-b font-medium ${cellPad} ${c.align === "right" ? "text-right" : ""}`}
                   >
                     {c.header}
                   </th>
@@ -137,22 +186,35 @@ export function ListPage<T>({
               </tr>
             </thead>
             <tbody>
-              {data.map((row) => (
-                <tr
-                  key={rowKey(row)}
-                  onClick={() => handleRow?.(row)}
-                  className={`border-b hover:bg-brand-50/40 ${handleRow ? "cursor-pointer" : ""}`}
-                >
-                  {columns.map((c) => (
-                    <td
-                      key={c.key}
-                      className={`px-4 py-2.5 ${c.align === "right" ? "text-right tabular-nums" : ""}`}
-                    >
-                      {c.render(row)}
+              {data.map((row) => {
+                const k = rowKey(row);
+                return (
+                  <tr
+                    key={k}
+                    onClick={() => handleRow?.(row)}
+                    className={`border-b border-gray-100 ${handleRow ? "cursor-pointer" : ""} ${
+                      activeKey === k ? "bg-brand-50" : "hover:bg-gray-50"
+                    }`}
+                  >
+                    <td className={cellPad} onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(k)}
+                        onChange={() => toggleOne(k)}
+                        className="accent-brand-500"
+                      />
                     </td>
-                  ))}
-                </tr>
-              ))}
+                    {columns.map((c) => (
+                      <td
+                        key={c.key}
+                        className={`${cellPad} ${c.align === "right" ? "text-right tabular-nums" : ""}`}
+                      >
+                        {c.render(row)}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
@@ -161,35 +223,46 @@ export function ListPage<T>({
   );
 }
 
-const STATUS_STYLES: Record<string, string> = {
-  draft: "bg-gray-100 text-gray-600",
-  sent: "bg-blue-50 text-blue-700",
-  open: "bg-blue-50 text-blue-700",
-  confirmed: "bg-blue-50 text-blue-700",
-  issued: "bg-blue-50 text-blue-700",
-  accepted: "bg-green-50 text-green-700",
-  paid: "bg-green-50 text-green-700",
-  closed: "bg-green-50 text-green-700",
-  billed: "bg-green-50 text-green-700",
-  partially_paid: "bg-amber-50 text-amber-700",
-  partially_billed: "bg-amber-50 text-amber-700",
-  declined: "bg-red-50 text-red-700",
-  void: "bg-red-50 text-red-700",
-  cancelled: "bg-red-50 text-red-700",
-  reversed: "bg-red-50 text-red-700",
-  expired: "bg-gray-100 text-gray-500",
-  invoiced: "bg-green-50 text-green-700",
-  posted: "bg-green-50 text-green-700",
+/** Colored status text (uppercase, no pill) with due/overdue awareness. */
+const STATUS_TEXT: Record<string, string> = {
+  draft: "text-gray-500",
+  sent: "text-blue-600",
+  open: "text-blue-600",
+  confirmed: "text-blue-600",
+  issued: "text-blue-600",
+  accepted: "text-green-600",
+  paid: "text-green-600",
+  closed: "text-green-600",
+  billed: "text-green-600",
+  invoiced: "text-green-600",
+  posted: "text-green-600",
+  partially_paid: "text-amber-600",
+  partially_billed: "text-amber-600",
+  declined: "text-red-600",
+  void: "text-gray-400",
+  cancelled: "text-red-600",
+  reversed: "text-red-600",
+  expired: "text-gray-400",
+  overdue: "text-orange-600",
+  matched: "text-green-600",
+  unmatched: "text-blue-600",
+  excluded: "text-gray-400",
 };
 
-export function StatusBadge({ status }: { status: string }) {
+export function StatusBadge({ status, dueDate }: { status: string; dueDate?: string }) {
+  let label = status.replace(/_/g, " ");
+  let cls = STATUS_TEXT[status] ?? "text-gray-500";
+  if ((status === "sent" || status === "open") && dueDate) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (dueDate < today) {
+      label = "overdue";
+      cls = STATUS_TEXT.overdue!;
+    } else if (dueDate === today) {
+      label = "due today";
+      cls = STATUS_TEXT.overdue!;
+    }
+  }
   return (
-    <span
-      className={`inline-block rounded px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide ${
-        STATUS_STYLES[status] ?? "bg-gray-100 text-gray-600"
-      }`}
-    >
-      {status.replace(/_/g, " ")}
-    </span>
+    <span className={`text-[11px] font-semibold uppercase tracking-wide ${cls}`}>{label}</span>
   );
 }

@@ -8,6 +8,7 @@ interface ContactRow {
   email?: string;
   phone?: string;
   gstin?: string;
+  gstTreatment?: string;
   isActive: boolean;
 }
 
@@ -16,20 +17,20 @@ const contactColumns = [
     key: "name",
     header: "Name",
     render: (r: ContactRow) => (
-      <div>
-        <div className="font-medium text-brand-600">{r.displayName}</div>
-        {r.companyName && <div className="text-xs text-gray-500">{r.companyName}</div>}
-      </div>
+      <span className="font-medium text-brand-600">{r.displayName}</span>
     ),
   },
+  { key: "company", header: "Company Name", render: (r: ContactRow) => r.companyName ?? "—" },
   { key: "email", header: "Email", render: (r: ContactRow) => r.email ?? "—" },
-  { key: "phone", header: "Phone", render: (r: ContactRow) => r.phone ?? "—" },
-  { key: "gstin", header: "GSTIN", render: (r: ContactRow) => r.gstin ?? "—" },
+  { key: "phone", header: "Work Phone", render: (r: ContactRow) => r.phone ?? "—" },
   {
-    key: "active",
-    header: "Status",
-    render: (r: ContactRow) => <StatusBadge status={r.isActive ? "open" : "void"} />,
+    key: "gstt",
+    header: "GST Treatment",
+    render: (r: ContactRow) => (
+      <span className="capitalize">{(r.gstTreatment ?? "").replace(/_/g, " ") || "—"}</span>
+    ),
   },
+  { key: "gstin", header: "GSTIN", render: (r: ContactRow) => r.gstin ?? "—" },
 ];
 
 export const CustomersPage = () => (
