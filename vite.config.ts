@@ -15,7 +15,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": "http://localhost:3000",
+      // changeOrigin stays false so the Host header remains the browser's
+      // origin host and the API's same-origin check passes in dev.
+      "/api": { target: "http://localhost:3000", changeOrigin: false },
     },
   },
   build: {
