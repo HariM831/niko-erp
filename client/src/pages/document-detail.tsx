@@ -304,7 +304,13 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
           </h1>
           <StatusBadge status={doc.status} />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 print:hidden">
+          <button
+            onClick={() => window.print()}
+            className="rounded-md border px-3 py-1.5 text-[13px] font-medium hover:bg-gray-50"
+          >
+            Print / PDF
+          </button>
           {visibleActions.map((a) => (
             <button
               key={a.label}

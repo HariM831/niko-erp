@@ -30,6 +30,9 @@ import { ExpenseNewPage } from "./pages/expense-new";
 import { DocumentDetailPage } from "./pages/document-detail";
 import { ContactNewPage } from "./pages/contact-new";
 import { ItemNewPage } from "./pages/item-new";
+import { JournalNewPage } from "./pages/journal-new";
+import { BankAccountNewPage, BankingDetailPage } from "./pages/banking-detail";
+import { SettingsPage } from "./pages/settings";
 
 export function App() {
   const { user, loading } = useAuth();
@@ -45,6 +48,8 @@ export function App() {
         <Route path="/" component={HomePage} />
         <Route path="/items/new" component={ItemNewPage} />
         <Route path="/items" component={ItemsPage} />
+        <Route path="/banking/new" component={BankAccountNewPage} />
+        <Route path="/banking/:id">{(p) => <BankingDetailPage bankAccountId={p.id!} />}</Route>
         <Route path="/banking" component={BankingPage} />
         <Route path="/sales/customers/new">{() => <ContactNewPage type="customer" />}</Route>
         <Route path="/sales/customers" component={CustomersPage} />
@@ -77,9 +82,11 @@ export function App() {
         <Route path="/purchases/vendor-credits/new">{() => <TransactionNewPage kind="vendor-credit" />}</Route>
         <Route path="/purchases/vendor-credits/:id">{(p) => <DocumentDetailPage kind="vendor-credit" id={p.id!} />}</Route>
         <Route path="/purchases/vendor-credits" component={VendorCreditsPage} />
+        <Route path="/accountant/journals/new" component={JournalNewPage} />
         <Route path="/accountant/journals" component={JournalsPage} />
         <Route path="/accountant/accounts" component={AccountsPage} />
         <Route path="/reports" component={ReportsPage} />
+        <Route path="/settings" component={SettingsPage} />
         <Route>
           <div className="p-8 text-sm text-gray-500">Page not found.</div>
         </Route>

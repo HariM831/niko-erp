@@ -136,6 +136,7 @@ export const JournalsPage = () => (
     endpoint="/api/accounting/journals"
     rowKey={(r) => r.id}
     newLabel="New Journal"
+    newPath="/accountant/journals/new"
     columns={[
       { key: "date", header: "Date", render: (r) => formatDate(r.entryDate) },
       { key: "number", header: "Number", render: (r) => <span className="font-medium text-brand-600">{r.entryNumber}</span> },
@@ -161,6 +162,8 @@ export const BankingPage = () => (
     endpoint="/api/banking/accounts"
     rowKey={(r) => r.id}
     newLabel="Add Bank Account"
+    newPath="/banking/new"
+    rowPath={(r) => `/banking/${r.id}`}
     columns={[
       {
         key: "name",

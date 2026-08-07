@@ -51,6 +51,7 @@ const NAV: NavItem[] = [
     ],
   },
   { label: "Reports", icon: "▦", path: "/reports" },
+  { label: "Settings", icon: "⚙", path: "/settings" },
 ];
 
 export function AppLayout({ children }: { children: ReactNode }) {
