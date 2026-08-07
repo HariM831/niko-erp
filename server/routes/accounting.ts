@@ -51,7 +51,7 @@ accountingRouter.patch(
     const [row] = await db
       .update(accounts)
       .set(req.body)
-      .where(eq(accounts.id, req.params.id))
+      .where(eq(accounts.id, req.params.id!))
       .returning();
     if (!row) return res.status(404).json({ error: "Account not found" });
     res.json(row);
@@ -98,7 +98,7 @@ accountingRouter.get(
   requirePermission("accounting", "view"),
   async (req, res) => {
     const entry = await db.query.journalEntries.findFirst({
-      where: eq(journalEntries.id, req.params.id),
+      where: eq(journalEntries.id, req.params.id!),
     });
     if (!entry) return res.status(404).json({ error: "Not found" });
     const lines = await db
@@ -142,7 +142,7 @@ accountingRouter.post(
   async (req, res) => {
     try {
       const id = await db.transaction((tx) =>
-        reverseJournal(tx, req.params.id, req.body.reversalDate, req.session.user!.id),
+        reverseJournal(tx, req.params.id!, req.body.reversalDate, req.session.user!.id),
       );
       res.status(201).json({ id });
     } catch (err) {
@@ -196,7 +196,7 @@ accountingRouter.get(
   async (req, res) => {
     const { from, to } = req.query as Record<string, string | undefined>;
     const conditions = [
-      eq(journalEntryLines.accountId, req.params.accountId),
+      eq(journalEntryLines.accountId, req.params.accountId!),
       eq(journalEntries.status, "posted"),
     ];
     if (from) conditions.push(gte(journalEntries.entryDate, from));
