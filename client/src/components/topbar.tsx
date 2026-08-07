@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import { Bell, ChevronDown, Plus, Search } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 
@@ -32,13 +33,14 @@ const QUICK_CREATE: Array<{ group: string; items: Array<{ label: string; path: s
     items: [
       { label: "Item", path: "/items/new" },
       { label: "Journal Entry", path: "/accountant/journals/new" },
+      { label: "Bank Account", path: "/banking/new" },
     ],
   },
 ];
 
 export function TopBar() {
   const [, navigate] = useLocation();
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -56,26 +58,36 @@ export function TopBar() {
   }, []);
 
   return (
-    <div className="flex h-12 items-center justify-between border-b bg-white px-4 print:hidden">
-      <div className="flex items-center gap-3">
-        <span className="text-[13px] font-medium text-gray-700">
-          {org?.name || "Eggsy Books"}
-        </span>
+    <div className="flex h-[52px] items-center justify-between gap-4 border-b border-gray-200 bg-white pl-5 pr-4 print:hidden">
+      <div className="flex min-w-0 flex-1 items-center gap-4">
+        <div className="relative w-full max-w-md">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            placeholder="Search in Customers ( / )"
+            className="w-full rounded-lg border border-gray-200 bg-gray-50 py-[7px] pl-9 pr-3 text-[13px] transition-colors placeholder:text-gray-400 focus:border-brand-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-100"
+          />
+        </div>
       </div>
-      <div className="flex items-center gap-3" ref={ref}>
+
+      <div className="flex items-center gap-1.5" ref={ref}>
+        <button className="btn-ghost hidden items-center gap-1 font-semibold text-gray-700 sm:flex">
+          {org?.name || "Eggsy Books"}
+          <ChevronDown size={13} className="text-gray-400" />
+        </button>
+
         <div className="relative">
           <button
             onClick={() => setOpen((o) => !o)}
-            className="grid h-8 w-8 place-items-center rounded-md bg-brand-500 text-lg font-semibold text-white hover:bg-brand-600"
+            className="grid h-8 w-8 place-items-center rounded-lg bg-brand-500 text-white shadow-sm transition-all duration-150 hover:bg-brand-600 hover:shadow-md"
             title="Quick create"
           >
-            +
+            <Plus size={17} strokeWidth={2.5} />
           </button>
           {open && (
-            <div className="absolute right-0 top-10 z-20 flex w-[430px] gap-2 rounded-lg border bg-white p-4 shadow-lg">
+            <div className="absolute right-0 top-11 z-30 flex w-[460px] gap-1 rounded-xl border border-gray-100 bg-white p-4 shadow-xl">
               {QUICK_CREATE.map((g) => (
                 <div key={g.group} className="flex-1">
-                  <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                  <div className="mb-1.5 px-2 text-[11px] font-bold uppercase tracking-wider text-gray-400">
                     {g.group}
                   </div>
                   {g.items.map((it) => (
@@ -85,9 +97,10 @@ export function TopBar() {
                         setOpen(false);
                         navigate(it.path);
                       }}
-                      className="block w-full rounded px-2 py-1 text-left text-[13px] hover:bg-brand-50 hover:text-brand-700"
+                      className="flex w-full items-center gap-1.5 rounded-lg px-2 py-[7px] text-left text-[13px] text-gray-700 transition-colors hover:bg-brand-50 hover:text-brand-700"
                     >
-                      + {it.label}
+                      <Plus size={12} className="text-brand-500" />
+                      {it.label}
                     </button>
                   ))}
                 </div>
@@ -95,14 +108,14 @@ export function TopBar() {
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2 text-[13px] text-gray-600">
-          <span className="grid h-7 w-7 place-items-center rounded-full bg-gray-200 text-xs font-semibold text-gray-700">
-            {user?.name?.[0]?.toUpperCase() ?? "U"}
-          </span>
-          <button onClick={() => void logout()} className="text-gray-400 hover:text-gray-700" title="Sign out">
-            ⎋
-          </button>
-        </div>
+
+        <button className="btn-ghost relative p-2" title="Notifications">
+          <Bell size={16} />
+        </button>
+
+        <span className="ml-1 grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-brand-500 text-xs font-bold text-white">
+          {user?.name?.[0]?.toUpperCase() ?? "U"}
+        </span>
       </div>
     </div>
   );

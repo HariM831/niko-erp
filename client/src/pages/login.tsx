@@ -22,32 +22,33 @@ export function LoginPage() {
   };
 
   return (
-    <div className="grid min-h-screen place-items-center bg-gray-100">
-      <form onSubmit={submit} className="w-80 rounded-lg bg-white p-8 shadow-sm">
-        <div className="mb-6 flex items-center gap-2">
-          <span className="grid h-9 w-9 place-items-center rounded bg-brand-500 text-lg font-bold text-white">
+    <div className="grid min-h-screen place-items-center bg-gradient-to-br from-sidebar via-[#232948] to-brand-700">
+      <form onSubmit={submit} className="w-[350px] rounded-2xl bg-white p-8 shadow-2xl">
+        <div className="mb-1 flex items-center gap-2.5">
+          <span className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 text-lg font-extrabold text-white shadow-md">
             E
           </span>
-          <span className="text-lg font-semibold">Eggsy Books</span>
+          <span className="text-xl font-bold tracking-tight">Eggsy Books</span>
         </div>
-        <label className="mb-1 block text-xs font-medium text-gray-600">Username</label>
+        <p className="mb-6 text-[13px] text-gray-500">Sign in to manage your books</p>
+        <label className="label">Username</label>
         <input
           value={username}
           onChange={(e) => setUsername(e.target.value)}
           autoFocus
-          className="mb-3 w-full rounded-md border px-3 py-2 text-sm focus:border-brand-500 focus:outline-none"
+          className="input mb-3 py-2"
         />
-        <label className="mb-1 block text-xs font-medium text-gray-600">Password</label>
+        <label className="label">Password</label>
         <input
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="mb-4 w-full rounded-md border px-3 py-2 text-sm focus:border-brand-500 focus:outline-none"
+          className="input mb-4 py-2"
         />
         {error && <p className="mb-3 text-xs text-red-600">{error}</p>}
         <button
           disabled={busy || !username || !password}
-          className="w-full rounded-md bg-brand-500 py-2 text-sm font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+          className="btn-primary w-full py-2 text-sm"
         >
           {busy ? "Signing in…" : "Sign in"}
         </button>

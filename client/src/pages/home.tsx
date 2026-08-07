@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { ArrowDownLeft, ArrowUpRight, ReceiptText, Wallet } from "lucide-react";
 import { useLocation } from "wouter";
 import { api, formatMoney } from "../api";
 import { useAuth } from "../auth";
@@ -27,15 +28,21 @@ function AgingCard({
   const total = current + overdue;
   const currentPct = total > 0 ? (current / total) * 100 : 0;
 
+  const isReceivable = title.includes("Receivables");
   return (
-    <div className="rounded-lg border bg-white">
-      <div className="flex items-center justify-between border-b px-5 py-3">
-        <h2 className="text-[15px] font-semibold">{title}</h2>
+    <div className="card">
+      <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3.5">
+        <div className="flex items-center gap-2.5">
+          <span className={`chip ${isReceivable ? "bg-brand-50 text-brand-600" : "bg-orange-50 text-orange-500"}`}>
+            {isReceivable ? <ArrowDownLeft size={17} /> : <ArrowUpRight size={17} />}
+          </span>
+          <h2 className="text-[15px] font-bold">{title}</h2>
+        </div>
         <button
           onClick={() => navigate(newPath)}
-          className="text-[13px] font-medium text-brand-600 hover:underline"
+          className="text-[13px] font-semibold text-brand-600 hover:underline"
         >
-          ⊕ New
+          + New
         </button>
       </div>
       <div className="px-5 py-4">
@@ -103,9 +110,13 @@ export function HomePage() {
 
   return (
     <div className="h-full overflow-y-auto bg-gray-50">
-      <div className="border-b bg-white px-6 py-4">
-        <h1 className="text-xl font-semibold">Hello, {user?.name?.split(" ")[0] ?? "there"}</h1>
-        <div className="text-[13px] text-gray-500">{org?.name || "Set up your organisation in Settings"}</div>
+      <div className="border-b border-gray-200 bg-gradient-to-r from-white via-white to-brand-50 px-7 py-5">
+        <h1 className="text-[22px] font-bold tracking-tight">
+          Hello, {user?.name?.split(" ")[0] ?? "there"} 👋
+        </h1>
+        <div className="mt-0.5 text-[13px] text-gray-500">
+          {org?.name || "Set up your organisation in Settings"}
+        </div>
       </div>
 
       <div className="mx-auto max-w-5xl space-y-4 p-6">
@@ -123,10 +134,13 @@ export function HomePage() {
         />
 
         <div className="grid gap-4 lg:grid-cols-2">
-          <div className="rounded-lg border bg-white">
-            <div className="border-b px-5 py-3">
-              <h2 className="text-[15px] font-semibold">Cash Flow</h2>
+          <div className="card">
+            <div className="flex items-center gap-2.5 border-b border-gray-100 px-5 py-3.5">
+              <span className="chip bg-emerald-50 text-emerald-600"><Wallet size={17} /></span>
+              <div>
+              <h2 className="text-[15px] font-bold">Cash Flow</h2>
               <div className="text-xs text-gray-400">This Fiscal Year</div>
+              </div>
             </div>
             <div className="space-y-3 px-5 py-4 text-[13px]">
               <div className="flex items-center justify-between">
@@ -166,10 +180,13 @@ export function HomePage() {
             </div>
           </div>
 
-          <div className="rounded-lg border bg-white">
-            <div className="border-b px-5 py-3">
-              <h2 className="text-[15px] font-semibold">Income and Expense</h2>
+          <div className="card">
+            <div className="flex items-center gap-2.5 border-b border-gray-100 px-5 py-3.5">
+              <span className="chip bg-violet-50 text-violet-600"><ReceiptText size={17} /></span>
+              <div>
+              <h2 className="text-[15px] font-bold">Income and Expense</h2>
               <div className="text-xs text-gray-400">This Fiscal Year</div>
+              </div>
             </div>
             <div className="space-y-4 px-5 py-4 text-[13px]">
               <div>

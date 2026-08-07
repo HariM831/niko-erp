@@ -1,16 +1,106 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
 @import "tailwindcss";
 
 @theme {
+  --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
+
   --color-brand-50: #eef4ff;
-  --color-brand-100: #dbe7fe;
-  --color-brand-500: #2f6bff;
-  --color-brand-600: #2257e0;
-  --color-brand-700: #1a45b8;
-  --color-sidebar: #21263c;
-  --color-sidebar-hover: #2c3352;
+  --color-brand-100: #dce9fe;
+  --color-brand-200: #c0d8fd;
+  --color-brand-400: #6ba4fc;
+  --color-brand-500: #408dfb;
+  --color-brand-600: #2570eb;
+  --color-brand-700: #1d5ac4;
+
+  --color-sidebar: #21263f;
+  --color-sidebar-deep: #1a1e33;
+  --color-sidebar-hover: #2d3352;
+
+  --color-surface: #f5f6f8;
+
+  --color-mint-500: #10b981;
+  --color-coral-500: #f0616f;
+  --color-amber-500: #f59e0b;
+  --color-violet-500: #8b5cf6;
 }
 
 body {
-  @apply bg-gray-50 text-gray-900 antialiased;
-  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+  @apply bg-surface text-gray-900 antialiased;
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+
+/* ---------- Reusable component classes ---------- */
+
+.btn-primary {
+  @apply inline-flex items-center justify-center gap-1.5 rounded-lg bg-brand-500 px-3.5 py-1.5 text-[13px] font-semibold text-white shadow-sm transition-all duration-150;
+}
+.btn-primary:hover {
+  @apply bg-brand-600 shadow-md;
+}
+.btn-primary:disabled {
+  @apply cursor-not-allowed opacity-50 shadow-none;
+}
+
+.btn-secondary {
+  @apply inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3.5 py-1.5 text-[13px] font-semibold text-gray-700 shadow-sm transition-all duration-150;
+}
+.btn-secondary:hover {
+  @apply border-gray-300 bg-gray-50;
+}
+
+.btn-ghost {
+  @apply inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-gray-600 transition-colors duration-150;
+}
+.btn-ghost:hover {
+  @apply bg-gray-100 text-gray-900;
+}
+
+.card {
+  @apply rounded-xl border border-gray-200/80 bg-white shadow-[0_1px_3px_rgba(16,24,40,0.06)];
+}
+
+.input {
+  @apply w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-[13px] transition-colors duration-150 placeholder:text-gray-400;
+}
+.input:focus {
+  @apply border-brand-400 outline-none ring-2 ring-brand-100;
+}
+
+.label {
+  @apply mb-1 block text-xs font-semibold text-gray-500;
+}
+
+.table-head {
+  @apply bg-gray-50/80 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400;
+}
+
+.row-hover {
+  @apply transition-colors duration-100;
+}
+.row-hover:hover {
+  @apply bg-brand-50/50;
+}
+
+/* Icon chip used on dashboard cards */
+.chip {
+  @apply grid h-9 w-9 shrink-0 place-items-center rounded-lg;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  @apply rounded-full bg-gray-300;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-400;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
 }

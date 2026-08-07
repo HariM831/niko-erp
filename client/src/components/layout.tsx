@@ -1,5 +1,18 @@
 import { type ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
+import {
+  Banknote,
+  BookOpen,
+  ChevronDown,
+  ChevronRight,
+  Home,
+  Landmark,
+  LogOut,
+  Package,
+  PieChart,
+  Settings,
+  ShoppingCart,
+} from "lucide-react";
 import { useAuth } from "../auth";
 import { TopBar } from "./topbar";
 
@@ -9,19 +22,18 @@ interface NavChild {
 }
 interface NavItem {
   label: string;
-  icon: string;
+  icon: typeof Home;
   path?: string;
   children?: NavChild[];
 }
 
-/** Zoho Books-style module tree: Home, Items, Banking, Sales, Purchases, Accountant, Reports. */
 const NAV: NavItem[] = [
-  { label: "Home", icon: "⌂", path: "/" },
-  { label: "Items", icon: "▤", path: "/items" },
-  { label: "Banking", icon: "🏦", path: "/banking" },
+  { label: "Home", icon: Home, path: "/" },
+  { label: "Items", icon: Package, path: "/items" },
+  { label: "Banking", icon: Landmark, path: "/banking" },
   {
     label: "Sales",
-    icon: "₹",
+    icon: Banknote,
     children: [
       { label: "Customers", path: "/sales/customers" },
       { label: "Estimates", path: "/sales/estimates" },
@@ -33,7 +45,7 @@ const NAV: NavItem[] = [
   },
   {
     label: "Purchases",
-    icon: "🛒",
+    icon: ShoppingCart,
     children: [
       { label: "Vendors", path: "/purchases/vendors" },
       { label: "Expenses", path: "/purchases/expenses" },
@@ -45,14 +57,14 @@ const NAV: NavItem[] = [
   },
   {
     label: "Accountant",
-    icon: "☰",
+    icon: BookOpen,
     children: [
       { label: "Manual Journals", path: "/accountant/journals" },
       { label: "Chart of Accounts", path: "/accountant/accounts" },
     ],
   },
-  { label: "Reports", icon: "▦", path: "/reports" },
-  { label: "Settings", icon: "⚙", path: "/settings" },
+  { label: "Reports", icon: PieChart, path: "/reports" },
+  { label: "Settings", icon: Settings, path: "/settings" },
 ];
 
 export function AppLayout({ children }: { children: ReactNode }) {
@@ -63,66 +75,101 @@ export function AppLayout({ children }: { children: ReactNode }) {
     return active?.label ?? null;
   });
 
+  const isGroupActive = (item: NavItem) =>
+    item.children?.some((c) => location.startsWith(c.path)) ?? false;
+
   return (
     <div className="flex h-screen overflow-hidden">
-      <aside className="flex w-56 flex-col bg-sidebar text-gray-300 print:hidden">
-        <div className="flex h-14 items-center gap-2 border-b border-white/10 px-4">
-          <span className="grid h-8 w-8 place-items-center rounded bg-brand-500 font-bold text-white">
+      <aside className="flex w-[218px] flex-col bg-sidebar text-gray-400 print:hidden">
+        <div className="flex h-14 items-center gap-2.5 px-4">
+          <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-brand-400 to-brand-600 text-[15px] font-extrabold text-white shadow-md">
             E
           </span>
-          <span className="text-[15px] font-semibold text-white">Eggsy Books</span>
+          <span className="text-[15px] font-bold tracking-tight text-white">Eggsy Books</span>
         </div>
-        <nav className="flex-1 overflow-y-auto py-2 text-[13px]">
-          {NAV.map((item) =>
-            item.children ? (
-              <div key={item.label}>
-                <button
-                  onClick={() => setOpenGroup(openGroup === item.label ? null : item.label)}
-                  className="flex w-full items-center justify-between px-4 py-2 hover:bg-sidebar-hover"
-                >
-                  <span className="flex items-center gap-2.5">
-                    <span className="w-4 text-center opacity-70">{item.icon}</span>
-                    {item.label}
-                  </span>
-                  <span className="text-[10px] opacity-60">
-                    {openGroup === item.label ? "▾" : "▸"}
-                  </span>
-                </button>
-                {openGroup === item.label &&
-                  item.children.map((c) => (
-                    <Link
-                      key={c.path}
-                      href={c.path}
-                      className={`block py-1.5 pl-[42px] pr-4 hover:bg-sidebar-hover ${
-                        location.startsWith(c.path)
-                          ? "border-l-2 border-brand-500 bg-sidebar-hover text-white"
-                          : ""
-                      }`}
-                    >
-                      {c.label}
-                    </Link>
-                  ))}
-              </div>
-            ) : (
+        <nav className="flex-1 overflow-y-auto px-2.5 py-2 text-[13px]">
+          {NAV.map((item) => {
+            const Icon = item.icon;
+            if (item.children) {
+              const groupActive = isGroupActive(item);
+              const open = openGroup === item.label;
+              return (
+                <div key={item.label} className="mb-0.5">
+                  <button
+                    onClick={() => setOpenGroup(open ? null : item.label)}
+                    className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 font-medium transition-colors duration-150 ${
+                      groupActive && !open
+                        ? "bg-sidebar-hover text-white"
+                        : "hover:bg-sidebar-hover hover:text-gray-200"
+                    }`}
+                  >
+                    <span className="flex items-center gap-2.5">
+                      <Icon size={16} strokeWidth={1.8} className={groupActive ? "text-brand-400" : ""} />
+                      {item.label}
+                    </span>
+                    {open ? (
+                      <ChevronDown size={13} className="opacity-50" />
+                    ) : (
+                      <ChevronRight size={13} className="opacity-50" />
+                    )}
+                  </button>
+                  {open && (
+                    <div className="mb-1 mt-0.5 space-y-0.5">
+                      {item.children.map((c) => {
+                        const active = location.startsWith(c.path);
+                        return (
+                          <Link
+                            key={c.path}
+                            href={c.path}
+                            className={`block rounded-lg py-[7px] pl-[38px] pr-2.5 transition-colors duration-150 ${
+                              active
+                                ? "bg-brand-500 font-semibold text-white shadow-sm"
+                                : "hover:bg-sidebar-hover hover:text-gray-200"
+                            }`}
+                          >
+                            {c.label}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+            const active = item.path === "/" ? location === "/" : location.startsWith(item.path!);
+            return (
               <Link
                 key={item.label}
                 href={item.path!}
-                className={`flex items-center gap-2.5 px-4 py-2 hover:bg-sidebar-hover ${
-                  location === item.path ? "border-l-2 border-brand-500 bg-sidebar-hover text-white" : ""
+                className={`mb-0.5 flex items-center gap-2.5 rounded-lg px-2.5 py-2 font-medium transition-colors duration-150 ${
+                  active
+                    ? "bg-brand-500 text-white shadow-sm"
+                    : "hover:bg-sidebar-hover hover:text-gray-200"
                 }`}
               >
-                <span className="w-4 text-center opacity-70">{item.icon}</span>
+                <Icon size={16} strokeWidth={1.8} />
                 {item.label}
               </Link>
-            ),
-          )}
+            );
+          })}
         </nav>
-        <div className="border-t border-white/10 p-3 text-xs">
-          <div className="mb-1 font-medium text-white">{user?.name}</div>
-          <div className="mb-2 opacity-60">{user?.roleName}</div>
-          <button onClick={() => void logout()} className="text-brand-100 hover:underline">
-            Sign out
-          </button>
+        <div className="border-t border-white/10 p-3">
+          <div className="flex items-center gap-2.5">
+            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-brand-500 text-xs font-bold text-white">
+              {user?.name?.[0]?.toUpperCase() ?? "U"}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[13px] font-semibold text-white">{user?.name}</div>
+              <div className="truncate text-[11px] text-gray-500">{user?.roleName}</div>
+            </div>
+            <button
+              onClick={() => void logout()}
+              className="rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-sidebar-hover hover:text-white"
+              title="Sign out"
+            >
+              <LogOut size={15} />
+            </button>
+          </div>
         </div>
       </aside>
       <div className="flex flex-1 flex-col overflow-hidden">
