@@ -1,0 +1,178 @@
+import { ListPage, StatusBadge } from "../components/list-page";
+import { formatDate, formatMoney } from "../api";
+
+interface ContactRow {
+  id: string;
+  displayName: string;
+  companyName?: string;
+  email?: string;
+  phone?: string;
+  gstin?: string;
+  isActive: boolean;
+}
+
+const contactColumns = [
+  {
+    key: "name",
+    header: "Name",
+    render: (r: ContactRow) => (
+      <div>
+        <div className="font-medium text-brand-600">{r.displayName}</div>
+        {r.companyName && <div className="text-xs text-gray-500">{r.companyName}</div>}
+      </div>
+    ),
+  },
+  { key: "email", header: "Email", render: (r: ContactRow) => r.email ?? "—" },
+  { key: "phone", header: "Phone", render: (r: ContactRow) => r.phone ?? "—" },
+  { key: "gstin", header: "GSTIN", render: (r: ContactRow) => r.gstin ?? "—" },
+  {
+    key: "active",
+    header: "Status",
+    render: (r: ContactRow) => <StatusBadge status={r.isActive ? "open" : "void"} />,
+  },
+];
+
+export const CustomersPage = () => (
+  <ListPage<ContactRow>
+    title="Customers"
+    endpoint="/api/contacts?type=customer"
+    rowKey={(r) => r.id}
+    searchPlaceholder="Search customers…"
+    newLabel="New Customer"
+    columns={contactColumns}
+  />
+);
+
+export const VendorsPage = () => (
+  <ListPage<ContactRow>
+    title="Vendors"
+    endpoint="/api/contacts?type=vendor"
+    rowKey={(r) => r.id}
+    searchPlaceholder="Search vendors…"
+    newLabel="New Vendor"
+    columns={contactColumns}
+  />
+);
+
+interface ItemRow {
+  id: string;
+  name: string;
+  sku?: string;
+  unit: string;
+  type: string;
+  sellingPrice?: string;
+  costPrice?: string;
+  isActive: boolean;
+}
+
+export const ItemsPage = () => (
+  <ListPage<ItemRow>
+    title="Items"
+    endpoint="/api/items"
+    rowKey={(r) => r.id}
+    searchPlaceholder="Search items…"
+    newLabel="New Item"
+    columns={[
+      {
+        key: "name",
+        header: "Name",
+        render: (r) => (
+          <div>
+            <div className="font-medium text-brand-600">{r.name}</div>
+            {r.sku && <div className="text-xs text-gray-500">SKU: {r.sku}</div>}
+          </div>
+        ),
+      },
+      { key: "type", header: "Type", render: (r) => r.type },
+      { key: "unit", header: "Unit", render: (r) => r.unit },
+      { key: "sell", header: "Selling Price", align: "right", render: (r) => (r.sellingPrice ? formatMoney(r.sellingPrice) : "—") },
+      { key: "cost", header: "Cost Price", align: "right", render: (r) => (r.costPrice ? formatMoney(r.costPrice) : "—") },
+    ]}
+  />
+);
+
+interface AccountRow {
+  id: string;
+  code: string;
+  name: string;
+  type: string;
+  isActive: boolean;
+}
+
+export const AccountsPage = () => (
+  <ListPage<AccountRow>
+    title="Chart of Accounts"
+    endpoint="/api/accounting/accounts"
+    rowKey={(r) => r.id}
+    newLabel="New Account"
+    columns={[
+      { key: "code", header: "Code", render: (r) => <span className="tabular-nums">{r.code}</span> },
+      { key: "name", header: "Account Name", render: (r) => <span className="font-medium">{r.name}</span> },
+      { key: "type", header: "Type", render: (r) => <span className="capitalize">{r.type}</span> },
+      {
+        key: "active",
+        header: "Status",
+        render: (r) => <StatusBadge status={r.isActive ? "open" : "void"} />,
+      },
+    ]}
+  />
+);
+
+interface JournalRow {
+  id: string;
+  entryNumber: string;
+  entryDate: string;
+  narration: string;
+  sourceType: string;
+  status: string;
+}
+
+export const JournalsPage = () => (
+  <ListPage<JournalRow>
+    title="Manual Journals"
+    endpoint="/api/accounting/journals"
+    rowKey={(r) => r.id}
+    newLabel="New Journal"
+    columns={[
+      { key: "date", header: "Date", render: (r) => formatDate(r.entryDate) },
+      { key: "number", header: "Number", render: (r) => <span className="font-medium text-brand-600">{r.entryNumber}</span> },
+      { key: "narration", header: "Narration", render: (r) => r.narration },
+      { key: "source", header: "Source", render: (r) => <span className="capitalize">{r.sourceType.replace(/_/g, " ")}</span> },
+      { key: "status", header: "Status", render: (r) => <StatusBadge status={r.status} /> },
+    ]}
+  />
+);
+
+interface BankAccountRow {
+  id: string;
+  name: string;
+  kind: string;
+  bankName?: string;
+  accountNumber?: string;
+  balance: string;
+}
+
+export const BankingPage = () => (
+  <ListPage<BankAccountRow>
+    title="Banking"
+    endpoint="/api/banking/accounts"
+    rowKey={(r) => r.id}
+    newLabel="Add Bank Account"
+    columns={[
+      {
+        key: "name",
+        header: "Account",
+        render: (r) => (
+          <div>
+            <div className="font-medium text-brand-600">{r.name}</div>
+            <div className="text-xs text-gray-500">
+              {r.bankName ?? r.kind} {r.accountNumber ? `•••${r.accountNumber.slice(-4)}` : ""}
+            </div>
+          </div>
+        ),
+      },
+      { key: "kind", header: "Type", render: (r) => <span className="capitalize">{r.kind}</span> },
+      { key: "balance", header: "Balance", align: "right", render: (r) => formatMoney(r.balance) },
+    ]}
+  />
+);
