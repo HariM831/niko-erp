@@ -1,7 +1,23 @@
 import { Router } from "express";
-import { and, asc, eq, ilike, or } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, ilike, or } from "drizzle-orm";
 import { z } from "zod";
-import { attachments, items, itemType, taxes } from "@shared/schema";
+import {
+  attachments,
+  billLines,
+  bills,
+  contacts,
+  estimateLines,
+  estimates,
+  invoiceLines,
+  invoices,
+  items,
+  itemType,
+  purchaseOrderLines,
+  purchaseOrders,
+  salesOrderLines,
+  salesOrders,
+  taxes,
+} from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
@@ -26,6 +42,7 @@ const itemSchema = z.object({
   costPrice: money.optional(),
   purchaseAccountId: z.string().uuid().optional(),
   purchaseDescription: z.string().optional(),
+  preferredVendorId: z.string().uuid().optional(),
   taxId: z.string().uuid().optional(),
   trackInventory: z.boolean().optional(),
   inventoryAccountId: z.string().uuid().optional(),
@@ -44,8 +61,9 @@ itemsRouter.get("/", requirePermission("items", "view"), async (req, res) => {
     );
   }
   const rows = await db
-    .select()
+    .select({ ...getTableColumns(items), preferredVendorName: contacts.displayName })
     .from(items)
+    .leftJoin(contacts, eq(contacts.id, items.preferredVendorId))
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(asc(items.name))
     .limit(500);
@@ -63,7 +81,100 @@ itemsRouter.get("/", requirePermission("items", "view"), async (req, res) => {
 itemsRouter.get("/:id", requirePermission("items", "view"), async (req, res) => {
   const item = await db.query.items.findFirst({ where: eq(items.id, req.params.id!) });
   if (!item) return res.status(404).json({ error: "Item not found" });
-  res.json(item);
+  const vendor = item.preferredVendorId
+    ? await db.query.contacts.findFirst({ where: eq(contacts.id, item.preferredVendorId) })
+    : null;
+  res.json({ ...item, preferredVendorName: vendor?.displayName ?? null });
+});
+
+/** Every transaction line referencing this item, newest first — the Transactions tab. */
+itemsRouter.get("/:id/transactions", requirePermission("items", "view"), async (req, res) => {
+  const id = req.params.id!;
+  const [inv, billRows, est, so, po] = await Promise.all([
+    db
+      .select({
+        id: invoices.id,
+        number: invoices.number,
+        date: invoices.invoiceDate,
+        status: invoices.status,
+        contactName: contacts.displayName,
+        quantity: invoiceLines.quantity,
+        amount: invoiceLines.amount,
+      })
+      .from(invoiceLines)
+      .innerJoin(invoices, eq(invoices.id, invoiceLines.invoiceId))
+      .innerJoin(contacts, eq(contacts.id, invoices.customerId))
+      .where(eq(invoiceLines.itemId, id))
+      .orderBy(desc(invoices.invoiceDate)),
+    db
+      .select({
+        id: bills.id,
+        number: bills.number,
+        date: bills.billDate,
+        status: bills.status,
+        contactName: contacts.displayName,
+        quantity: billLines.quantity,
+        amount: billLines.amount,
+      })
+      .from(billLines)
+      .innerJoin(bills, eq(bills.id, billLines.billId))
+      .innerJoin(contacts, eq(contacts.id, bills.vendorId))
+      .where(eq(billLines.itemId, id))
+      .orderBy(desc(bills.billDate)),
+    db
+      .select({
+        id: estimates.id,
+        number: estimates.number,
+        date: estimates.estimateDate,
+        status: estimates.status,
+        contactName: contacts.displayName,
+        quantity: estimateLines.quantity,
+        amount: estimateLines.amount,
+      })
+      .from(estimateLines)
+      .innerJoin(estimates, eq(estimates.id, estimateLines.estimateId))
+      .innerJoin(contacts, eq(contacts.id, estimates.customerId))
+      .where(eq(estimateLines.itemId, id))
+      .orderBy(desc(estimates.estimateDate)),
+    db
+      .select({
+        id: salesOrders.id,
+        number: salesOrders.number,
+        date: salesOrders.orderDate,
+        status: salesOrders.status,
+        contactName: contacts.displayName,
+        quantity: salesOrderLines.quantity,
+        amount: salesOrderLines.amount,
+      })
+      .from(salesOrderLines)
+      .innerJoin(salesOrders, eq(salesOrders.id, salesOrderLines.salesOrderId))
+      .innerJoin(contacts, eq(contacts.id, salesOrders.customerId))
+      .where(eq(salesOrderLines.itemId, id))
+      .orderBy(desc(salesOrders.orderDate)),
+    db
+      .select({
+        id: purchaseOrders.id,
+        number: purchaseOrders.number,
+        date: purchaseOrders.orderDate,
+        status: purchaseOrders.status,
+        contactName: contacts.displayName,
+        quantity: purchaseOrderLines.quantity,
+        amount: purchaseOrderLines.amount,
+      })
+      .from(purchaseOrderLines)
+      .innerJoin(purchaseOrders, eq(purchaseOrders.id, purchaseOrderLines.purchaseOrderId))
+      .innerJoin(contacts, eq(contacts.id, purchaseOrders.vendorId))
+      .where(eq(purchaseOrderLines.itemId, id))
+      .orderBy(desc(purchaseOrders.orderDate)),
+  ]);
+
+  res.json({
+    invoices: inv,
+    bills: billRows,
+    estimates: est,
+    salesOrders: so,
+    purchaseOrders: po,
+  });
 });
 
 itemsRouter.post(

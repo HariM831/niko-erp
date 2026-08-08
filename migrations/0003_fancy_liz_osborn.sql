@@ -1,0 +1,2 @@
+ALTER TABLE "items" ADD COLUMN "preferred_vendor_id" uuid;--> statement-breakpoint
+ALTER TABLE "items" ADD CONSTRAINT "items_preferred_vendor_id_contacts_id_fk" FOREIGN KEY ("preferred_vendor_id") REFERENCES "public"."contacts"("id") ON DELETE no action ON UPDATE no action;

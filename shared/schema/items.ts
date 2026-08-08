@@ -10,6 +10,7 @@ import {
 import { itemType } from "./enums";
 import { accounts } from "./accounting";
 import { taxes } from "./core";
+import { contacts } from "./contacts";
 
 export const items = pgTable("items", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -31,6 +32,7 @@ export const items = pgTable("items", {
   costPrice: numeric("cost_price", { precision: 14, scale: 2 }),
   purchaseAccountId: uuid("purchase_account_id").references(() => accounts.id),
   purchaseDescription: text("purchase_description"),
+  preferredVendorId: uuid("preferred_vendor_id").references(() => contacts.id),
 
   taxId: uuid("tax_id").references(() => taxes.id),
 

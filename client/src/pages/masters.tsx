@@ -1,7 +1,13 @@
-import { ListPage, StatusBadge } from "../components/list-page";
+import { ListPage, StatusBadge, type ListView } from "../components/list-page";
 import { AttachmentsButton } from "../components/attachments";
 import { Package } from "lucide-react";
 import { formatDate, formatMoney } from "../api";
+
+const activeViews: ListView[] = [
+  { label: "All", params: {} },
+  { label: "Active", params: { isActive: "true" } },
+  { label: "Inactive", params: { isActive: "false" } },
+];
 
 interface ContactRow {
   id: string;
@@ -67,18 +73,24 @@ interface ItemRow {
   sku?: string;
   unit: string;
   type: string;
+  hsnOrSac?: string;
   sellingPrice?: string;
   costPrice?: string;
+  salesDescription?: string;
+  purchaseDescription?: string;
   trackInventory?: boolean;
+  openingStock?: string;
   imageId?: string | null;
   isActive: boolean;
 }
 
+/** Matches Zoho Books' Items list column set exactly. */
 export const ItemsPage = () => (
   <ListPage<ItemRow>
     title="Items"
     endpoint="/api/items"
     rowKey={(r) => r.id}
+    views={activeViews}
     searchPlaceholder="Search items…"
     newLabel="New Item"
     newPath="/items/new"
@@ -93,44 +105,47 @@ export const ItemsPage = () => (
               <img
                 src={`/api/attachments/${r.imageId}/download`}
                 alt=""
-                className="h-9 w-9 rounded-lg border border-gray-200 object-cover"
+                className="h-8 w-8 rounded-lg border border-gray-200 object-cover"
               />
             ) : (
-              <span className="grid h-9 w-9 place-items-center rounded-lg bg-gray-100 text-gray-400">
-                <Package size={15} />
+              <span className="grid h-8 w-8 place-items-center rounded-lg bg-gray-100 text-gray-400">
+                <Package size={13} />
               </span>
             )}
-            <div>
-              <div className="font-medium text-brand-600">{r.name}</div>
-              {r.sku && <div className="text-xs text-gray-500">SKU: {r.sku}</div>}
-            </div>
+            <span className="font-medium text-brand-600">{r.name}</span>
           </div>
         ),
       },
-      { key: "type", header: "Type", render: (r) => r.type },
-      { key: "unit", header: "Unit", render: (r) => r.unit },
-      { key: "sell", header: "Selling Price", align: "right", render: (r) => (r.sellingPrice ? formatMoney(r.sellingPrice) : "—") },
-      { key: "cost", header: "Cost Price", align: "right", render: (r) => (r.costPrice ? formatMoney(r.costPrice) : "—") },
       {
-        key: "inv",
-        header: "Inventory",
-        render: (r) =>
-          r.trackInventory ? (
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-green-600">Tracked</span>
-          ) : (
-            <span className="text-[11px] uppercase tracking-wide text-gray-400">—</span>
-          ),
+        key: "purchaseDescription",
+        header: "Purchase Description",
+        render: (r) => <span className="text-gray-600">{r.purchaseDescription ?? "—"}</span>,
       },
       {
-        key: "files",
-        header: "",
+        key: "purchaseRate",
+        header: "Purchase Rate",
         align: "right",
-        render: (r) => (
-          <div onClick={(e) => e.stopPropagation()} className="inline-block">
-            <AttachmentsButton entityType="item" entityId={r.id} />
-          </div>
-        ),
+        render: (r) => (r.costPrice ? formatMoney(r.costPrice) : formatMoney(0)),
       },
+      {
+        key: "description",
+        header: "Description",
+        render: (r) => <span className="text-gray-600">{r.salesDescription ?? "—"}</span>,
+      },
+      {
+        key: "rate",
+        header: "Rate",
+        align: "right",
+        render: (r) => (r.sellingPrice ? formatMoney(r.sellingPrice) : formatMoney(0)),
+      },
+      {
+        key: "stock",
+        header: "Stock on Hand",
+        align: "right",
+        render: (r) => (r.trackInventory ? Number(r.openingStock ?? 0) : "—"),
+      },
+      { key: "hsn", header: "HSN/SAC", render: (r) => r.hsnOrSac ?? "—" },
+      { key: "unit", header: "Usage Unit", render: (r) => r.unit },
     ]}
   />
 );
