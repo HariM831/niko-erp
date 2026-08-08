@@ -1,4 +1,5 @@
 import { ListPage, StatusBadge, type Column, type ListView } from "../components/list-page";
+import { AttachmentsButton } from "../components/attachments";
 import { formatMoney } from "../api";
 
 export interface DocRow {
@@ -210,6 +211,16 @@ export const ExpensesPage = () => (
       { key: "contact", header: "Vendor Name", render: (r) => r.contactName ?? "—" },
       { key: "ref", header: "Reference", render: (r) => String(r.reference ?? "—") },
       { key: "amount", header: "Amount", align: "right", render: (r) => formatMoney(r.amount) },
+      {
+        key: "files",
+        header: "",
+        align: "right",
+        render: (r) => (
+          <div onClick={(e) => e.stopPropagation()} className="inline-block">
+            <AttachmentsButton entityType="expense" entityId={r.id} />
+          </div>
+        ),
+      },
     ]}
   />
 );

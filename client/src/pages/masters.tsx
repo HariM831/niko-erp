@@ -1,4 +1,5 @@
 import { ListPage, StatusBadge } from "../components/list-page";
+import { AttachmentsButton } from "../components/attachments";
 import { formatDate, formatMoney } from "../api";
 
 interface ContactRow {
@@ -146,6 +147,16 @@ export const JournalsPage = () => (
       { key: "narration", header: "Narration", render: (r) => r.narration },
       { key: "source", header: "Source", render: (r) => <span className="capitalize">{r.sourceType.replace(/_/g, " ")}</span> },
       { key: "status", header: "Status", render: (r) => <StatusBadge status={r.status} /> },
+      {
+        key: "files",
+        header: "",
+        align: "right",
+        render: (r) => (
+          <div onClick={(e) => e.stopPropagation()} className="inline-block">
+            <AttachmentsButton entityType="journal_entry" entityId={r.id} />
+          </div>
+        ),
+      },
     ]}
   />
 );
