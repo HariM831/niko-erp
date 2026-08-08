@@ -14,6 +14,7 @@ import { bankingRouter } from "./routes/banking";
 import { reportsRouter } from "./routes/reports";
 import { settingsRouter } from "./routes/settings";
 import { attachmentsRouter } from "./routes/attachments";
+import { commentsRouter } from "./routes/comments";
 import { requireAuth } from "./lib/rbac";
 
 const SESSION_SECRET = process.env.SESSION_SECRET;
@@ -74,6 +75,7 @@ app.use("/api/banking", requireAuth, bankingRouter);
 app.use("/api/reports", requireAuth, reportsRouter);
 app.use("/api/settings", requireAuth, settingsRouter);
 app.use("/api/attachments", attachmentsRouter);
+app.use("/api/comments", commentsRouter);
 
 // Central error handler — no stack/message leaks.
 app.use(

@@ -15,6 +15,13 @@
       "when": 1786151209063,
       "tag": "0001_nebulous_colleen_wing",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786151821561,
+      "tag": "0002_previous_maestro",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText, Image as ImageIcon, Paperclip, Trash2, Upload } from "lucide-react";
 import { api } from "../api";
@@ -30,6 +30,16 @@ export function AttachmentsButton({
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -76,9 +86,10 @@ export function AttachmentsButton({
   };
 
   const count = files?.length ?? 0;
+  const [dragging, setDragging] = useState(false);
 
   return (
-    <div className="relative">
+    <div className="relative" ref={panelRef}>
       <button
         onClick={() => setOpen((o) => !o)}
         className="btn-ghost relative p-2"
@@ -93,7 +104,22 @@ export function AttachmentsButton({
       </button>
 
       {open && (
-        <div className="absolute right-0 top-10 z-30 w-80 rounded-xl border border-gray-100 bg-white shadow-xl">
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            const f = e.dataTransfer.files?.[0];
+            if (f) void uploadFile(f);
+          }}
+          className={`absolute right-0 top-10 z-30 w-80 rounded-xl border bg-white shadow-xl transition-colors ${
+            dragging ? "border-brand-400 ring-2 ring-brand-100" : "border-gray-100"
+          }`}
+        >
           <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2.5">
             <span className="text-[13px] font-bold">Attachments</span>
             <button
@@ -117,7 +143,7 @@ export function AttachmentsButton({
           <div className="max-h-72 overflow-y-auto">
             {!count ? (
               <p className="px-4 py-6 text-center text-[13px] text-gray-400">
-                No files yet. PDF, images, sheets or docs up to 10 MB.
+                {dragging ? "Drop to upload" : "No files yet. Drag a file here or upload — PDF, images, sheets or docs up to 10 MB."}
               </p>
             ) : (
               files!.map((f) => (
