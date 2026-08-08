@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, formatMoney } from "../api";
@@ -60,8 +60,8 @@ export interface TransactionFormConfig {
   extraBody?: Record<string, unknown>;
 }
 
-/** Zoho Books-style transaction entry: header, line-item grid, totals panel. */
-export function TransactionForm({ config }: { config: TransactionFormConfig }) {
+/** Books-style transaction entry: header, line-item grid, totals panel. Handles create and edit. */
+export function TransactionForm({ config, editId }: { config: TransactionFormConfig; editId?: string }) {
   const [, navigate] = useLocation();
   const qc = useQueryClient();
   const [contactId, setContactId] = useState("");
@@ -72,6 +72,38 @@ export function TransactionForm({ config }: { config: TransactionFormConfig }) {
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  const { data: existing } = useQuery({
+    queryKey: ["doc-edit", config.endpoint, editId],
+    queryFn: () =>
+      api<Record<string, unknown> & { lines: Array<Record<string, unknown>> }>(
+        `${config.endpoint}/${editId}`,
+      ),
+    enabled: !!editId,
+  });
+
+  useEffect(() => {
+    if (!existing) return;
+    setContactId((existing.customerId ?? existing.vendorId ?? "") as string);
+    setDate((existing[config.dateField] as string) ?? date);
+    setReference((existing.reference as string) ?? "");
+    setNotes((existing.customerNotes as string) ?? "");
+    if (existing.lines?.length) {
+      setLines(
+        existing.lines.map((l) => ({
+          itemId: (l.itemId as string) ?? undefined,
+          accountId: (l.accountId as string) ?? undefined,
+          name: l.name as string,
+          quantity: String(Number(l.quantity)),
+          unit: (l.unit as string) ?? undefined,
+          rate: String(Number(l.rate)),
+          discountPercent: String(Number(l.discountPercent ?? 0)),
+          taxId: (l.taxId as string) ?? undefined,
+        })),
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existing]);
 
   const { data: contacts } = useQuery({
     queryKey: ["contacts", config.contactType],
@@ -151,16 +183,23 @@ export function TransactionForm({ config }: { config: TransactionFormConfig }) {
         ...config.extraBody,
       };
       if (notes) body.customerNotes = notes;
-      if (saveAs) body.saveAs = saveAs;
-      const created = (await api(config.endpoint, { method: "POST", body })) as { id: string };
-      if (pendingFiles.length && created?.id) {
-        const failed = await uploadPending(config.entityType, created.id, pendingFiles);
+      let savedId: string;
+      if (editId) {
+        await api(`${config.endpoint}/${editId}`, { method: "PATCH", body });
+        savedId = editId;
+      } else {
+        if (saveAs) body.saveAs = saveAs;
+        const created = (await api(config.endpoint, { method: "POST", body })) as { id: string };
+        savedId = created.id;
+      }
+      if (pendingFiles.length && savedId) {
+        const failed = await uploadPending(config.entityType, savedId, pendingFiles);
         if (failed.length) {
           setError(`Saved, but these files failed to upload: ${failed.join(", ")}`);
         }
       }
       await qc.invalidateQueries();
-      navigate(config.listPath);
+      navigate(editId ? `${config.listPath}/${savedId}` : config.listPath);
     } catch (err) {
       if (err instanceof ApiError && err.issues?.length) {
         setError(err.issues.map((i) => `${i.path}: ${i.message}`).join("; "));
@@ -177,7 +216,7 @@ export function TransactionForm({ config }: { config: TransactionFormConfig }) {
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b bg-white px-6 py-3">
-        <h1 className="text-lg font-semibold">{config.title}</h1>
+        <h1 className="text-lg font-semibold">{editId ? config.title.replace("New", "Edit") : config.title}</h1>
         <button onClick={() => navigate(config.listPath)} className="text-xl text-gray-400 hover:text-gray-700">
           ×
         </button>
@@ -349,13 +388,13 @@ export function TransactionForm({ config }: { config: TransactionFormConfig }) {
 
       <footer className="flex items-center gap-2 border-t bg-white px-6 py-3">
         <button
-          onClick={() => void save(config.withSend ? "draft" : undefined)}
+          onClick={() => void save(config.withSend && !editId ? "draft" : undefined)}
           disabled={busy || !contactId}
-          className="btn-secondary"
+          className={editId ? "btn-primary" : "btn-secondary"}
         >
-          Save as Draft
+          {editId ? "Save Changes" : "Save as Draft"}
         </button>
-        {config.withSend && (
+        {config.withSend && !editId && (
           <button
             onClick={() => void save("sent")}
             disabled={busy || !contactId}

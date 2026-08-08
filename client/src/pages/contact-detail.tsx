@@ -83,6 +83,12 @@ export function ContactDetailPage({ id }: { id: string }) {
             </span>
           </div>
           <div className="relative flex items-center gap-2">
+            <button
+              onClick={() => navigate(`${listPath}/${contact.id}/edit`)}
+              className="btn-secondary"
+            >
+              Edit
+            </button>
             <AttachmentsButton entityType="contact" entityId={contact.id} />
             <button
               onClick={() => setNewTxnOpen((o) => !o)}

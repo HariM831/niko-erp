@@ -82,6 +82,11 @@ const CONFIGS: Record<string, DetailConfig> = {
     dateField: "invoiceDate",
     actions: [
       {
+        label: "Edit",
+        when: ["draft"],
+        run: (doc, h) => h.navigate(`/sales/invoices/${doc.id}/edit`),
+      },
+      {
         label: "Mark as Sent",
         when: ["draft"],
         run: async (doc, h) => {

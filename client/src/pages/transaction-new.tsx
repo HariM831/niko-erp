@@ -77,8 +77,8 @@ const configs: Record<string, TransactionFormConfig> = {
   },
 };
 
-export function TransactionNewPage({ kind }: { kind: string }) {
+export function TransactionNewPage({ kind, editId }: { kind: string; editId?: string }) {
   const config = configs[kind];
   if (!config) return <div className="p-8 text-sm text-gray-500">Unknown transaction type.</div>;
-  return <TransactionForm config={config} />;
+  return <TransactionForm config={config} editId={editId} />;
 }

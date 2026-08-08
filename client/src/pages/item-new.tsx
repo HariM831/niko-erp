@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
@@ -16,7 +16,7 @@ interface Tax {
   name: string;
 }
 
-export function ItemNewPage() {
+export function ItemNewPage({ editId }: { editId?: string }) {
   const [, navigate] = useLocation();
   const qc = useQueryClient();
   const [form, setForm] = useState({
@@ -39,6 +39,32 @@ export function ItemNewPage() {
   const [busy, setBusy] = useState(false);
   const [image, setImage] = useState<File | null>(null);
 
+  const { data: existing } = useQuery({
+    queryKey: ["item", editId],
+    queryFn: () => api<Record<string, unknown>>(`/api/items/${editId}`),
+    enabled: !!editId,
+  });
+
+  useEffect(() => {
+    if (!existing) return;
+    setForm({
+      type: (existing.type as string) ?? "goods",
+      name: (existing.name as string) ?? "",
+      sku: (existing.sku as string) ?? "",
+      unit: (existing.unit as string) ?? "pcs",
+      hsnOrSac: (existing.hsnOrSac as string) ?? "",
+      sellingPrice: existing.sellingPrice ? String(Number(existing.sellingPrice)) : "",
+      salesAccountId: (existing.salesAccountId as string) ?? "",
+      costPrice: existing.costPrice ? String(Number(existing.costPrice)) : "",
+      purchaseAccountId: (existing.purchaseAccountId as string) ?? "",
+      taxId: (existing.taxId as string) ?? "",
+      trackInventory: Boolean(existing.trackInventory),
+      inventoryAccountId: (existing.inventoryAccountId as string) ?? "",
+      openingStock: existing.openingStock && Number(existing.openingStock) > 0 ? String(Number(existing.openingStock)) : "",
+      reorderLevel: existing.reorderLevel ? String(Number(existing.reorderLevel)) : "",
+    });
+  }, [existing]);
+
   const { data: accounts } = useQuery({
     queryKey: ["accounts-all"],
     queryFn: () => api<Account[]>("/api/accounting/accounts"),
@@ -56,8 +82,8 @@ export function ItemNewPage() {
     setBusy(true);
     setError(null);
     try {
-      const created = (await api("/api/items", {
-        method: "POST",
+      const created = (await api(editId ? `/api/items/${editId}` : "/api/items", {
+        method: editId ? "PATCH" : "POST",
         body: {
           type: form.type,
           name: form.name,
@@ -75,12 +101,13 @@ export function ItemNewPage() {
           reorderLevel: form.trackInventory && form.reorderLevel ? Number(form.reorderLevel).toFixed(3) : undefined,
         },
       })) as { id: string };
-      if (image && created?.id) {
-        const failed = await uploadPending("item", created.id, [image]);
+      const itemId = editId ?? created?.id;
+      if (image && itemId) {
+        const failed = await uploadPending("item", itemId, [image]);
         if (failed.length) setError("Item saved, but the image failed to upload");
       }
       await qc.invalidateQueries();
-      navigate("/items");
+      navigate(editId ? `/items/${editId}` : "/items");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -94,7 +121,7 @@ export function ItemNewPage() {
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b bg-white px-6 py-3">
-        <h1 className="text-lg font-semibold">New Item</h1>
+        <h1 className="text-lg font-semibold">{editId ? "Edit Item" : "New Item"}</h1>
         <button onClick={() => navigate("/items")} className="text-xl text-gray-400 hover:text-gray-700">×</button>
       </header>
       <div className="flex-1 overflow-y-auto p-6">

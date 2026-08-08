@@ -89,6 +89,9 @@ export function ItemDetailPage({ id }: { id: string }) {
           )}
         </div>
         <div className="flex items-center gap-1">
+          <button onClick={() => navigate(`/items/${id}/edit`)} className="btn-secondary mr-1">
+            Edit
+          </button>
           <CommentsButton entityType="item" entityId={id} />
           <AttachmentsButton entityType="item" entityId={id} />
         </div>

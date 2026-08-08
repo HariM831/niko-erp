@@ -75,13 +75,15 @@ export function App() {
     <AppLayout>
       <Switch>
         <Route path="/" component={HomePage} />
-        <Route path="/items/new" component={ItemNewPage} />
+        <Route path="/items/new">{() => <ItemNewPage />}</Route>
+        <Route path="/items/:id/edit">{(p) => <ItemNewPage editId={p.id!} />}</Route>
         <Route path="/items/:id">{(p) => <ItemDetailPage id={p.id!} />}</Route>
         <Route path="/items" component={ItemsPage} />
         <Route path="/banking/new" component={BankAccountNewPage} />
         <Route path="/banking/:id">{(p) => <BankingDetailPage bankAccountId={p.id!} />}</Route>
         <Route path="/banking" component={BankingPage} />
         <Route path="/sales/customers/new">{() => <ContactNewPage type="customer" />}</Route>
+        <Route path="/sales/customers/:id/edit">{(p) => <ContactNewPage type="customer" editId={p.id!} />}</Route>
         <Route path="/sales/customers/:id">{(p) => <ContactDetailPage id={p.id!} />}</Route>
         <Route path="/sales/customers" component={CustomersPage} />
         <Route path="/sales/estimates/new">{() => <TransactionNewPage kind="estimate" />}</Route>
@@ -91,6 +93,7 @@ export function App() {
         <Route path="/sales/sales-orders/:id">{(p) => <SplitDetail kind="sales-order" id={p.id!} />}</Route>
         <Route path="/sales/sales-orders" component={SalesOrdersPage} />
         <Route path="/sales/invoices/new">{() => <TransactionNewPage kind="invoice" />}</Route>
+        <Route path="/sales/invoices/:id/edit">{(p) => <TransactionNewPage kind="invoice" editId={p.id!} />}</Route>
         <Route path="/sales/invoices/:id">{(p) => <SplitDetail kind="invoice" id={p.id!} />}</Route>
         <Route path="/sales/invoices" component={InvoicesPage} />
         <Route path="/sales/payments/new">{() => <PaymentNewPage side="customer" />}</Route>
@@ -100,6 +103,7 @@ export function App() {
         <Route path="/sales/credit-notes/:id">{(p) => <SplitDetail kind="credit-note" id={p.id!} />}</Route>
         <Route path="/sales/credit-notes" component={CreditNotesPage} />
         <Route path="/purchases/vendors/new">{() => <ContactNewPage type="vendor" />}</Route>
+        <Route path="/purchases/vendors/:id/edit">{(p) => <ContactNewPage type="vendor" editId={p.id!} />}</Route>
         <Route path="/purchases/vendors/:id">{(p) => <ContactDetailPage id={p.id!} />}</Route>
         <Route path="/purchases/vendors" component={VendorsPage} />
         <Route path="/purchases/expenses/new" component={ExpenseNewPage} />

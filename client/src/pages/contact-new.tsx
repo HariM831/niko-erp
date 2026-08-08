@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 
 const GST_TREATMENTS = [
@@ -12,7 +12,7 @@ const GST_TREATMENTS = [
   ["special_economic_zone", "Special Economic Zone"],
 ] as const;
 
-export function ContactNewPage({ type }: { type: "customer" | "vendor" }) {
+export function ContactNewPage({ type, editId }: { type: "customer" | "vendor"; editId?: string }) {
   const [, navigate] = useLocation();
   const qc = useQueryClient();
   const listPath = type === "customer" ? "/sales/customers" : "/purchases/vendors";
@@ -34,6 +34,35 @@ export function ContactNewPage({ type }: { type: "customer" | "vendor" }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const { data: existing } = useQuery({
+    queryKey: ["contact", editId],
+    queryFn: () =>
+      api<Record<string, unknown> & { addresses: Array<Record<string, string | undefined>> }>(
+        `/api/contacts/${editId}`,
+      ),
+    enabled: !!editId,
+  });
+
+  useEffect(() => {
+    if (!existing) return;
+    const billing = existing.addresses?.find((a) => a.kind === "billing");
+    setForm({
+      displayName: (existing.displayName as string) ?? "",
+      companyName: (existing.companyName as string) ?? "",
+      email: (existing.email as string) ?? "",
+      phone: (existing.phone as string) ?? "",
+      gstTreatment: (existing.gstTreatment as string) ?? "consumer",
+      gstin: (existing.gstin as string) ?? "",
+      pan: (existing.pan as string) ?? "",
+      placeOfSupplyState: (existing.placeOfSupplyState as string) ?? "",
+      paymentTermsDays: String(existing.paymentTermsDays ?? 0),
+      billingLine1: billing?.line1 ?? "",
+      billingCity: billing?.city ?? "",
+      billingState: billing?.state ?? "",
+      billingPincode: billing?.pincode ?? "",
+    });
+  }, [existing]);
+
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
@@ -42,10 +71,10 @@ export function ContactNewPage({ type }: { type: "customer" | "vendor" }) {
     setError(null);
     try {
       const hasAddress = form.billingLine1 || form.billingCity;
-      await api("/api/contacts", {
-        method: "POST",
+      await api(editId ? `/api/contacts/${editId}` : "/api/contacts", {
+        method: editId ? "PATCH" : "POST",
         body: {
-          type,
+          ...(editId ? {} : { type }),
           displayName: form.displayName,
           companyName: form.companyName || undefined,
           email: form.email || undefined,
@@ -70,7 +99,7 @@ export function ContactNewPage({ type }: { type: "customer" | "vendor" }) {
         },
       });
       await qc.invalidateQueries();
-      navigate(listPath);
+      navigate(editId ? `${listPath}/${editId}` : listPath);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -80,7 +109,11 @@ export function ContactNewPage({ type }: { type: "customer" | "vendor" }) {
 
   const inputCls = "input";
   const label = "label";
-  const title = type === "customer" ? "New Customer" : "New Vendor";
+  const title = editId
+    ? `Edit ${type === "customer" ? "Customer" : "Vendor"}`
+    : type === "customer"
+      ? "New Customer"
+      : "New Vendor";
 
   return (
     <div className="flex h-full flex-col">
