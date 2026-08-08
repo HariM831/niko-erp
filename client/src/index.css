@@ -76,15 +76,19 @@ body {
   @apply mb-1 block text-xs font-semibold text-red-600;
 }
 
+/* Matches Zoho Books' live computed styles: #f9f9fb header bg, #6c718a
+   text, hairline #ebeaf2 dividers, no vertical grid lines anywhere. */
 .table-head {
-  @apply bg-gray-50/80 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-400;
+  @apply text-left text-[11px] font-semibold uppercase;
+  background-color: #f9f9fb;
+  color: #6c718a;
 }
 
 .row-hover {
-  @apply transition-colors duration-100;
+  @apply bg-white transition-colors duration-100;
 }
 .row-hover:hover {
-  @apply bg-brand-50/50;
+  @apply bg-gray-50;
 }
 
 /* Icon chip used on dashboard cards */

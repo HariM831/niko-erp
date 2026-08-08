@@ -250,15 +250,15 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
         <table className="mb-3 w-full text-[13px]">
           <thead className="table-head">
             <tr>
-              <th className="w-56 border px-2 py-2">Item</th>
-              <th className="border px-2 py-2">Details</th>
-              {config.withAccountColumn && <th className="w-44 border px-2 py-2">Account</th>}
-              <th className="w-20 border px-2 py-2">Qty</th>
-              <th className="w-28 border px-2 py-2">Rate</th>
-              <th className="w-20 border px-2 py-2">Disc %</th>
-              <th className="w-32 border px-2 py-2">Tax</th>
-              <th className="w-28 border px-2 py-2 text-right">Amount</th>
-              <th className="w-8 border" />
+              <th className="w-56 border border-[#ebeaf2] px-2 py-2">Item</th>
+              <th className="border border-[#ebeaf2] px-2 py-2">Details</th>
+              {config.withAccountColumn && <th className="w-44 border border-[#ebeaf2] px-2 py-2">Account</th>}
+              <th className="w-20 border border-[#ebeaf2] px-2 py-2">Qty</th>
+              <th className="w-28 border border-[#ebeaf2] px-2 py-2">Rate</th>
+              <th className="w-20 border border-[#ebeaf2] px-2 py-2">Disc %</th>
+              <th className="w-32 border border-[#ebeaf2] px-2 py-2">Tax</th>
+              <th className="w-28 border border-[#ebeaf2] px-2 py-2 text-right">Amount</th>
+              <th className="w-8 border border-[#ebeaf2]" />
             </tr>
           </thead>
           <tbody>
@@ -267,7 +267,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
               const net = gross - (gross * Number(l.discountPercent || 0)) / 100;
               return (
                 <tr key={i}>
-                  <td className="border px-1 py-1">
+                  <td className="border border-[#ebeaf2] px-1 py-1">
                     <select value={l.itemId ?? ""} onChange={(e) => pickItem(i, e.target.value)} className={inputCls}>
                       <option value="">— manual —</option>
                       {items?.map((it) => (
@@ -277,7 +277,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                       ))}
                     </select>
                   </td>
-                  <td className="border px-1 py-1">
+                  <td className="border border-[#ebeaf2] px-1 py-1">
                     <input
                       value={l.name}
                       onChange={(e) => updateLine(i, { name: e.target.value })}
@@ -286,7 +286,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                     />
                   </td>
                   {config.withAccountColumn && (
-                    <td className="border px-1 py-1">
+                    <td className="border border-[#ebeaf2] px-1 py-1">
                       <select
                         value={l.accountId ?? ""}
                         onChange={(e) => updateLine(i, { accountId: e.target.value || undefined })}
@@ -303,20 +303,20 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                       </select>
                     </td>
                   )}
-                  <td className="border px-1 py-1">
+                  <td className="border border-[#ebeaf2] px-1 py-1">
                     <input value={l.quantity} onChange={(e) => updateLine(i, { quantity: e.target.value })} className={inputCls} />
                   </td>
-                  <td className="border px-1 py-1">
+                  <td className="border border-[#ebeaf2] px-1 py-1">
                     <input value={l.rate} onChange={(e) => updateLine(i, { rate: e.target.value })} className={inputCls} />
                   </td>
-                  <td className="border px-1 py-1">
+                  <td className="border border-[#ebeaf2] px-1 py-1">
                     <input
                       value={l.discountPercent}
                       onChange={(e) => updateLine(i, { discountPercent: e.target.value })}
                       className={inputCls}
                     />
                   </td>
-                  <td className="border px-1 py-1">
+                  <td className="border border-[#ebeaf2] px-1 py-1">
                     <select value={l.taxId ?? ""} onChange={(e) => updateLine(i, { taxId: e.target.value || undefined })} className={inputCls}>
                       <option value="">No tax</option>
                       {taxes?.map((t) => (
@@ -326,8 +326,8 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                       ))}
                     </select>
                   </td>
-                  <td className="border px-2 py-1 text-right tabular-nums">{formatMoney(net)}</td>
-                  <td className="border text-center">
+                  <td className="border border-[#ebeaf2] px-2 py-1 text-right tabular-nums">{formatMoney(net)}</td>
+                  <td className="border border-[#ebeaf2] text-center">
                     {lines.length > 1 && (
                       <button
                         onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))}

@@ -193,15 +193,15 @@ function OverviewTab({
         <table className="w-full max-w-lg text-[13px]">
           <thead className="table-head">
             <tr>
-              <th className="border-y px-3 py-2">Currency</th>
-              <th className="border-y px-3 py-2 text-right">
+              <th className="border-b border-[#ebeaf2] px-3 py-2">Currency</th>
+              <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">
                 Outstanding {isCustomer ? "Receivables" : "Payables"}
               </th>
-              <th className="border-y px-3 py-2 text-right">Unused Credits</th>
+              <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Unused Credits</th>
             </tr>
           </thead>
           <tbody>
-            <tr className="border-b">
+            <tr className="border-b border-[#ebeaf2]">
               <td className="px-3 py-2.5">INR — Indian Rupee</td>
               <td className="px-3 py-2.5 text-right font-medium tabular-nums">
                 {formatMoney(summary?.outstanding ?? 0)}
@@ -263,11 +263,11 @@ function TransactionsTab({
               <table className="w-full max-w-4xl text-[13px]">
                 <thead className="table-head">
                   <tr>
-                    <th className="border-y px-3 py-2">Date</th>
-                    <th className="border-y px-3 py-2">Number</th>
-                    <th className="border-y px-3 py-2">Status</th>
-                    <th className="border-y px-3 py-2 text-right">Amount</th>
-                    {s.balanceKey && <th className="border-y px-3 py-2 text-right">Balance</th>}
+                    <th className="border-b border-[#ebeaf2] px-3 py-2">Date</th>
+                    <th className="border-b border-[#ebeaf2] px-3 py-2">Number</th>
+                    <th className="border-b border-[#ebeaf2] px-3 py-2">Status</th>
+                    <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Amount</th>
+                    {s.balanceKey && <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Balance</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -275,7 +275,7 @@ function TransactionsTab({
                     <tr
                       key={r.id}
                       onClick={() => navigate(`${s.basePath}/${r.id}`)}
-                      className="cursor-pointer border-b hover:bg-brand-50/40"
+                      className="cursor-pointer border-b border-[#ebeaf2] hover:bg-gray-50"
                     >
                       <td className="px-3 py-2">{formatDate(r[s.dateKey] as string)}</td>
                       <td className="px-3 py-2 font-medium text-brand-600">{r.number}</td>
@@ -345,22 +345,22 @@ function StatementTab({ id }: { id: string }) {
       <table className="w-full max-w-4xl text-[13px]">
         <thead className="table-head">
           <tr>
-            <th className="border-y px-3 py-2">Date</th>
-            <th className="border-y px-3 py-2">Transaction</th>
-            <th className="border-y px-3 py-2">Number</th>
-            <th className="border-y px-3 py-2 text-right">Debit</th>
-            <th className="border-y px-3 py-2 text-right">Credit</th>
-            <th className="border-y px-3 py-2 text-right">Balance</th>
+            <th className="border-b border-[#ebeaf2] px-3 py-2">Date</th>
+            <th className="border-b border-[#ebeaf2] px-3 py-2">Transaction</th>
+            <th className="border-b border-[#ebeaf2] px-3 py-2">Number</th>
+            <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Debit</th>
+            <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Credit</th>
+            <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Balance</th>
           </tr>
         </thead>
         <tbody>
-          <tr className="border-b bg-gray-50/60">
+          <tr className="border-b border-[#ebeaf2] bg-gray-50/60">
             <td className="px-3 py-2 text-gray-500">{formatDate(from)}</td>
             <td colSpan={4} className="px-3 py-2 font-medium">Opening Balance</td>
             <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(data?.openingBalance ?? 0)}</td>
           </tr>
           {data?.rows.map((r, i) => (
-            <tr key={i} className="border-b">
+            <tr key={i} className="border-b border-[#ebeaf2]">
               <td className="px-3 py-2">{formatDate(r.date)}</td>
               <td className="px-3 py-2">{r.type}</td>
               <td className="px-3 py-2">

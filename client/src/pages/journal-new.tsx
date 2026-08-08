@@ -104,17 +104,17 @@ export function JournalNewPage() {
         <table className="mb-3 w-full max-w-4xl text-[13px]">
           <thead className="table-head">
             <tr>
-              <th className="border px-2 py-2">Account</th>
-              <th className="w-32 border px-2 py-2 text-right">Debit</th>
-              <th className="w-32 border px-2 py-2 text-right">Credit</th>
-              <th className="border px-2 py-2">Description</th>
-              <th className="w-8 border" />
+              <th className="border border-[#ebeaf2] px-2 py-2">Account</th>
+              <th className="w-32 border border-[#ebeaf2] px-2 py-2 text-right">Debit</th>
+              <th className="w-32 border border-[#ebeaf2] px-2 py-2 text-right">Credit</th>
+              <th className="border border-[#ebeaf2] px-2 py-2">Description</th>
+              <th className="w-8 border border-[#ebeaf2]" />
             </tr>
           </thead>
           <tbody>
             {lines.map((l, i) => (
               <tr key={i}>
-                <td className="border px-1 py-1">
+                <td className="border border-[#ebeaf2] px-1 py-1">
                   <select value={l.accountId} onChange={(e) => update(i, { accountId: e.target.value })} className={inputCls}>
                     <option value="">Select account…</option>
                     {accounts
@@ -126,7 +126,7 @@ export function JournalNewPage() {
                       ))}
                   </select>
                 </td>
-                <td className="border px-1 py-1">
+                <td className="border border-[#ebeaf2] px-1 py-1">
                   <input
                     value={l.debit}
                     onChange={(e) => update(i, { debit: e.target.value, credit: "" })}
@@ -134,7 +134,7 @@ export function JournalNewPage() {
                     className={`${inputCls} text-right tabular-nums`}
                   />
                 </td>
-                <td className="border px-1 py-1">
+                <td className="border border-[#ebeaf2] px-1 py-1">
                   <input
                     value={l.credit}
                     onChange={(e) => update(i, { credit: e.target.value, debit: "" })}
@@ -142,10 +142,10 @@ export function JournalNewPage() {
                     className={`${inputCls} text-right tabular-nums`}
                   />
                 </td>
-                <td className="border px-1 py-1">
+                <td className="border border-[#ebeaf2] px-1 py-1">
                   <input value={l.description} onChange={(e) => update(i, { description: e.target.value })} className={inputCls} />
                 </td>
-                <td className="border text-center">
+                <td className="border border-[#ebeaf2] text-center">
                   {lines.length > 2 && (
                     <button onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))} className="text-gray-400 hover:text-red-600">
                       ×
@@ -157,9 +157,9 @@ export function JournalNewPage() {
           </tbody>
           <tfoot>
             <tr className="font-semibold">
-              <td className="border px-2 py-2 text-right">Total</td>
-              <td className="border px-2 py-2 text-right tabular-nums">{formatMoney(totalDebit)}</td>
-              <td className="border px-2 py-2 text-right tabular-nums">{formatMoney(totalCredit)}</td>
+              <td className="border border-[#ebeaf2] px-2 py-2 text-right">Total</td>
+              <td className="border border-[#ebeaf2] px-2 py-2 text-right tabular-nums">{formatMoney(totalDebit)}</td>
+              <td className="border border-[#ebeaf2] px-2 py-2 text-right tabular-nums">{formatMoney(totalCredit)}</td>
               <td colSpan={2} className={`border px-2 py-2 ${balanced ? "text-green-700" : "text-amber-700"}`}>
                 {balanced
                   ? "Balanced ✓"

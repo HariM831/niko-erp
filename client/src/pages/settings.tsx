@@ -155,13 +155,13 @@ function TaxesSection() {
       <table className="mb-4 w-full text-[13px]">
         <thead className="table-head">
           <tr>
-            <th className="border-y px-3 py-2">Name</th>
-            <th className="border-y px-3 py-2 text-right">Rate %</th>
+            <th className="border-b border-[#ebeaf2] px-3 py-2">Name</th>
+            <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Rate %</th>
           </tr>
         </thead>
         <tbody>
           {taxes?.map((t) => (
-            <tr key={t.id} className="border-b">
+            <tr key={t.id} className="border-b border-[#ebeaf2]">
               <td className="px-3 py-2">{t.name}</td>
               <td className="px-3 py-2 text-right tabular-nums">{Number(t.rate)}%</td>
             </tr>
@@ -214,14 +214,14 @@ function SeriesSection() {
       <table className="w-full text-[13px]">
         <thead className="table-head">
           <tr>
-            <th className="border-y px-3 py-2">Document</th>
-            <th className="border-y px-3 py-2">Prefix</th>
-            <th className="border-y px-3 py-2 text-right">Next Number</th>
+            <th className="border-b border-[#ebeaf2] px-3 py-2">Document</th>
+            <th className="border-b border-[#ebeaf2] px-3 py-2">Prefix</th>
+            <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Next Number</th>
           </tr>
         </thead>
         <tbody>
           {series?.map((s) => (
-            <tr key={s.id} className="border-b">
+            <tr key={s.id} className="border-b border-[#ebeaf2]">
               <td className="px-3 py-2 capitalize">{s.entity.replace(/_/g, " ")}</td>
               <td className="px-3 py-2">
                 <input
@@ -275,15 +275,15 @@ function FinancialYearsSection() {
       <table className="mb-5 w-full text-[13px]">
         <thead className="table-head">
           <tr>
-            <th className="border-y px-3 py-2">Name</th>
-            <th className="border-y px-3 py-2">Period</th>
-            <th className="border-y px-3 py-2">Locked Through</th>
-            <th className="border-y px-3 py-2" />
+            <th className="border-b border-[#ebeaf2] px-3 py-2">Name</th>
+            <th className="border-b border-[#ebeaf2] px-3 py-2">Period</th>
+            <th className="border-b border-[#ebeaf2] px-3 py-2">Locked Through</th>
+            <th className="border-b border-[#ebeaf2] px-3 py-2" />
           </tr>
         </thead>
         <tbody>
           {years?.map((y) => (
-            <tr key={y.id} className="border-b">
+            <tr key={y.id} className="border-b border-[#ebeaf2]">
               <td className="px-3 py-2 font-medium">{y.name}</td>
               <td className="px-3 py-2">
                 {formatDate(y.startDate)} – {formatDate(y.endDate)}

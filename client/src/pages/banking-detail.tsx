@@ -159,12 +159,12 @@ export function BankingDetailPage({ bankAccountId }: { bankAccountId: string }) 
           <table className="w-full text-[13px]">
             <thead className="table-head sticky top-0">
               <tr>
-                <th className="border-b px-4 py-2.5">Date</th>
-                <th className="border-b px-4 py-2.5">Description</th>
-                <th className="border-b px-4 py-2.5">UTR</th>
-                <th className="border-b px-4 py-2.5 text-right">Withdrawal</th>
-                <th className="border-b px-4 py-2.5 text-right">Deposit</th>
-                <th className="border-b px-4 py-2.5">Status</th>
+                <th className="border-b border-[#ebeaf2] px-4 py-2.5">Date</th>
+                <th className="border-b border-[#ebeaf2] px-4 py-2.5">Description</th>
+                <th className="border-b border-[#ebeaf2] px-4 py-2.5">UTR</th>
+                <th className="border-b border-[#ebeaf2] px-4 py-2.5 text-right">Withdrawal</th>
+                <th className="border-b border-[#ebeaf2] px-4 py-2.5 text-right">Deposit</th>
+                <th className="border-b border-[#ebeaf2] px-4 py-2.5">Status</th>
               </tr>
             </thead>
             <tbody>
@@ -173,7 +173,7 @@ export function BankingDetailPage({ bankAccountId }: { bankAccountId: string }) 
                   <tr
                     key={t.id}
                     onClick={() => setExpanded(expanded === t.id ? null : t.id)}
-                    className="cursor-pointer border-b hover:bg-brand-50/40"
+                    className="cursor-pointer border-b border-[#ebeaf2] hover:bg-gray-50"
                   >
                     <td className="px-4 py-2.5">{formatDate(t.txnDate)}</td>
                     <td className="px-4 py-2.5">{t.description ?? t.counterparty ?? "—"}</td>
@@ -189,7 +189,7 @@ export function BankingDetailPage({ bankAccountId }: { bankAccountId: string }) 
                     </td>
                   </tr>
                   {expanded === t.id && (
-                    <tr key={`${t.id}-x`} className="border-b bg-gray-50">
+                    <tr key={`${t.id}-x`} className="border-b border-[#ebeaf2] bg-gray-50">
                       <td colSpan={6} className="px-6 py-4">
                         {t.matchStatus === "unmatched" ? (
                           <div className="flex flex-wrap items-end gap-3">

@@ -495,7 +495,7 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
               </thead>
               <tbody>
                 {doc.lines.map((l, i) => (
-                  <tr key={l.id} className="border-b">
+                  <tr key={l.id} className="border-b border-[#ebeaf2]">
                     <td className="px-3 py-2.5 text-gray-500">{i + 1}</td>
                     <td className="px-3 py-2.5">
                       <div className="font-medium">{l.name}</div>
@@ -565,14 +565,14 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
                 <table className="w-full text-[13px]">
                   <thead className="text-left text-xs uppercase tracking-wide text-gray-500">
                     <tr>
-                      <th className="border-y px-3 py-2">Payment #</th>
-                      <th className="border-y px-3 py-2">Date</th>
-                      <th className="border-y px-3 py-2 text-right">Amount Applied</th>
+                      <th className="border-b border-[#ebeaf2] px-3 py-2">Payment #</th>
+                      <th className="border-b border-[#ebeaf2] px-3 py-2">Date</th>
+                      <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Amount Applied</th>
                     </tr>
                   </thead>
                   <tbody>
                     {doc.payments.map((p, i) => (
-                      <tr key={i} className="border-b">
+                      <tr key={i} className="border-b border-[#ebeaf2]">
                         <td className="px-3 py-2">
                           <Link
                             href={`${isSales ? "/sales/payments" : "/purchases/payments"}/${p.paymentId}`}

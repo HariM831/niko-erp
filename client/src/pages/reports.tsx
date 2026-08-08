@@ -27,7 +27,7 @@ function Section({ title, rows, total }: { title: string; rows: Array<{ code: st
       <table className="w-full text-[13px]">
         <tbody>
           {rows.map((r) => (
-            <tr key={r.code + r.name} className="border-b border-gray-100">
+            <tr key={r.code + r.name} className="border-b border-[#ebeaf2]">
               <td className="py-1.5">{r.name}</td>
               <td className="py-1.5 text-right tabular-nums">{formatMoney(r.amount)}</td>
             </tr>
@@ -149,7 +149,7 @@ function ReportBody({ report, data }: { report: ReportKey; data: Record<string, 
         <>
           <table className="mb-4 w-full text-sm">
             <thead>
-              <tr className="border-b text-left text-xs uppercase text-gray-500">
+              <tr className="border-b border-[#ebeaf2] text-left text-xs uppercase text-gray-500">
                 {Object.keys(totals).map((k) => (
                   <th key={k} className="py-2 text-right first:text-left">{k}</th>
                 ))}
@@ -185,7 +185,7 @@ function ReportBody({ report, data }: { report: ReportKey; data: Record<string, 
         <>
           <table className="mb-4 w-full text-[13px]">
             <thead>
-              <tr className="border-b text-left text-xs uppercase text-gray-500">
+              <tr className="border-b border-[#ebeaf2] text-left text-xs uppercase text-gray-500">
                 <th className="py-2">Section</th>
                 <th className="py-2 text-right">Taxable</th>
                 <th className="py-2 text-right">CGST</th>
