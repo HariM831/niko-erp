@@ -77,8 +77,7 @@ export function JournalNewPage() {
     }
   };
 
-  const inputCls =
-    "w-full rounded border px-2 py-1.5 text-[13px] focus:border-brand-500 focus:outline-none";
+  const inputCls = "input";
 
   return (
     <div className="flex h-full flex-col">
@@ -89,21 +88,21 @@ export function JournalNewPage() {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="mb-5 grid max-w-3xl grid-cols-3 gap-4">
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">Date *</label>
+            <label className="label">Date *</label>
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
           </div>
           <div className="col-span-2">
-            <label className="mb-1 block text-xs font-medium text-gray-600">Narration *</label>
+            <label className="label">Narration *</label>
             <input value={narration} onChange={(e) => setNarration(e.target.value)} className={inputCls} />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">Reference</label>
+            <label className="label">Reference</label>
             <input value={reference} onChange={(e) => setReference(e.target.value)} className={inputCls} />
           </div>
         </div>
 
         <table className="mb-3 w-full max-w-4xl text-[13px]">
-          <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+          <thead className="table-head">
             <tr>
               <th className="border px-2 py-2">Account</th>
               <th className="w-32 border px-2 py-2 text-right">Debit</th>
@@ -179,7 +178,7 @@ export function JournalNewPage() {
         <button
           onClick={() => void post()}
           disabled={busy || !balanced || !narration.trim()}
-          className="rounded-md bg-brand-500 px-4 py-1.5 text-[13px] font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+          className="btn-primary"
         >
           Post Journal
         </button>

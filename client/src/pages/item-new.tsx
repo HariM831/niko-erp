@@ -81,9 +81,8 @@ export function ItemNewPage() {
     }
   };
 
-  const inputCls =
-    "w-full rounded border px-2 py-1.5 text-[13px] focus:border-brand-500 focus:outline-none";
-  const label = "mb-1 block text-xs font-medium text-gray-600";
+  const inputCls = "input";
+  const label = "label";
 
   return (
     <div className="flex h-full flex-col">
@@ -199,7 +198,7 @@ export function ItemNewPage() {
         <button
           onClick={() => void save()}
           disabled={busy || !canSave}
-          className="rounded-md bg-brand-500 px-4 py-1.5 text-[13px] font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+          className="btn-primary"
         >
           Save
         </button>

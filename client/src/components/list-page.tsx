@@ -135,13 +135,13 @@ export function ListPage<T>({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={searchPlaceholder}
-              className="w-52 rounded-md border px-3 py-1.5 text-[13px] focus:border-brand-500 focus:outline-none"
+              className="input w-52"
             />
           )}
           {handleNew && (
             <button
               onClick={handleNew}
-              className="rounded-md bg-brand-500 px-3.5 py-1.5 text-[13px] font-medium text-white hover:bg-brand-600"
+              className="btn-primary"
             >
               + New
             </button>
@@ -192,8 +192,10 @@ export function ListPage<T>({
                   <tr
                     key={k}
                     onClick={() => handleRow?.(row)}
-                    className={`border-b border-gray-100 ${handleRow ? "cursor-pointer" : ""} ${
-                      activeKey === k ? "bg-brand-50" : "hover:bg-gray-50"
+                    className={`border-b border-gray-100 transition-colors duration-100 ${handleRow ? "cursor-pointer" : ""} ${
+                      activeKey === k
+                        ? "bg-brand-50"
+                        : "odd:bg-white even:bg-gray-50/60 hover:bg-brand-50/40"
                     }`}
                   >
                     <td className={cellPad} onClick={(e) => e.stopPropagation()}>

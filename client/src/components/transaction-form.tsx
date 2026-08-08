@@ -162,8 +162,7 @@ export function TransactionForm({ config }: { config: TransactionFormConfig }) {
     }
   };
 
-  const inputCls =
-    "w-full rounded border px-2 py-1.5 text-[13px] focus:border-brand-500 focus:outline-none";
+  const inputCls = "input";
 
   return (
     <div className="flex h-full flex-col">
@@ -177,7 +176,7 @@ export function TransactionForm({ config }: { config: TransactionFormConfig }) {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="mb-5 grid max-w-3xl grid-cols-3 gap-4">
           <div className="col-span-2">
-            <label className="mb-1 block text-xs font-medium text-gray-600">
+            <label className="label">
               {config.contactLabel} *
             </label>
             <select value={contactId} onChange={(e) => setContactId(e.target.value)} className={inputCls}>
@@ -190,17 +189,17 @@ export function TransactionForm({ config }: { config: TransactionFormConfig }) {
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">{config.dateLabel} *</label>
+            <label className="label">{config.dateLabel} *</label>
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">Reference</label>
+            <label className="label">Reference</label>
             <input value={reference} onChange={(e) => setReference(e.target.value)} className={inputCls} />
           </div>
         </div>
 
         <table className="mb-3 w-full text-[13px]">
-          <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+          <thead className="table-head">
             <tr>
               <th className="w-56 border px-2 py-2">Item</th>
               <th className="border px-2 py-2">Details</th>
@@ -303,10 +302,10 @@ export function TransactionForm({ config }: { config: TransactionFormConfig }) {
 
         <div className="flex max-w-5xl items-start justify-between gap-8">
           <div className="flex-1">
-            <label className="mb-1 block text-xs font-medium text-gray-600">Notes</label>
+            <label className="label">Notes</label>
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className={inputCls} />
           </div>
-          <div className="w-80 rounded-lg bg-gray-50 p-4 text-[13px]">
+          <div className="w-80 rounded-xl border border-gray-200/80 bg-gray-50/80 p-5 text-[13px] shadow-[0_1px_3px_rgba(16,24,40,0.05)]">
             <div className="mb-1.5 flex justify-between">
               <span>Sub Total</span>
               <span className="tabular-nums">{formatMoney(totals.sub)}</span>
@@ -339,7 +338,7 @@ export function TransactionForm({ config }: { config: TransactionFormConfig }) {
         <button
           onClick={() => void save(config.withSend ? "draft" : undefined)}
           disabled={busy || !contactId}
-          className="rounded-md border px-4 py-1.5 text-[13px] font-medium hover:bg-gray-50 disabled:opacity-50"
+          className="btn-secondary"
         >
           Save as Draft
         </button>
@@ -347,7 +346,7 @@ export function TransactionForm({ config }: { config: TransactionFormConfig }) {
           <button
             onClick={() => void save("sent")}
             disabled={busy || !contactId}
-            className="rounded-md bg-brand-500 px-4 py-1.5 text-[13px] font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+            className="btn-primary"
           >
             Save and Send
           </button>

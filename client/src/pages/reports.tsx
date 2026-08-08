@@ -84,11 +84,11 @@ export function ReportsPage() {
         <div className="mb-4 flex items-center gap-3">
           <h1 className="text-lg font-semibold">{REPORTS.find((r) => r.key === active)?.label}</h1>
           {usesRange && (
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="rounded border px-2 py-1 text-sm" />
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="input w-auto py-1" />
           )}
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="rounded border px-2 py-1 text-sm" />
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="input w-auto py-1" />
         </div>
-        <div className="max-w-3xl rounded-lg border bg-white p-6">
+        <div className="card max-w-3xl p-8">
           {isLoading ? (
             <p className="text-sm text-gray-500">Loading…</p>
           ) : error ? (

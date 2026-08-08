@@ -86,7 +86,7 @@ export function ContactDetailPage({ id }: { id: string }) {
             <AttachmentsButton entityType="contact" entityId={contact.id} />
             <button
               onClick={() => setNewTxnOpen((o) => !o)}
-              className="rounded-md bg-brand-500 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-brand-600"
+              className="btn-primary"
             >
               New Transaction ▾
             </button>
@@ -185,7 +185,7 @@ function OverviewTab({
 
         <h3 className="mb-2 text-sm font-semibold">{isCustomer ? "Receivables" : "Payables"}</h3>
         <table className="w-full max-w-lg text-[13px]">
-          <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+          <thead className="table-head">
             <tr>
               <th className="border-y px-3 py-2">Currency</th>
               <th className="border-y px-3 py-2 text-right">
@@ -255,7 +255,7 @@ function TransactionsTab({
               </p>
             ) : (
               <table className="w-full max-w-4xl text-[13px]">
-                <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+                <thead className="table-head">
                   <tr>
                     <th className="border-y px-3 py-2">Date</th>
                     <th className="border-y px-3 py-2">Number</th>
@@ -329,15 +329,15 @@ function StatementTab({ id }: { id: string }) {
     <div className="p-6">
       <div className="mb-4 flex items-center gap-3">
         <h3 className="text-sm font-semibold">Statement of Account</h3>
-        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="rounded border px-2 py-1 text-[13px]" />
+        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="input w-auto py-1" />
         <span className="text-gray-400">to</span>
-        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="rounded border px-2 py-1 text-[13px]" />
-        <button onClick={() => window.print()} className="ml-auto rounded-md border px-3 py-1.5 text-[13px] font-medium hover:bg-gray-50 print:hidden">
+        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="input w-auto py-1" />
+        <button onClick={() => window.print()} className="btn-secondary ml-auto print:hidden">
           Print / PDF
         </button>
       </div>
       <table className="w-full max-w-4xl text-[13px]">
-        <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+        <thead className="table-head">
           <tr>
             <th className="border-y px-3 py-2">Date</th>
             <th className="border-y px-3 py-2">Transaction</th>

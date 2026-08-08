@@ -30,17 +30,19 @@ export function SettingsPage() {
         ))}
       </aside>
       <div className="flex-1 overflow-y-auto p-6">
+        <div className="card max-w-3xl p-6">
         {active === "org" && <OrgSection />}
         {active === "taxes" && <TaxesSection />}
         {active === "series" && <SeriesSection />}
         {active === "financial-years" && <FinancialYearsSection />}
+        </div>
       </div>
     </div>
   );
 }
 
-const inputCls = "w-full rounded border px-2 py-1.5 text-[13px] focus:border-brand-500 focus:outline-none";
-const labelCls = "mb-1 block text-xs font-medium text-gray-600";
+const inputCls = "input";
+const labelCls = "label";
 
 function OrgSection() {
   const qc = useQueryClient();
@@ -113,7 +115,7 @@ function OrgSection() {
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
       <button
         onClick={() => void save()}
-        className="mt-4 rounded-md bg-brand-500 px-4 py-1.5 text-[13px] font-medium text-white hover:bg-brand-600"
+        className="btn-primary mt-4"
       >
         Save {saved && "✓"}
       </button>
@@ -150,7 +152,7 @@ function TaxesSection() {
     <div className="max-w-xl">
       <h1 className="mb-4 text-lg font-semibold">Taxes</h1>
       <table className="mb-4 w-full text-[13px]">
-        <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+        <thead className="table-head">
           <tr>
             <th className="border-y px-3 py-2">Name</th>
             <th className="border-y px-3 py-2 text-right">Rate %</th>
@@ -177,7 +179,7 @@ function TaxesSection() {
         <button
           onClick={() => void add()}
           disabled={!name.trim() || !rate}
-          className="rounded-md bg-brand-500 px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-50"
+          className="btn-primary"
         >
           Add Tax
         </button>
@@ -209,7 +211,7 @@ function SeriesSection() {
     <div className="max-w-xl">
       <h1 className="mb-4 text-lg font-semibold">Document Numbering</h1>
       <table className="w-full text-[13px]">
-        <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+        <thead className="table-head">
           <tr>
             <th className="border-y px-3 py-2">Document</th>
             <th className="border-y px-3 py-2">Prefix</th>
@@ -228,7 +230,7 @@ function SeriesSection() {
                       void updatePrefix(s.id, e.target.value.trim());
                     }
                   }}
-                  className="w-28 rounded border px-2 py-1 text-[13px]"
+                  className="input w-28 py-1"
                 />
               </td>
               <td className="px-3 py-2 text-right tabular-nums">
@@ -270,7 +272,7 @@ function FinancialYearsSection() {
     <div className="max-w-2xl">
       <h1 className="mb-4 text-lg font-semibold">Financial Years &amp; Transaction Locking</h1>
       <table className="mb-5 w-full text-[13px]">
-        <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+        <thead className="table-head">
           <tr>
             <th className="border-y px-3 py-2">Name</th>
             <th className="border-y px-3 py-2">Period</th>
@@ -298,7 +300,7 @@ function FinancialYearsSection() {
                       }),
                     )
                   }
-                  className="rounded border px-2 py-1 text-xs"
+                  className="input w-auto py-1 text-xs"
                 />
                 {y.lockedThrough && (
                   <button
@@ -347,7 +349,7 @@ function FinancialYearsSection() {
             })
           }
           disabled={!form.name || !form.startDate || !form.endDate}
-          className="rounded-md bg-brand-500 px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-50"
+          className="btn-primary"
         >
           Add
         </button>

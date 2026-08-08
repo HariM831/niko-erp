@@ -120,7 +120,7 @@ export function BankingDetailPage({ bankAccountId }: { bankAccountId: string }) 
         </div>
         <button
           onClick={() => setShowImport((s) => !s)}
-          className="rounded-md bg-brand-500 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-brand-600"
+          className="btn-primary"
         >
           Import Statement
         </button>
@@ -145,7 +145,7 @@ export function BankingDetailPage({ bankAccountId }: { bankAccountId: string }) 
           <button
             onClick={() => void runImport()}
             disabled={!importText.trim()}
-            className="rounded-md bg-brand-500 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+            className="btn-primary"
           >
             Import
           </button>
@@ -157,7 +157,7 @@ export function BankingDetailPage({ bankAccountId }: { bankAccountId: string }) 
           <div className="p-12 text-center text-sm text-gray-500">No {tab} transactions.</div>
         ) : (
           <table className="w-full text-[13px]">
-            <thead className="sticky top-0 bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+            <thead className="table-head sticky top-0">
               <tr>
                 <th className="border-b px-4 py-2.5">Date</th>
                 <th className="border-b px-4 py-2.5">Description</th>
@@ -194,8 +194,8 @@ export function BankingDetailPage({ bankAccountId }: { bankAccountId: string }) 
                         {t.matchStatus === "unmatched" ? (
                           <div className="flex flex-wrap items-end gap-3">
                             <div className="w-72">
-                              <label className="mb-1 block text-xs font-medium text-gray-600">Categorize to account</label>
-                              <select value={catAccount} onChange={(e) => setCatAccount(e.target.value)} className="w-full rounded border px-2 py-1.5 text-[13px]">
+                              <label className="label">Categorize to account</label>
+                              <select value={catAccount} onChange={(e) => setCatAccount(e.target.value)} className="input">
                                 <option value="">Select account…</option>
                                 {accounts?.filter((a) => a.isActive).map((a) => (
                                   <option key={a.id} value={a.id}>{a.code} · {a.name}</option>
@@ -203,8 +203,8 @@ export function BankingDetailPage({ bankAccountId }: { bankAccountId: string }) 
                               </select>
                             </div>
                             <div className="w-72">
-                              <label className="mb-1 block text-xs font-medium text-gray-600">Narration</label>
-                              <input value={catNarration} onChange={(e) => setCatNarration(e.target.value)} className="w-full rounded border px-2 py-1.5 text-[13px]" />
+                              <label className="label">Narration</label>
+                              <input value={catNarration} onChange={(e) => setCatNarration(e.target.value)} className="input" />
                             </div>
                             <button
                               onClick={() =>
@@ -216,14 +216,14 @@ export function BankingDetailPage({ bankAccountId }: { bankAccountId: string }) 
                                 )
                               }
                               disabled={!catAccount}
-                              className="rounded-md bg-brand-500 px-3 py-1.5 text-[13px] font-medium text-white disabled:opacity-50"
+                              className="btn-primary"
                             >
                               Categorize
                             </button>
                             <span className="text-xs text-gray-400">or</span>
                             <div className="w-72">
-                              <label className="mb-1 block text-xs font-medium text-gray-600">Match to journal entry</label>
-                              <select value={matchJe} onChange={(e) => setMatchJe(e.target.value)} className="w-full rounded border px-2 py-1.5 text-[13px]">
+                              <label className="label">Match to journal entry</label>
+                              <select value={matchJe} onChange={(e) => setMatchJe(e.target.value)} className="input">
                                 <option value="">Select entry…</option>
                                 {journals?.map((j) => (
                                   <option key={j.id} value={j.id}>
@@ -242,7 +242,7 @@ export function BankingDetailPage({ bankAccountId }: { bankAccountId: string }) 
                                 )
                               }
                               disabled={!matchJe}
-                              className="rounded-md border px-3 py-1.5 text-[13px] font-medium disabled:opacity-50"
+                              className="btn-secondary"
                             >
                               Match
                             </button>
@@ -308,8 +308,8 @@ export function BankAccountNewPage() {
     }
   };
 
-  const inputCls = "w-full rounded border px-2 py-1.5 text-[13px] focus:border-brand-500 focus:outline-none";
-  const label = "mb-1 block text-xs font-medium text-gray-600";
+  const inputCls = "input";
+  const label = "label";
 
   return (
     <div className="flex h-full flex-col">
@@ -357,7 +357,7 @@ export function BankAccountNewPage() {
         <button
           onClick={() => void save()}
           disabled={busy || !form.name.trim()}
-          className="rounded-md bg-brand-500 px-4 py-1.5 text-[13px] font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+          className="btn-primary"
         >
           Save
         </button>

@@ -110,8 +110,7 @@ export function PaymentNewPage({ side }: { side: "customer" | "vendor" }) {
     }
   };
 
-  const inputCls =
-    "w-full rounded border px-2 py-1.5 text-[13px] focus:border-brand-500 focus:outline-none";
+  const inputCls = "input";
 
   return (
     <div className="flex h-full flex-col">
@@ -123,7 +122,7 @@ export function PaymentNewPage({ side }: { side: "customer" | "vendor" }) {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="mb-6 grid max-w-3xl grid-cols-3 gap-4">
           <div className="col-span-2">
-            <label className="mb-1 block text-xs font-medium text-gray-600">
+            <label className="label">
               {isCustomer ? "Customer" : "Vendor"} *
             </label>
             <select value={contactId} onChange={(e) => setContactId(e.target.value)} className={inputCls}>
@@ -134,21 +133,21 @@ export function PaymentNewPage({ side }: { side: "customer" | "vendor" }) {
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">Payment Date *</label>
+            <label className="label">Payment Date *</label>
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">Amount *</label>
+            <label className="label">Amount *</label>
             <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" className={inputCls} />
           </div>
           {!isCustomer && (
             <div>
-              <label className="mb-1 block text-xs font-medium text-gray-600">TDS Withheld</label>
+              <label className="label">TDS Withheld</label>
               <input value={tds} onChange={(e) => setTds(e.target.value)} placeholder="0.00" className={inputCls} />
             </div>
           )}
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">Mode</label>
+            <label className="label">Mode</label>
             <select value={mode} onChange={(e) => setMode(e.target.value)} className={inputCls}>
               {MODES.map((m) => (
                 <option key={m} value={m}>{m.replace(/_/g, " ")}</option>
@@ -156,7 +155,7 @@ export function PaymentNewPage({ side }: { side: "customer" | "vendor" }) {
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">
+            <label className="label">
               {isCustomer ? "Deposit To" : "Paid Through"} *
             </label>
             <select value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)} className={inputCls}>
@@ -167,7 +166,7 @@ export function PaymentNewPage({ side }: { side: "customer" | "vendor" }) {
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-gray-600">Reference #</label>
+            <label className="label">Reference #</label>
             <input value={reference} onChange={(e) => setReference(e.target.value)} className={inputCls} />
           </div>
         </div>
@@ -188,7 +187,7 @@ export function PaymentNewPage({ side }: { side: "customer" | "vendor" }) {
               </p>
             ) : (
               <table className="w-full text-[13px]">
-                <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+                <thead className="table-head">
                   <tr>
                     <th className="border px-3 py-2">Number</th>
                     <th className="border px-3 py-2">Due Date</th>
@@ -207,7 +206,7 @@ export function PaymentNewPage({ side }: { side: "customer" | "vendor" }) {
                           value={applied[d.id] ?? ""}
                           onChange={(e) => setApplied((a) => ({ ...a, [d.id]: e.target.value }))}
                           placeholder="0.00"
-                          className="w-full rounded border px-2 py-1 text-right text-[13px] tabular-nums focus:border-brand-500 focus:outline-none"
+                          className="input py-1 text-right tabular-nums"
                         />
                       </td>
                     </tr>
@@ -234,7 +233,7 @@ export function PaymentNewPage({ side }: { side: "customer" | "vendor" }) {
         <button
           onClick={() => void save()}
           disabled={busy || !contactId || !bankAccountId || Number(amount) <= 0 || unapplied < 0}
-          className="rounded-md bg-brand-500 px-4 py-1.5 text-[13px] font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+          className="btn-primary"
         >
           Record Payment
         </button>
