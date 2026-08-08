@@ -534,6 +534,30 @@ purchasesRouter.get("/payments", requirePermission("purchases", "view"), async (
   res.json(rows);
 });
 
+purchasesRouter.get("/payments/:id", requirePermission("purchases", "view"), async (req, res) => {
+  const payment = await db.query.vendorPayments.findFirst({
+    where: eq(vendorPayments.id, req.params.id!),
+  });
+  if (!payment) return res.status(404).json({ error: "Payment not found" });
+  const [contact] = await db
+    .select({ displayName: contacts.displayName })
+    .from(contacts)
+    .where(eq(contacts.id, payment.vendorId))
+    .limit(1);
+  const applications = await db
+    .select({
+      billId: vendorPaymentApplications.billId,
+      amountApplied: vendorPaymentApplications.amountApplied,
+      billNumber: bills.number,
+      billDate: bills.billDate,
+      billTotal: bills.total,
+    })
+    .from(vendorPaymentApplications)
+    .innerJoin(bills, eq(bills.id, vendorPaymentApplications.billId))
+    .where(eq(vendorPaymentApplications.paymentId, payment.id));
+  res.json({ ...payment, contactName: contact?.displayName ?? null, applications });
+});
+
 /**
  * Payment amount is the gross AP settled; cash out = amount - TDS withheld.
  * JE: DR Accounts Payable (gross), CR Bank (net), CR TDS Payable (withheld).
@@ -858,6 +882,30 @@ purchasesRouter.get("/expenses", requirePermission("purchases", "view"), async (
     .orderBy(desc(expenses.expenseDate))
     .limit(200);
   res.json(rows);
+});
+
+purchasesRouter.get("/expenses/:id", requirePermission("purchases", "view"), async (req, res) => {
+  const expense = await db.query.expenses.findFirst({ where: eq(expenses.id, req.params.id!) });
+  if (!expense) return res.status(404).json({ error: "Expense not found" });
+  const [acct] = await db
+    .select({ code: accounts.code, name: accounts.name })
+    .from(accounts)
+    .where(eq(accounts.id, expense.expenseAccountId))
+    .limit(1);
+  const [paidThrough] = await db
+    .select({ name: bankAccounts.name })
+    .from(bankAccounts)
+    .where(eq(bankAccounts.id, expense.paidThroughId))
+    .limit(1);
+  const vendor = expense.vendorId
+    ? await db.query.contacts.findFirst({ where: eq(contacts.id, expense.vendorId) })
+    : null;
+  res.json({
+    ...expense,
+    expenseAccountName: acct ? `${acct.code} · ${acct.name}` : null,
+    paidThroughName: paidThrough?.name ?? null,
+    contactName: vendor?.displayName ?? null,
+  });
 });
 
 /** DR expense (+ input GST if taxed), CR the paid-through bank/cash account. */

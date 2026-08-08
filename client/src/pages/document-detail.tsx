@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
 import { StatusBadge } from "../components/list-page";
@@ -44,7 +44,7 @@ interface DetailDoc {
   balance?: string;
   reference?: string;
   lines: DetailLine[];
-  payments?: Array<{ paymentNumber: string; paymentDate: string; amountApplied: string }>;
+  payments?: Array<{ paymentId: string; paymentNumber: string; paymentDate: string; amountApplied: string }>;
   applications?: Array<{ invoiceNumber: string; amountApplied: string }>;
   [k: string]: unknown;
 }
@@ -439,7 +439,16 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
                 <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
                   {isSales ? "Bill To" : "Vendor"}
                 </div>
-                <div className="font-semibold text-brand-700">{contact?.displayName ?? "—"}</div>
+                {contactId ? (
+                  <Link
+                    href={`${isSales ? "/sales/customers" : "/purchases/vendors"}/${contactId}`}
+                    className="block font-semibold text-brand-700 hover:underline"
+                  >
+                    {contact?.displayName ?? "—"}
+                  </Link>
+                ) : (
+                  <div className="font-semibold text-brand-700">{contact?.displayName ?? "—"}</div>
+                )}
                 {billingAddr?.line1 && <div className="text-gray-600">{billingAddr.line1}</div>}
                 <div className="text-gray-600">
                   {[billingAddr?.city, billingAddr?.state, billingAddr?.pincode].filter(Boolean).join(", ")}
@@ -559,7 +568,14 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
                   <tbody>
                     {doc.payments.map((p, i) => (
                       <tr key={i} className="border-b">
-                        <td className="px-3 py-2 font-medium text-brand-600">{p.paymentNumber}</td>
+                        <td className="px-3 py-2">
+                          <Link
+                            href={`${isSales ? "/sales/payments" : "/purchases/payments"}/${p.paymentId}`}
+                            className="font-medium text-brand-600 hover:underline"
+                          >
+                            {p.paymentNumber}
+                          </Link>
+                        </td>
                         <td className="px-3 py-2">{formatDate(p.paymentDate)}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{formatMoney(p.amountApplied)}</td>
                       </tr>

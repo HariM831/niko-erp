@@ -370,6 +370,30 @@ salesRouter.get("/payments", requirePermission("sales", "view"), async (req, res
   res.json(rows);
 });
 
+salesRouter.get("/payments/:id", requirePermission("sales", "view"), async (req, res) => {
+  const payment = await db.query.customerPayments.findFirst({
+    where: eq(customerPayments.id, req.params.id!),
+  });
+  if (!payment) return res.status(404).json({ error: "Payment not found" });
+  const [contact] = await db
+    .select({ displayName: contacts.displayName })
+    .from(contacts)
+    .where(eq(contacts.id, payment.customerId))
+    .limit(1);
+  const applications = await db
+    .select({
+      invoiceId: paymentApplications.invoiceId,
+      amountApplied: paymentApplications.amountApplied,
+      invoiceNumber: invoices.number,
+      invoiceDate: invoices.invoiceDate,
+      invoiceTotal: invoices.total,
+    })
+    .from(paymentApplications)
+    .innerJoin(invoices, eq(invoices.id, paymentApplications.invoiceId))
+    .where(eq(paymentApplications.paymentId, payment.id));
+  res.json({ ...payment, contactName: contact?.displayName ?? null, applications });
+});
+
 salesRouter.post(
   "/payments",
   requirePermission("sales", "create"),

@@ -35,6 +35,13 @@ import { JournalNewPage } from "./pages/journal-new";
 import { BankAccountNewPage, BankingDetailPage } from "./pages/banking-detail";
 import { SettingsPage } from "./pages/settings";
 import { ActivityLogPage } from "./pages/activity-log";
+import { ItemDetailPage } from "./pages/item-detail";
+import {
+  AccountLedgerPage,
+  ExpenseDetailPage,
+  JournalDetailPage,
+  PaymentDetailPage,
+} from "./pages/record-details";
 import { DocumentSplitView } from "./components/split-view";
 
 const SPLIT: Record<string, { endpoint: string; basePath: string; title: string; newPath: string; dateKey: string }> = {
@@ -69,6 +76,7 @@ export function App() {
       <Switch>
         <Route path="/" component={HomePage} />
         <Route path="/items/new" component={ItemNewPage} />
+        <Route path="/items/:id">{(p) => <ItemDetailPage id={p.id!} />}</Route>
         <Route path="/items" component={ItemsPage} />
         <Route path="/banking/new" component={BankAccountNewPage} />
         <Route path="/banking/:id">{(p) => <BankingDetailPage bankAccountId={p.id!} />}</Route>
@@ -86,6 +94,7 @@ export function App() {
         <Route path="/sales/invoices/:id">{(p) => <SplitDetail kind="invoice" id={p.id!} />}</Route>
         <Route path="/sales/invoices" component={InvoicesPage} />
         <Route path="/sales/payments/new">{() => <PaymentNewPage side="customer" />}</Route>
+        <Route path="/sales/payments/:id">{(p) => <PaymentDetailPage side="customer" id={p.id!} />}</Route>
         <Route path="/sales/payments" component={CustomerPaymentsPage} />
         <Route path="/sales/credit-notes/new">{() => <TransactionNewPage kind="credit-note" />}</Route>
         <Route path="/sales/credit-notes/:id">{(p) => <SplitDetail kind="credit-note" id={p.id!} />}</Route>
@@ -94,6 +103,7 @@ export function App() {
         <Route path="/purchases/vendors/:id">{(p) => <ContactDetailPage id={p.id!} />}</Route>
         <Route path="/purchases/vendors" component={VendorsPage} />
         <Route path="/purchases/expenses/new" component={ExpenseNewPage} />
+        <Route path="/purchases/expenses/:id">{(p) => <ExpenseDetailPage id={p.id!} />}</Route>
         <Route path="/purchases/expenses" component={ExpensesPage} />
         <Route path="/purchases/orders/new">{() => <TransactionNewPage kind="purchase-order" />}</Route>
         <Route path="/purchases/orders/:id">{(p) => <SplitDetail kind="purchase-order" id={p.id!} />}</Route>
@@ -102,12 +112,15 @@ export function App() {
         <Route path="/purchases/bills/:id">{(p) => <SplitDetail kind="bill" id={p.id!} />}</Route>
         <Route path="/purchases/bills" component={BillsPage} />
         <Route path="/purchases/payments/new">{() => <PaymentNewPage side="vendor" />}</Route>
+        <Route path="/purchases/payments/:id">{(p) => <PaymentDetailPage side="vendor" id={p.id!} />}</Route>
         <Route path="/purchases/payments" component={VendorPaymentsPage} />
         <Route path="/purchases/vendor-credits/new">{() => <TransactionNewPage kind="vendor-credit" />}</Route>
         <Route path="/purchases/vendor-credits/:id">{(p) => <SplitDetail kind="vendor-credit" id={p.id!} />}</Route>
         <Route path="/purchases/vendor-credits" component={VendorCreditsPage} />
         <Route path="/accountant/journals/new" component={JournalNewPage} />
+        <Route path="/accountant/journals/:id">{(p) => <JournalDetailPage id={p.id!} />}</Route>
         <Route path="/accountant/journals" component={JournalsPage} />
+        <Route path="/accountant/accounts/:id">{(p) => <AccountLedgerPage id={p.id!} />}</Route>
         <Route path="/accountant/accounts" component={AccountsPage} />
         <Route path="/reports" component={ReportsPage} />
         <Route path="/activity-log" component={ActivityLogPage} />

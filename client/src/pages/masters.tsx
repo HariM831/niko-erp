@@ -82,6 +82,7 @@ export const ItemsPage = () => (
     searchPlaceholder="Search items…"
     newLabel="New Item"
     newPath="/items/new"
+    rowPath={(r) => `/items/${r.id}`}
     columns={[
       {
         key: "name",
@@ -147,6 +148,7 @@ export const AccountsPage = () => (
     title="Chart of Accounts"
     endpoint="/api/accounting/accounts"
     rowKey={(r) => r.id}
+    rowPath={(r) => `/accountant/accounts/${r.id}`}
     newLabel="New Account"
     columns={[
       { key: "code", header: "Code", render: (r) => <span className="tabular-nums">{r.code}</span> },
@@ -177,6 +179,7 @@ export const JournalsPage = () => (
     rowKey={(r) => r.id}
     newLabel="New Journal"
     newPath="/accountant/journals/new"
+    rowPath={(r) => `/accountant/journals/${r.id}`}
     columns={[
       { key: "date", header: "Date", render: (r) => formatDate(r.entryDate) },
       { key: "number", header: "Number", render: (r) => <span className="font-medium text-brand-600">{r.entryNumber}</span> },

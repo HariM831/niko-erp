@@ -124,6 +124,7 @@ export const CustomerPaymentsPage = () => (
     endpoint="/api/sales/payments"
     rowKey={(r) => r.id}
     newPath="/sales/payments/new"
+    rowPath={(r) => `/sales/payments/${r.id}`}
     columns={[
       { key: "date", header: "Date", render: (r) => shortDate(r.paymentDate as string) },
       { key: "number", header: "Payment #", render: (r) => <span className="font-medium text-brand-600">{r.number}</span> },
@@ -177,6 +178,7 @@ export const VendorPaymentsPage = () => (
     endpoint="/api/purchases/payments"
     rowKey={(r) => r.id}
     newPath="/purchases/payments/new"
+    rowPath={(r) => `/purchases/payments/${r.id}`}
     columns={[
       { key: "date", header: "Date", render: (r) => shortDate(r.paymentDate as string) },
       { key: "number", header: "Payment #", render: (r) => <span className="font-medium text-brand-600">{r.number}</span> },
@@ -205,6 +207,7 @@ export const ExpensesPage = () => (
     endpoint="/api/purchases/expenses"
     rowKey={(r) => r.id}
     newPath="/purchases/expenses/new"
+    rowPath={(r) => `/purchases/expenses/${r.id}`}
     columns={[
       { key: "date", header: "Date", render: (r) => shortDate(r.expenseDate as string) },
       { key: "number", header: "Expense #", render: (r) => <span className="font-medium text-brand-600">{r.number}</span> },
