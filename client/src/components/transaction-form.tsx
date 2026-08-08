@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, formatMoney } from "../api";
+import { PendingAttachments, uploadPending } from "./pending-attachments";
 
 interface Contact {
   id: string;
@@ -46,6 +47,8 @@ export interface TransactionFormConfig {
   title: string;
   endpoint: string;
   listPath: string;
+  /** attachments entity_type for files queued on this form. */
+  entityType: string;
   contactType: "customer" | "vendor";
   contactLabel: string;
   dateField: string;
@@ -66,6 +69,7 @@ export function TransactionForm({ config }: { config: TransactionFormConfig }) {
   const [reference, setReference] = useState("");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<FormLine[]>([emptyLine()]);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -148,7 +152,13 @@ export function TransactionForm({ config }: { config: TransactionFormConfig }) {
       };
       if (notes) body.customerNotes = notes;
       if (saveAs) body.saveAs = saveAs;
-      await api(config.endpoint, { method: "POST", body });
+      const created = (await api(config.endpoint, { method: "POST", body })) as { id: string };
+      if (pendingFiles.length && created?.id) {
+        const failed = await uploadPending(config.entityType, created.id, pendingFiles);
+        if (failed.length) {
+          setError(`Saved, but these files failed to upload: ${failed.join(", ")}`);
+        }
+      }
       await qc.invalidateQueries();
       navigate(config.listPath);
     } catch (err) {
@@ -301,9 +311,12 @@ export function TransactionForm({ config }: { config: TransactionFormConfig }) {
         </button>
 
         <div className="flex max-w-5xl items-start justify-between gap-8">
-          <div className="flex-1">
-            <label className="label">Notes</label>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className={inputCls} />
+          <div className="flex-1 space-y-4">
+            <div>
+              <label className="label">Notes</label>
+              <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className={inputCls} />
+            </div>
+            <PendingAttachments files={pendingFiles} onChange={setPendingFiles} label={`Attach File(s) to ${config.title.replace("New ", "")}`} />
           </div>
           <div className="w-80 rounded-xl border border-gray-200/80 bg-gray-50/80 p-5 text-[13px] shadow-[0_1px_3px_rgba(16,24,40,0.05)]">
             <div className="mb-1.5 flex justify-between">

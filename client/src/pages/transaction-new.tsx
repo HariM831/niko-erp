@@ -3,6 +3,7 @@ import { TransactionForm, type TransactionFormConfig } from "../components/trans
 const configs: Record<string, TransactionFormConfig> = {
   invoice: {
     title: "New Invoice",
+    entityType: "invoice",
     endpoint: "/api/sales/invoices",
     listPath: "/sales/invoices",
     contactType: "customer",
@@ -13,6 +14,7 @@ const configs: Record<string, TransactionFormConfig> = {
   },
   estimate: {
     title: "New Estimate",
+    entityType: "estimate",
     endpoint: "/api/sales/estimates",
     listPath: "/sales/estimates",
     contactType: "customer",
@@ -22,6 +24,7 @@ const configs: Record<string, TransactionFormConfig> = {
   },
   "sales-order": {
     title: "New Sales Order",
+    entityType: "sales_order",
     endpoint: "/api/sales/sales-orders",
     listPath: "/sales/sales-orders",
     contactType: "customer",
@@ -31,6 +34,7 @@ const configs: Record<string, TransactionFormConfig> = {
   },
   "credit-note": {
     title: "New Credit Note",
+    entityType: "credit_note",
     endpoint: "/api/sales/credit-notes",
     listPath: "/sales/credit-notes",
     contactType: "customer",
@@ -40,6 +44,7 @@ const configs: Record<string, TransactionFormConfig> = {
   },
   bill: {
     title: "New Bill",
+    entityType: "bill",
     endpoint: "/api/purchases/bills",
     listPath: "/purchases/bills",
     contactType: "vendor",
@@ -50,6 +55,7 @@ const configs: Record<string, TransactionFormConfig> = {
   },
   "purchase-order": {
     title: "New Purchase Order",
+    entityType: "purchase_order",
     endpoint: "/api/purchases/orders",
     listPath: "/purchases/orders",
     contactType: "vendor",
@@ -60,6 +66,7 @@ const configs: Record<string, TransactionFormConfig> = {
   },
   "vendor-credit": {
     title: "New Vendor Credit",
+    entityType: "vendor_credit",
     endpoint: "/api/purchases/vendor-credits",
     listPath: "/purchases/vendor-credits",
     contactType: "vendor",

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
+import { PendingAttachments, uploadPending } from "../components/pending-attachments";
 
 interface Account {
   id: string;
@@ -37,6 +38,7 @@ export function ExpenseNewPage() {
   });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
 
   const { data: accounts } = useQuery({
     queryKey: ["accounts-all"],
@@ -62,7 +64,7 @@ export function ExpenseNewPage() {
     setBusy(true);
     setError(null);
     try {
-      await api("/api/purchases/expenses", {
+      const created = (await api("/api/purchases/expenses", {
         method: "POST",
         body: {
           expenseDate: form.expenseDate,
@@ -74,7 +76,11 @@ export function ExpenseNewPage() {
           reference: form.reference || undefined,
           notes: form.notes || undefined,
         },
-      });
+      })) as { id: string };
+      if (pendingFiles.length && created?.id) {
+        const failed = await uploadPending("expense", created.id, pendingFiles);
+        if (failed.length) setError(`Saved, but files failed: ${failed.join(", ")}`);
+      }
       await qc.invalidateQueries();
       navigate("/purchases/expenses");
     } catch (err) {
@@ -150,6 +156,9 @@ export function ExpenseNewPage() {
           <div className="col-span-2">
             <label className={label}>Notes</label>
             <textarea value={form.notes} onChange={set("notes")} rows={2} className={inputCls} />
+          </div>
+          <div className="col-span-2">
+            <PendingAttachments files={pendingFiles} onChange={setPendingFiles} label="Attach Receipt(s)" />
           </div>
         </div>
         {error && <p className="mt-4 text-sm text-red-600">{error}</p>}

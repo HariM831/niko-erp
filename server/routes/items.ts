@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { and, asc, eq, ilike, or } from "drizzle-orm";
 import { z } from "zod";
-import { items, itemType, taxes } from "@shared/schema";
+import { attachments, items, itemType, taxes } from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
@@ -49,7 +49,15 @@ itemsRouter.get("/", requirePermission("items", "view"), async (req, res) => {
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(asc(items.name))
     .limit(500);
-  res.json(rows);
+
+  // Latest image attachment per item, used as the list thumbnail.
+  const images = await db
+    .select({ entityId: attachments.entityId, id: attachments.id })
+    .from(attachments)
+    .where(and(eq(attachments.entityType, "item"), ilike(attachments.mimeType, "image/%")))
+    .orderBy(asc(attachments.createdAt));
+  const imageByItem = new Map(images.map((a) => [a.entityId, a.id]));
+  res.json(rows.map((r) => ({ ...r, imageId: imageByItem.get(r.id) ?? null })));
 });
 
 itemsRouter.get("/:id", requirePermission("items", "view"), async (req, res) => {

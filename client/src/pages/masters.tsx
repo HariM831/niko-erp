@@ -1,5 +1,6 @@
 import { ListPage, StatusBadge } from "../components/list-page";
 import { AttachmentsButton } from "../components/attachments";
+import { Package } from "lucide-react";
 import { formatDate, formatMoney } from "../api";
 
 interface ContactRow {
@@ -69,6 +70,7 @@ interface ItemRow {
   sellingPrice?: string;
   costPrice?: string;
   trackInventory?: boolean;
+  imageId?: string | null;
   isActive: boolean;
 }
 
@@ -85,9 +87,22 @@ export const ItemsPage = () => (
         key: "name",
         header: "Name",
         render: (r) => (
-          <div>
-            <div className="font-medium text-brand-600">{r.name}</div>
-            {r.sku && <div className="text-xs text-gray-500">SKU: {r.sku}</div>}
+          <div className="flex items-center gap-2.5">
+            {r.imageId ? (
+              <img
+                src={`/api/attachments/${r.imageId}/download`}
+                alt=""
+                className="h-9 w-9 rounded-lg border border-gray-200 object-cover"
+              />
+            ) : (
+              <span className="grid h-9 w-9 place-items-center rounded-lg bg-gray-100 text-gray-400">
+                <Package size={15} />
+              </span>
+            )}
+            <div>
+              <div className="font-medium text-brand-600">{r.name}</div>
+              {r.sku && <div className="text-xs text-gray-500">SKU: {r.sku}</div>}
+            </div>
           </div>
         ),
       },

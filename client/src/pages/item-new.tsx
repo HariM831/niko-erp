@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
+import { uploadPending } from "../components/pending-attachments";
+import { ImagePlus, X } from "lucide-react";
 
 interface Account {
   id: string;
@@ -35,6 +37,7 @@ export function ItemNewPage() {
   });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [image, setImage] = useState<File | null>(null);
 
   const { data: accounts } = useQuery({
     queryKey: ["accounts-all"],
@@ -53,7 +56,7 @@ export function ItemNewPage() {
     setBusy(true);
     setError(null);
     try {
-      await api("/api/items", {
+      const created = (await api("/api/items", {
         method: "POST",
         body: {
           type: form.type,
@@ -71,7 +74,11 @@ export function ItemNewPage() {
           openingStock: form.trackInventory && form.openingStock ? Number(form.openingStock).toFixed(3) : undefined,
           reorderLevel: form.trackInventory && form.reorderLevel ? Number(form.reorderLevel).toFixed(3) : undefined,
         },
-      });
+      })) as { id: string };
+      if (image && created?.id) {
+        const failed = await uploadPending("item", created.id, [image]);
+        if (failed.length) setError("Item saved, but the image failed to upload");
+      }
       await qc.invalidateQueries();
       navigate("/items");
     } catch (err) {
@@ -91,6 +98,38 @@ export function ItemNewPage() {
         <button onClick={() => navigate("/items")} className="text-xl text-gray-400 hover:text-gray-700">×</button>
       </header>
       <div className="flex-1 overflow-y-auto p-6">
+        <div className="mb-5 max-w-2xl">
+          <label className={label}>Item Image</label>
+          {image ? (
+            <div className="relative inline-block">
+              <img
+                src={URL.createObjectURL(image)}
+                alt="Item preview"
+                className="h-28 w-28 rounded-xl border border-gray-200 object-cover shadow-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setImage(null)}
+                className="absolute -right-2 -top-2 grid h-6 w-6 place-items-center rounded-full bg-white text-gray-500 shadow-md hover:text-red-500"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          ) : (
+            <label className="grid h-28 w-28 cursor-pointer place-items-center rounded-xl border border-dashed border-gray-300 bg-gray-50/60 text-gray-400 transition-colors hover:border-brand-400 hover:bg-brand-50/40 hover:text-brand-500">
+              <span className="grid place-items-center gap-1 text-center">
+                <ImagePlus size={20} />
+                <span className="text-[11px] font-medium">Add Image</span>
+              </span>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={(e) => setImage(e.target.files?.[0] ?? null)}
+              />
+            </label>
+          )}
+        </div>
         <div className="grid max-w-2xl grid-cols-2 gap-4">
           <div>
             <label className={label}>Type</label>
