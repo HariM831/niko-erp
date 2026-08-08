@@ -88,11 +88,11 @@ export function JournalNewPage() {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="mb-5 grid max-w-3xl grid-cols-3 gap-4">
           <div>
-            <label className="label">Date *</label>
+            <label className="label-required">Date *</label>
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
           </div>
           <div className="col-span-2">
-            <label className="label">Narration *</label>
+            <label className="label-required">Narration *</label>
             <input value={narration} onChange={(e) => setNarration(e.target.value)} className={inputCls} />
           </div>
           <div>
@@ -177,7 +177,7 @@ export function JournalNewPage() {
       <footer className="flex items-center gap-2 border-t bg-white px-6 py-3">
         <button
           onClick={() => void post()}
-          disabled={busy || !balanced || !narration.trim()}
+          disabled={busy || !date || !balanced || !narration.trim()}
           className="btn-primary"
         >
           Post Journal

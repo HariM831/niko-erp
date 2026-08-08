@@ -102,15 +102,15 @@ export function ExpenseNewPage() {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="grid max-w-2xl grid-cols-2 gap-4">
           <div>
-            <label className={label}>Date *</label>
+            <label className="label-required">Date *</label>
             <input type="date" value={form.expenseDate} onChange={set("expenseDate")} className={inputCls} />
           </div>
           <div>
-            <label className={label}>Amount *</label>
+            <label className="label-required">Amount *</label>
             <input value={form.amount} onChange={set("amount")} placeholder="0.00" className={inputCls} />
           </div>
           <div>
-            <label className={label}>Expense Account *</label>
+            <label className="label-required">Expense Account *</label>
             <select value={form.expenseAccountId} onChange={set("expenseAccountId")} className={inputCls}>
               <option value="">Select account…</option>
               {accounts
@@ -123,7 +123,7 @@ export function ExpenseNewPage() {
             </select>
           </div>
           <div>
-            <label className={label}>Paid Through *</label>
+            <label className="label-required">Paid Through *</label>
             <select value={form.paidThroughId} onChange={set("paidThroughId")} className={inputCls}>
               <option value="">Select account…</option>
               {banks?.map((b) => (
@@ -166,7 +166,7 @@ export function ExpenseNewPage() {
       <footer className="flex items-center gap-2 border-t bg-white px-6 py-3">
         <button
           onClick={() => void save()}
-          disabled={busy || !form.expenseAccountId || !form.paidThroughId || Number(form.amount) <= 0}
+          disabled={busy || !form.expenseDate || !form.expenseAccountId || !form.paidThroughId || Number(form.amount) <= 0}
           className="btn-primary"
         >
           Save Expense

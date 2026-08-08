@@ -122,7 +122,7 @@ export function PaymentNewPage({ side }: { side: "customer" | "vendor" }) {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="mb-6 grid max-w-3xl grid-cols-3 gap-4">
           <div className="col-span-2">
-            <label className="label">
+            <label className="label-required">
               {isCustomer ? "Customer" : "Vendor"} *
             </label>
             <select value={contactId} onChange={(e) => setContactId(e.target.value)} className={inputCls}>
@@ -133,11 +133,11 @@ export function PaymentNewPage({ side }: { side: "customer" | "vendor" }) {
             </select>
           </div>
           <div>
-            <label className="label">Payment Date *</label>
+            <label className="label-required">Payment Date *</label>
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
           </div>
           <div>
-            <label className="label">Amount *</label>
+            <label className="label-required">Amount *</label>
             <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0.00" className={inputCls} />
           </div>
           {!isCustomer && (
@@ -155,7 +155,7 @@ export function PaymentNewPage({ side }: { side: "customer" | "vendor" }) {
             </select>
           </div>
           <div>
-            <label className="label">
+            <label className="label-required">
               {isCustomer ? "Deposit To" : "Paid Through"} *
             </label>
             <select value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)} className={inputCls}>
@@ -232,7 +232,7 @@ export function PaymentNewPage({ side }: { side: "customer" | "vendor" }) {
       <footer className="flex items-center gap-2 border-t bg-white px-6 py-3">
         <button
           onClick={() => void save()}
-          disabled={busy || !contactId || !bankAccountId || Number(amount) <= 0 || unapplied < 0}
+          disabled={busy || !date || !contactId || !bankAccountId || Number(amount) <= 0 || unapplied < 0}
           className="btn-primary"
         >
           Record Payment

@@ -320,7 +320,7 @@ export function BankAccountNewPage() {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="grid max-w-xl grid-cols-2 gap-4">
           <div>
-            <label className={label}>Account Name *</label>
+            <label className="label-required">Account Name *</label>
             <input value={form.name} onChange={set("name")} className={inputCls} autoFocus />
           </div>
           <div>

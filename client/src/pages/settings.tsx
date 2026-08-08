@@ -107,7 +107,7 @@ function OrgSection() {
       <div className="grid grid-cols-2 gap-4">
         {fields.map(([k, l]) => (
           <div key={k} className={k === "address" ? "col-span-2" : ""}>
-            <label className={labelCls}>{l}</label>
+            <label className={l.endsWith("*") ? "label-required" : labelCls}>{l}</label>
             <input value={form[k] ?? ""} onChange={set(k)} className={inputCls} />
           </div>
         ))}
@@ -115,6 +115,7 @@ function OrgSection() {
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
       <button
         onClick={() => void save()}
+        disabled={!form.name?.trim()}
         className="btn-primary mt-4"
       >
         Save {saved && "✓"}

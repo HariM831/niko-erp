@@ -107,7 +107,11 @@ export function ItemNewPage({ editId }: { editId?: string }) {
 
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
-  const canSave = form.name.trim() && (!form.trackInventory || form.inventoryAccountId);
+  const canSave =
+    form.name.trim() &&
+    (!form.trackInventory || form.inventoryAccountId) &&
+    (!form.isSold || form.sellingPrice.trim()) &&
+    (!form.isPurchased || form.costPrice.trim());
 
   const save = async () => {
     setBusy(true);
@@ -170,7 +174,7 @@ export function ItemNewPage({ editId }: { editId?: string }) {
           {/* Left: core fields — right: image, mirroring Zoho's New Item layout */}
           <div className="col-span-2 space-y-4">
             <div>
-              <label className={label}>Name *</label>
+              <label className="label-required">Name *</label>
               <input value={form.name} onChange={set("name")} className={inputCls} autoFocus />
             </div>
 
@@ -281,7 +285,7 @@ export function ItemNewPage({ editId }: { editId?: string }) {
           {form.isSold && (
             <div className="mt-3 grid grid-cols-2 gap-4">
               <div>
-                <label className={label}>Selling Price</label>
+                <label className="label-required">Selling Price *</label>
                 <div className="flex overflow-hidden rounded-lg border border-gray-200 focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-100">
                   <span className="flex items-center bg-gray-50 px-2.5 text-[13px] text-gray-500">INR</span>
                   <input
@@ -293,7 +297,7 @@ export function ItemNewPage({ editId }: { editId?: string }) {
                 </div>
               </div>
               <div>
-                <label className={label}>Account</label>
+                <label className="label-required">Account *</label>
                 <select value={form.salesAccountId} onChange={set("salesAccountId")} className={inputCls}>
                   <option value="">Sales (default)</option>
                   {accounts
@@ -325,7 +329,7 @@ export function ItemNewPage({ editId }: { editId?: string }) {
           {form.isPurchased && (
             <div className="mt-3 grid grid-cols-2 gap-4">
               <div>
-                <label className={label}>Cost Price</label>
+                <label className="label-required">Cost Price *</label>
                 <div className="flex overflow-hidden rounded-lg border border-gray-200 focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-100">
                   <span className="flex items-center bg-gray-50 px-2.5 text-[13px] text-gray-500">INR</span>
                   <input
@@ -337,7 +341,7 @@ export function ItemNewPage({ editId }: { editId?: string }) {
                 </div>
               </div>
               <div>
-                <label className={label}>Account</label>
+                <label className="label-required">Account *</label>
                 <select value={form.purchaseAccountId} onChange={set("purchaseAccountId")} className={inputCls}>
                   <option value="">Cost of Goods Sold (default)</option>
                   {accounts
@@ -381,7 +385,7 @@ export function ItemNewPage({ editId }: { editId?: string }) {
           {form.trackInventory && (
             <div className="ml-6 mt-3 grid grid-cols-3 gap-4">
               <div>
-                <label className="label">Inventory Account *</label>
+                <label className="label-required">Inventory Account *</label>
                 <select value={form.inventoryAccountId} onChange={set("inventoryAccountId")} className={inputCls}>
                   <option value="">Select an account</option>
                   {accounts

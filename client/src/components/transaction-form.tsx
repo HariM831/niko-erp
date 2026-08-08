@@ -225,7 +225,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
       <div className="flex-1 overflow-y-auto p-6">
         <div className="mb-5 grid max-w-3xl grid-cols-3 gap-4">
           <div className="col-span-2">
-            <label className="label">
+            <label className="label-required">
               {config.contactLabel} *
             </label>
             <select value={contactId} onChange={(e) => setContactId(e.target.value)} className={inputCls}>
@@ -238,7 +238,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
             </select>
           </div>
           <div>
-            <label className="label">{config.dateLabel} *</label>
+            <label className="label-required">{config.dateLabel} *</label>
             <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
           </div>
           <div>
@@ -389,7 +389,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
       <footer className="flex items-center gap-2 border-t bg-white px-6 py-3">
         <button
           onClick={() => void save(config.withSend && !editId ? "draft" : undefined)}
-          disabled={busy || !contactId}
+          disabled={busy || !contactId || !date}
           className={editId ? "btn-primary" : "btn-secondary"}
         >
           {editId ? "Save Changes" : "Save as Draft"}
@@ -397,7 +397,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
         {config.withSend && !editId && (
           <button
             onClick={() => void save("sent")}
-            disabled={busy || !contactId}
+            disabled={busy || !contactId || !date}
             className="btn-primary"
           >
             Save and Send

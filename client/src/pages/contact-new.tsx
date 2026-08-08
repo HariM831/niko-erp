@@ -124,7 +124,7 @@ export function ContactNewPage({ type, editId }: { type: "customer" | "vendor"; 
       <div className="flex-1 overflow-y-auto p-6">
         <div className="grid max-w-2xl grid-cols-2 gap-4">
           <div>
-            <label className={label}>Display Name *</label>
+            <label className="label-required">Display Name *</label>
             <input value={form.displayName} onChange={set("displayName")} className={inputCls} autoFocus />
           </div>
           <div>
