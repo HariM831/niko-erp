@@ -68,6 +68,7 @@ interface ItemRow {
   type: string;
   sellingPrice?: string;
   costPrice?: string;
+  trackInventory?: boolean;
   isActive: boolean;
 }
 
@@ -94,6 +95,26 @@ export const ItemsPage = () => (
       { key: "unit", header: "Unit", render: (r) => r.unit },
       { key: "sell", header: "Selling Price", align: "right", render: (r) => (r.sellingPrice ? formatMoney(r.sellingPrice) : "—") },
       { key: "cost", header: "Cost Price", align: "right", render: (r) => (r.costPrice ? formatMoney(r.costPrice) : "—") },
+      {
+        key: "inv",
+        header: "Inventory",
+        render: (r) =>
+          r.trackInventory ? (
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-green-600">Tracked</span>
+          ) : (
+            <span className="text-[11px] uppercase tracking-wide text-gray-400">—</span>
+          ),
+      },
+      {
+        key: "files",
+        header: "",
+        align: "right",
+        render: (r) => (
+          <div onClick={(e) => e.stopPropagation()} className="inline-block">
+            <AttachmentsButton entityType="item" entityId={r.id} />
+          </div>
+        ),
+      },
     ]}
   />
 );

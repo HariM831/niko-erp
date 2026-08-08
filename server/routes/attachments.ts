@@ -37,6 +37,7 @@ const ENTITY_TYPES = new Set([
   "expense",
   "journal_entry",
   "contact",
+  "item",
 ]);
 
 const storage = multer.diskStorage({

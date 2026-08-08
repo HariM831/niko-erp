@@ -24,11 +24,10 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-/** Toolbar button + slide-down drawer with the comment timeline. */
-export function CommentsButton({
+/** Inline comment timeline — used by the drawer and the contact Comments tab. */
+export function CommentsTimeline({
   entityType,
   entityId,
-  /** System events shown interleaved at the top of the timeline. */
   history,
 }: {
   entityType: string;
@@ -37,17 +36,6 @@ export function CommentsButton({
 }) {
   const { user } = useAuth();
   const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [open]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -81,23 +69,8 @@ export function CommentsButton({
   const count = rows?.length ?? 0;
 
   return (
-    <div className="relative" ref={panelRef}>
-      <button onClick={() => setOpen((o) => !o)} className="btn-ghost relative p-2" title="Comments & History">
-        <MessageSquare size={15} />
-        {count > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 grid h-4 w-4 place-items-center rounded-full bg-brand-500 text-[10px] font-bold text-white">
-            {count}
-          </span>
-        )}
-      </button>
-
-      {open && (
-        <div className="absolute right-0 top-10 z-30 flex max-h-[480px] w-96 flex-col rounded-xl border border-gray-100 bg-white shadow-xl">
-          <div className="border-b border-gray-100 px-4 py-2.5 text-[13px] font-bold">
-            Comments &amp; History
-          </div>
-
-          <div className="flex-1 overflow-y-auto px-4 py-3">
+    <>
+      <div className="flex-1 overflow-y-auto px-4 py-3">
             {history
               ?.filter((h) => h.at)
               .map((h, i) => (
@@ -161,7 +134,56 @@ export function CommentsButton({
             >
               <Send size={14} />
             </button>
+      </div>
+    </>
+  );
+}
+
+/** Toolbar button + drawer wrapping the timeline. */
+export function CommentsButton({
+  entityType,
+  entityId,
+  history,
+}: {
+  entityType: string;
+  entityId: string;
+  history?: Array<{ label: string; at: string | null | undefined }>;
+}) {
+  const [open, setOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  const { data: rows } = useQuery({
+    queryKey: ["comments", entityType, entityId],
+    queryFn: () => api<Comment[]>(`/api/comments?entityType=${entityType}&entityId=${entityId}`),
+  });
+  const count = rows?.length ?? 0;
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={panelRef}>
+      <button onClick={() => setOpen((o) => !o)} className="btn-ghost relative p-2" title="Comments & History">
+        <MessageSquare size={15} />
+        {count > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 grid h-4 w-4 place-items-center rounded-full bg-brand-500 text-[10px] font-bold text-white">
+            {count}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-10 z-30 flex max-h-[480px] w-96 flex-col rounded-xl border border-gray-100 bg-white shadow-xl">
+          <div className="border-b border-gray-100 px-4 py-2.5 text-[13px] font-bold">
+            Comments &amp; History
           </div>
+          <CommentsTimeline entityType={entityType} entityId={entityId} history={history} />
         </div>
       )}
     </div>

@@ -34,6 +34,7 @@ import { ItemNewPage } from "./pages/item-new";
 import { JournalNewPage } from "./pages/journal-new";
 import { BankAccountNewPage, BankingDetailPage } from "./pages/banking-detail";
 import { SettingsPage } from "./pages/settings";
+import { ActivityLogPage } from "./pages/activity-log";
 import { DocumentSplitView } from "./components/split-view";
 
 const SPLIT: Record<string, { endpoint: string; basePath: string; title: string; newPath: string; dateKey: string }> = {
@@ -109,6 +110,7 @@ export function App() {
         <Route path="/accountant/journals" component={JournalsPage} />
         <Route path="/accountant/accounts" component={AccountsPage} />
         <Route path="/reports" component={ReportsPage} />
+        <Route path="/activity-log" component={ActivityLogPage} />
         <Route path="/settings" component={SettingsPage} />
         <Route>
           <div className="p-8 text-sm text-gray-500">Page not found.</div>

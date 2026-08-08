@@ -19,6 +19,15 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+export function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  const user = req.session.user;
+  if (!user) return res.status(401).json({ error: "Not authenticated" });
+  if (!user.permissions["*"]?.includes("*")) {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+  next();
+}
+
 /**
  * Permission gate — used on EVERY module route, not just defined.
  * "*" as a module or action grants everything (admin role).

@@ -28,6 +28,10 @@ export function ItemNewPage() {
     costPrice: "",
     purchaseAccountId: "",
     taxId: "",
+    trackInventory: false,
+    inventoryAccountId: "",
+    openingStock: "",
+    reorderLevel: "",
   });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -43,6 +47,7 @@ export function ItemNewPage() {
 
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
+  const canSave = form.name.trim() && (!form.trackInventory || form.inventoryAccountId);
 
   const save = async () => {
     setBusy(true);
@@ -61,6 +66,10 @@ export function ItemNewPage() {
           costPrice: form.costPrice ? Number(form.costPrice).toFixed(2) : undefined,
           purchaseAccountId: form.purchaseAccountId || undefined,
           taxId: form.taxId || undefined,
+          trackInventory: form.trackInventory,
+          inventoryAccountId: form.trackInventory ? form.inventoryAccountId || undefined : undefined,
+          openingStock: form.trackInventory && form.openingStock ? Number(form.openingStock).toFixed(3) : undefined,
+          reorderLevel: form.trackInventory && form.reorderLevel ? Number(form.reorderLevel).toFixed(3) : undefined,
         },
       });
       await qc.invalidateQueries();
@@ -146,13 +155,50 @@ export function ItemNewPage() {
               </select>
             </div>
           </div>
+          <div className="col-span-2 mt-2 border-t pt-4">
+            <label className="flex cursor-pointer items-center gap-2.5">
+              <input
+                type="checkbox"
+                checked={form.trackInventory}
+                onChange={(e) => setForm((f) => ({ ...f, trackInventory: e.target.checked }))}
+                className="h-4 w-4 accent-brand-500"
+              />
+              <span className="text-sm font-semibold">Track inventory for this item</span>
+            </label>
+            <p className="ml-6 mt-0.5 text-xs text-gray-500">
+              Stock levels are maintained and an inventory asset account is required.
+            </p>
+            {form.trackInventory && (
+              <div className="ml-6 mt-3 grid grid-cols-3 gap-4">
+                <div>
+                  <label className="label">Inventory Account *</label>
+                  <select value={form.inventoryAccountId} onChange={set("inventoryAccountId")} className={inputCls}>
+                    <option value="">Select account…</option>
+                    {accounts
+                      ?.filter((a) => a.type === "asset")
+                      .map((a) => (
+                        <option key={a.id} value={a.id}>{a.code} · {a.name}</option>
+                      ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Opening Stock</label>
+                  <input value={form.openingStock} onChange={set("openingStock")} placeholder="0" className={inputCls} />
+                </div>
+                <div>
+                  <label className="label">Reorder Level</label>
+                  <input value={form.reorderLevel} onChange={set("reorderLevel")} placeholder="0" className={inputCls} />
+                </div>
+              </div>
+            )}
+          </div>
         </div>
         {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
       </div>
       <footer className="flex items-center gap-2 border-t bg-white px-6 py-3">
         <button
           onClick={() => void save()}
-          disabled={busy || !form.name.trim()}
+          disabled={busy || !canSave}
           className="rounded-md bg-brand-500 px-4 py-1.5 text-[13px] font-medium text-white hover:bg-brand-600 disabled:opacity-50"
         >
           Save

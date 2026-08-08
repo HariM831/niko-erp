@@ -15,6 +15,8 @@ import { reportsRouter } from "./routes/reports";
 import { settingsRouter } from "./routes/settings";
 import { attachmentsRouter } from "./routes/attachments";
 import { commentsRouter } from "./routes/comments";
+import { activityRouter } from "./routes/activity";
+import { activityLogger } from "./lib/activity";
 import { requireAuth } from "./lib/rbac";
 
 const SESSION_SECRET = process.env.SESSION_SECRET;
@@ -62,7 +64,9 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use("/api", activityLogger);
 app.use("/api/auth", authRouter);
+app.use("/api/activity-log", activityRouter);
 app.use("/api/accounting", requireAuth, accountingRouter);
 app.use("/api/contacts", requireAuth, contactInsightsRouter);
 app.use("/api/contacts", requireAuth, contactsRouter);

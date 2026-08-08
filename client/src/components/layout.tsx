@@ -10,6 +10,7 @@ import {
   LogOut,
   Package,
   PieChart,
+  ScrollText,
   Settings,
   ShoppingCart,
 } from "lucide-react";
@@ -67,6 +68,10 @@ const NAV: NavItem[] = [
   { label: "Settings", icon: Settings, path: "/settings" },
 ];
 
+const ADMIN_NAV: NavItem[] = [
+  { label: "Activity Log", icon: ScrollText, path: "/activity-log" },
+];
+
 export function AppLayout({ children }: { children: ReactNode }) {
   const [location] = useLocation();
   const { user, logout } = useAuth();
@@ -78,6 +83,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const isGroupActive = (item: NavItem) =>
     item.children?.some((c) => location.startsWith(c.path)) ?? false;
 
+  const isAdmin = user?.permissions["*"]?.includes("*") ?? false;
+  const navItems = isAdmin ? [...NAV, ...ADMIN_NAV] : NAV;
+
   return (
     <div className="flex h-screen overflow-hidden">
       <aside className="flex w-[218px] flex-col bg-sidebar text-gray-400 print:hidden">
@@ -88,7 +96,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           <span className="text-[15px] font-bold tracking-tight text-white">Eggsy Books</span>
         </div>
         <nav className="flex-1 overflow-y-auto px-2.5 py-2 text-[13px]">
-          {NAV.map((item) => {
+          {navItems.map((item) => {
             const Icon = item.icon;
             if (item.children) {
               const groupActive = isGroupActive(item);

@@ -3,6 +3,8 @@ import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
 import { StatusBadge } from "../components/list-page";
+import { CommentsTimeline } from "../components/comments";
+import { AttachmentsButton } from "../components/attachments";
 
 interface Contact {
   id: string;
@@ -32,7 +34,7 @@ interface DocRow {
   [k: string]: unknown;
 }
 
-type Tab = "overview" | "transactions" | "statement";
+type Tab = "overview" | "comments" | "transactions" | "statement";
 
 export function ContactDetailPage({ id }: { id: string }) {
   const [, navigate] = useLocation();
@@ -81,6 +83,7 @@ export function ContactDetailPage({ id }: { id: string }) {
             </span>
           </div>
           <div className="relative flex items-center gap-2">
+            <AttachmentsButton entityType="contact" entityId={contact.id} />
             <button
               onClick={() => setNewTxnOpen((o) => !o)}
               className="rounded-md bg-brand-500 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-brand-600"
@@ -103,7 +106,7 @@ export function ContactDetailPage({ id }: { id: string }) {
           </div>
         </div>
         <nav className="flex gap-5 text-[13px]">
-          {(["overview", "transactions", "statement"] as Tab[]).map((t) => (
+          {(["overview", "comments", "transactions", "statement"] as Tab[]).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -119,6 +122,11 @@ export function ContactDetailPage({ id }: { id: string }) {
 
       <div className="flex-1 overflow-y-auto">
         {tab === "overview" && <OverviewTab contact={contact} summary={summary} isCustomer={isCustomer} />}
+        {tab === "comments" && (
+          <div className="mx-auto flex h-full max-w-2xl flex-col py-4">
+            <CommentsTimeline entityType="contact" entityId={contact.id} />
+          </div>
+        )}
         {tab === "transactions" && <TransactionsTab id={id} isCustomer={isCustomer} navigate={navigate} />}
         {tab === "statement" && <StatementTab id={id} />}
       </div>
