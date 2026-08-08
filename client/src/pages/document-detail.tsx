@@ -3,6 +3,18 @@ import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
 import { StatusBadge } from "../components/list-page";
+import { AttachmentsButton } from "../components/attachments";
+
+/** Route kind → attachments entity_type. */
+const ENTITY_TYPE: Record<string, string> = {
+  invoice: "invoice",
+  estimate: "estimate",
+  "sales-order": "sales_order",
+  "credit-note": "credit_note",
+  bill: "bill",
+  "purchase-order": "purchase_order",
+  "vendor-credit": "vendor_credit",
+};
 
 interface DetailLine {
   id: string;
@@ -333,6 +345,7 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
           <StatusBadge status={doc.status} />
         </div>
         <div className="flex items-center gap-1 text-[13px]">
+          <AttachmentsButton entityType={ENTITY_TYPE[kind] ?? kind} entityId={id} />
           <button
             onClick={() => window.print()}
             className="rounded px-2.5 py-1.5 font-medium text-gray-700 hover:bg-gray-100"

@@ -8,6 +8,13 @@
       "when": 1786108785731,
       "tag": "0000_careful_talisman",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786151209063,
+      "tag": "0001_nebulous_colleen_wing",
+      "breakpoints": true
     }
   ]
 }
