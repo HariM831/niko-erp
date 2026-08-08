@@ -152,7 +152,7 @@ export function ListPage<T>({
         </div>
       </header>
 
-      <div className="flex-1 overflow-auto border-t">
+      <div className="flex-1 overflow-auto">
         {isLoading ? (
           <div className="p-8 text-center text-sm text-gray-500">Loading…</div>
         ) : error ? (
@@ -169,16 +169,16 @@ export function ListPage<T>({
             )}
           </div>
         ) : (
-          <table className="w-full text-[13px]">
-            <thead className="sticky top-0 z-10 bg-gray-50 text-left text-[11px] uppercase tracking-wide text-gray-500">
+          <table className="w-full border-separate border-spacing-0 text-[13px]">
+            <thead className="sticky top-0 z-10 bg-[#f9f9fb] text-left text-[11px] font-semibold uppercase text-[#6c718a]">
               <tr>
-                <th className={`w-9 border-b ${cellPad}`}>
+                <th className={`w-9 border-b border-[#ebeaf2] ${cellPad}`}>
                   <input type="checkbox" checked={allSelected} onChange={toggleAll} className="accent-brand-500" />
                 </th>
                 {columns.map((c) => (
                   <th
                     key={c.key}
-                    className={`border-b font-medium ${cellPad} ${c.align === "right" ? "text-right" : ""}`}
+                    className={`border-b border-[#ebeaf2] font-semibold ${cellPad} ${c.align === "right" ? "text-right" : ""}`}
                   >
                     {c.header}
                   </th>
@@ -192,13 +192,14 @@ export function ListPage<T>({
                   <tr
                     key={k}
                     onClick={() => handleRow?.(row)}
-                    className={`border-b border-gray-100 transition-colors duration-100 ${handleRow ? "cursor-pointer" : ""} ${
-                      activeKey === k
-                        ? "bg-brand-50"
-                        : "odd:bg-white even:bg-gray-50/60 hover:bg-brand-50/40"
+                    className={`transition-colors duration-100 ${handleRow ? "cursor-pointer" : ""} ${
+                      activeKey === k ? "bg-brand-50" : "bg-white hover:bg-gray-50"
                     }`}
                   >
-                    <td className={cellPad} onClick={(e) => e.stopPropagation()}>
+                    <td
+                      className={`border-b border-[#ebeaf2] ${cellPad}`}
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <input
                         type="checkbox"
                         checked={selected.has(k)}
@@ -209,7 +210,7 @@ export function ListPage<T>({
                     {columns.map((c) => (
                       <td
                         key={c.key}
-                        className={`${cellPad} ${c.align === "right" ? "text-right tabular-nums" : ""}`}
+                        className={`border-b border-[#ebeaf2] ${cellPad} ${c.align === "right" ? "text-right tabular-nums" : ""}`}
                       >
                         {c.render(row)}
                       </td>
