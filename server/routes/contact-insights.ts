@@ -5,9 +5,7 @@ import {
   contacts,
   creditNotes,
   customerPayments,
-  estimates,
   invoices,
-  salesOrders,
   vendorCredits,
   vendorPayments,
 } from "@shared/schema";
@@ -88,14 +86,12 @@ contactInsightsRouter.get(
     if (!contact) return res.status(404).json({ error: "Contact not found" });
 
     if (contact.type === "customer") {
-      const [inv, est, so, pay, cn] = await Promise.all([
+      const [inv, pay, cn] = await Promise.all([
         db.select().from(invoices).where(eq(invoices.customerId, contact.id)).orderBy(desc(invoices.invoiceDate)).limit(100),
-        db.select().from(estimates).where(eq(estimates.customerId, contact.id)).orderBy(desc(estimates.estimateDate)).limit(100),
-        db.select().from(salesOrders).where(eq(salesOrders.customerId, contact.id)).orderBy(desc(salesOrders.orderDate)).limit(100),
         db.select().from(customerPayments).where(eq(customerPayments.customerId, contact.id)).orderBy(desc(customerPayments.paymentDate)).limit(100),
         db.select().from(creditNotes).where(eq(creditNotes.customerId, contact.id)).orderBy(desc(creditNotes.creditNoteDate)).limit(100),
       ]);
-      return res.json({ invoices: inv, estimates: est, salesOrders: so, payments: pay, creditNotes: cn });
+      return res.json({ invoices: inv, payments: pay, creditNotes: cn });
     }
 
     const [billRows, pay, vc] = await Promise.all([

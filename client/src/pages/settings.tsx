@@ -211,8 +211,6 @@ const SERIES_COLUMNS: Array<[entity: string, label: string]> = [
   ["invoice", "Invoice"],
   ["credit_note", "Credit Note"],
   ["customer_payment", "Customer Payment"],
-  ["estimate", "Estimate"],
-  ["sales_order", "Sales Order"],
   ["bill", "Bill"],
   ["purchase_order", "Purchase Order"],
   ["vendor_credit", "Vendor Credit"],

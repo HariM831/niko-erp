@@ -161,30 +161,6 @@ export const InvoicesPage = () => (
   />
 );
 
-export const EstimatesPage = () => (
-  <ListPage<DocRow>
-    title="Estimates"
-    endpoint="/api/sales/estimates"
-    rowKey={(r) => r.id}
-    views={statusViews(["draft", "sent", "accepted", "declined", "invoiced"])}
-    newPath="/sales/estimates/new"
-    rowPath={(r) => `/sales/estimates/${r.id}`}
-    columns={docColumns("estimateDate", {})}
-  />
-);
-
-export const SalesOrdersPage = () => (
-  <ListPage<DocRow>
-    title="Sales Orders"
-    endpoint="/api/sales/sales-orders"
-    rowKey={(r) => r.id}
-    views={statusViews(["draft", "confirmed", "closed", "void"])}
-    newPath="/sales/sales-orders/new"
-    rowPath={(r) => `/sales/sales-orders/${r.id}`}
-    columns={docColumns("orderDate", {})}
-  />
-);
-
 export const CustomerPaymentsPage = () => (
   <ListPage<DocRow>
     title="Received Payments"

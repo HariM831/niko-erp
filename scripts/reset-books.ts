@@ -13,8 +13,6 @@ const TABLES = [
   "vendor_credit_applications",
   "invoice_lines",
   "credit_note_lines",
-  "estimate_lines",
-  "sales_order_lines",
   "bill_lines",
   "purchase_order_lines",
   "vendor_credit_lines",
@@ -27,9 +25,7 @@ const TABLES = [
   "credit_notes",
   "vendor_credits",
   "invoices",
-  // sales_orders references estimates; bills reference purchase_orders.
-  "sales_orders",
-  "estimates",
+  // Bills reference purchase_orders.
   "bills",
   "purchase_orders",
   "expenses",

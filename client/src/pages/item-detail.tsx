@@ -51,8 +51,6 @@ type TxnRow = {
 interface Transactions {
   invoices: TxnRow[];
   bills: TxnRow[];
-  estimates: TxnRow[];
-  salesOrders: TxnRow[];
   purchaseOrders: TxnRow[];
 }
 

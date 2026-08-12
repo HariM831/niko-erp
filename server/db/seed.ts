@@ -202,8 +202,6 @@ const COA: Array<[string, string, AcctType, AcctSubtype, string?, string?, boole
 const SERIES: Array<[string, string]> = [
   ["journal_entry", "JE-"],
   ["invoice", "INV-"],
-  ["estimate", "EST-"],
-  ["sales_order", "SO-"],
   ["customer_payment", "PMT-"],
   ["credit_note", "CN-"],
   ["purchase_order", "PO-"],

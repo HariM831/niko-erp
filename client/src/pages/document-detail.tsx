@@ -18,8 +18,6 @@ const JOURNAL_SOURCE_TYPE: Record<string, string> = {
 /** Route kind → attachments entity_type. */
 const ENTITY_TYPE: Record<string, string> = {
   invoice: "invoice",
-  estimate: "estimate",
-  "sales-order": "sales_order",
   "credit-note": "credit_note",
   bill: "bill",
   "purchase-order": "purchase_order",
@@ -160,81 +158,6 @@ const CONFIGS: Record<string, DetailConfig> = {
         run: async (doc, h) => {
           if (!confirm(`Void ${doc.number}? Its journal entry will be reversed.`)) return;
           await h.post(`/api/sales/invoices/${doc.id}/void`, { voidDate: today() });
-          await h.refresh();
-        },
-      },
-    ],
-  },
-  estimate: {
-    titlePrefix: "Estimate",
-    endpoint: "/api/sales/estimates",
-    listPath: "/sales/estimates",
-    dateField: "estimateDate",
-    actions: [
-      {
-        label: "Mark as Sent",
-        when: ["draft"],
-        run: async (doc, h) => {
-          await h.post(`/api/sales/estimates/${doc.id}/status`, { status: "sent" });
-          await h.refresh();
-        },
-      },
-      {
-        label: "Mark Accepted",
-        when: ["sent"],
-        run: async (doc, h) => {
-          await h.post(`/api/sales/estimates/${doc.id}/status`, { status: "accepted" });
-          await h.refresh();
-        },
-      },
-      {
-        label: "Mark Declined",
-        when: ["sent"],
-        danger: true,
-        run: async (doc, h) => {
-          await h.post(`/api/sales/estimates/${doc.id}/status`, { status: "declined" });
-          await h.refresh();
-        },
-      },
-      {
-        label: "Convert to Sales Order",
-        when: ["accepted"],
-        run: async (doc, h) => {
-          await h.post(`/api/sales/estimates/${doc.id}/convert-to-sales-order`);
-          h.navigate("/sales/sales-orders");
-        },
-      },
-    ],
-  },
-  "sales-order": {
-    titlePrefix: "Sales Order",
-    endpoint: "/api/sales/sales-orders",
-    listPath: "/sales/sales-orders",
-    dateField: "orderDate",
-    actions: [
-      {
-        label: "Confirm",
-        when: ["draft"],
-        run: async (doc, h) => {
-          await h.post(`/api/sales/sales-orders/${doc.id}/status`, { status: "confirmed" });
-          await h.refresh();
-        },
-      },
-      {
-        label: "Close",
-        when: ["confirmed"],
-        run: async (doc, h) => {
-          await h.post(`/api/sales/sales-orders/${doc.id}/status`, { status: "closed" });
-          await h.refresh();
-        },
-      },
-      {
-        label: "Void",
-        when: ["draft", "confirmed"],
-        danger: true,
-        run: async (doc, h) => {
-          if (!confirm(`Void ${doc.number}?`)) return;
-          await h.post(`/api/sales/sales-orders/${doc.id}/status`, { status: "void" });
           await h.refresh();
         },
       },
@@ -448,7 +371,7 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
     kind === "invoice" ? "TAX INVOICE" : kind === "vendor-credit" ? "CREDIT NOTE" : config.titlePrefix.toUpperCase();
   const billingAddr = contact?.addresses?.find((a) => a.kind === "billing");
   const shippingAddr = contact?.addresses?.find((a) => a.kind === "shipping") ?? billingAddr;
-  const isSales = ["invoice", "estimate", "sales-order", "credit-note"].includes(kind);
+  const isSales = ["invoice", "credit-note"].includes(kind);
   const supply = placeOfSupply(contact?.placeOfSupplyState);
   const terms = termsLabel(doc[config.dateField] as string | undefined, doc.dueDate as string | undefined);
 

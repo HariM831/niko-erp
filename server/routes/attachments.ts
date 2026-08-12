@@ -28,8 +28,6 @@ const ALLOWED_TYPES = new Set([
 
 const ENTITY_TYPES = new Set([
   "invoice",
-  "estimate",
-  "sales_order",
   "credit_note",
   "bill",
   "purchase_order",

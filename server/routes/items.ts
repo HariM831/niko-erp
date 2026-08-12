@@ -6,16 +6,12 @@ import {
   billLines,
   bills,
   contacts,
-  estimateLines,
-  estimates,
   invoiceLines,
   invoices,
   items,
   itemType,
   purchaseOrderLines,
   purchaseOrders,
-  salesOrderLines,
-  salesOrders,
   taxes,
 } from "@shared/schema";
 import { db } from "../db";
@@ -90,7 +86,7 @@ itemsRouter.get("/:id", requirePermission("items", "view"), async (req, res) => 
 /** Every transaction line referencing this item, newest first — the Transactions tab. */
 itemsRouter.get("/:id/transactions", requirePermission("items", "view"), async (req, res) => {
   const id = req.params.id!;
-  const [inv, billRows, est, so, po] = await Promise.all([
+  const [inv, billRows, po] = await Promise.all([
     db
       .select({
         id: invoices.id,
@@ -123,36 +119,6 @@ itemsRouter.get("/:id/transactions", requirePermission("items", "view"), async (
       .orderBy(desc(bills.billDate)),
     db
       .select({
-        id: estimates.id,
-        number: estimates.number,
-        date: estimates.estimateDate,
-        status: estimates.status,
-        contactName: contacts.displayName,
-        quantity: estimateLines.quantity,
-        amount: estimateLines.amount,
-      })
-      .from(estimateLines)
-      .innerJoin(estimates, eq(estimates.id, estimateLines.estimateId))
-      .innerJoin(contacts, eq(contacts.id, estimates.customerId))
-      .where(eq(estimateLines.itemId, id))
-      .orderBy(desc(estimates.estimateDate)),
-    db
-      .select({
-        id: salesOrders.id,
-        number: salesOrders.number,
-        date: salesOrders.orderDate,
-        status: salesOrders.status,
-        contactName: contacts.displayName,
-        quantity: salesOrderLines.quantity,
-        amount: salesOrderLines.amount,
-      })
-      .from(salesOrderLines)
-      .innerJoin(salesOrders, eq(salesOrders.id, salesOrderLines.salesOrderId))
-      .innerJoin(contacts, eq(contacts.id, salesOrders.customerId))
-      .where(eq(salesOrderLines.itemId, id))
-      .orderBy(desc(salesOrders.orderDate)),
-    db
-      .select({
         id: purchaseOrders.id,
         number: purchaseOrders.number,
         date: purchaseOrders.orderDate,
@@ -171,8 +137,6 @@ itemsRouter.get("/:id/transactions", requirePermission("items", "view"), async (
   res.json({
     invoices: inv,
     bills: billRows,
-    estimates: est,
-    salesOrders: so,
     purchaseOrders: po,
   });
 });

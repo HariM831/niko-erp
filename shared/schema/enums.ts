@@ -73,22 +73,6 @@ export const gstTreatment = pgEnum("gst_treatment", [
 
 export const itemType = pgEnum("item_type", ["goods", "service"]);
 
-export const estimateStatus = pgEnum("estimate_status", [
-  "draft",
-  "sent",
-  "accepted",
-  "declined",
-  "invoiced",
-  "expired",
-]);
-
-export const salesOrderStatus = pgEnum("sales_order_status", [
-  "draft",
-  "confirmed",
-  "closed",
-  "void",
-]);
-
 export const invoiceStatus = pgEnum("invoice_status", [
   "draft",
   "sent",

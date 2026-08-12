@@ -243,44 +243,6 @@ async function main() {
     log(`expense: ${e.reference}`);
   }
 
-  // ---------- Estimates + conversion ----------
-  console.log("Creating estimates…");
-  const est1 = await api("POST", "/api/sales/estimates", {
-    customerId: customers["Bhadra Eggs"],
-    estimateDate: daysAgo(6),
-    lines: [{ itemId: items["Eggs (Box of 210)"], name: "Eggs (Box of 210)", quantity: "50", unit: "box", rate: "1050.00", taxId: gst0 }],
-  });
-  await api("POST", `/api/sales/estimates/${est1.id}/status`, { status: "sent" });
-  await api("POST", `/api/sales/estimates/${est1.id}/status`, { status: "accepted" });
-  await api("POST", `/api/sales/estimates/${est1.id}/convert-to-sales-order`);
-  log("estimate -> accepted -> converted to sales order: Bhadra Eggs");
-
-  const est2 = await api("POST", "/api/sales/estimates", {
-    customerId: customers["NB Traders"],
-    estimateDate: daysAgo(3),
-    lines: [{ itemId: items["Egg Tray (30 pcs)"], name: "Egg Tray (30 pcs)", quantity: "200", unit: "tray", rate: "16.00", taxId: gst5 }],
-  });
-  await api("POST", `/api/sales/estimates/${est2.id}/status`, { status: "sent" });
-  await api("POST", `/api/sales/estimates/${est2.id}/status`, { status: "declined" });
-  log("estimate -> declined: NB Traders");
-
-  await api("POST", "/api/sales/estimates", {
-    customerId: customers["Aneibu Chakhesang Traders"],
-    estimateDate: todayStr,
-    lines: [{ itemId: items["Eggs (Box of 210)"], name: "Eggs (Box of 210)", quantity: "100", unit: "box", rate: "1050.00", taxId: gst0 }],
-  });
-  log("estimate -> draft: Aneibu Chakhesang Traders");
-
-  // ---------- Sales Orders (standalone) ----------
-  console.log("Creating a standalone sales order…");
-  const so2 = await api("POST", "/api/sales/sales-orders", {
-    customerId: customers["Sri Lakshmi Traders"],
-    orderDate: daysAgo(2),
-    lines: [{ itemId: items["Eggs (Box of 210)"], name: "Eggs (Box of 210)", quantity: "30", unit: "box", rate: "1050.00", taxId: gst0 }],
-  });
-  await api("POST", `/api/sales/sales-orders/${so2.id}/status`, { status: "confirmed" });
-  log("sales order (confirmed): Sri Lakshmi Traders");
-
   // ---------- Invoices: overdue, due today, paid, partially paid, draft ----------
   console.log("Creating invoices in varied states…");
 

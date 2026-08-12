@@ -9,13 +9,7 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
-import {
-  creditNoteStatus,
-  estimateStatus,
-  invoiceStatus,
-  paymentMode,
-  salesOrderStatus,
-} from "./enums";
+import { creditNoteStatus, invoiceStatus, paymentMode } from "./enums";
 import { contacts } from "./contacts";
 import { items } from "./items";
 import { taxes } from "./core";
@@ -59,63 +53,6 @@ const totalsColumns = {
   total: money("total").notNull().default("0"),
 };
 
-export const estimates = pgTable("estimates", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  number: varchar("number", { length: 30 }).notNull().unique(),
-  customerId: uuid("customer_id")
-    .notNull()
-    .references(() => contacts.id),
-  status: estimateStatus("status").notNull().default("draft"),
-  estimateDate: date("estimate_date").notNull(),
-  expiryDate: date("expiry_date"),
-  reference: text("reference"),
-  ...totalsColumns,
-  customerNotes: text("customer_notes"),
-  termsAndConditions: text("terms_and_conditions"),
-  createdBy: uuid("created_by")
-    .notNull()
-    .references(() => users.id),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-
-export const estimateLines = pgTable("estimate_lines", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  estimateId: uuid("estimate_id")
-    .notNull()
-    .references(() => estimates.id, { onDelete: "cascade" }),
-  ...lineColumns,
-});
-
-export const salesOrders = pgTable("sales_orders", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  number: varchar("number", { length: 30 }).notNull().unique(),
-  customerId: uuid("customer_id")
-    .notNull()
-    .references(() => contacts.id),
-  status: salesOrderStatus("status").notNull().default("draft"),
-  orderDate: date("order_date").notNull(),
-  expectedShipmentDate: date("expected_shipment_date"),
-  reference: text("reference"),
-  estimateId: uuid("estimate_id").references(() => estimates.id),
-  ...totalsColumns,
-  customerNotes: text("customer_notes"),
-  termsAndConditions: text("terms_and_conditions"),
-  createdBy: uuid("created_by")
-    .notNull()
-    .references(() => users.id),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
-
-export const salesOrderLines = pgTable("sales_order_lines", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  salesOrderId: uuid("sales_order_id")
-    .notNull()
-    .references(() => salesOrders.id, { onDelete: "cascade" }),
-  ...lineColumns,
-});
-
 export const invoices = pgTable(
   "invoices",
   {
@@ -128,7 +65,6 @@ export const invoices = pgTable(
     invoiceDate: date("invoice_date").notNull(),
     dueDate: date("due_date").notNull(),
     reference: text("reference"),
-    salesOrderId: uuid("sales_order_id").references(() => salesOrders.id),
     placeOfSupplyState: varchar("place_of_supply_state", { length: 4 }),
     ...totalsColumns,
     /** Amount still unpaid = total - payments - credits applied. */
