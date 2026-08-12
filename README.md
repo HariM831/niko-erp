@@ -40,6 +40,34 @@ npm run db:seed       # CoA, series, taxes, roles, admin user (SEED_ADMIN_PASSWO
 npm run dev
 ```
 
+## Account recovery
+
+Password resets normally happen in the app: an admin opens Settings → Users
+and resets someone's password, or clears a lockout after failed sign-ins.
+There is no self-service "forgot password" — no email is sent anywhere,
+because the app has no mail infrastructure.
+
+That leaves one hole: **if the only full-access account forgets its password,
+nobody can get in.** Re-running `db:seed` will not help — the admin row is
+inserted with `onConflictDoNothing`, so an existing account keeps its old
+password.
+
+Two things guard against it:
+
+1. **Keep at least two full-access accounts.** Then a forgotten password is
+   fixed from Settings → Users rather than from a shell.
+2. **`npm run admin:recover`** — the way back in when nobody can sign in.
+   Requires shell access on the server, which is the whole security boundary;
+   there is no HTTP route to attack. Passwords are typed at a hidden prompt,
+   never passed as arguments or environment variables, so they stay out of
+   shell history, the process list, and CI logs.
+
+```
+npm run admin:recover -- --list                                  # who can get in
+npm run admin:recover -- --user admin                            # reset a password
+npm run admin:recover -- --user hari --create --role Admin       # add a full-access account
+```
+
 ## Module plan (Zoho Books parity)
 
 - [x] Foundation: schema, posting engine, numbering, RBAC, validation, auth
