@@ -45,7 +45,7 @@ npm run dev
 - [x] Foundation: schema, posting engine, numbering, RBAC, validation, auth
 - [x] Accountant: chart of accounts, manual journals, reversal, trial balance, ledger
 - [ ] Contacts (customers/vendors) + Items + Taxes routes
-- [ ] Sales: Estimates → Sales Orders → Invoices → Payments Received → Credit Notes
+- [ ] Sales: Invoices → Payments Received → Credit Notes
 - [ ] Purchases: POs → Bills → Payments Made → Vendor Credits → Expenses
 - [ ] Banking: statement import, matching, reconciliation
 - [ ] Reports: P&L, Balance Sheet, Cash Flow, AR/AP aging, GSTR-1/3B
