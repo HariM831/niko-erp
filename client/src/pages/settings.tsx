@@ -1,6 +1,18 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate } from "../api";
+import {
+  Badge,
+  Banner,
+  Chip,
+  EmptyRow,
+  Modal,
+  NameCell,
+  RowAction,
+  RowActions,
+  SettingsHeader,
+  SettingsTable,
+} from "../components/settings-ui";
 import { RolesSection, UsersSection } from "./settings-users";
 import { OpeningBalancesSection } from "./settings-opening";
 import { LocationsSection } from "./settings-locations";
@@ -27,13 +39,13 @@ const SECTIONS: Array<{ key: Section; label: string; group: string }> = [
 ];
 
 /** Sections that are a form rather than a table, and so want a narrow measure. */
-const FORM_SECTIONS = new Set<Section>(["org", "taxes", "financial-years"]);
+const FORM_SECTIONS = new Set<Section>(["org"]);
 
 export function SettingsPage() {
   const [active, setActive] = useState<Section>("org");
   return (
     <div className="flex h-full">
-      <aside className="w-60 border-r bg-white p-4">
+      <aside className="w-60 shrink-0 border-r bg-white p-4">
         <h2 className="mb-3 text-sm font-semibold">Settings</h2>
         {[...new Set(SECTIONS.map((s) => s.group))].map((group) => (
           <div key={group} className="mb-3">
@@ -54,26 +66,23 @@ export function SettingsPage() {
           </div>
         ))}
       </aside>
-      <div className="flex-1 overflow-y-auto bg-white px-8 py-6">
+      <div className="min-w-0 flex-1 overflow-y-auto bg-white px-8 py-6">
         {/* Zoho runs settings full-bleed on white — the form-shaped sections
             still read better with a measure on them. */}
         <div className={FORM_SECTIONS.has(active) ? "max-w-3xl" : ""}>
-        {active === "org" && <OrgSection />}
-        {active === "locations" && <LocationsSection />}
-        {active === "users" && <UsersSection />}
-        {active === "roles" && <RolesSection />}
-        {active === "taxes" && <TaxesSection />}
-        {active === "series" && <SeriesSection />}
-        {active === "opening-balances" && <OpeningBalancesSection />}
-        {active === "financial-years" && <FinancialYearsSection />}
+          {active === "org" && <OrgSection />}
+          {active === "locations" && <LocationsSection />}
+          {active === "users" && <UsersSection />}
+          {active === "roles" && <RolesSection />}
+          {active === "taxes" && <TaxesSection />}
+          {active === "series" && <SeriesSection />}
+          {active === "opening-balances" && <OpeningBalancesSection />}
+          {active === "financial-years" && <FinancialYearsSection />}
         </div>
       </div>
     </div>
   );
 }
-
-const inputCls = "input";
-const labelCls = "label";
 
 function OrgSection() {
   const qc = useQueryClient();
@@ -86,20 +95,19 @@ function OrgSection() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (org) {
-      setForm({
-        name: org.name ?? "",
-        gstin: org.gstin ?? "",
-        pan: org.pan ?? "",
-        stateCode: org.stateCode ?? "",
-        phone: org.phone ?? "",
-        email: org.email ?? "",
-        address: org.address ?? "",
-        city: org.city ?? "",
-        state: org.state ?? "",
-        pincode: org.pincode ?? "",
-      });
-    }
+    if (!org) return;
+    setForm({
+      name: org.name ?? "",
+      gstin: org.gstin ?? "",
+      pan: org.pan ?? "",
+      stateCode: org.stateCode ?? "",
+      phone: org.phone ?? "",
+      email: org.email ?? "",
+      address: org.address ?? "",
+      city: org.city ?? "",
+      state: org.state ?? "",
+      pincode: org.pincode ?? "",
+    });
   }, [org]);
 
   const set = (k: string) => (e: { target: { value: string } }) => {
@@ -119,105 +127,201 @@ function OrgSection() {
     }
   };
 
-  const fields: Array<[string, string]> = [
-    ["name", "Business Name *"],
+  const fields: Array<[key: string, label: string, wide?: boolean]> = [
+    ["name", "Business Name *", true],
     ["gstin", "GSTIN"],
     ["pan", "PAN"],
-    ["stateCode", "State Code (place of supply)"],
     ["phone", "Phone"],
     ["email", "Email"],
-    ["address", "Address"],
+    ["address", "Address", true],
     ["city", "City"],
     ["state", "State"],
     ["pincode", "Pincode"],
+    ["stateCode", "State Code (place of supply)"],
   ];
 
   return (
-    <div className="max-w-xl">
-      <h1 className="mb-4 text-lg font-semibold">Organisation Profile</h1>
-      <div className="grid grid-cols-2 gap-4">
-        {fields.map(([k, l]) => (
-          <div key={k} className={k === "address" ? "col-span-2" : ""}>
-            <label className={l.endsWith("*") ? "label-required" : labelCls}>{l}</label>
-            <input value={form[k] ?? ""} onChange={set(k)} className={inputCls} />
+    <div>
+      <SettingsHeader
+        title="Organisation Profile"
+        description="Your business as it appears on invoices, bills and every printed document."
+      />
+      {error && <Banner tone="error">{error}</Banner>}
+      {saved && <Banner tone="success">Organisation profile saved.</Banner>}
+
+      <div className="grid max-w-2xl grid-cols-2 gap-4">
+        {fields.map(([k, l, wide]) => (
+          <div key={k} className={wide ? "col-span-2" : ""}>
+            <label className={l.endsWith("*") ? "label-required" : "label"}>{l}</label>
+            <input value={form[k] ?? ""} onChange={set(k)} className="input" />
           </div>
         ))}
       </div>
-      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
-      <button
-        onClick={() => void save()}
-        disabled={!form.name?.trim()}
-        className="btn-primary mt-4"
-      >
-        Save {saved && "✓"}
-      </button>
-      <p className="mt-2 text-xs text-gray-500">
-        The state code drives CGST/SGST vs IGST on every invoice and bill.
+
+      <p className="mt-3 max-w-2xl text-[12px] text-gray-500">
+        The state code decides CGST/SGST versus IGST on every invoice and bill.
       </p>
+
+      <div className="mt-5">
+        <button onClick={() => void save()} disabled={!form.name?.trim()} className="btn-primary">
+          Save
+        </button>
+      </div>
     </div>
   );
 }
 
+interface Tax {
+  id: string;
+  name: string;
+  rate: string;
+  isActive: boolean;
+}
+
 function TaxesSection() {
   const qc = useQueryClient();
-  const { data: taxes } = useQuery({
+  const { data: taxes, isLoading } = useQuery({
     queryKey: ["taxes"],
-    queryFn: () => api<Array<{ id: string; name: string; rate: string; isActive: boolean }>>("/api/taxes"),
+    queryFn: () => api<Tax[]>("/api/taxes"),
   });
-  const [name, setName] = useState("");
-  const [rate, setRate] = useState("");
+  const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const add = async () => {
+  const run = async (fn: () => Promise<unknown>) => {
     setError(null);
     try {
-      await api("/api/taxes", { method: "POST", body: { name, rate: Number(rate).toFixed(3) } });
+      await fn();
       await qc.invalidateQueries({ queryKey: ["taxes"] });
-      setName("");
-      setRate("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed");
+      setError(err instanceof Error ? err.message : "Failed");
     }
   };
 
   return (
-    <div className="max-w-xl">
-      <h1 className="mb-4 text-lg font-semibold">Taxes</h1>
-      <table className="mb-4 w-full text-[13px]">
-        <thead className="table-head">
-          <tr>
-            <th className="border-b border-[#ebeaf2] px-3 py-2">Name</th>
-            <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Rate %</th>
+    <div>
+      <SettingsHeader
+        title="Taxes"
+        description="Rates available on invoice and bill lines. Deactivate a rate rather than editing it once documents have used it, so those documents keep the rate they were raised at."
+        actions={
+          <button onClick={() => setAdding(true)} className="btn-primary">
+            + New Tax
+          </button>
+        }
+      />
+      {error && <Banner tone="error">{error}</Banner>}
+
+      <SettingsTable
+        columns={[
+          { label: "Name" },
+          { label: "Rate", align: "right", width: "w-32" },
+          { label: "Status", width: "w-28" },
+          { label: "", align: "right", width: "w-32" },
+        ]}
+      >
+        {isLoading && <EmptyRow colSpan={4}>Loading…</EmptyRow>}
+        {taxes?.length === 0 && <EmptyRow colSpan={4}>No tax rates yet.</EmptyRow>}
+        {taxes?.map((t) => (
+          <tr key={t.id} className="s-row">
+            <td className="s-td">
+              <NameCell name={t.name} />
+            </td>
+            <td className="s-td text-right tabular-nums">{Number(t.rate)}%</td>
+            <td className="s-td">
+              {t.isActive ? <Badge tone="green">Active</Badge> : <Badge tone="gray">Inactive</Badge>}
+            </td>
+            <td className="s-td">
+              <RowActions>
+                <RowAction
+                  tone={t.isActive ? "danger" : "default"}
+                  onClick={() =>
+                    void run(() =>
+                      api(`/api/taxes/${t.id}`, {
+                        method: "PATCH",
+                        body: { isActive: !t.isActive },
+                      }),
+                    )
+                  }
+                >
+                  {t.isActive ? "Deactivate" : "Activate"}
+                </RowAction>
+              </RowActions>
+            </td>
           </tr>
-        </thead>
-        <tbody>
-          {taxes?.map((t) => (
-            <tr key={t.id} className="border-b border-[#ebeaf2]">
-              <td className="px-3 py-2">{t.name}</td>
-              <td className="px-3 py-2 text-right tabular-nums">{Number(t.rate)}%</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="flex items-end gap-3">
-        <div className="flex-1">
-          <label className={labelCls}>Name</label>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="GST 18%" className={inputCls} />
-        </div>
-        <div className="w-28">
-          <label className={labelCls}>Rate %</label>
-          <input value={rate} onChange={(e) => setRate(e.target.value)} placeholder="18" className={inputCls} />
-        </div>
-        <button
-          onClick={() => void add()}
-          disabled={!name.trim() || !rate}
-          className="btn-primary"
-        >
-          Add Tax
-        </button>
-      </div>
-      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+        ))}
+      </SettingsTable>
+
+      {adding && (
+        <NewTaxModal
+          onClose={() => setAdding(false)}
+          onDone={() => {
+            setAdding(false);
+            void qc.invalidateQueries({ queryKey: ["taxes"] });
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+function NewTaxModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [name, setName] = useState("");
+  const [rate, setRate] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api("/api/taxes", { method: "POST", body: { name, rate: Number(rate).toFixed(3) } });
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="New Tax"
+      onClose={onClose}
+      footer={
+        <>
+          <button onClick={onClose} className="btn-secondary">
+            Cancel
+          </button>
+          <button
+            onClick={() => void submit()}
+            disabled={busy || !name.trim() || rate === ""}
+            className="btn-primary"
+          >
+            Add Tax
+          </button>
+        </>
+      }
+    >
+      {error && <Banner tone="error">{error}</Banner>}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="col-span-2">
+          <label className="label-required">Tax Name *</label>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="GST 18%"
+            className="input"
+          />
+        </div>
+        <div>
+          <label className="label-required">Rate % *</label>
+          <input
+            value={rate}
+            onChange={(e) => setRate(e.target.value)}
+            placeholder="18"
+            className="input"
+          />
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -259,7 +363,6 @@ function SeriesSection() {
   });
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState({ name: "", prefixTag: "" });
 
   const run = async (fn: () => Promise<unknown>) => {
     setError(null);
@@ -271,104 +374,56 @@ function SeriesSection() {
     }
   };
 
-  const create = () =>
-    run(async () => {
-      await api("/api/settings/series", {
-        method: "POST",
-        body: { name: draft.name.trim(), prefixTag: draft.prefixTag.trim() || undefined },
-      });
-      setDraft({ name: "", prefixTag: "" });
-      setAdding(false);
-    });
-
   return (
     <div>
-      <div className="mb-3 flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Transaction Number Series</h1>
-        <button onClick={() => setAdding((v) => !v)} className="btn-primary">
-          + New Series
-        </button>
-      </div>
-      <p className="mb-4 text-[13px] text-gray-500">
-        Run several numbering series side by side so each line of business gets its own document
-        numbers. Transactions draw from the default unless they name another series.
-      </p>
-
-      {adding && (
-        <div className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border bg-[#fafafc] p-4">
-          <div>
-            <label className="label-required">Series Name *</label>
-            <input
-              value={draft.name}
-              onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
-              placeholder="e.g. Eggs"
-              className="input w-44"
-              autoFocus
-            />
-          </div>
-          <div>
-            <label className="label">Prefix Tag</label>
-            <input
-              value={draft.prefixTag}
-              onChange={(e) => setDraft((d) => ({ ...d, prefixTag: e.target.value }))}
-              placeholder="e.g. EG-"
-              className="input w-28"
-            />
-          </div>
-          <button onClick={() => void create()} disabled={!draft.name.trim()} className="btn-primary">
-            Create
+      <SettingsHeader
+        title="Transaction Number Series"
+        description="Run several numbering series side by side so each line of business gets its own document numbers. Transactions draw from the default unless they name another series."
+        actions={
+          <button onClick={() => setAdding(true)} className="btn-primary">
+            + New Series
           </button>
-          <button onClick={() => setAdding(false)} className="pb-2 text-[13px] text-gray-500 hover:underline">
-            Cancel
-          </button>
-          <p className="w-full text-[12px] text-gray-500">
-            The tag is appended to each module&rsquo;s prefix, so &ldquo;EG-&rdquo; gives{" "}
-            <span className="font-medium text-gray-700">INV-EG-00001</span>. Every prefix stays
-            editable below.
-          </p>
-        </div>
-      )}
+        }
+      />
+      {error && <Banner tone="error">{error}</Banner>}
 
       <div className="overflow-x-auto">
-        {/* w-max stops the browser compressing columns to fit — it scrolls instead. */}
-        <table className="w-max text-[13px]">
-          <thead className="table-head">
+        {/* An editable matrix rather than a list — w-max stops the browser
+            compressing columns to fit and lets the grid scroll instead. */}
+        <table className="w-max">
+          <thead>
             <tr>
-              <th className="sticky left-0 z-10 whitespace-nowrap border border-[#ebeaf2] bg-[#f9f9fb] px-3 py-2 text-left">
-                Series Name
-              </th>
+              <th className="s-th sticky left-0 z-10 whitespace-nowrap">Series Name</th>
               {SERIES_COLUMNS.map(([entity, label]) => (
-                <th key={entity} className="whitespace-nowrap border border-[#ebeaf2] px-3 py-2 text-left">
+                <th key={entity} className="s-th whitespace-nowrap">
                   {label}
                 </th>
               ))}
-              <th className="border border-[#ebeaf2] px-3 py-2" />
+              <th className="s-th" />
             </tr>
           </thead>
           <tbody>
             {series?.map((s) => {
               const byEntity = new Map(s.entities.map((e) => [e.entity, e]));
               return (
-                <tr key={s.id}>
-                  <td className="sticky left-0 z-10 whitespace-nowrap border border-[#ebeaf2] bg-white px-3 py-2">
-                    <span className="font-medium">{s.name}</span>
-                    {s.isDefault && (
-                      <span className="ml-2 rounded bg-[#eef0f5] px-1.5 py-0.5 text-[11px] text-gray-600">
-                        Default
-                      </span>
-                    )}
+                <tr key={s.id} className="s-row">
+                  <td className="s-td sticky left-0 z-10 whitespace-nowrap bg-white">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{s.name}</span>
+                      {s.isDefault && <Chip>Default</Chip>}
+                    </div>
                   </td>
                   {SERIES_COLUMNS.map(([entity]) => {
                     const e = byEntity.get(entity);
                     if (!e) {
                       return (
-                        <td key={entity} className="border border-[#ebeaf2] px-3 py-2 text-gray-300">
+                        <td key={entity} className="s-td text-gray-300">
                           —
                         </td>
                       );
                     }
                     return (
-                      <td key={entity} className="border border-[#ebeaf2] p-1 align-top">
+                      <td key={entity} className="s-td align-top">
                         <input
                           defaultValue={e.prefix}
                           onBlur={(ev) => {
@@ -384,17 +439,17 @@ function SeriesSection() {
                           }}
                           className="input w-32 py-1"
                         />
-                        <div className="px-1 pt-0.5 text-[11px] tabular-nums text-gray-400">
+                        <div className="px-1 pt-1 text-[11px] tabular-nums text-gray-400">
                           next {e.prefix}
                           {String(e.nextNumber).padStart(e.padding, "0")}
                         </div>
                       </td>
                     );
                   })}
-                  <td className="whitespace-nowrap border border-[#ebeaf2] px-3 py-2 align-top">
+                  <td className="s-td whitespace-nowrap align-top">
                     {!s.isDefault && (
-                      <div className="flex gap-2">
-                        <button
+                      <RowActions>
+                        <RowAction
                           onClick={() =>
                             void run(() =>
                               api(`/api/settings/series-group/${s.id}`, {
@@ -403,21 +458,20 @@ function SeriesSection() {
                               }),
                             )
                           }
-                          className="text-[12px] font-medium text-brand-600 hover:underline"
                         >
-                          Make Default
-                        </button>
-                        <button
+                          Make default
+                        </RowAction>
+                        <RowAction
+                          tone="danger"
                           onClick={() =>
                             void run(() =>
                               api(`/api/settings/series-group/${s.id}`, { method: "DELETE" }),
                             )
                           }
-                          className="text-[12px] text-red-600 hover:underline"
                         >
                           Delete
-                        </button>
-                      </div>
+                        </RowAction>
+                      </RowActions>
                     )}
                   </td>
                 </tr>
@@ -426,21 +480,108 @@ function SeriesSection() {
           </tbody>
         </table>
       </div>
-      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+
+      {adding && (
+        <NewSeriesModal
+          onClose={() => setAdding(false)}
+          onDone={() => {
+            setAdding(false);
+            void qc.invalidateQueries({ queryKey: ["series"] });
+          }}
+        />
+      )}
     </div>
   );
 }
 
+function NewSeriesModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [name, setName] = useState("");
+  const [prefixTag, setPrefixTag] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api("/api/settings/series", {
+        method: "POST",
+        body: { name: name.trim(), prefixTag: prefixTag.trim() || undefined },
+      });
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not create series");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="New Number Series"
+      onClose={onClose}
+      footer={
+        <>
+          <button onClick={onClose} className="btn-secondary">
+            Cancel
+          </button>
+          <button
+            onClick={() => void submit()}
+            disabled={busy || !name.trim()}
+            className="btn-primary"
+          >
+            Create Series
+          </button>
+        </>
+      }
+    >
+      {error && <Banner tone="error">{error}</Banner>}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="col-span-2">
+          <label className="label-required">Series Name *</label>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Eggs"
+            className="input"
+            autoFocus
+          />
+        </div>
+        <div>
+          <label className="label">Prefix Tag</label>
+          <input
+            value={prefixTag}
+            onChange={(e) => setPrefixTag(e.target.value)}
+            placeholder="EG-"
+            className="input"
+          />
+        </div>
+      </div>
+      <p className="mt-3 text-[12px] text-gray-500">
+        The tag is appended to each module&rsquo;s prefix, so &ldquo;EG-&rdquo; gives{" "}
+        <span className="font-medium text-gray-700">INV-EG-00001</span>. Every prefix stays
+        editable in the grid afterwards.
+      </p>
+    </Modal>
+  );
+}
+
+interface FinancialYear {
+  id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  isActive: boolean;
+  lockedThrough: string | null;
+}
+
 function FinancialYearsSection() {
   const qc = useQueryClient();
-  const { data: years } = useQuery({
+  const { data: years, isLoading } = useQuery({
     queryKey: ["fys"],
-    queryFn: () =>
-      api<Array<{ id: string; name: string; startDate: string; endDate: string; isActive: boolean; lockedThrough: string | null }>>(
-        "/api/settings/financial-years",
-      ),
+    queryFn: () => api<FinancialYear[]>("/api/settings/financial-years"),
   });
-  const [form, setForm] = useState({ name: "", startDate: "", endDate: "" });
+  const [adding, setAdding] = useState(false);
+  const [locking, setLocking] = useState<FinancialYear | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const run = async (fn: () => Promise<unknown>) => {
@@ -454,41 +595,51 @@ function FinancialYearsSection() {
   };
 
   return (
-    <div className="max-w-2xl">
-      <h1 className="mb-4 text-lg font-semibold">Financial Years &amp; Transaction Locking</h1>
-      <table className="mb-5 w-full text-[13px]">
-        <thead className="table-head">
-          <tr>
-            <th className="border-b border-[#ebeaf2] px-3 py-2">Name</th>
-            <th className="border-b border-[#ebeaf2] px-3 py-2">Period</th>
-            <th className="border-b border-[#ebeaf2] px-3 py-2">Locked Through</th>
-            <th className="border-b border-[#ebeaf2] px-3 py-2" />
-          </tr>
-        </thead>
-        <tbody>
-          {years?.map((y) => (
-            <tr key={y.id} className="border-b border-[#ebeaf2]">
-              <td className="px-3 py-2 font-medium">{y.name}</td>
-              <td className="px-3 py-2">
-                {formatDate(y.startDate)} – {formatDate(y.endDate)}
-              </td>
-              <td className="px-3 py-2">{y.lockedThrough ? formatDate(y.lockedThrough) : "Not locked"}</td>
-              <td className="px-3 py-2 text-right">
-                <input
-                  type="date"
-                  onChange={(e) =>
-                    e.target.value &&
-                    void run(() =>
-                      api(`/api/settings/financial-years/${y.id}`, {
-                        method: "PATCH",
-                        body: { lockedThrough: e.target.value },
-                      }),
-                    )
-                  }
-                  className="input w-auto py-1 text-xs"
-                />
+    <div>
+      <SettingsHeader
+        title="Financial Years & Locking"
+        description="Locking a period rejects any posting dated inside it — manual journals and anything a document would post. Use it once a period is filed and should stop moving."
+        actions={
+          <button onClick={() => setAdding(true)} className="btn-primary">
+            + New Financial Year
+          </button>
+        }
+      />
+      {error && <Banner tone="error">{error}</Banner>}
+
+      <SettingsTable
+        columns={[
+          { label: "Name", width: "w-48" },
+          { label: "Period" },
+          { label: "Locked through", width: "w-56" },
+          { label: "", align: "right", width: "w-44" },
+        ]}
+      >
+        {isLoading && <EmptyRow colSpan={4}>Loading…</EmptyRow>}
+        {years?.length === 0 && <EmptyRow colSpan={4}>No financial years yet.</EmptyRow>}
+        {years?.map((y) => (
+          <tr key={y.id} className="s-row">
+            <td className="s-td">
+              <NameCell name={y.name} />
+            </td>
+            <td className="s-td text-gray-600">
+              {formatDate(y.startDate)} – {formatDate(y.endDate)}
+            </td>
+            <td className="s-td">
+              {y.lockedThrough ? (
+                <Badge tone="amber">Locked to {formatDate(y.lockedThrough)}</Badge>
+              ) : (
+                <span className="text-gray-500">Open</span>
+              )}
+            </td>
+            <td className="s-td">
+              <RowActions>
+                <RowAction onClick={() => setLocking(y)}>
+                  {y.lockedThrough ? "Change lock" : "Lock period"}
+                </RowAction>
                 {y.lockedThrough && (
-                  <button
+                  <RowAction
+                    tone="danger"
                     onClick={() =>
                       void run(() =>
                         api(`/api/settings/financial-years/${y.id}`, {
@@ -497,52 +648,166 @@ function FinancialYearsSection() {
                         }),
                       )
                     }
-                    className="ml-2 text-xs text-brand-600 hover:underline"
                   >
                     Unlock
-                  </button>
+                  </RowAction>
                 )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <h2 className="mb-2 text-sm font-semibold">Add Financial Year</h2>
-      <div className="flex items-end gap-3">
+              </RowActions>
+            </td>
+          </tr>
+        ))}
+      </SettingsTable>
+
+      {adding && (
+        <NewFinancialYearModal
+          onClose={() => setAdding(false)}
+          onDone={() => {
+            setAdding(false);
+            void qc.invalidateQueries({ queryKey: ["fys"] });
+          }}
+        />
+      )}
+      {locking && (
+        <LockPeriodModal
+          year={locking}
+          onClose={() => setLocking(null)}
+          onDone={() => {
+            setLocking(null);
+            void qc.invalidateQueries({ queryKey: ["fys"] });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function NewFinancialYearModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [form, setForm] = useState({ name: "", startDate: "", endDate: "" });
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api("/api/settings/financial-years", { method: "POST", body: form });
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      title="New Financial Year"
+      onClose={onClose}
+      footer={
+        <>
+          <button onClick={onClose} className="btn-secondary">
+            Cancel
+          </button>
+          <button
+            onClick={() => void submit()}
+            disabled={busy || !form.name || !form.startDate || !form.endDate}
+            className="btn-primary"
+          >
+            Add Year
+          </button>
+        </>
+      }
+    >
+      {error && <Banner tone="error">{error}</Banner>}
+      <div className="grid grid-cols-3 gap-4">
         <div>
-          <label className={labelCls}>Name</label>
+          <label className="label-required">Name *</label>
           <input
             value={form.name}
             onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
             placeholder="FY 2026-27"
-            className={inputCls}
+            className="input"
           />
         </div>
         <div>
-          <label className={labelCls}>Start</label>
-          <input type="date" value={form.startDate} onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))} className={inputCls} />
+          <label className="label-required">Start *</label>
+          <input
+            type="date"
+            value={form.startDate}
+            onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))}
+            className="input"
+          />
         </div>
         <div>
-          <label className={labelCls}>End</label>
-          <input type="date" value={form.endDate} onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))} className={inputCls} />
+          <label className="label-required">End *</label>
+          <input
+            type="date"
+            value={form.endDate}
+            onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))}
+            className="input"
+          />
         </div>
-        <button
-          onClick={() =>
-            void run(async () => {
-              await api("/api/settings/financial-years", { method: "POST", body: form });
-              setForm({ name: "", startDate: "", endDate: "" });
-            })
-          }
-          disabled={!form.name || !form.startDate || !form.endDate}
-          className="btn-primary"
-        >
-          Add
-        </button>
       </div>
-      <p className="mt-3 text-xs text-gray-500">
-        Locking a period rejects any journal posting (manual or from documents) dated inside it.
+    </Modal>
+  );
+}
+
+function LockPeriodModal({
+  year,
+  onClose,
+  onDone,
+}: {
+  year: FinancialYear;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [date, setDate] = useState(year.lockedThrough ?? year.endDate);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api(`/api/settings/financial-years/${year.id}`, {
+        method: "PATCH",
+        body: { lockedThrough: date },
+      });
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not lock");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      title={`Lock ${year.name}`}
+      onClose={onClose}
+      footer={
+        <>
+          <button onClick={onClose} className="btn-secondary">
+            Cancel
+          </button>
+          <button onClick={() => void submit()} disabled={busy || !date} className="btn-primary">
+            Lock Period
+          </button>
+        </>
+      }
+    >
+      {error && <Banner tone="error">{error}</Banner>}
+      <label className="label-required">Lock transactions through *</label>
+      <input
+        type="date"
+        value={date}
+        min={year.startDate}
+        max={year.endDate}
+        onChange={(e) => setDate(e.target.value)}
+        className="input w-56"
+      />
+      <p className="mt-2 text-[12px] text-gray-500">
+        Nothing dated on or before this day can be posted, edited or voided afterwards. It can be
+        unlocked again from this screen.
       </p>
-      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
-    </div>
+    </Modal>
   );
 }
