@@ -25,6 +25,7 @@ export function JournalNewPage() {
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [narration, setNarration] = useState("");
   const [reference, setReference] = useState("");
+  const [seriesId, setSeriesId] = useState("");
   const [lines, setLines] = useState<JLine[]>([emptyLine(), emptyLine()]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -33,6 +34,15 @@ export function JournalNewPage() {
     queryKey: ["accounts-all"],
     queryFn: () => api<Account[]>("/api/accounting/accounts"),
   });
+  // Only offered when the org actually runs more than one series.
+  const { data: allSeries } = useQuery({
+    queryKey: ["series"],
+    queryFn: () =>
+      api<Array<{ id: string; name: string; isDefault: boolean; isActive: boolean }>>(
+        "/api/settings/series",
+      ),
+  });
+  const series = (allSeries ?? []).filter((s) => s.isActive);
 
   const { totalDebit, totalCredit } = useMemo(() => {
     let d = 0;
@@ -58,6 +68,7 @@ export function JournalNewPage() {
           entryDate: date,
           narration,
           reference: reference || undefined,
+          seriesId: seriesId || undefined,
           lines: lines
             .filter((l) => l.accountId && (Number(l.debit) > 0 || Number(l.credit) > 0))
             .map((l) => ({
@@ -99,6 +110,19 @@ export function JournalNewPage() {
             <label className="label">Reference</label>
             <input value={reference} onChange={(e) => setReference(e.target.value)} className={inputCls} />
           </div>
+          {series.length > 1 && (
+            <div>
+              <label className="label">Number Series</label>
+              <select value={seriesId} onChange={(e) => setSeriesId(e.target.value)} className={inputCls}>
+                {series.map((s) => (
+                  <option key={s.id} value={s.isDefault ? "" : s.id}>
+                    {s.name}
+                    {s.isDefault ? " (Default)" : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
         <table className="mb-3 w-full max-w-4xl text-[13px]">

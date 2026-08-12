@@ -1,0 +1,2 @@
+ALTER TABLE "journal_entries" ADD COLUMN "series_id" uuid;--> statement-breakpoint
+ALTER TABLE "journal_entries" ADD CONSTRAINT "journal_entries_series_id_number_series_id_fk" FOREIGN KEY ("series_id") REFERENCES "public"."number_series"("id") ON DELETE no action ON UPDATE no action;

@@ -74,6 +74,8 @@ const journalLineSchema = z.object({
 });
 
 const journalSchema = z.object({
+  /** Draw the entry number from this series; omitted means the default. */
+  seriesId: z.string().uuid().optional(),
   entryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   narration: z.string().min(1),
   reference: z.string().optional(),
@@ -261,6 +263,7 @@ accountingRouter.post(
           reference: body.reference,
           sourceType: "manual",
           postedBy: req.session.user!.id,
+          seriesId: body.seriesId,
           lines: body.lines,
         }),
       );

@@ -27,6 +27,11 @@ export interface PostingRequest {
   sourceType: (typeof journalSourceType.enumValues)[number];
   sourceId?: string;
   postedBy: string;
+  /**
+   * Number series to draw the entry number from. Manual journals pass the one
+   * the user picked; document postings omit it and fall back to the default.
+   */
+  seriesId?: string;
   lines: PostingLine[];
 }
 
@@ -71,7 +76,7 @@ export async function postJournal(tx: Tx, req: PostingRequest): Promise<string> 
     );
   }
 
-  const entryNumber = await nextDocumentNumber(tx, "journal_entry");
+  const entryNumber = await nextDocumentNumber(tx, "journal_entry", req.seriesId);
   const [entry] = await tx
     .insert(journalEntries)
     .values({
@@ -82,6 +87,7 @@ export async function postJournal(tx: Tx, req: PostingRequest): Promise<string> 
       reference: req.reference,
       sourceType: req.sourceType,
       sourceId: req.sourceId,
+      seriesId: req.seriesId,
       postedBy: req.postedBy,
     })
     .returning({ id: journalEntries.id });
@@ -126,7 +132,8 @@ export async function reverseJournal(
     .from(journalEntryLines)
     .where(eq(journalEntryLines.entryId, entryId));
 
-  const entryNumber = await nextDocumentNumber(tx, "journal_entry");
+  // A reversal is numbered from the same series as the entry it undoes.
+  const entryNumber = await nextDocumentNumber(tx, "journal_entry", original.seriesId);
   const [reversal] = await tx
     .insert(journalEntries)
     .values({
@@ -136,6 +143,7 @@ export async function reverseJournal(
       narration: `Reversal of ${original.entryNumber}: ${original.narration}`,
       sourceType: original.sourceType,
       sourceId: original.sourceId,
+      seriesId: original.seriesId,
       isReversal: true,
       reversesEntryId: entryId,
       postedBy,
