@@ -13,7 +13,9 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    // 5173 unless the launcher assigns one, so a stray dev server on the
+    // default port doesn't block a second one.
+    port: Number(process.env.PORT) || 5173,
     proxy: {
       // changeOrigin stays false so the Host header remains the browser's
       // origin host and the API's same-origin check passes in dev.
