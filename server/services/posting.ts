@@ -1,9 +1,12 @@
-import { and, eq, gte, isNotNull, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, lte } from "drizzle-orm";
 import {
   accounts,
   financialYears,
   journalEntries,
+  journalEntryLineTags,
   journalEntryLines,
+  reportingTagOptions,
+  reportingTags,
   transactionLocks,
   type journalSourceType,
 } from "@shared/schema";
@@ -17,7 +20,8 @@ export interface PostingLine {
   debit?: string;
   credit?: string;
   description?: string;
-  tag?: string;
+  /** Reporting tag options this line is charged to — at most one per tag. */
+  tagOptionIds?: string[];
 }
 
 export interface PostingRequest {
@@ -50,7 +54,13 @@ export async function postJournal(tx: Tx, req: PostingRequest): Promise<string> 
 
   let totalDebit = 0;
   let totalCredit = 0;
-  const resolved: Array<{ accountId: string; debit: string; credit: string; description?: string; tag?: string }> = [];
+  const resolved: Array<{
+    accountId: string;
+    debit: string;
+    credit: string;
+    description?: string;
+    tagOptionIds?: string[];
+  }> = [];
 
   for (const line of req.lines) {
     const debit = parseAmount(line.debit);
@@ -65,7 +75,7 @@ export async function postJournal(tx: Tx, req: PostingRequest): Promise<string> 
       debit: debit.toFixed(2),
       credit: credit.toFixed(2),
       description: line.description,
-      tag: line.tag,
+      tagOptionIds: line.tagOptionIds,
     });
   }
 
@@ -92,16 +102,26 @@ export async function postJournal(tx: Tx, req: PostingRequest): Promise<string> 
     })
     .returning({ id: journalEntries.id });
 
-  await tx.insert(journalEntryLines).values(
-    resolved.map((l, i) => ({
-      entryId: entry!.id,
-      accountId: l.accountId,
-      debit: l.debit,
-      credit: l.credit,
-      description: l.description,
-      tag: l.tag,
-      lineOrder: i,
-    })),
+  const insertedLines = await tx
+    .insert(journalEntryLines)
+    .values(
+      resolved.map((l, i) => ({
+        entryId: entry!.id,
+        accountId: l.accountId,
+        debit: l.debit,
+        credit: l.credit,
+        description: l.description,
+        lineOrder: i,
+      })),
+    )
+    .returning({ id: journalEntryLines.id, lineOrder: journalEntryLines.lineOrder });
+
+  const byOrder = new Map(insertedLines.map((l) => [l.lineOrder, l.id]));
+  await attachTags(
+    tx,
+    resolved.flatMap((l, i) =>
+      (l.tagOptionIds ?? []).map((optionId) => ({ lineId: byOrder.get(i)!, optionId })),
+    ),
   );
 
   return entry!.id;
@@ -150,17 +170,42 @@ export async function reverseJournal(
     })
     .returning({ id: journalEntries.id });
 
-  await tx.insert(journalEntryLines).values(
-    lines.map((l, i) => ({
-      entryId: reversal!.id,
-      accountId: l.accountId,
-      debit: l.credit,
-      credit: l.debit,
-      description: l.description,
-      tag: l.tag,
-      lineOrder: i,
-    })),
-  );
+  const reversedLines = await tx
+    .insert(journalEntryLines)
+    .values(
+      lines.map((l, i) => ({
+        entryId: reversal!.id,
+        accountId: l.accountId,
+        debit: l.credit,
+        credit: l.debit,
+        description: l.description,
+        lineOrder: i,
+      })),
+    )
+    .returning({ id: journalEntryLines.id, lineOrder: journalEntryLines.lineOrder });
+
+  // A reversal carries the same tags as the entry it undoes, so a per-vehicle
+  // total nets to zero instead of leaving the original charge stranded.
+  const originalTags = await tx
+    .select({ lineId: journalEntryLineTags.lineId, optionId: journalEntryLineTags.optionId })
+    .from(journalEntryLineTags)
+    .where(
+      inArray(
+        journalEntryLineTags.lineId,
+        lines.map((l) => l.id),
+      ),
+    );
+  if (originalTags.length) {
+    const orderByOriginal = new Map(lines.map((l, i) => [l.id, i]));
+    const newIdByOrder = new Map(reversedLines.map((l) => [l.lineOrder, l.id]));
+    await attachTags(
+      tx,
+      originalTags.map((t) => ({
+        lineId: newIdByOrder.get(orderByOriginal.get(t.lineId)!)!,
+        optionId: t.optionId,
+      })),
+    );
+  }
 
   await tx
     .update(journalEntries)
@@ -168,6 +213,49 @@ export async function reverseJournal(
     .where(eq(journalEntries.id, entryId));
 
   return reversal!.id;
+}
+
+/**
+ * Attach reporting tags to lines, resolving each option to its tag.
+ *
+ * The unique index on (line, tag) is what stops a line being charged to two
+ * vehicles at once; this turns that constraint violation into a message that
+ * says which tag was doubled up rather than a raw database error.
+ */
+async function attachTags(
+  tx: Tx,
+  pairs: Array<{ lineId: string; optionId: string }>,
+): Promise<void> {
+  if (!pairs.length) return;
+  const optionIds = [...new Set(pairs.map((p) => p.optionId))];
+  const options = await tx
+    .select({
+      id: reportingTagOptions.id,
+      tagId: reportingTagOptions.tagId,
+      name: reportingTagOptions.name,
+      isActive: reportingTagOptions.isActive,
+      tagName: reportingTags.name,
+    })
+    .from(reportingTagOptions)
+    .innerJoin(reportingTags, eq(reportingTags.id, reportingTagOptions.tagId))
+    .where(inArray(reportingTagOptions.id, optionIds));
+  const byId = new Map(options.map((o) => [o.id, o]));
+
+  const seen = new Set<string>();
+  const rows = pairs.map((p) => {
+    const option = byId.get(p.optionId);
+    if (!option) throw new PostingError("Unknown reporting tag option");
+    if (!option.isActive) {
+      throw new PostingError(`Tag option "${option.name}" is no longer in use`);
+    }
+    const key = `${p.lineId}:${option.tagId}`;
+    if (seen.has(key)) {
+      throw new PostingError(`A line can only carry one "${option.tagName}" option`);
+    }
+    seen.add(key);
+    return { lineId: p.lineId, tagId: option.tagId, optionId: option.id };
+  });
+  await tx.insert(journalEntryLineTags).values(rows);
 }
 
 export class PostingError extends Error {}

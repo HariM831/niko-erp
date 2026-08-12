@@ -80,8 +80,6 @@ export const journalEntryLines = pgTable(
       .notNull()
       .default("0"),
     description: text("description"),
-    /** Zoho "reporting tag" style dimension, optional. */
-    tag: varchar("tag", { length: 60 }),
     lineOrder: integer("line_order").notNull().default(0),
   },
   (t) => [index("ix_jel_account").on(t.accountId)],

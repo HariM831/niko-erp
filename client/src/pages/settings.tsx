@@ -16,6 +16,7 @@ import {
 import { RolesSection, UsersSection } from "./settings-users";
 import { OpeningBalancesSection } from "./settings-opening";
 import { LocationsSection } from "./settings-locations";
+import { ReportingTagsSection } from "./settings-tags";
 
 type Section =
   | "org"
@@ -24,6 +25,7 @@ type Section =
   | "roles"
   | "taxes"
   | "series"
+  | "reporting-tags"
   | "opening-balances"
   | "financial-years";
 
@@ -34,6 +36,7 @@ const SECTIONS: Array<{ key: Section; label: string; group: string }> = [
   { key: "roles", label: "Roles", group: "Users & Roles" },
   { key: "taxes", label: "Taxes", group: "Setup" },
   { key: "series", label: "Transaction Number Series", group: "Setup" },
+  { key: "reporting-tags", label: "Reporting Tags", group: "Setup" },
   { key: "opening-balances", label: "Opening Balances", group: "Setup" },
   { key: "financial-years", label: "Financial Years & Locking", group: "Setup" },
 ];
@@ -76,6 +79,7 @@ export function SettingsPage() {
           {active === "roles" && <RolesSection />}
           {active === "taxes" && <TaxesSection />}
           {active === "series" && <SeriesSection />}
+          {active === "reporting-tags" && <ReportingTagsSection />}
           {active === "opening-balances" && <OpeningBalancesSection />}
           {active === "financial-years" && <FinancialYearsSection />}
         </div>

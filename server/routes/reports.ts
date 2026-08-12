@@ -7,19 +7,28 @@ import {
   expenses,
   invoices,
   journalEntries,
+  journalEntryLineTags,
   journalEntryLines,
+  reportingTagOptions,
+  reportingTags,
 } from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 
 export const reportsRouter = Router();
 
-/** Per-account net movement (debit - credit) over a posted-JE date window. */
-async function accountMovements(from?: string, to?: string) {
+/**
+ * Per-account net movement (debit - credit) over a posted-JE date window.
+ *
+ * `tagOptionId` narrows it to lines charged to one reporting tag option, which
+ * is how a per-vehicle or per-shed P&L is produced without a GL account each.
+ */
+async function accountMovements(from?: string, to?: string, tagOptionId?: string) {
   const conditions = [eq(journalEntries.status, "posted")];
   if (from) conditions.push(gte(journalEntries.entryDate, from));
   if (to) conditions.push(lte(journalEntries.entryDate, to));
-  return db
+
+  const base = db
     .select({
       accountId: accounts.id,
       code: accounts.code,
@@ -30,7 +39,19 @@ async function accountMovements(from?: string, to?: string) {
     })
     .from(journalEntryLines)
     .innerJoin(journalEntries, and(eq(journalEntries.id, journalEntryLines.entryId), ...conditions))
-    .innerJoin(accounts, eq(accounts.id, journalEntryLines.accountId))
+    .innerJoin(accounts, eq(accounts.id, journalEntryLines.accountId));
+
+  const scoped = tagOptionId
+    ? base.innerJoin(
+        journalEntryLineTags,
+        and(
+          eq(journalEntryLineTags.lineId, journalEntryLines.id),
+          eq(journalEntryLineTags.optionId, tagOptionId),
+        ),
+      )
+    : base;
+
+  return scoped
     .groupBy(accounts.id, accounts.code, accounts.name, accounts.type, accounts.parentId)
     .orderBy(asc(accounts.code));
 }
@@ -38,8 +59,8 @@ async function accountMovements(from?: string, to?: string) {
 // ---------- Profit & Loss ----------
 
 reportsRouter.get("/pnl", requirePermission("reports", "view"), async (req, res) => {
-  const { from, to } = req.query as Record<string, string | undefined>;
-  const rows = await accountMovements(from, to);
+  const { from, to, tagOptionId } = req.query as Record<string, string | undefined>;
+  const rows = await accountMovements(from, to, tagOptionId);
 
   // Income accounts carry credit balances: display as -net.
   const income = rows
@@ -55,11 +76,55 @@ reportsRouter.get("/pnl", requirePermission("reports", "view"), async (req, res)
   res.json({
     from: from ?? null,
     to: to ?? null,
+    tagOptionId: tagOptionId ?? null,
     income,
     expenses: expenseRows,
     totalIncome: totalIncome.toFixed(2),
     totalExpenses: totalExpenses.toFixed(2),
     netProfit: (totalIncome - totalExpenses).toFixed(2),
+  });
+});
+
+// ---------- Reporting tag summary ----------
+
+/**
+ * Income and expense per tag option — the readable form of tagging. Amounts
+ * follow the P&L sign convention: income positive, expense positive, so the
+ * two can be subtracted for a per-option margin.
+ */
+reportsRouter.get("/tag-summary", requirePermission("reports", "view"), async (req, res) => {
+  const { from, to, tagId } = req.query as Record<string, string | undefined>;
+  const conditions = [eq(journalEntries.status, "posted")];
+  if (from) conditions.push(gte(journalEntries.entryDate, from));
+  if (to) conditions.push(lte(journalEntries.entryDate, to));
+  if (tagId) conditions.push(eq(journalEntryLineTags.tagId, tagId));
+
+  const rows = await db
+    .select({
+      tagId: reportingTags.id,
+      tagName: reportingTags.name,
+      optionId: reportingTagOptions.id,
+      optionName: reportingTagOptions.name,
+      income: sql<string>`COALESCE(SUM(CASE WHEN ${accounts.type} = 'income' THEN ${journalEntryLines.credit} - ${journalEntryLines.debit} ELSE 0 END), 0)::numeric(14,2)`,
+      expense: sql<string>`COALESCE(SUM(CASE WHEN ${accounts.type} = 'expense' THEN ${journalEntryLines.debit} - ${journalEntryLines.credit} ELSE 0 END), 0)::numeric(14,2)`,
+      lineCount: sql<number>`count(*)::int`,
+    })
+    .from(journalEntryLineTags)
+    .innerJoin(journalEntryLines, eq(journalEntryLines.id, journalEntryLineTags.lineId))
+    .innerJoin(journalEntries, and(eq(journalEntries.id, journalEntryLines.entryId), ...conditions))
+    .innerJoin(accounts, eq(accounts.id, journalEntryLines.accountId))
+    .innerJoin(reportingTagOptions, eq(reportingTagOptions.id, journalEntryLineTags.optionId))
+    .innerJoin(reportingTags, eq(reportingTags.id, journalEntryLineTags.tagId))
+    .groupBy(reportingTags.id, reportingTags.name, reportingTagOptions.id, reportingTagOptions.name)
+    .orderBy(asc(reportingTags.name), asc(reportingTagOptions.name));
+
+  res.json({
+    from: from ?? null,
+    to: to ?? null,
+    rows: rows.map((r) => ({
+      ...r,
+      net: (Number(r.income) - Number(r.expense)).toFixed(2),
+    })),
   });
 });
 

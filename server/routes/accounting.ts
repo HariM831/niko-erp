@@ -70,7 +70,7 @@ const journalLineSchema = z.object({
   debit: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
   credit: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
   description: z.string().optional(),
-  tag: z.string().max(60).optional(),
+  tagOptionIds: z.array(z.string().uuid()).max(10).optional(),
 });
 
 const journalSchema = z.object({
