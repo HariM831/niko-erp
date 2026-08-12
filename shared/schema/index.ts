@@ -5,6 +5,7 @@ export * from "./accounting";
 export * from "./contacts";
 export * from "./items";
 export * from "./assets";
+export * from "./locations";
 export * from "./banking";
 export * from "./sales";
 export * from "./purchases";

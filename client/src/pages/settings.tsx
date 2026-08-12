@@ -3,9 +3,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate } from "../api";
 import { RolesSection, UsersSection } from "./settings-users";
 import { OpeningBalancesSection } from "./settings-opening";
+import { LocationsSection } from "./settings-locations";
 
 type Section =
   | "org"
+  | "locations"
   | "users"
   | "roles"
   | "taxes"
@@ -15,6 +17,7 @@ type Section =
 
 const SECTIONS: Array<{ key: Section; label: string; group: string }> = [
   { key: "org", label: "Organisation Profile", group: "Organisation" },
+  { key: "locations", label: "Locations", group: "Organisation" },
   { key: "users", label: "Users", group: "Users & Roles" },
   { key: "roles", label: "Roles", group: "Users & Roles" },
   { key: "taxes", label: "Taxes", group: "Setup" },
@@ -22,6 +25,9 @@ const SECTIONS: Array<{ key: Section; label: string; group: string }> = [
   { key: "opening-balances", label: "Opening Balances", group: "Setup" },
   { key: "financial-years", label: "Financial Years & Locking", group: "Setup" },
 ];
+
+/** Sections that are a form rather than a table, and so want a narrow measure. */
+const FORM_SECTIONS = new Set<Section>(["org", "taxes", "financial-years"]);
 
 export function SettingsPage() {
   const [active, setActive] = useState<Section>("org");
@@ -48,19 +54,12 @@ export function SettingsPage() {
           </div>
         ))}
       </aside>
-      <div className="flex-1 overflow-y-auto p-6">
-        {/* Wide tables need the room; everything else reads better narrow. */}
-        <div
-          className={`card p-6 ${
-            active === "series" ||
-            active === "users" ||
-            active === "roles" ||
-            active === "opening-balances"
-              ? ""
-              : "max-w-3xl"
-          }`}
-        >
+      <div className="flex-1 overflow-y-auto bg-white px-8 py-6">
+        {/* Zoho runs settings full-bleed on white — the form-shaped sections
+            still read better with a measure on them. */}
+        <div className={FORM_SECTIONS.has(active) ? "max-w-3xl" : ""}>
         {active === "org" && <OrgSection />}
+        {active === "locations" && <LocationsSection />}
         {active === "users" && <UsersSection />}
         {active === "roles" && <RolesSection />}
         {active === "taxes" && <TaxesSection />}

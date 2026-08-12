@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
+import { Banner, SettingsHeader } from "../components/settings-ui";
 
 interface OpeningAccount {
   id: string;
@@ -118,29 +119,22 @@ export function OpeningBalancesSection() {
 
   return (
     <div>
-      <div className="mb-4">
-        <h2 className="text-sm font-semibold">Opening Balances</h2>
-        <p className="mt-0.5 max-w-3xl text-[13px] text-gray-500">
-          The closing trial balance from whatever you kept the books in before. Enter it once,
-          dated the day you switched over; everything after that date is recorded here.
-        </p>
-      </div>
+      <SettingsHeader
+        title="Opening Balances"
+        description="The closing trial balance from whatever you kept the books in before. Enter it once, dated the day you switched over; everything after that date is recorded here."
+      />
 
       {error && (
-        <div className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">
-          {error}
-        </div>
+        <Banner tone="error">{error}</Banner>
       )}
       {saved && (
-        <div className="mb-3 rounded border border-green-200 bg-green-50 px-3 py-2 text-[13px] text-green-700">
-          Opening balances posted.
-        </div>
+        <Banner tone="success">Opening balances posted.</Banner>
       )}
       {data.needsReposting && (
-        <div className="mb-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800">
-          A contact's opening balance has changed since this was posted. Save again to bring
+        <Banner tone="warn">
+          A contact&apos;s opening balance has changed since this was posted. Save again to bring
           receivables and payables back in step.
-        </div>
+        </Banner>
       )}
 
       <div className="mb-5 flex items-end gap-4">
@@ -160,25 +154,25 @@ export function OpeningBalancesSection() {
         )}
       </div>
 
-      <table className="w-full text-[13px]">
-        <thead className="table-head">
+      <table className="w-full">
+        <thead>
           <tr>
-            <th className="px-3 py-2 text-left">Account</th>
-            <th className="w-40 px-3 py-2 text-right">Debit</th>
-            <th className="w-40 px-3 py-2 text-right">Credit</th>
+            <th className="s-th">Account</th>
+            <th className="s-th w-40 text-right">Debit</th>
+            <th className="s-th w-40 text-right">Credit</th>
           </tr>
         </thead>
         <tbody>
           {grouped.map((g) => (
-            <>
-              <tr key={g.type} className="bg-gray-50">
-                <td colSpan={3} className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+            <Fragment key={g.type}>
+              <tr className="bg-gray-50">
+                <td colSpan={3} className="px-5 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
                   {TYPE_LABEL[g.type]}
                 </td>
               </tr>
               {g.rows.map((a) => (
-                <tr key={a.id} className="border-b border-gray-100">
-                  <td className="px-3 py-1.5">
+                <tr key={a.id} className="s-row">
+                  <td className="s-td">
                     <span className="text-gray-400">{a.code}</span> {a.name}
                     {a.derived && (
                       <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-500">
@@ -188,16 +182,16 @@ export function OpeningBalancesSection() {
                   </td>
                   {a.derived ? (
                     <>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-gray-500">
+                      <td className="s-td text-right tabular-nums text-gray-500">
                         {num(a.debit) ? formatMoney(a.debit) : "—"}
                       </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums text-gray-500">
+                      <td className="s-td text-right tabular-nums text-gray-500">
                         {num(a.credit) ? formatMoney(a.credit) : "—"}
                       </td>
                     </>
                   ) : (
                     <>
-                      <td className="px-2 py-1">
+                      <td className="s-td py-1">
                         <input
                           value={entries[a.id]?.debit ?? ""}
                           onChange={(e) => set(a.id, "debit", e.target.value)}
@@ -205,7 +199,7 @@ export function OpeningBalancesSection() {
                           className="w-full rounded border border-transparent px-2 py-1 text-right tabular-nums hover:border-gray-200 focus:border-brand-500 focus:outline-none"
                         />
                       </td>
-                      <td className="px-2 py-1">
+                      <td className="s-td py-1">
                         <input
                           value={entries[a.id]?.credit ?? ""}
                           onChange={(e) => set(a.id, "credit", e.target.value)}
@@ -217,7 +211,7 @@ export function OpeningBalancesSection() {
                   )}
                 </tr>
               ))}
-            </>
+            </Fragment>
           ))}
         </tbody>
         <tfoot>

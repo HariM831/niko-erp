@@ -105,6 +105,15 @@ export const creditNoteStatus = pgEnum("credit_note_status", [
   "void",
 ]);
 
+/** The kinds of place the business runs. Farms and the mill drive production;
+    offices and warehouses exist for costing and stock location only. */
+export const locationType = pgEnum("location_type", [
+  "farm",
+  "feed_mill",
+  "warehouse",
+  "office",
+]);
+
 export const assetStatus = pgEnum("asset_status", [
   "active",
   "fully_depreciated",

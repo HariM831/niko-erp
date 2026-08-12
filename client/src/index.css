@@ -32,8 +32,10 @@ body {
 
 /* ---------- Reusable component classes ---------- */
 
+/* Zoho's buttons are 13px/400 at 32px tall — not semibold; weight there reads
+   heavy next to the 13px table text. */
 .btn-primary {
-  @apply inline-flex items-center justify-center gap-1.5 rounded-lg bg-brand-500 px-3.5 py-1.5 text-[13px] font-semibold text-white shadow-sm transition-all duration-150;
+  @apply inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-brand-500 px-3 text-[13px] font-normal text-white transition-all duration-150;
 }
 .btn-primary:hover {
   @apply bg-brand-600 shadow-md;
@@ -43,10 +45,15 @@ body {
 }
 
 .btn-secondary {
-  @apply inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3.5 py-1.5 text-[13px] font-semibold text-gray-700 shadow-sm transition-all duration-150;
+  @apply inline-flex h-8 items-center justify-center gap-1.5 rounded-md border px-3 text-[13px] font-normal text-gray-900 transition-all duration-150;
+  background-color: #f5f5f5;
+  border-color: #ddd;
 }
 .btn-secondary:hover {
-  @apply border-gray-300 bg-gray-50;
+  @apply bg-gray-200;
+}
+.btn-secondary:disabled {
+  @apply cursor-not-allowed opacity-50;
 }
 
 .btn-ghost {
@@ -89,6 +96,59 @@ body {
 }
 .row-hover:hover {
   @apply bg-gray-50;
+}
+
+/* ---------- Settings tables ----------
+   Zoho's settings lists run full-bleed on white with no card around them.
+   Cells carry 20px of left padding on the first column and 12px vertically,
+   which lands a plain row at ~41px — roomier than a data grid, tighter than
+   a list with avatars. */
+.s-th {
+  @apply px-2 py-2.5 text-left text-[11px] font-semibold uppercase first:pl-5;
+  background-color: #f9f9fb;
+  color: #757383;
+}
+.s-td {
+  @apply px-2 py-3 text-[13px] first:pl-5;
+  border-bottom: 0.7px solid #ebeaf2;
+}
+.s-row:hover {
+  background-color: #fafafc;
+}
+
+/* The name in an editable row is a link; a locked row stays black and shows a
+   padlock instead, so "you may change this" is visible before clicking. */
+.s-link {
+  @apply text-[13px] font-medium;
+  color: #1c5bd9;
+}
+.s-link:hover {
+  @apply underline;
+}
+
+.badge {
+  @apply inline-flex items-center rounded-[5px] px-1.5 py-px text-[12px] font-medium;
+}
+.badge-green {
+  color: #095c3b;
+  background-color: #d7f5e9;
+}
+.badge-gray {
+  @apply bg-gray-100 text-gray-600;
+}
+.badge-amber {
+  @apply bg-amber-50 text-amber-800;
+}
+.badge-red {
+  @apply bg-red-50 text-red-700;
+}
+
+/* Bordered chip for an inline marker like "Default". */
+.chip-outline {
+  @apply inline-flex items-center rounded px-1.5 py-0.5 text-[13px];
+  color: #21263c;
+  background-color: #fafafc;
+  border: 0.7px solid #dfe0eb;
 }
 
 /* Icon chip used on dashboard cards */

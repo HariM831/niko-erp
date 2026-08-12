@@ -6,8 +6,19 @@ import {
   effectiveActions,
   isAdminMap,
 } from "@shared/permissions";
-import { api, formatDate } from "../api";
+import { api } from "../api";
 import { useAuth } from "../auth";
+import {
+  Badge,
+  Banner,
+  EmptyRow,
+  Modal,
+  NameCell,
+  RowAction,
+  RowActions,
+  SettingsHeader,
+  SettingsTable,
+} from "../components/settings-ui";
 
 interface UserRow {
   id: string;
@@ -31,11 +42,7 @@ interface RoleRow {
 }
 
 const Err = ({ msg }: { msg: string | null }) =>
-  msg ? (
-    <div className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">
-      {msg}
-    </div>
-  ) : null;
+  msg ? <Banner tone="error">{msg}</Banner> : null;
 
 export function UsersSection() {
   const qc = useQueryClient();
@@ -67,109 +74,100 @@ export function UsersSection() {
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h2 className="text-sm font-semibold">Users</h2>
-          <p className="mt-0.5 text-[13px] text-gray-500">
-            Everyone who can sign in. A user's role decides what they may do.
-          </p>
-        </div>
-        <button onClick={() => setAdding(true)} className="btn-primary">
-          + New User
-        </button>
-      </div>
+      <SettingsHeader
+        title="Users"
+        description="Everyone who can sign in. A user's role decides what they may do."
+        actions={
+          <button onClick={() => setAdding(true)} className="btn-primary">
+            + New User
+          </button>
+        }
+      />
 
       <Err msg={error} />
 
-      <table className="w-full text-[13px]">
-        <thead className="table-head">
-          <tr>
-            <th className="px-3 py-2 text-left">Name</th>
-            <th className="px-3 py-2 text-left">Username</th>
-            <th className="px-3 py-2 text-left">Role</th>
-            <th className="px-3 py-2 text-left">Status</th>
-            <th className="px-3 py-2 text-right">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {users?.map((u) => (
-            <tr key={u.id} className="border-b border-gray-100">
-              <td className="px-3 py-2">
-                {u.name}
-                {u.id === me?.id && <span className="ml-2 text-[11px] text-gray-400">(you)</span>}
-                {u.email && <div className="text-[11px] text-gray-400">{u.email}</div>}
-              </td>
-              <td className="px-3 py-2 text-gray-600">{u.username}</td>
-              <td className="px-3 py-2">
-                <select
-                  value={u.roleId}
-                  disabled={u.id === me?.id}
-                  onChange={(e) =>
-                    act(() =>
-                      api(`/api/users/${u.id}`, {
-                        method: "PATCH",
-                        body: { roleId: e.target.value },
-                      }),
-                    )
-                  }
-                  className="rounded border border-gray-200 px-2 py-1 text-[13px] disabled:bg-gray-50 disabled:text-gray-400"
-                >
-                  {roles?.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              <td className="px-3 py-2">
-                {!u.isActive ? (
-                  <span className="rounded bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500">
-                    Inactive
-                  </span>
-                ) : isLocked(u) ? (
-                  <span className="rounded bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
-                    Locked out
-                  </span>
-                ) : (
-                  <span className="rounded bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700">
-                    Active
-                  </span>
+      <SettingsTable
+        columns={[
+          { label: "Name" },
+          { label: "Username" },
+          { label: "Role", width: "w-48" },
+          { label: "Status", width: "w-32" },
+          { label: "", align: "right" },
+        ]}
+      >
+        {!users?.length && <EmptyRow colSpan={5}>No users yet.</EmptyRow>}
+        {users?.map((u) => (
+          <tr key={u.id} className="s-row">
+            <td className="s-td">
+              <NameCell
+                name={u.name}
+                sub={u.email}
+                after={
+                  u.id === me?.id ? <span className="text-[12px] text-gray-400">(you)</span> : null
+                }
+              />
+            </td>
+            <td className="s-td text-gray-600">{u.username}</td>
+            <td className="s-td">
+              <select
+                value={u.roleId}
+                disabled={u.id === me?.id}
+                onChange={(e) =>
+                  act(() =>
+                    api(`/api/users/${u.id}`, {
+                      method: "PATCH",
+                      body: { roleId: e.target.value },
+                    }),
+                  )
+                }
+                className="w-full rounded border border-gray-200 px-2 py-1 text-[13px] disabled:border-transparent disabled:bg-transparent disabled:text-gray-500"
+              >
+                {roles?.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            </td>
+            <td className="s-td">
+              {!u.isActive ? (
+                <Badge tone="gray">Inactive</Badge>
+              ) : isLocked(u) ? (
+                <Badge tone="amber">Locked out</Badge>
+              ) : (
+                <Badge tone="green">Active</Badge>
+              )}
+            </td>
+            <td className="s-td">
+              <RowActions>
+                {isLocked(u) && (
+                  <RowAction
+                    onClick={() => act(() => api(`/api/users/${u.id}/unlock`, { method: "POST" }))}
+                  >
+                    Unlock
+                  </RowAction>
                 )}
-              </td>
-              <td className="px-3 py-2 text-right">
-                <div className="flex justify-end gap-3">
-                  {isLocked(u) && (
-                    <button
-                      onClick={() => act(() => api(`/api/users/${u.id}/unlock`, { method: "POST" }))}
-                      className="text-brand-600 hover:underline"
-                    >
-                      Unlock
-                    </button>
-                  )}
-                  <button onClick={() => setResetting(u)} className="text-brand-600 hover:underline">
-                    Reset password
-                  </button>
-                  {u.id !== me?.id && (
-                    <button
-                      onClick={() =>
-                        act(() =>
-                          api(`/api/users/${u.id}`, {
-                            method: "PATCH",
-                            body: { isActive: !u.isActive },
-                          }),
-                        )
-                      }
-                      className="text-gray-500 hover:underline"
-                    >
-                      {u.isActive ? "Deactivate" : "Activate"}
-                    </button>
-                  )}
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                <RowAction onClick={() => setResetting(u)}>Reset password</RowAction>
+                {u.id !== me?.id && (
+                  <RowAction
+                    tone="danger"
+                    onClick={() =>
+                      act(() =>
+                        api(`/api/users/${u.id}`, {
+                          method: "PATCH",
+                          body: { isActive: !u.isActive },
+                        }),
+                      )
+                    }
+                  >
+                    {u.isActive ? "Deactivate" : "Activate"}
+                  </RowAction>
+                )}
+              </RowActions>
+            </td>
+          </tr>
+        ))}
+      </SettingsTable>
 
       {adding && (
         <NewUserDialog
@@ -191,35 +189,6 @@ export function UsersSection() {
           }}
         />
       )}
-    </div>
-  );
-}
-
-function Dialog({
-  title,
-  children,
-  onClose,
-  footer,
-  width = "w-[480px]",
-}: {
-  title: string;
-  children: React.ReactNode;
-  onClose: () => void;
-  footer: React.ReactNode;
-  width?: string;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-      <div className={`${width} rounded-lg bg-white shadow-lg`}>
-        <header className="flex items-center justify-between border-b px-5 py-3">
-          <h2 className="text-[15px] font-semibold">{title}</h2>
-          <button onClick={onClose} className="text-xl text-gray-400 hover:text-gray-700">
-            ×
-          </button>
-        </header>
-        <div className="p-5">{children}</div>
-        <footer className="flex justify-end gap-2 border-t px-5 py-3">{footer}</footer>
-      </div>
     </div>
   );
 }
@@ -260,7 +229,7 @@ function NewUserDialog({
   };
 
   return (
-    <Dialog
+    <Modal
       title="New User"
       onClose={onClose}
       footer={
@@ -327,7 +296,7 @@ function NewUserDialog({
           </p>
         </div>
       </div>
-    </Dialog>
+    </Modal>
   );
 }
 
@@ -357,7 +326,7 @@ function ResetPasswordDialog({
   };
 
   return (
-    <Dialog
+    <Modal
       title={`Reset password — ${user.name}`}
       onClose={onClose}
       footer={
@@ -382,7 +351,7 @@ function ResetPasswordDialog({
       <p className="mt-1 text-[11px] text-gray-400">
         At least 8 characters. This also clears any lockout from failed sign-ins.
       </p>
-    </Dialog>
+    </Modal>
   );
 }
 
@@ -413,71 +382,59 @@ export function RolesSection() {
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h2 className="text-sm font-semibold">Roles</h2>
-          <p className="mt-0.5 text-[13px] text-gray-500">
-            What each role may do, per module. Built-in roles cannot be edited — copy one to make
-            a custom version.
-          </p>
-        </div>
-        <button onClick={() => setEditing("new")} className="btn-primary">
-          + New Role
-        </button>
-      </div>
+      <SettingsHeader
+        title="Roles"
+        description="What each role may do, per module. Built-in roles cannot be edited — copy one to make a custom version."
+        actions={
+          <button onClick={() => setEditing("new")} className="btn-primary">
+            + New Role
+          </button>
+        }
+      />
 
       <Err msg={error} />
 
-      <table className="w-full text-[13px]">
-        <thead className="table-head">
-          <tr>
-            <th className="px-3 py-2 text-left">Role</th>
-            <th className="px-3 py-2 text-left">Access</th>
-            <th className="px-3 py-2 text-right">Users</th>
-            <th className="px-3 py-2 text-right">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {roles?.map((r) => (
-            <tr key={r.id} className="border-b border-gray-100">
-              <td className="px-3 py-2">
-                <div className="flex items-center gap-2">
-                  {r.name}
-                  {r.isSystem && (
-                    <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500">
-                      Built-in
-                    </span>
-                  )}
-                </div>
-                {r.description && (
-                  <div className="text-[11px] text-gray-400">{r.description}</div>
+      <SettingsTable
+        columns={[
+          { label: "Role", width: "w-64" },
+          { label: "Access" },
+          { label: "Users", align: "right", width: "w-20" },
+          { label: "", align: "right", width: "w-32" },
+        ]}
+      >
+        {!roles?.length && <EmptyRow colSpan={4}>No roles yet.</EmptyRow>}
+        {roles?.map((r) => (
+          <tr key={r.id} className="s-row">
+            <td className="s-td">
+              <NameCell
+                name={r.name}
+                locked={r.isSystem}
+                onClick={() => setEditing(r)}
+                sub={r.description}
+              />
+            </td>
+            <td className="s-td text-gray-600">
+              {isAdminMap(r.permissions)
+                ? "Everything"
+                : (modules ?? [])
+                    .filter((m) => effectiveActions(r.permissions, m.key).length > 0)
+                    .map((m) => m.label)
+                    .join(", ") || "No access"}
+            </td>
+            <td className="s-td text-right tabular-nums">{r.userCount}</td>
+            <td className="s-td">
+              <RowActions>
+                <RowAction onClick={() => setEditing(r)}>{r.isSystem ? "View" : "Edit"}</RowAction>
+                {!r.isSystem && (
+                  <RowAction tone="danger" onClick={() => remove(r)}>
+                    Delete
+                  </RowAction>
                 )}
-              </td>
-              <td className="px-3 py-2 text-gray-600">
-                {isAdminMap(r.permissions)
-                  ? "Everything"
-                  : (modules ?? [])
-                      .filter((m) => effectiveActions(r.permissions, m.key).length > 0)
-                      .map((m) => m.label)
-                      .join(", ") || "No access"}
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums">{r.userCount}</td>
-              <td className="px-3 py-2 text-right">
-                <div className="flex justify-end gap-3">
-                  <button onClick={() => setEditing(r)} className="text-brand-600 hover:underline">
-                    {r.isSystem ? "View" : "Edit"}
-                  </button>
-                  {!r.isSystem && (
-                    <button onClick={() => remove(r)} className="text-gray-500 hover:underline">
-                      Delete
-                    </button>
-                  )}
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              </RowActions>
+            </td>
+          </tr>
+        ))}
+      </SettingsTable>
 
       {editing && modules && (
         <RoleEditor
@@ -577,7 +534,7 @@ function RoleEditor({
   );
 
   return (
-    <Dialog
+    <Modal
       title={role ? (readOnly ? `${role.name} (built-in)` : `Edit ${role.name}`) : "New Role"}
       onClose={onClose}
       width="w-[720px]"
@@ -678,6 +635,6 @@ function RoleEditor({
             : `Access to ${granted} of ${modules.length} modules. Ticking any action also grants View.`}
         </p>
       )}
-    </Dialog>
+    </Modal>
   );
 }
