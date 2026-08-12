@@ -1,14 +1,17 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate } from "../api";
+import { RolesSection, UsersSection } from "./settings-users";
 
-type Section = "org" | "taxes" | "series" | "financial-years";
+type Section = "org" | "users" | "roles" | "taxes" | "series" | "financial-years";
 
-const SECTIONS: Array<{ key: Section; label: string }> = [
-  { key: "org", label: "Organisation Profile" },
-  { key: "taxes", label: "Taxes" },
-  { key: "series", label: "Transaction Number Series" },
-  { key: "financial-years", label: "Financial Years & Locking" },
+const SECTIONS: Array<{ key: Section; label: string; group: string }> = [
+  { key: "org", label: "Organisation Profile", group: "Organisation" },
+  { key: "users", label: "Users", group: "Users & Roles" },
+  { key: "roles", label: "Roles", group: "Users & Roles" },
+  { key: "taxes", label: "Taxes", group: "Setup" },
+  { key: "series", label: "Transaction Number Series", group: "Setup" },
+  { key: "financial-years", label: "Financial Years & Locking", group: "Setup" },
 ];
 
 export function SettingsPage() {
@@ -17,22 +20,35 @@ export function SettingsPage() {
     <div className="flex h-full">
       <aside className="w-60 border-r bg-white p-4">
         <h2 className="mb-3 text-sm font-semibold">Settings</h2>
-        {SECTIONS.map((s) => (
-          <button
-            key={s.key}
-            onClick={() => setActive(s.key)}
-            className={`block w-full rounded px-2 py-1.5 text-left text-[13px] ${
-              active === s.key ? "bg-brand-50 font-medium text-brand-700" : "hover:bg-gray-50"
-            }`}
-          >
-            {s.label}
-          </button>
+        {[...new Set(SECTIONS.map((s) => s.group))].map((group) => (
+          <div key={group} className="mb-3">
+            <div className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+              {group}
+            </div>
+            {SECTIONS.filter((s) => s.group === group).map((s) => (
+              <button
+                key={s.key}
+                onClick={() => setActive(s.key)}
+                className={`block w-full rounded px-2 py-1.5 text-left text-[13px] ${
+                  active === s.key ? "bg-brand-50 font-medium text-brand-700" : "hover:bg-gray-50"
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
         ))}
       </aside>
       <div className="flex-1 overflow-y-auto p-6">
-        {/* The series grid is a wide table; everything else reads better narrow. */}
-        <div className={`card p-6 ${active === "series" ? "" : "max-w-3xl"}`}>
+        {/* Wide tables need the room; everything else reads better narrow. */}
+        <div
+          className={`card p-6 ${
+            active === "series" || active === "users" || active === "roles" ? "" : "max-w-3xl"
+          }`}
+        >
         {active === "org" && <OrgSection />}
+        {active === "users" && <UsersSection />}
+        {active === "roles" && <RolesSection />}
         {active === "taxes" && <TaxesSection />}
         {active === "series" && <SeriesSection />}
         {active === "financial-years" && <FinancialYearsSection />}
