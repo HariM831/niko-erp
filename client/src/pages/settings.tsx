@@ -2,8 +2,16 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate } from "../api";
 import { RolesSection, UsersSection } from "./settings-users";
+import { OpeningBalancesSection } from "./settings-opening";
 
-type Section = "org" | "users" | "roles" | "taxes" | "series" | "financial-years";
+type Section =
+  | "org"
+  | "users"
+  | "roles"
+  | "taxes"
+  | "series"
+  | "opening-balances"
+  | "financial-years";
 
 const SECTIONS: Array<{ key: Section; label: string; group: string }> = [
   { key: "org", label: "Organisation Profile", group: "Organisation" },
@@ -11,6 +19,7 @@ const SECTIONS: Array<{ key: Section; label: string; group: string }> = [
   { key: "roles", label: "Roles", group: "Users & Roles" },
   { key: "taxes", label: "Taxes", group: "Setup" },
   { key: "series", label: "Transaction Number Series", group: "Setup" },
+  { key: "opening-balances", label: "Opening Balances", group: "Setup" },
   { key: "financial-years", label: "Financial Years & Locking", group: "Setup" },
 ];
 
@@ -43,7 +52,12 @@ export function SettingsPage() {
         {/* Wide tables need the room; everything else reads better narrow. */}
         <div
           className={`card p-6 ${
-            active === "series" || active === "users" || active === "roles" ? "" : "max-w-3xl"
+            active === "series" ||
+            active === "users" ||
+            active === "roles" ||
+            active === "opening-balances"
+              ? ""
+              : "max-w-3xl"
           }`}
         >
         {active === "org" && <OrgSection />}
@@ -51,6 +65,7 @@ export function SettingsPage() {
         {active === "roles" && <RolesSection />}
         {active === "taxes" && <TaxesSection />}
         {active === "series" && <SeriesSection />}
+        {active === "opening-balances" && <OpeningBalancesSection />}
         {active === "financial-years" && <FinancialYearsSection />}
         </div>
       </div>

@@ -27,6 +27,11 @@ export const orgProfile = pgTable("org_profile", {
   pan: varchar("pan", { length: 10 }),
   logoUrl: text("logo_url"),
   baseCurrency: varchar("base_currency", { length: 3 }).notNull().default("INR"),
+  /**
+   * The date the books were migrated from the previous system. Opening
+   * balances are dated here, and everything before it belongs to that system.
+   */
+  migrationDate: date("migration_date"),
   fiscalYearStart: varchar("fiscal_year_start", { length: 5 })
     .notNull()
     .default("04-01"),

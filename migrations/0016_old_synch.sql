@@ -1,0 +1,1 @@
+ALTER TABLE "org_profile" ADD COLUMN "migration_date" date;

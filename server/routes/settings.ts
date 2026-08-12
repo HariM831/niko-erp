@@ -5,6 +5,8 @@ import { documentSeries, financialYears, numberSeries, orgProfile } from "@share
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
+import { PostingError } from "../services/posting";
+import { getOpeningBalances, saveOpeningBalances } from "../services/opening-balances";
 
 export const settingsRouter = Router();
 
@@ -206,5 +208,50 @@ settingsRouter.patch(
       .returning();
     if (!row) return res.status(404).json({ error: "Financial year not found" });
     res.json(row);
+  },
+);
+
+// ---------- Opening balances ----------
+
+settingsRouter.get(
+  "/opening-balances",
+  requirePermission("settings", "view"),
+  async (_req, res) => {
+    res.json(await getOpeningBalances(db));
+  },
+);
+
+const openingSchema = z.object({
+  migrationDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  lines: z
+    .array(
+      z.object({
+        accountId: z.string().uuid(),
+        debit: z.string().regex(/^\d+(\.\d{1,2})?$/).default("0"),
+        credit: z.string().regex(/^\d+(\.\d{1,2})?$/).default("0"),
+      }),
+    )
+    .max(500),
+});
+
+settingsRouter.put(
+  "/opening-balances",
+  requirePermission("settings", "edit"),
+  validateBody(openingSchema),
+  async (req, res) => {
+    const body = req.body as z.infer<typeof openingSchema>;
+    try {
+      const result = await db.transaction((tx) =>
+        saveOpeningBalances(tx, {
+          migrationDate: body.migrationDate,
+          lines: body.lines,
+          postedBy: req.session.user!.id,
+        }),
+      );
+      res.json(result);
+    } catch (err) {
+      if (err instanceof PostingError) return res.status(422).json({ error: err.message });
+      throw err;
+    }
   },
 );
