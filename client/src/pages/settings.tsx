@@ -7,7 +7,7 @@ type Section = "org" | "taxes" | "series" | "financial-years";
 const SECTIONS: Array<{ key: Section; label: string }> = [
   { key: "org", label: "Organisation Profile" },
   { key: "taxes", label: "Taxes" },
-  { key: "series", label: "Document Numbering" },
+  { key: "series", label: "Transaction Number Series" },
   { key: "financial-years", label: "Financial Years & Locking" },
 ];
 
@@ -30,7 +30,8 @@ export function SettingsPage() {
         ))}
       </aside>
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="card max-w-3xl p-6">
+        {/* The series grid is a wide table; everything else reads better narrow. */}
+        <div className={`card p-6 ${active === "series" ? "" : "max-w-3xl"}`}>
         {active === "org" && <OrgSection />}
         {active === "taxes" && <TaxesSection />}
         {active === "series" && <SeriesSection />}
@@ -190,58 +191,211 @@ function TaxesSection() {
   );
 }
 
+interface SeriesEntity {
+  id: string;
+  entity: string;
+  prefix: string;
+  nextNumber: number;
+  padding: number;
+}
+interface NumberSeries {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  isActive: boolean;
+  entities: SeriesEntity[];
+}
+
+/** Column order for the series grid, following the order Zoho lists modules in. */
+const SERIES_COLUMNS: Array<[entity: string, label: string]> = [
+  ["invoice", "Invoice"],
+  ["credit_note", "Credit Note"],
+  ["customer_payment", "Customer Payment"],
+  ["estimate", "Estimate"],
+  ["sales_order", "Sales Order"],
+  ["bill", "Bill"],
+  ["purchase_order", "Purchase Order"],
+  ["vendor_credit", "Vendor Credit"],
+  ["vendor_payment", "Vendor Payment"],
+  ["expense", "Expense"],
+  ["journal_entry", "Journal"],
+];
+
 function SeriesSection() {
   const qc = useQueryClient();
   const { data: series } = useQuery({
     queryKey: ["series"],
-    queryFn: () => api<Array<{ id: string; entity: string; prefix: string; nextNumber: number; padding: number }>>("/api/settings/series"),
+    queryFn: () => api<NumberSeries[]>("/api/settings/series"),
   });
   const [error, setError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState({ name: "", prefixTag: "" });
 
-  const updatePrefix = async (id: string, prefix: string) => {
+  const run = async (fn: () => Promise<unknown>) => {
     setError(null);
     try {
-      await api(`/api/settings/series/${id}`, { method: "PATCH", body: { prefix } });
+      await fn();
       await qc.invalidateQueries({ queryKey: ["series"] });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed");
+      setError(err instanceof Error ? err.message : "Failed");
     }
   };
 
+  const create = () =>
+    run(async () => {
+      await api("/api/settings/series", {
+        method: "POST",
+        body: { name: draft.name.trim(), prefixTag: draft.prefixTag.trim() || undefined },
+      });
+      setDraft({ name: "", prefixTag: "" });
+      setAdding(false);
+    });
+
   return (
-    <div className="max-w-xl">
-      <h1 className="mb-4 text-lg font-semibold">Document Numbering</h1>
-      <table className="w-full text-[13px]">
-        <thead className="table-head">
-          <tr>
-            <th className="border-b border-[#ebeaf2] px-3 py-2">Document</th>
-            <th className="border-b border-[#ebeaf2] px-3 py-2">Prefix</th>
-            <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Next Number</th>
-          </tr>
-        </thead>
-        <tbody>
-          {series?.map((s) => (
-            <tr key={s.id} className="border-b border-[#ebeaf2]">
-              <td className="px-3 py-2 capitalize">{s.entity.replace(/_/g, " ")}</td>
-              <td className="px-3 py-2">
-                <input
-                  defaultValue={s.prefix}
-                  onBlur={(e) => {
-                    if (e.target.value !== s.prefix && e.target.value.trim()) {
-                      void updatePrefix(s.id, e.target.value.trim());
-                    }
-                  }}
-                  className="input w-28 py-1"
-                />
-              </td>
-              <td className="px-3 py-2 text-right tabular-nums">
-                {s.prefix}
-                {String(s.nextNumber).padStart(s.padding, "0")}
-              </td>
+    <div>
+      <div className="mb-3 flex items-center justify-between">
+        <h1 className="text-lg font-semibold">Transaction Number Series</h1>
+        <button onClick={() => setAdding((v) => !v)} className="btn-primary">
+          + New Series
+        </button>
+      </div>
+      <p className="mb-4 text-[13px] text-gray-500">
+        Run several numbering series side by side so each line of business gets its own document
+        numbers. Transactions draw from the default unless they name another series.
+      </p>
+
+      {adding && (
+        <div className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border bg-[#fafafc] p-4">
+          <div>
+            <label className="label-required">Series Name *</label>
+            <input
+              value={draft.name}
+              onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+              placeholder="e.g. Eggs"
+              className="input w-44"
+              autoFocus
+            />
+          </div>
+          <div>
+            <label className="label">Prefix Tag</label>
+            <input
+              value={draft.prefixTag}
+              onChange={(e) => setDraft((d) => ({ ...d, prefixTag: e.target.value }))}
+              placeholder="e.g. EG-"
+              className="input w-28"
+            />
+          </div>
+          <button onClick={() => void create()} disabled={!draft.name.trim()} className="btn-primary">
+            Create
+          </button>
+          <button onClick={() => setAdding(false)} className="pb-2 text-[13px] text-gray-500 hover:underline">
+            Cancel
+          </button>
+          <p className="w-full text-[12px] text-gray-500">
+            The tag is appended to each module&rsquo;s prefix, so &ldquo;EG-&rdquo; gives{" "}
+            <span className="font-medium text-gray-700">INV-EG-00001</span>. Every prefix stays
+            editable below.
+          </p>
+        </div>
+      )}
+
+      <div className="overflow-x-auto">
+        {/* w-max stops the browser compressing columns to fit — it scrolls instead. */}
+        <table className="w-max text-[13px]">
+          <thead className="table-head">
+            <tr>
+              <th className="sticky left-0 z-10 whitespace-nowrap border border-[#ebeaf2] bg-[#f9f9fb] px-3 py-2 text-left">
+                Series Name
+              </th>
+              {SERIES_COLUMNS.map(([entity, label]) => (
+                <th key={entity} className="whitespace-nowrap border border-[#ebeaf2] px-3 py-2 text-left">
+                  {label}
+                </th>
+              ))}
+              <th className="border border-[#ebeaf2] px-3 py-2" />
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {series?.map((s) => {
+              const byEntity = new Map(s.entities.map((e) => [e.entity, e]));
+              return (
+                <tr key={s.id}>
+                  <td className="sticky left-0 z-10 whitespace-nowrap border border-[#ebeaf2] bg-white px-3 py-2">
+                    <span className="font-medium">{s.name}</span>
+                    {s.isDefault && (
+                      <span className="ml-2 rounded bg-[#eef0f5] px-1.5 py-0.5 text-[11px] text-gray-600">
+                        Default
+                      </span>
+                    )}
+                  </td>
+                  {SERIES_COLUMNS.map(([entity]) => {
+                    const e = byEntity.get(entity);
+                    if (!e) {
+                      return (
+                        <td key={entity} className="border border-[#ebeaf2] px-3 py-2 text-gray-300">
+                          —
+                        </td>
+                      );
+                    }
+                    return (
+                      <td key={entity} className="border border-[#ebeaf2] p-1 align-top">
+                        <input
+                          defaultValue={e.prefix}
+                          onBlur={(ev) => {
+                            const next = ev.target.value.trim();
+                            if (next && next !== e.prefix) {
+                              void run(() =>
+                                api(`/api/settings/series/${e.id}`, {
+                                  method: "PATCH",
+                                  body: { prefix: next },
+                                }),
+                              );
+                            }
+                          }}
+                          className="input w-32 py-1"
+                        />
+                        <div className="px-1 pt-0.5 text-[11px] tabular-nums text-gray-400">
+                          next {e.prefix}
+                          {String(e.nextNumber).padStart(e.padding, "0")}
+                        </div>
+                      </td>
+                    );
+                  })}
+                  <td className="whitespace-nowrap border border-[#ebeaf2] px-3 py-2 align-top">
+                    {!s.isDefault && (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() =>
+                            void run(() =>
+                              api(`/api/settings/series-group/${s.id}`, {
+                                method: "PATCH",
+                                body: { isDefault: true },
+                              }),
+                            )
+                          }
+                          className="text-[12px] font-medium text-brand-600 hover:underline"
+                        >
+                          Make Default
+                        </button>
+                        <button
+                          onClick={() =>
+                            void run(() =>
+                              api(`/api/settings/series-group/${s.id}`, { method: "DELETE" }),
+                            )
+                          }
+                          className="text-[12px] text-red-600 hover:underline"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
     </div>
   );

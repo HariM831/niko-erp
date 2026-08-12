@@ -10,6 +10,7 @@ const configs: Record<string, TransactionFormConfig> = {
     contactLabel: "Customer",
     dateField: "invoiceDate",
     dateLabel: "Invoice Date",
+    withAccountColumn: true,
     withSend: true,
   },
   estimate: {
@@ -41,6 +42,7 @@ const configs: Record<string, TransactionFormConfig> = {
     contactLabel: "Customer",
     dateField: "creditNoteDate",
     dateLabel: "Credit Note Date",
+    withAccountColumn: true,
   },
   bill: {
     title: "New Bill",
@@ -52,6 +54,8 @@ const configs: Record<string, TransactionFormConfig> = {
     dateField: "billDate",
     dateLabel: "Bill Date",
     withAccountColumn: true,
+    withVendorBillNumber: true,
+    withFreight: true,
   },
   "purchase-order": {
     title: "New Purchase Order",
@@ -63,6 +67,7 @@ const configs: Record<string, TransactionFormConfig> = {
     dateField: "orderDate",
     dateLabel: "Order Date",
     withAccountColumn: true,
+    withDeliveryDate: true,
   },
   "vendor-credit": {
     title: "New Vendor Credit",

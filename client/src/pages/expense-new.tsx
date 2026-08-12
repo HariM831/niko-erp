@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useLocation } from "wouter";
+import { useEffect, useState } from "react";
+import { useLocation, useSearch } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { PendingAttachments, uploadPending } from "../components/pending-attachments";
@@ -23,13 +23,15 @@ interface Tax {
   name: string;
 }
 
-export function ExpenseNewPage() {
+export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
   const [, navigate] = useLocation();
+  const search = useSearch();
+  const presetBankAccountId = new URLSearchParams(search).get("bankAccountId") ?? "";
   const qc = useQueryClient();
   const [form, setForm] = useState({
     expenseDate: new Date().toISOString().slice(0, 10),
     expenseAccountId: "",
-    paidThroughId: "",
+    paidThroughId: presetBankAccountId,
     vendorId: "",
     amount: "",
     taxId: "",
@@ -56,6 +58,25 @@ export function ExpenseNewPage() {
     queryKey: ["taxes"],
     queryFn: () => api<Tax[]>("/api/taxes"),
   });
+  const { data: existing } = useQuery({
+    queryKey: ["expense", editId],
+    queryFn: () => api<Record<string, string | null>>(`/api/purchases/expenses/${editId}`),
+    enabled: !!editId,
+  });
+
+  useEffect(() => {
+    if (!existing) return;
+    setForm({
+      expenseDate: existing.expenseDate ?? "",
+      expenseAccountId: existing.expenseAccountId ?? "",
+      paidThroughId: existing.paidThroughId ?? "",
+      vendorId: existing.vendorId ?? "",
+      amount: existing.amount ? String(Number(existing.amount)) : "",
+      taxId: existing.taxId ?? "",
+      reference: existing.reference ?? "",
+      notes: existing.notes ?? "",
+    });
+  }, [existing]);
 
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -64,8 +85,8 @@ export function ExpenseNewPage() {
     setBusy(true);
     setError(null);
     try {
-      const created = (await api("/api/purchases/expenses", {
-        method: "POST",
+      const created = (await api(editId ? `/api/purchases/expenses/${editId}` : "/api/purchases/expenses", {
+        method: editId ? "PATCH" : "POST",
         body: {
           expenseDate: form.expenseDate,
           expenseAccountId: form.expenseAccountId,
@@ -82,7 +103,7 @@ export function ExpenseNewPage() {
         if (failed.length) setError(`Saved, but files failed: ${failed.join(", ")}`);
       }
       await qc.invalidateQueries();
-      navigate("/purchases/expenses");
+      navigate(editId ? `/purchases/expenses/${editId}` : "/purchases/expenses");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -92,12 +113,13 @@ export function ExpenseNewPage() {
 
   const inputCls = "input";
   const label = "label";
+  const backPath = editId ? `/purchases/expenses/${editId}` : "/purchases/expenses";
 
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b bg-white px-6 py-3">
-        <h1 className="text-lg font-semibold">Record Expense</h1>
-        <button onClick={() => navigate("/purchases/expenses")} className="text-xl text-gray-400 hover:text-gray-700">×</button>
+        <h1 className="text-lg font-semibold">{editId ? "Edit Expense" : "Record Expense"}</h1>
+        <button onClick={() => navigate(backPath)} className="text-xl text-gray-400 hover:text-gray-700">×</button>
       </header>
       <div className="flex-1 overflow-y-auto p-6">
         <div className="grid max-w-2xl grid-cols-2 gap-4">
@@ -169,9 +191,9 @@ export function ExpenseNewPage() {
           disabled={busy || !form.expenseDate || !form.expenseAccountId || !form.paidThroughId || Number(form.amount) <= 0}
           className="btn-primary"
         >
-          Save Expense
+          {editId ? "Save Changes" : "Save Expense"}
         </button>
-        <button onClick={() => navigate("/purchases/expenses")} className="ml-2 text-[13px] text-gray-500 hover:underline">
+        <button onClick={() => navigate(backPath)} className="ml-2 text-[13px] text-gray-500 hover:underline">
           Cancel
         </button>
       </footer>

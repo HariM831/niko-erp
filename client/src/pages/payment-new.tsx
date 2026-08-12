@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { useLocation } from "wouter";
+import { useEffect, useRef, useState } from "react";
+import { useLocation, useSearch } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
 
@@ -24,22 +24,29 @@ const MODES = ["bank_transfer", "cash", "upi", "cheque", "card"] as const;
  * Zoho-style payment recording with open-item application: pick the party,
  * see their open documents, allocate the amount line by line.
  */
-export function PaymentNewPage({ side }: { side: "customer" | "vendor" }) {
+export function PaymentNewPage({ side, editId }: { side: "customer" | "vendor"; editId?: string }) {
   const [, navigate] = useLocation();
+  const search = useSearch();
+  const params = new URLSearchParams(search);
+  const presetBankAccountId = params.get("bankAccountId") ?? "";
+  const presetContactId = params.get("contactId") ?? "";
+  const presetDocId = params.get("docId") ?? "";
   const qc = useQueryClient();
   const isCustomer = side === "customer";
   const listPath = isCustomer ? "/sales/payments" : "/purchases/payments";
+  const endpoint = isCustomer ? "/api/sales/payments" : "/api/purchases/payments";
 
-  const [contactId, setContactId] = useState("");
+  const [contactId, setContactId] = useState(presetContactId);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [amount, setAmount] = useState("");
   const [tds, setTds] = useState("");
   const [mode, setMode] = useState<string>("bank_transfer");
-  const [bankAccountId, setBankAccountId] = useState("");
+  const [bankAccountId, setBankAccountId] = useState(presetBankAccountId);
   const [reference, setReference] = useState("");
   const [applied, setApplied] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [presetApplied, setPresetApplied] = useState(false);
 
   const { data: contacts } = useQuery({
     queryKey: ["contacts", side],
@@ -58,13 +65,63 @@ export function PaymentNewPage({ side }: { side: "customer" | "vendor" }) {
     queryFn: () => api<Array<OpenDoc & { status: string }>>(openEndpoint),
     enabled: !!contactId,
   });
-  const openDocs = allDocs?.filter((d) =>
-    isCustomer
-      ? d.status === "sent" || d.status === "partially_paid"
-      : d.status === "open" || d.status === "partially_paid",
+  // When editing, this payment may have closed the very documents it paid, so keep
+  // those visible alongside the still-open ones or you couldn't change the split.
+  const appliedDocIds = new Set(Object.keys(applied));
+  const openDocs = allDocs?.filter(
+    (d) =>
+      appliedDocIds.has(d.id) ||
+      (isCustomer
+        ? d.status === "sent" || d.status === "partially_paid"
+        : d.status === "open" || d.status === "partially_paid"),
   );
 
-  useEffect(() => setApplied({}), [contactId]);
+  const { data: existing } = useQuery({
+    queryKey: ["payment", side, editId],
+    queryFn: () =>
+      api<Record<string, string> & { applications: Array<{ invoiceId?: string; billId?: string; amountApplied: string }> }>(
+        `${endpoint}/${editId}`,
+      ),
+    enabled: !!editId,
+  });
+
+  useEffect(() => {
+    if (!existing) return;
+    const loadedContactId = (existing.customerId ?? existing.vendorId) as string;
+    prevContactId.current = loadedContactId; // pre-seed so the clear-on-change effect skips this
+    setContactId(loadedContactId);
+    setDate(existing.paymentDate ?? date);
+    setAmount(String(Number(existing.amount)));
+    setTds(existing.tdsAmount && Number(existing.tdsAmount) > 0 ? String(Number(existing.tdsAmount)) : "");
+    setMode(existing.mode ?? "bank_transfer");
+    setBankAccountId(existing.bankAccountId ?? "");
+    setReference(existing.reference ?? "");
+    setApplied(
+      Object.fromEntries(
+        existing.applications.map((a) => [(a.invoiceId ?? a.billId) as string, String(Number(a.amountApplied))]),
+      ),
+    );
+    setPresetApplied(true);
+  }, [existing]);
+
+  useEffect(() => {
+    if (presetApplied || !presetDocId || !openDocs?.length) return;
+    const doc = openDocs.find((d) => d.id === presetDocId);
+    if (doc) {
+      setApplied({ [doc.id]: doc.balanceDue });
+      setAmount(doc.balanceDue);
+    }
+    setPresetApplied(true);
+  }, [openDocs, presetDocId, presetApplied]);
+
+  // Switching party invalidates the split — but don't wipe what an edit just loaded.
+  const prevContactId = useRef(contactId);
+  useEffect(() => {
+    if (prevContactId.current !== contactId) {
+      prevContactId.current = contactId;
+      setApplied({});
+    }
+  }, [contactId]);
 
   const totalApplied = Object.values(applied).reduce((s, v) => s + Number(v || 0), 0);
   const unapplied = Number(amount || 0) - totalApplied;
@@ -100,9 +157,9 @@ export function PaymentNewPage({ side }: { side: "customer" | "vendor" }) {
         applications,
       };
       if (!isCustomer && Number(tds) > 0) body.tdsAmount = Number(tds).toFixed(2);
-      await api(isCustomer ? "/api/sales/payments" : "/api/purchases/payments", { method: "POST", body });
+      await api(editId ? `${endpoint}/${editId}` : endpoint, { method: editId ? "PATCH" : "POST", body });
       await qc.invalidateQueries();
-      navigate(listPath);
+      navigate(editId ? `${listPath}/${editId}` : listPath);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Save failed");
     } finally {
@@ -111,12 +168,18 @@ export function PaymentNewPage({ side }: { side: "customer" | "vendor" }) {
   };
 
   const inputCls = "input";
+  const backPath = editId ? `${listPath}/${editId}` : listPath;
+  const title = editId
+    ? `Edit ${isCustomer ? "Payment Received" : "Payment Made"}`
+    : isCustomer
+      ? "Record Payment Received"
+      : "Record Payment Made";
 
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b bg-white px-6 py-3">
-        <h1 className="text-lg font-semibold">{isCustomer ? "Record Payment Received" : "Record Payment Made"}</h1>
-        <button onClick={() => navigate(listPath)} className="text-xl text-gray-400 hover:text-gray-700">×</button>
+        <h1 className="text-lg font-semibold">{title}</h1>
+        <button onClick={() => navigate(backPath)} className="text-xl text-gray-400 hover:text-gray-700">×</button>
       </header>
 
       <div className="flex-1 overflow-y-auto p-6">
@@ -235,9 +298,9 @@ export function PaymentNewPage({ side }: { side: "customer" | "vendor" }) {
           disabled={busy || !date || !contactId || !bankAccountId || Number(amount) <= 0 || unapplied < 0}
           className="btn-primary"
         >
-          Record Payment
+          {editId ? "Save Changes" : "Record Payment"}
         </button>
-        <button onClick={() => navigate(listPath)} className="ml-2 text-[13px] text-gray-500 hover:underline">
+        <button onClick={() => navigate(backPath)} className="ml-2 text-[13px] text-gray-500 hover:underline">
           Cancel
         </button>
       </footer>

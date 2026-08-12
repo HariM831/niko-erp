@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, formatMoney } from "../api";
 import { PendingAttachments, uploadPending } from "./pending-attachments";
@@ -28,6 +28,8 @@ interface Account {
   code: string;
   name: string;
   type: string;
+  isGroup: boolean;
+  isActive: boolean;
 }
 
 export interface FormLine {
@@ -57,16 +59,29 @@ export interface TransactionFormConfig {
   withAccountColumn?: boolean;
   /** Offer "Save and Send" (invoices) in addition to draft. */
   withSend?: boolean;
+  /** Capture the vendor's own bill number (bills). */
+  withVendorBillNumber?: boolean;
+  /** Capture freight and capitalise it into line costs (bills). */
+  withFreight?: boolean;
+  /** Expected delivery date (purchase orders). */
+  withDeliveryDate?: boolean;
   extraBody?: Record<string, unknown>;
 }
 
 /** Books-style transaction entry: header, line-item grid, totals panel. Handles create and edit. */
 export function TransactionForm({ config, editId }: { config: TransactionFormConfig; editId?: string }) {
   const [, navigate] = useLocation();
+  const uploadFirst = new URLSearchParams(useSearch()).get("upload") === "1";
   const qc = useQueryClient();
   const [contactId, setContactId] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [reference, setReference] = useState("");
+  const [seriesId, setSeriesId] = useState("");
+  const [vendorBillNumber, setVendorBillNumber] = useState("");
+  const [freightAmount, setFreightAmount] = useState("");
+  const [freightVendorId, setFreightVendorId] = useState("");
+  const [freightAccountId, setFreightAccountId] = useState("");
+  const [deliveryDate, setDeliveryDate] = useState("");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<FormLine[]>([emptyLine()]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -87,6 +102,13 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
     setContactId((existing.customerId ?? existing.vendorId ?? "") as string);
     setDate((existing[config.dateField] as string) ?? date);
     setReference((existing.reference as string) ?? "");
+    setVendorBillNumber((existing.vendorBillNumber as string) ?? "");
+    setFreightAmount(
+      existing.freightAmount && Number(existing.freightAmount) !== 0 ? String(Number(existing.freightAmount)) : "",
+    );
+    setFreightVendorId((existing.freightVendorId as string) ?? "");
+    setFreightAccountId((existing.freightAccountId as string) ?? "");
+    setDeliveryDate((existing.expectedDeliveryDate as string) ?? "");
     setNotes((existing.customerNotes as string) ?? "");
     if (existing.lines?.length) {
       setLines(
@@ -117,11 +139,31 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
     queryKey: ["taxes"],
     queryFn: () => api<Tax[]>("/api/taxes"),
   });
+  // Only offered on create, and only when the org actually runs more than one.
+  const { data: allSeries } = useQuery({
+    queryKey: ["series"],
+    queryFn: () =>
+      api<Array<{ id: string; name: string; isDefault: boolean; isActive: boolean }>>(
+        "/api/settings/series",
+      ),
+    enabled: !editId,
+  });
+  const series = (allSeries ?? []).filter((s) => s.isActive);
   const { data: accounts } = useQuery({
-    queryKey: ["accounts-expense"],
+    queryKey: ["accounts-all"],
     queryFn: () => api<Account[]>("/api/accounting/accounts"),
     enabled: !!config.withAccountColumn,
   });
+
+  // A sale credits income; a purchase debits an expense or capitalises an asset.
+  // Headings can't be posted to, so they never appear here.
+  const lineAccounts = useMemo(() => {
+    const wanted =
+      config.contactType === "customer" ? ["income"] : ["expense", "asset"];
+    return (accounts ?? []).filter(
+      (a) => a.isActive && !a.isGroup && wanted.includes(a.type),
+    );
+  }, [accounts, config.contactType]);
 
   const taxRate = (id?: string) => Number(taxes?.find((t) => t.id === id)?.rate ?? 0);
 
@@ -168,6 +210,8 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
         [config.contactType === "customer" ? "customerId" : "vendorId"]: contactId,
         [config.dateField]: date,
         reference: reference || undefined,
+        // Only meaningful on create — an existing document keeps the number it was issued.
+        seriesId: editId ? undefined : seriesId || undefined,
         lines: lines
           .filter((l) => l.name.trim())
           .map((l) => ({
@@ -183,6 +227,13 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
         ...config.extraBody,
       };
       if (notes) body.customerNotes = notes;
+      if (config.withVendorBillNumber && vendorBillNumber) body.vendorBillNumber = vendorBillNumber;
+      if (config.withFreight && Number(freightAmount) > 0) {
+        body.freightAmount = Number(freightAmount).toFixed(2);
+        if (freightVendorId) body.freightVendorId = freightVendorId;
+        if (freightAccountId) body.freightAccountId = freightAccountId;
+      }
+      if (config.withDeliveryDate && deliveryDate) body.expectedDeliveryDate = deliveryDate;
       let savedId: string;
       if (editId) {
         await api(`${config.endpoint}/${editId}`, { method: "PATCH", body });
@@ -213,6 +264,10 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
 
   const inputCls = "input";
 
+  // Freight can't post without somewhere to charge it, so don't let Save promise otherwise.
+  const freightNeedsAccount = config.withFreight && Number(freightAmount) > 0 && !freightAccountId;
+  const cannotSave = busy || !contactId || !date || freightNeedsAccount;
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between border-b bg-white px-6 py-3">
@@ -223,6 +278,16 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
       </header>
 
       <div className="flex-1 overflow-y-auto p-6">
+        {uploadFirst && (
+          <div className="mb-5 max-w-3xl rounded-xl border border-brand-200 bg-brand-50/50 p-4">
+            <h2 className="mb-1 text-sm font-semibold">Upload the vendor&apos;s bill</h2>
+            <p className="mb-3 text-xs text-gray-600">
+              Attach the scan or PDF, then key in the details below. The file stays on the bill for your records.
+            </p>
+            <PendingAttachments files={pendingFiles} onChange={setPendingFiles} label="Upload Bill File(s)" />
+          </div>
+        )}
+
         <div className="mb-5 grid max-w-3xl grid-cols-3 gap-4">
           <div className="col-span-2">
             <label className="label-required">
@@ -245,6 +310,95 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
             <label className="label">Reference</label>
             <input value={reference} onChange={(e) => setReference(e.target.value)} className={inputCls} />
           </div>
+          {series.length > 1 && (
+            <div>
+              <label className="label">Number Series</label>
+              <select value={seriesId} onChange={(e) => setSeriesId(e.target.value)} className={inputCls}>
+                {series.map((s) => (
+                  <option key={s.id} value={s.isDefault ? "" : s.id}>
+                    {s.name}
+                    {s.isDefault ? " (Default)" : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {config.withVendorBillNumber && (
+            <div>
+              <label className="label">Bill# (vendor&apos;s own)</label>
+              <input
+                value={vendorBillNumber}
+                onChange={(e) => setVendorBillNumber(e.target.value)}
+                className={inputCls}
+              />
+            </div>
+          )}
+          {config.withDeliveryDate && (
+            <div>
+              <label className="label">Expected Delivery Date</label>
+              <input
+                type="date"
+                value={deliveryDate}
+                onChange={(e) => setDeliveryDate(e.target.value)}
+                className={inputCls}
+              />
+            </div>
+          )}
+          {config.withFreight && (
+            <>
+              <div>
+                <label className="label">Freight / Transport</label>
+                <input
+                  value={freightAmount}
+                  onChange={(e) => setFreightAmount(e.target.value)}
+                  placeholder="0.00"
+                  className={inputCls}
+                />
+              </div>
+              {Number(freightAmount) > 0 && (
+                <>
+                  <div>
+                    <label className="label">Transporter</label>
+                    <select
+                      value={freightVendorId}
+                      onChange={(e) => setFreightVendorId(e.target.value)}
+                      className={inputCls}
+                    >
+                      <option value="">Select transporter…</option>
+                      {contacts?.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.displayName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label-required">Freight Expense Account *</label>
+                    <select
+                      value={freightAccountId}
+                      onChange={(e) => setFreightAccountId(e.target.value)}
+                      className={inputCls}
+                    >
+                      <option value="">Select account…</option>
+                      {accounts
+                        ?.filter((a) => a.type === "expense")
+                        .map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.code} · {a.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                  <div className="col-span-3 -mt-1">
+                    <p className="text-[11px] text-gray-500">
+                      The transporter is billed separately — freight gets its own journal entry and never touches this
+                      vendor&apos;s payable. It is only shared across the lines to show each item&apos;s true landed cost.
+                    </p>
+                  </div>
+                </>
+              )}
+            </>
+          )}
         </div>
 
         <table className="mb-3 w-full text-[13px]">
@@ -293,13 +447,11 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                         className={inputCls}
                       >
                         <option value="">Item default</option>
-                        {accounts
-                          ?.filter((a) => a.type === "expense" || a.type === "asset")
-                          .map((a) => (
-                            <option key={a.id} value={a.id}>
-                              {a.code} · {a.name}
-                            </option>
-                          ))}
+                        {lineAccounts.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.code} · {a.name}
+                          </option>
+                        ))}
                       </select>
                     </td>
                   )}
@@ -355,7 +507,13 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
               <label className="label">Notes</label>
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className={inputCls} />
             </div>
-            <PendingAttachments files={pendingFiles} onChange={setPendingFiles} label={`Attach File(s) to ${config.title.replace("New ", "")}`} />
+            {!uploadFirst && (
+              <PendingAttachments
+                files={pendingFiles}
+                onChange={setPendingFiles}
+                label={`Attach File(s) to ${config.title.replace("New ", "")}`}
+              />
+            )}
           </div>
           <div className="w-80 rounded-xl border border-gray-200/80 bg-gray-50/80 p-5 text-[13px] shadow-[0_1px_3px_rgba(16,24,40,0.05)]">
             <div className="mb-1.5 flex justify-between">
@@ -389,7 +547,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
       <footer className="flex items-center gap-2 border-t bg-white px-6 py-3">
         <button
           onClick={() => void save(config.withSend && !editId ? "draft" : undefined)}
-          disabled={busy || !contactId || !date}
+          disabled={cannotSave}
           className={editId ? "btn-primary" : "btn-secondary"}
         >
           {editId ? "Save Changes" : "Save as Draft"}
@@ -397,7 +555,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
         {config.withSend && !editId && (
           <button
             onClick={() => void save("sent")}
-            disabled={busy || !contactId || !date}
+            disabled={cannotSave}
             className="btn-primary"
           >
             Save and Send

@@ -1,10 +1,19 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, formatDate, formatMoney } from "../api";
+import { amountInWords, api, formatDate, formatMoney } from "../api";
 import { StatusBadge } from "../components/list-page";
 import { AttachmentsButton } from "../components/attachments";
 import { CommentsButton } from "../components/comments";
+import { JournalSection } from "../components/journal-section";
+
+/** Route kind → journal_entries.source_type; kinds that never post a journal are omitted. */
+const JOURNAL_SOURCE_TYPE: Record<string, string> = {
+  invoice: "invoice",
+  "credit-note": "credit_note",
+  bill: "bill",
+  "vendor-credit": "vendor_credit",
+};
 
 /** Route kind → attachments entity_type. */
 const ENTITY_TYPE: Record<string, string> = {
@@ -27,6 +36,8 @@ interface DetailLine {
   discountPercent: string;
   taxAmount: string;
   amount: string;
+  allocatedFreight?: string;
+  landedUnitCost?: string;
 }
 
 interface DetailDoc {
@@ -74,6 +85,49 @@ interface DetailConfig {
 
 const today = () => new Date().toISOString().slice(0, 10);
 
+/** Integer paise, so money comparisons never hit float drift. */
+const toPaise = (v: unknown) => Math.round(Number(v ?? 0) * 100);
+
+/** Plain Indian-locale number, no currency symbol — Zoho only puts ₹ on Total and Balance Due. */
+const formatNum = (v: string | number | null | undefined) =>
+  Number(v ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** GST state code → state name, for "Place Of Supply : Assam (18)". */
+const GST_STATES: Record<string, string> = {
+  "01": "Jammu & Kashmir", "02": "Himachal Pradesh", "03": "Punjab", "04": "Chandigarh",
+  "05": "Uttarakhand", "06": "Haryana", "07": "Delhi", "08": "Rajasthan",
+  "09": "Uttar Pradesh", "10": "Bihar", "11": "Sikkim", "12": "Arunachal Pradesh",
+  "13": "Nagaland", "14": "Manipur", "15": "Mizoram", "16": "Tripura",
+  "17": "Meghalaya", "18": "Assam", "19": "West Bengal", "20": "Jharkhand",
+  "21": "Odisha", "22": "Chhattisgarh", "23": "Madhya Pradesh", "24": "Gujarat",
+  "26": "Dadra & Nagar Haveli and Daman & Diu", "27": "Maharashtra", "29": "Karnataka",
+  "30": "Goa", "31": "Lakshadweep", "32": "Kerala", "33": "Tamil Nadu",
+  "34": "Puducherry", "35": "Andaman & Nicobar Islands", "36": "Telangana",
+  "37": "Andhra Pradesh", "38": "Ladakh",
+};
+
+function placeOfSupply(code?: string | null): string | null {
+  if (!code) return null;
+  const padded = code.padStart(2, "0");
+  const name = GST_STATES[padded];
+  return name ? `${name} (${padded})` : padded;
+}
+
+/** dd/mm/yyyy, the format Zoho prints on documents. */
+const slashDate = (d: string | null | undefined) => {
+  if (!d) return "—";
+  const [y, m, day] = d.split("-");
+  return `${day}/${m}/${y}`;
+};
+
+function termsLabel(docDate?: string, dueDate?: string): string | null {
+  if (!docDate || !dueDate) return null;
+  const days = Math.round(
+    (new Date(`${dueDate}T00:00:00Z`).getTime() - new Date(`${docDate}T00:00:00Z`).getTime()) / 86_400_000,
+  );
+  return days <= 0 ? "Due on Receipt" : `Net ${days}`;
+}
+
 const CONFIGS: Record<string, DetailConfig> = {
   invoice: {
     titlePrefix: "Invoice",
@@ -97,7 +151,7 @@ const CONFIGS: Record<string, DetailConfig> = {
       {
         label: "Record Payment",
         when: ["sent", "partially_paid"],
-        run: (_doc, h) => h.navigate("/sales/payments/new"),
+        run: (doc, h) => h.navigate(`/sales/payments/new?contactId=${doc.customerId}&docId=${doc.id}`),
       },
       {
         label: "Void",
@@ -193,6 +247,19 @@ const CONFIGS: Record<string, DetailConfig> = {
     dateField: "creditNoteDate",
     actions: [
       {
+        label: "Edit",
+        when: ["open", "closed"],
+        run: (doc, h) => {
+          if (doc.status !== "open" || toPaise(doc.balance) !== toPaise(doc.total)) {
+            alert(
+              `${doc.number} is applied to an invoice, so its amounts are locked.\n\nUnapply it first to make changes.`,
+            );
+            return;
+          }
+          h.navigate(`/sales/credit-notes/${doc.id}/edit`);
+        },
+      },
+      {
         label: "Void",
         when: ["open"],
         danger: true,
@@ -211,9 +278,24 @@ const CONFIGS: Record<string, DetailConfig> = {
     dateField: "billDate",
     actions: [
       {
+        // Re-states the bill: old journals reversed, new ones posted. Stays visible
+        // once paid so the reason it's unavailable is explained, not just missing.
+        label: "Edit",
+        when: ["open", "partially_paid", "paid"],
+        run: (doc, h) => {
+          if (doc.status !== "open") {
+            alert(
+              `${doc.number} has payments applied, so its amounts are locked.\n\nUnapply the payment first, or raise a vendor credit to adjust it.`,
+            );
+            return;
+          }
+          h.navigate(`/purchases/bills/${doc.id}/edit`);
+        },
+      },
+      {
         label: "Record Payment",
         when: ["open", "partially_paid"],
-        run: (_doc, h) => h.navigate("/purchases/payments/new"),
+        run: (doc, h) => h.navigate(`/purchases/payments/new?contactId=${doc.vendorId}&docId=${doc.id}`),
       },
       {
         label: "Void",
@@ -233,6 +315,17 @@ const CONFIGS: Record<string, DetailConfig> = {
     listPath: "/purchases/orders",
     dateField: "orderDate",
     actions: [
+      {
+        label: "Edit",
+        when: ["draft", "issued", "partially_billed", "billed"],
+        run: (doc, h) => {
+          if (doc.status === "billed" || doc.status === "partially_billed") {
+            alert(`${doc.number} has already been billed.\n\nEdit the resulting bill instead.`);
+            return;
+          }
+          h.navigate(`/purchases/orders/${doc.id}/edit`);
+        },
+      },
       {
         label: "Mark as Issued",
         when: ["draft"],
@@ -266,7 +359,21 @@ const CONFIGS: Record<string, DetailConfig> = {
     endpoint: "/api/purchases/vendor-credits",
     listPath: "/purchases/vendor-credits",
     dateField: "creditDate",
-    actions: [],
+    actions: [
+      {
+        label: "Edit",
+        when: ["open", "closed"],
+        run: (doc, h) => {
+          if (doc.status !== "open" || toPaise(doc.balance) !== toPaise(doc.total)) {
+            alert(
+              `${doc.number} is applied to a bill, so its amounts are locked.\n\nUnapply it first to make changes.`,
+            );
+            return;
+          }
+          h.navigate(`/purchases/vendor-credits/${doc.id}/edit`);
+        },
+      },
+    ],
   },
 };
 
@@ -289,7 +396,8 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
       api<{
         displayName: string;
         gstin?: string;
-        addresses: Array<{ kind: string; line1?: string; city?: string; state?: string; pincode?: string }>;
+        placeOfSupplyState?: string;
+        addresses: Array<{ kind: string; line1?: string; line2?: string; city?: string; state?: string; pincode?: string }>;
       }>(`/api/contacts/${contactId}`),
     enabled: !!contactId,
   });
@@ -335,10 +443,17 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
   const visibleActions = config.actions.filter((a) => a.when.includes(doc.status));
   const balance = doc.balanceDue ?? doc.balance;
 
+  // Zoho prints vendor credits under the same "CREDIT NOTE" heading as customer credit notes.
   const docTitle =
-    kind === "invoice" ? "TAX INVOICE" : config.titlePrefix.toUpperCase();
+    kind === "invoice" ? "TAX INVOICE" : kind === "vendor-credit" ? "CREDIT NOTE" : config.titlePrefix.toUpperCase();
   const billingAddr = contact?.addresses?.find((a) => a.kind === "billing");
+  const shippingAddr = contact?.addresses?.find((a) => a.kind === "shipping") ?? billingAddr;
   const isSales = ["invoice", "estimate", "sales-order", "credit-note"].includes(kind);
+  const supply = placeOfSupply(contact?.placeOfSupplyState);
+  const terms = termsLabel(doc[config.dateField] as string | undefined, doc.dueDate as string | undefined);
+
+  const addressLines = (a?: { line1?: string; line2?: string; city?: string; state?: string; pincode?: string }) =>
+    a ? [a.line1, a.line2, a.city, [a.pincode, a.state].filter(Boolean).join(" "), "India"].filter(Boolean) as string[] : [];
 
   return (
     <div className="flex h-full flex-col">
@@ -392,7 +507,7 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
             <strong>What&apos;s next?</strong> The invoice is out — record the payment when it arrives.
           </span>
           <button
-            onClick={() => navigate("/sales/payments/new")}
+            onClick={() => navigate(`/sales/payments/new?contactId=${doc.customerId}&docId=${doc.id}`)}
             className="rounded-md bg-brand-500 px-3 py-1.5 font-medium text-white hover:bg-brand-600"
           >
             Record Payment
@@ -400,163 +515,264 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
         </div>
       )}
 
+      {doc.status === "draft" && kind === "purchase-order" && (
+        <div className="flex items-center justify-between border-b bg-brand-50/60 px-6 py-2.5 text-[13px] print:hidden">
+          <span>
+            <strong>What&apos;s next?</strong> Send this purchase order to your vendor or mark it as issued.
+          </span>
+          <button
+            onClick={() =>
+              void runAction(config.actions.find((a) => a.label === "Mark as Issued")!)
+            }
+            disabled={busy}
+            className="rounded-md bg-brand-500 px-3 py-1.5 font-medium text-white hover:bg-brand-600 disabled:opacity-50"
+          >
+            Mark as Issued
+          </button>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto bg-gray-100 p-6 print:bg-white print:p-0">
-        <div className="relative mx-auto max-w-3xl overflow-hidden border bg-white shadow-sm print:border-0 print:shadow-none">
-          <div
-            className={`absolute -left-10 top-5 w-36 -rotate-45 py-1 text-center text-[11px] font-semibold uppercase tracking-wider text-white print:hidden ${
+        <div className="a4-sheet relative mx-auto border bg-white shadow-sm print:border-0 print:shadow-none">
+          {/* Corner ribbon: clipped to the sheet's top-left without clipping the page body. */}
+          <div className="pointer-events-none absolute inset-0 overflow-hidden print:hidden">
+            <div
+              className={`absolute -left-10 top-5 w-36 -rotate-45 py-1 text-center text-[11px] font-semibold uppercase tracking-wider text-white ${
               doc.status === "paid" || doc.status === "closed"
                 ? "bg-green-600"
                 : doc.status === "void" || doc.status === "cancelled"
                   ? "bg-red-500"
                   : doc.status === "draft"
-                    ? "bg-gray-400"
-                    : "bg-brand-500"
-            }`}
-          >
-            {doc.status.replace(/_/g, " ")}
+                      ? "bg-gray-400"
+                      : "bg-brand-500"
+              }`}
+            >
+              {doc.status.replace(/_/g, " ")}
+            </div>
           </div>
 
-          <div className="p-10">
-            <div className="mb-8 flex items-start justify-between">
-              <div className="text-[13px]">
-                <div className="text-base font-bold">{org?.name || "Your Business"}</div>
-                {org?.address && <div className="text-gray-600">{org.address}</div>}
-                <div className="text-gray-600">
-                  {[org?.city, org?.state, org?.pincode].filter(Boolean).join(", ")}
+          {/* Zoho "Spreadsheet Template": hairline #9e9e9e grid, Ubuntu-ish 8pt body. */}
+          <div className="p-9 text-[11px] leading-[15px] text-black">
+            <div className="flex items-stretch justify-between px-2.5 pb-2">
+              <div className="w-1/2">
+                <div className="mb-1.5 text-[15px] font-bold leading-none">{org?.name || "Your Business"}</div>
+                <div className="whitespace-pre-line">
+                  {[
+                    org?.address,
+                    [org?.city, org?.state, org?.pincode].filter(Boolean).join(" "),
+                    "India",
+                    org?.gstin ? `GSTIN ${org.gstin}` : null,
+                    org?.phone,
+                    org?.email,
+                  ]
+                    .filter(Boolean)
+                    .join("\n")}
                 </div>
-                {org?.gstin && <div className="text-gray-600">GSTIN {org.gstin}</div>}
-                {org?.phone && <div className="text-gray-600">{org.phone}</div>}
               </div>
-              <div className="text-right">
-                <div className="text-2xl font-bold tracking-wide text-gray-800">{docTitle}</div>
-                <div className="mt-1 text-[13px] text-gray-500"># {doc.number}</div>
-                <div className="mt-4 text-[13px]">
-                  <span className="text-gray-500">Balance Due</span>
-                  <div className="text-lg font-bold tabular-nums">
-                    {formatMoney(balance ?? doc.total)}
-                  </div>
-                </div>
+              <div className="flex w-2/5 items-end justify-end">
+                <div className="text-[27px] leading-none">{docTitle}</div>
               </div>
             </div>
 
-            <div className="mb-8 flex items-end justify-between text-[13px]">
-              <div>
-                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-                  {isSales ? "Bill To" : "Vendor"}
+            <div className="flex border-t border-[#9e9e9e]">
+              <div className="w-1/2 space-y-0.5 border-r border-[#9e9e9e] px-2.5 pb-2.5 pt-1.5">
+                <div className="flex">
+                  <span className="w-24 shrink-0 text-[#333]">#</span>
+                  <span className="font-semibold">: {doc.number}</span>
                 </div>
+                <div className="flex">
+                  <span className="w-24 shrink-0 text-[#333]">{config.titlePrefix} Date</span>
+                  <span className="font-semibold">: {slashDate(doc[config.dateField] as string)}</span>
+                </div>
+                {terms && (
+                  <div className="flex">
+                    <span className="w-24 shrink-0 text-[#333]">Terms</span>
+                    <span className="font-semibold">: {terms}</span>
+                  </div>
+                )}
+                {doc.dueDate ? (
+                  <div className="flex">
+                    <span className="w-24 shrink-0 text-[#333]">Due Date</span>
+                    <span className="font-semibold">: {slashDate(doc.dueDate as string)}</span>
+                  </div>
+                ) : null}
+                {doc.reference ? (
+                  <div className="flex">
+                    <span className="w-24 shrink-0 text-[#333]">Reference</span>
+                    <span className="font-semibold">: {doc.reference}</span>
+                  </div>
+                ) : null}
+              </div>
+              <div className="w-1/2 px-2.5 pb-2.5 pt-1.5">
+                {supply && (
+                  <div className="flex">
+                    <span className="w-28 shrink-0 text-[#333]">Place Of Supply</span>
+                    <span className="font-semibold">: {supply}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex border-t border-[#9e9e9e]">
+              <div className="w-1/2 border-r border-[#9e9e9e] px-2.5 pb-2.5">
+                <div className="py-1 font-bold text-[#333]">{isSales ? "Bill To" : "Vendor"}</div>
                 {contactId ? (
                   <Link
                     href={`${isSales ? "/sales/customers" : "/purchases/vendors"}/${contactId}`}
-                    className="block font-semibold text-brand-700 hover:underline"
+                    className="text-[12px] font-bold text-brand-700 hover:underline"
                   >
                     {contact?.displayName ?? "—"}
                   </Link>
                 ) : (
-                  <div className="font-semibold text-brand-700">{contact?.displayName ?? "—"}</div>
+                  <span className="text-[12px] font-bold">{contact?.displayName ?? "—"}</span>
                 )}
-                {billingAddr?.line1 && <div className="text-gray-600">{billingAddr.line1}</div>}
-                <div className="text-gray-600">
-                  {[billingAddr?.city, billingAddr?.state, billingAddr?.pincode].filter(Boolean).join(", ")}
-                </div>
-                {contact?.gstin && <div className="text-gray-600">GSTIN {contact.gstin}</div>}
+                {addressLines(billingAddr).map((line, i) => (
+                  <div key={i}>{line}</div>
+                ))}
+                {contact?.gstin && <div>GSTIN {contact.gstin}</div>}
               </div>
-              <table className="text-right text-[13px]">
-                <tbody>
-                  <tr>
-                    <td className="pr-4 text-gray-500">{config.titlePrefix} Date :</td>
-                    <td className="font-medium">{formatDate(doc[config.dateField] as string)}</td>
-                  </tr>
-                  {doc.dueDate ? (
-                    <tr>
-                      <td className="pr-4 text-gray-500">Due Date :</td>
-                      <td className="font-medium">{formatDate(doc.dueDate as string)}</td>
-                    </tr>
-                  ) : null}
-                  {doc.reference ? (
-                    <tr>
-                      <td className="pr-4 text-gray-500">Reference :</td>
-                      <td className="font-medium">{doc.reference}</td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
+              <div className="w-1/2 px-2.5 pb-2.5">
+                {isSales ? (
+                  <>
+                    <div className="py-1 font-bold text-[#333]">Ship To</div>
+                    {addressLines(shippingAddr).map((line, i) => (
+                      <div key={i}>{line}</div>
+                    ))}
+                  </>
+                ) : kind === "purchase-order" ? (
+                  // Zoho prints where the vendor should deliver — our own address.
+                  <>
+                    <div className="py-1 font-bold text-[#333]">Deliver To</div>
+                    <div className="text-[12px] font-bold">{org?.name}</div>
+                    {org?.address && <div>{org.address}</div>}
+                    <div>{[org?.city, org?.pincode, org?.state].filter(Boolean).join(" ")}</div>
+                    <div>India</div>
+                  </>
+                ) : null}
+              </div>
             </div>
 
-            <table className="mb-6 w-full text-[13px]">
+            <table className="w-full">
               <thead>
-                <tr className="bg-gray-800 text-left text-xs uppercase tracking-wide text-white">
-                  <th className="px-3 py-2 font-medium">#</th>
-                  <th className="px-3 py-2 font-medium">Item &amp; Description</th>
-                  <th className="px-3 py-2 text-right font-medium">Qty</th>
-                  <th className="px-3 py-2 text-right font-medium">Rate</th>
-                  <th className="px-3 py-2 text-right font-medium">Tax</th>
-                  <th className="px-3 py-2 text-right font-medium">Amount</th>
+                <tr className="bg-[#f2f3f4]">
+                  <th className="w-[5%] px-1.5 pb-0.5 pt-1.5 text-center align-bottom font-bold">#</th>
+                  <th className="px-2 pb-0.5 pt-1.5 text-left align-bottom font-bold">Item &amp; Description</th>
+                  <th className="w-[11%] px-2 pb-0.5 pt-1.5 text-right align-bottom font-bold">Qty</th>
+                  <th className="w-[11%] px-2 pb-0.5 pt-1.5 text-right align-bottom font-bold">Rate</th>
+                  <th className="w-[13%] px-2 pb-0.5 pt-1.5 text-right align-bottom font-bold">Amount</th>
                 </tr>
               </thead>
               <tbody>
                 {doc.lines.map((l, i) => (
-                  <tr key={l.id} className="border-b border-[#ebeaf2]">
-                    <td className="px-3 py-2.5 text-gray-500">{i + 1}</td>
-                    <td className="px-3 py-2.5">
-                      <div className="font-medium">{l.name}</div>
-                      {l.description && <div className="text-xs text-gray-500">{l.description}</div>}
+                  <tr key={l.id} className="border-b border-[#9e9e9e]">
+                    <td className="px-1.5 py-1.5 text-center align-top">{i + 1}</td>
+                    <td className="px-2 py-1.5 align-top">
+                      <div>{l.name}</div>
+                      {l.description && (
+                        <div className="whitespace-pre-wrap text-[10px] text-[#727272]">{l.description}</div>
+                      )}
                     </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">
-                      {Number(l.quantity)} {l.unit ?? ""}
+                    <td className="px-2 py-1.5 text-right align-top tabular-nums">
+                      {formatNum(l.quantity)}
+                      {l.unit && <div>{l.unit}</div>}
                     </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{formatMoney(l.rate)}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{formatMoney(l.taxAmount)}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{formatMoney(l.amount)}</td>
+                    <td className="px-2 py-1.5 text-right align-top tabular-nums">{formatNum(l.rate)}</td>
+                    <td className="px-2 py-1.5 text-right align-top tabular-nums">{formatNum(l.amount)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
 
-            <div className="ml-auto w-72 text-[13px]">
-              <div className="mb-1 flex justify-between">
-                <span className="text-gray-600">Sub Total</span>
-                <span className="tabular-nums">{formatMoney(doc.subTotal)}</span>
+            <div className="mt-px flex">
+              <div className="w-1/2 px-2 pt-2.5">
+                <div className="mb-1.5 mt-2">
+                  <div className="pb-0.5 pr-2.5">Total In Words</div>
+                  <span className="font-bold italic">{amountInWords(doc.total)}</span>
+                </div>
+                {(doc.customerNotes ?? doc.notes) ? (
+                  <div className="pt-2.5">
+                    <div className="text-[#333]">Notes</div>
+                    <p className="whitespace-pre-wrap">{(doc.customerNotes ?? doc.notes) as string}</p>
+                  </div>
+                ) : null}
+                {doc.termsAndConditions ? (
+                  <div className="pt-2.5">
+                    <div className="text-[#333]">Terms &amp; Conditions</div>
+                    <p className="whitespace-pre-wrap">{doc.termsAndConditions as string}</p>
+                  </div>
+                ) : null}
               </div>
-              {Number(doc.discountTotal) > 0 && (
-                <div className="mb-1 flex justify-between text-gray-600">
-                  <span>Discount</span>
-                  <span className="tabular-nums">− {formatMoney(doc.discountTotal)}</span>
-                </div>
-              )}
-              {Number(doc.cgst) > 0 && (
-                <div className="mb-1 flex justify-between text-gray-600">
-                  <span>CGST</span>
-                  <span className="tabular-nums">{formatMoney(doc.cgst)}</span>
-                </div>
-              )}
-              {Number(doc.sgst) > 0 && (
-                <div className="mb-1 flex justify-between text-gray-600">
-                  <span>SGST</span>
-                  <span className="tabular-nums">{formatMoney(doc.sgst)}</span>
-                </div>
-              )}
-              {Number(doc.igst) > 0 && (
-                <div className="mb-1 flex justify-between text-gray-600">
-                  <span>IGST</span>
-                  <span className="tabular-nums">{formatMoney(doc.igst)}</span>
-                </div>
-              )}
-              {Number(doc.roundOff) !== 0 && (
-                <div className="mb-1 flex justify-between text-gray-600">
-                  <span>Round Off</span>
-                  <span className="tabular-nums">{formatMoney(doc.roundOff)}</span>
-                </div>
-              )}
-              <div className="mt-2 flex justify-between border-t-2 border-gray-800 pt-2 text-sm font-bold">
-                <span>Total</span>
-                <span className="tabular-nums">{formatMoney(doc.total)}</span>
+              <div className="ml-auto w-[43.6%]">
+                <table className="w-full border-l border-[#9e9e9e]">
+                  <tbody>
+                    <tr>
+                      <td className="py-1.5 pr-2.5 text-right align-middle">Sub Total</td>
+                      <td className="w-[110px] py-1.5 pl-1.5 pr-2.5 text-right align-middle tabular-nums">
+                        {formatNum(doc.subTotal)}
+                      </td>
+                    </tr>
+                    {Number(doc.discountTotal) > 0 && (
+                      <tr>
+                        <td className="py-1 pr-2.5 text-right align-middle">Discount</td>
+                        <td className="py-1 pl-1.5 pr-2.5 text-right align-middle tabular-nums">
+                          (-) {formatNum(doc.discountTotal)}
+                        </td>
+                      </tr>
+                    )}
+                    {Number(doc.cgst) > 0 && (
+                      <tr>
+                        <td className="py-1 pr-2.5 text-right align-middle">CGST</td>
+                        <td className="py-1 pl-1.5 pr-2.5 text-right align-middle tabular-nums">{formatNum(doc.cgst)}</td>
+                      </tr>
+                    )}
+                    {Number(doc.sgst) > 0 && (
+                      <tr>
+                        <td className="py-1 pr-2.5 text-right align-middle">SGST</td>
+                        <td className="py-1 pl-1.5 pr-2.5 text-right align-middle tabular-nums">{formatNum(doc.sgst)}</td>
+                      </tr>
+                    )}
+                    {Number(doc.igst) > 0 && (
+                      <tr>
+                        <td className="py-1 pr-2.5 text-right align-middle">IGST</td>
+                        <td className="py-1 pl-1.5 pr-2.5 text-right align-middle tabular-nums">{formatNum(doc.igst)}</td>
+                      </tr>
+                    )}
+                    {Number(doc.roundOff) !== 0 && (
+                      <tr>
+                        <td className="py-1 pr-2.5 text-right align-middle">Round Off</td>
+                        <td className="py-1 pl-1.5 pr-2.5 text-right align-middle tabular-nums">{formatNum(doc.roundOff)}</td>
+                      </tr>
+                    )}
+                    <tr>
+                      <td className="py-1.5 pr-2.5 text-right align-middle text-[12px] font-bold">Total</td>
+                      <td className="py-1.5 pl-1.5 pr-2.5 text-right align-middle text-[12px] font-bold tabular-nums">
+                        ₹{formatNum(doc.total)}
+                      </td>
+                    </tr>
+                    {balance !== undefined && (
+                      <tr>
+                        <td className="py-1.5 pr-2.5 text-right align-middle text-[12px] font-bold">Balance Due</td>
+                        <td className="py-1.5 pl-1.5 pr-2.5 text-right align-middle text-[12px] font-bold tabular-nums">
+                          ₹{formatNum(balance)}
+                        </td>
+                      </tr>
+                    )}
+                    <tr>
+                      <td colSpan={2} className="border-b border-[#9e9e9e]"></td>
+                    </tr>
+                    <tr>
+                      <td colSpan={2} className="pt-1.5 text-center">
+                        <div className="min-h-[75px]"></div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td colSpan={2} className="border-b border-[#9e9e9e] pb-0.5 text-center">
+                        Authorized Signature
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
-              {balance !== undefined && (
-                <div className="mt-1 flex justify-between rounded bg-gray-100 px-2 py-1.5 font-semibold">
-                  <span>Balance Due</span>
-                  <span className="tabular-nums">{formatMoney(balance)}</span>
-                </div>
-              )}
             </div>
 
             {!!doc.payments?.length && (
@@ -589,9 +805,75 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
                 </table>
               </div>
             )}
+
+            {Number(doc.freightAmount ?? 0) > 0 && (
+              <div className="mt-10 print:hidden">
+                <h3 className="mb-1 text-sm font-semibold">Landed Cost</h3>
+                <p className="mb-2 text-xs text-gray-500">
+                  Costing view only. Freight of {formatMoney(doc.freightAmount as string)} is shared across lines by
+                  value to show the true per-unit cost. The transporter is a separate party — their charge is
+                  journalled on its own expense or bill, not against this vendor.
+                </p>
+                <table className="w-full max-w-3xl text-[13px]">
+                  <thead className="table-head">
+                    <tr>
+                      <th className="border-b border-[#ebeaf2] px-3 py-2">Item</th>
+                      <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Qty</th>
+                      <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Line Amount</th>
+                      <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">+ Freight</th>
+                      <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Landed Cost</th>
+                      <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Landed Unit Cost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {doc.lines.map((l) => (
+                      <tr key={l.id} className="border-b border-[#ebeaf2]">
+                        <td className="px-3 py-2">{l.name}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {formatNum(l.quantity)} {l.unit ?? ""}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">{formatMoney(l.amount)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{formatMoney(l.allocatedFreight ?? 0)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {formatMoney(Number(l.amount) + Number(l.allocatedFreight ?? 0))}
+                        </td>
+                        <td className="px-3 py-2 text-right font-medium tabular-nums">
+                          {formatMoney(l.landedUnitCost ?? 0)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {JOURNAL_SOURCE_TYPE[kind] && (
+              <JournalSection
+                // The stored id is the *current* entry; a source lookup would find
+                // the original one, which an edit has since reversed.
+                entryId={(doc.journalEntryId as string) ?? undefined}
+                sourceType={JOURNAL_SOURCE_TYPE[kind]}
+                sourceId={doc.id}
+                heading={config.titlePrefix}
+                note={
+                  Number(doc.freightAmount ?? 0) > 0
+                    ? "Goods only — the freight is expensed on its own entry below."
+                    : undefined
+                }
+              />
+            )}
+
+            {doc.freightJournalEntryId ? (
+              <JournalSection
+                entryId={doc.freightJournalEntryId as string}
+                heading="Freight"
+                note={`Charged to ${doc.freightVendorName ?? "the transporter"}, separate from ${contact?.displayName ?? "the goods vendor"}.`}
+              />
+            ) : null}
           </div>
         </div>
       </div>
     </div>
   );
 }
+

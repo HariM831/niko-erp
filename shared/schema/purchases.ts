@@ -101,6 +101,18 @@ export const bills = pgTable(
     reference: text("reference"),
     purchaseOrderId: uuid("purchase_order_id").references(() => purchaseOrders.id),
     ...totalsColumns,
+    /**
+     * Third-party carriage on this consignment. It never touches this vendor's
+     * payable — it is expensed on its own journal entry (freightJournalEntryId)
+     * and only allocated across lines for costing, to show the true landed cost.
+     */
+    freightAmount: money("freight_amount").notNull().default("0"),
+    /** The transporter (a vendor contact); who we owe the freight to. */
+    freightVendorId: uuid("freight_vendor_id").references(() => contacts.id),
+    /** Expense account the freight is charged to. */
+    freightAccountId: uuid("freight_account_id").references(() => accounts.id),
+    /** The freight's own journal entry, separate from the goods entry. */
+    freightJournalEntryId: uuid("freight_journal_entry_id").references(() => journalEntries.id),
     tdsAmount: money("tds_amount").notNull().default("0"),
     tdsSection: varchar("tds_section", { length: 12 }),
     balanceDue: money("balance_due").notNull().default("0"),
@@ -121,6 +133,10 @@ export const billLines = pgTable("bill_lines", {
     .notNull()
     .references(() => bills.id, { onDelete: "cascade" }),
   ...lineColumns,
+  /** This line's share of the bill's freight, allocated by line value. */
+  allocatedFreight: money("allocated_freight").notNull().default("0"),
+  /** (line amount + allocated freight) / quantity — the true per-unit cost. */
+  landedUnitCost: money("landed_unit_cost").notNull().default("0"),
 });
 
 export const vendorPayments = pgTable("vendor_payments", {

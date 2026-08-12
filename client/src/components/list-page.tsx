@@ -33,6 +33,10 @@ interface ListPageProps<T> {
   /** Highlighted row (used by the split view). */
   activeKey?: string;
   compact?: boolean;
+  /** Optional content rendered between the header and the table, e.g. a stats banner. */
+  banner?: ReactNode;
+  /** Extra buttons placed before "+ New" in the header, e.g. "Upload Bill". */
+  extraActions?: ReactNode;
 }
 
 /**
@@ -53,6 +57,8 @@ export function ListPage<T>({
   rowKey,
   activeKey,
   compact,
+  banner,
+  extraActions,
 }: ListPageProps<T>) {
   const [, navigate] = useLocation();
   const [activeView, setActiveView] = useState(0);
@@ -138,6 +144,7 @@ export function ListPage<T>({
               className="input w-52"
             />
           )}
+          {extraActions}
           {handleNew && (
             <button
               onClick={handleNew}
@@ -151,6 +158,8 @@ export function ListPage<T>({
           </button>
         </div>
       </header>
+
+      {banner}
 
       <div className="flex-1 overflow-auto">
         {isLoading ? (

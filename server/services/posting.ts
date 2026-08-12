@@ -4,6 +4,7 @@ import {
   financialYears,
   journalEntries,
   journalEntryLines,
+  transactionLocks,
   type journalSourceType,
 } from "@shared/schema";
 import type { Tx } from "../db";
@@ -40,7 +41,7 @@ const EPSILON = 0.005;
 export async function postJournal(tx: Tx, req: PostingRequest): Promise<string> {
   if (req.lines.length < 2) throw new PostingError("A journal needs at least two lines");
 
-  await assertPeriodOpen(tx, req.entryDate);
+  await assertPeriodOpen(tx, req.entryDate, req.sourceType);
 
   let totalDebit = 0;
   let totalCredit = 0;
@@ -117,7 +118,8 @@ export async function reverseJournal(
   if (original.status !== "posted") {
     throw new PostingError(`Cannot reverse an entry with status "${original.status}"`);
   }
-  await assertPeriodOpen(tx, reversalDate);
+  // A reversal belongs to the same module as the entry it undoes.
+  await assertPeriodOpen(tx, reversalDate, original.sourceType);
 
   const lines = await tx
     .select()
@@ -162,8 +164,59 @@ export async function reverseJournal(
 
 export class PostingError extends Error {}
 
-async function assertPeriodOpen(tx: Tx, dateStr: string) {
-  const locked = await tx
+export type LockModule = "sales" | "purchases" | "banking" | "accountant";
+
+/** Which lock governs a posting, based on the document that produced it. */
+export function lockModuleFor(
+  sourceType: (typeof journalSourceType.enumValues)[number],
+): LockModule {
+  switch (sourceType) {
+    case "invoice":
+    case "customer_payment":
+    case "credit_note":
+      return "sales";
+    case "bill":
+    case "vendor_payment":
+    case "vendor_credit":
+    case "expense":
+      return "purchases";
+    case "banking":
+      return "banking";
+    default:
+      return "accountant";
+  }
+}
+
+const MODULE_LABEL: Record<LockModule, string> = {
+  sales: "Sales",
+  purchases: "Purchases",
+  banking: "Banking",
+  accountant: "Accountant",
+};
+
+/**
+ * Refuse anything dated on or before the module's lock date, or inside a locked
+ * financial year. `sourceType` decides which module lock applies.
+ */
+export async function assertPeriodOpen(
+  tx: Tx,
+  dateStr: string,
+  sourceType: (typeof journalSourceType.enumValues)[number],
+) {
+  const mod = lockModuleFor(sourceType);
+  const [lock] = await tx
+    .select({ lockedThrough: transactionLocks.lockedThrough })
+    .from(transactionLocks)
+    .where(eq(transactionLocks.module, mod))
+    .limit(1);
+  if (lock?.lockedThrough && dateStr <= lock.lockedThrough) {
+    throw new PostingError(
+      `${MODULE_LABEL[mod]} transactions are locked up to ${lock.lockedThrough}. ` +
+        `Change the lock date to record something on ${dateStr}.`,
+    );
+  }
+
+  const closedYear = await tx
     .select({ id: financialYears.id })
     .from(financialYears)
     .where(
@@ -174,8 +227,8 @@ async function assertPeriodOpen(tx: Tx, dateStr: string) {
       ),
     )
     .limit(1);
-  if (locked.length > 0) {
-    throw new PostingError(`Period containing ${dateStr} is locked`);
+  if (closedYear.length > 0) {
+    throw new PostingError(`The financial year containing ${dateStr} is closed`);
   }
 }
 
@@ -187,7 +240,12 @@ async function resolveAccount(tx: Tx, line: PostingLine): Promise<string> {
       : null;
   if (!where) throw new PostingError("Line missing accountId or systemKey");
   const [account] = await tx
-    .select({ id: accounts.id, isActive: accounts.isActive, name: accounts.name })
+    .select({
+      id: accounts.id,
+      isActive: accounts.isActive,
+      isGroup: accounts.isGroup,
+      name: accounts.name,
+    })
     .from(accounts)
     .where(where)
     .limit(1);
@@ -198,6 +256,10 @@ async function resolveAccount(tx: Tx, line: PostingLine): Promise<string> {
   }
   if (!account.isActive) {
     throw new PostingError(`Account "${account.name}" is inactive`);
+  }
+  // Group rows only exist to sub-total their children on reports.
+  if (account.isGroup) {
+    throw new PostingError(`"${account.name}" is a heading — post to one of its sub-accounts instead`);
   }
   return account.id;
 }

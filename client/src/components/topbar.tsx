@@ -10,8 +10,6 @@ const QUICK_CREATE: Array<{ group: string; items: Array<{ label: string; path: s
     group: "Sales",
     items: [
       { label: "Invoice", path: "/sales/invoices/new" },
-      { label: "Estimate", path: "/sales/estimates/new" },
-      { label: "Sales Order", path: "/sales/sales-orders/new" },
       { label: "Payment Received", path: "/sales/payments/new" },
       { label: "Credit Note", path: "/sales/credit-notes/new" },
       { label: "Customer", path: "/sales/customers/new" },

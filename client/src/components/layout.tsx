@@ -37,8 +37,6 @@ const NAV: NavItem[] = [
     icon: Banknote,
     children: [
       { label: "Customers", path: "/sales/customers" },
-      { label: "Estimates", path: "/sales/estimates" },
-      { label: "Sales Orders", path: "/sales/sales-orders" },
       { label: "Invoices", path: "/sales/invoices" },
       { label: "Payments Received", path: "/sales/payments" },
       { label: "Credit Notes", path: "/sales/credit-notes" },
@@ -61,7 +59,10 @@ const NAV: NavItem[] = [
     icon: BookOpen,
     children: [
       { label: "Manual Journals", path: "/accountant/journals" },
+      { label: "Bulk Update", path: "/accountant/bulk-update" },
       { label: "Chart of Accounts", path: "/accountant/accounts" },
+      { label: "Budgets", path: "/accountant/budgets" },
+      { label: "Transaction Locking", path: "/accountant/transaction-locking" },
     ],
   },
   { label: "Reports", icon: PieChart, path: "/reports" },

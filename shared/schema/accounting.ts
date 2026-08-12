@@ -10,14 +10,19 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
-import { accountType, journalSourceType, journalStatus } from "./enums";
+import { accountSubtype, accountType, journalSourceType, journalStatus } from "./enums";
 import { users } from "./auth";
 
 export const accounts = pgTable("accounts", {
   id: uuid("id").primaryKey().defaultRandom(),
   code: varchar("code", { length: 12 }).notNull().unique(),
   name: text("name").notNull(),
+  /** Broad bucket the posting engine reasons about. */
   type: accountType("type").notNull(),
+  /** Granular classification that drives Balance Sheet / P&L grouping. */
+  subtype: accountSubtype("subtype"),
+  /** Header row that exists for report sub-totals; transactions cannot post to it. */
+  isGroup: boolean("is_group").notNull().default(false),
   parentId: uuid("parent_id"),
   /** Stable key for programmatic posting (e.g. "ar", "ap", "cash_bank"). */
   systemKey: varchar("system_key", { length: 40 }).unique(),

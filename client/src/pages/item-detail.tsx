@@ -58,8 +58,6 @@ interface Transactions {
 
 const TXN_SECTIONS: Array<{ key: keyof Transactions; label: string; basePath: string }> = [
   { key: "invoices", label: "Invoices", basePath: "/sales/invoices" },
-  { key: "estimates", label: "Estimates", basePath: "/sales/estimates" },
-  { key: "salesOrders", label: "Sales Orders", basePath: "/sales/sales-orders" },
   { key: "bills", label: "Bills", basePath: "/purchases/bills" },
   { key: "purchaseOrders", label: "Purchase Orders", basePath: "/purchases/orders" },
 ];

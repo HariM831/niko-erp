@@ -10,7 +10,8 @@
     "check": "tsc",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx server/db/migrate.ts",
-    "db:seed": "tsx server/db/seed.ts"
+    "db:seed": "tsx server/db/seed.ts",
+    "db:demo": "tsx server/db/demo-data.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.4",

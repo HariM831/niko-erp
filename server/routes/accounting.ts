@@ -1,11 +1,14 @@
 import { Router } from "express";
-import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gte, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
+  accountSubtype,
   accountType,
   accounts,
   journalEntries,
   journalEntryLines,
+  transactionLocks,
+  users,
 } from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
@@ -29,6 +32,8 @@ const accountSchema = z.object({
   code: z.string().min(1).max(12),
   name: z.string().min(1),
   type: z.enum(accountType.enumValues),
+  subtype: z.enum(accountSubtype.enumValues).optional(),
+  isGroup: z.boolean().optional(),
   parentId: z.string().uuid().optional(),
   description: z.string().optional(),
 });
@@ -79,17 +84,35 @@ accountingRouter.get(
   "/journals",
   requirePermission("accounting", "view"),
   async (req, res) => {
-    const { from, to } = req.query as Record<string, string | undefined>;
+    const { from, to, all } = req.query as Record<string, string | undefined>;
     const conditions = [];
+    // Zoho's "Manual Journals" lists only hand-written entries; the postings that
+    // documents generate belong to those documents. `?all=1` opts into everything.
+    if (all !== "1") conditions.push(eq(journalEntries.sourceType, "manual"));
     if (from) conditions.push(gte(journalEntries.entryDate, from));
     if (to) conditions.push(lte(journalEntries.entryDate, to));
+
     const rows = await db
-      .select()
+      .select({ ...getTableColumns(journalEntries), createdByName: users.name })
       .from(journalEntries)
+      .leftJoin(users, eq(users.id, journalEntries.postedBy))
       .where(conditions.length ? and(...conditions) : undefined)
-      .orderBy(sql`${journalEntries.entryDate} DESC`)
+      .orderBy(desc(journalEntries.entryDate))
       .limit(200);
-    res.json(rows);
+
+    // Entry value = its debit total (a balanced entry's two sides are equal).
+    // Fetched separately: a correlated subquery inside .select() renders the outer
+    // column unqualified and silently resolves against the subquery's own table.
+    const totals = await db
+      .select({
+        entryId: journalEntryLines.entryId,
+        amount: sql<string>`SUM(${journalEntryLines.debit})::numeric(14,2)`,
+      })
+      .from(journalEntryLines)
+      .groupBy(journalEntryLines.entryId);
+    const amountByEntry = new Map(totals.map((t) => [t.entryId, t.amount]));
+
+    res.json(rows.map((r) => ({ ...r, amount: amountByEntry.get(r.id) ?? "0.00" })));
   },
 );
 
@@ -107,6 +130,120 @@ accountingRouter.get(
       .where(eq(journalEntryLines.entryId, entry.id))
       .orderBy(asc(journalEntryLines.lineOrder));
     res.json({ ...entry, lines });
+  },
+);
+
+/**
+ * The posted journal entry for a source document (invoice, payment, expense...),
+ * with account codes/names joined in — this is the "Journal" tab Zoho shows on
+ * every transaction detail page, proving the double-entry posting really happened.
+ */
+accountingRouter.get(
+  "/journal-by-source",
+  requirePermission("accounting", "view"),
+  async (req, res) => {
+    const { sourceType, sourceId } = req.query as Record<string, string | undefined>;
+    if (!sourceType || !sourceId) return res.status(400).json({ error: "sourceType and sourceId are required" });
+    const entry = await db.query.journalEntries.findFirst({
+      where: and(
+        eq(journalEntries.sourceType, sourceType as typeof journalEntries.$inferSelect.sourceType),
+        eq(journalEntries.sourceId, sourceId),
+      ),
+    });
+    if (!entry) return res.json(null);
+    const lines = await db
+      .select({
+        accountCode: accounts.code,
+        accountName: accounts.name,
+        debit: journalEntryLines.debit,
+        credit: journalEntryLines.credit,
+      })
+      .from(journalEntryLines)
+      .innerJoin(accounts, eq(accounts.id, journalEntryLines.accountId))
+      .where(eq(journalEntryLines.entryId, entry.id))
+      .orderBy(asc(journalEntryLines.lineOrder));
+    res.json({ id: entry.id, entryNumber: entry.entryNumber, entryDate: entry.entryDate, lines });
+  },
+);
+
+// ---------- Transaction locking ----------
+
+const LOCK_MODULES = ["sales", "purchases", "banking", "accountant"] as const;
+
+/** Current lock state for all four modules; unlocked modules come back as null. */
+accountingRouter.get(
+  "/transaction-locks",
+  requirePermission("accounting", "view"),
+  async (_req, res) => {
+    const rows = await db.select().from(transactionLocks);
+    const byModule = new Map(rows.map((r) => [r.module, r]));
+    res.json(
+      LOCK_MODULES.map((m) => ({
+        module: m,
+        lockedThrough: byModule.get(m)?.lockedThrough ?? null,
+        reason: byModule.get(m)?.reason ?? null,
+      })),
+    );
+  },
+);
+
+const lockSchema = z.object({
+  /** null clears the lock for this module. */
+  lockedThrough: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+  reason: z.string().max(500).optional(),
+  /** Apply the same date to every module — Zoho's "lock all at once". */
+  applyToAll: z.boolean().optional(),
+});
+
+accountingRouter.put(
+  "/transaction-locks/:module",
+  requirePermission("accounting", "edit"),
+  validateBody(lockSchema),
+  async (req, res) => {
+    const mod = req.params.module!;
+    if (!LOCK_MODULES.includes(mod as (typeof LOCK_MODULES)[number])) {
+      return res.status(400).json({ error: `Unknown module: ${mod}` });
+    }
+    const body = req.body as z.infer<typeof lockSchema>;
+    const targets = body.applyToAll ? LOCK_MODULES : [mod];
+
+    await db.transaction(async (tx) => {
+      for (const m of targets) {
+        await tx
+          .insert(transactionLocks)
+          .values({ module: m, lockedThrough: body.lockedThrough, reason: body.reason })
+          .onConflictDoUpdate({
+            target: transactionLocks.module,
+            set: { lockedThrough: body.lockedThrough, reason: body.reason, updatedAt: new Date() },
+          });
+      }
+    });
+    const rows = await db.select().from(transactionLocks);
+    res.json(rows);
+  },
+);
+
+/** One posted entry with account names, for the Journal panel on a document. */
+accountingRouter.get(
+  "/journal-entry/:id",
+  requirePermission("accounting", "view"),
+  async (req, res) => {
+    const entry = await db.query.journalEntries.findFirst({
+      where: eq(journalEntries.id, req.params.id!),
+    });
+    if (!entry) return res.json(null);
+    const lines = await db
+      .select({
+        accountCode: accounts.code,
+        accountName: accounts.name,
+        debit: journalEntryLines.debit,
+        credit: journalEntryLines.credit,
+      })
+      .from(journalEntryLines)
+      .innerJoin(accounts, eq(accounts.id, journalEntryLines.accountId))
+      .where(eq(journalEntryLines.entryId, entry.id))
+      .orderBy(asc(journalEntryLines.lineOrder));
+    res.json({ id: entry.id, entryNumber: entry.entryNumber, entryDate: entry.entryDate, lines });
   },
 );
 

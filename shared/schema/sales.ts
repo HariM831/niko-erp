@@ -20,7 +20,7 @@ import { contacts } from "./contacts";
 import { items } from "./items";
 import { taxes } from "./core";
 import { users } from "./auth";
-import { journalEntries } from "./accounting";
+import { accounts, journalEntries } from "./accounting";
 import { bankAccounts } from "./banking";
 
 const money = (name: string) => numeric(name, { precision: 14, scale: 2 });
@@ -29,6 +29,8 @@ const qty = (name: string) => numeric(name, { precision: 14, scale: 3 });
 /** Columns shared by every transaction line (Zoho line-item grid). */
 const lineColumns = {
   itemId: uuid("item_id").references(() => items.id),
+  /** Income account this line posts to (item default or override). */
+  accountId: uuid("account_id").references(() => accounts.id),
   name: text("name").notNull(),
   description: text("description"),
   hsnOrSac: varchar("hsn_or_sac", { length: 10 }),

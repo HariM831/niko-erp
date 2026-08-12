@@ -4,6 +4,8 @@ import connectPgSimple from "connect-pg-simple";
 import { pool } from "./db";
 import { authRouter } from "./routes/auth";
 import { accountingRouter } from "./routes/accounting";
+import { budgetsRouter } from "./routes/budgets";
+import { bulkUpdateRouter } from "./routes/bulk-update";
 import { contactsRouter } from "./routes/contacts";
 import { contactInsightsRouter } from "./routes/contact-insights";
 import { itemsRouter, taxesRouter } from "./routes/items";
@@ -68,6 +70,8 @@ app.use("/api", activityLogger);
 app.use("/api/auth", authRouter);
 app.use("/api/activity-log", activityRouter);
 app.use("/api/accounting", requireAuth, accountingRouter);
+app.use("/api/budgets", requireAuth, budgetsRouter);
+app.use("/api/bulk-update", requireAuth, bulkUpdateRouter);
 app.use("/api/contacts", requireAuth, contactInsightsRouter);
 app.use("/api/contacts", requireAuth, contactsRouter);
 app.use("/api/items", requireAuth, itemsRouter);
@@ -88,6 +92,13 @@ app.use(
     res.status(500).json({ error: "Internal server error" });
   },
 );
+
+// Express 4 doesn't forward errors thrown in async handlers, so an unexpected
+// rejection would otherwise reach Node's default handler and kill the process.
+// Log it loudly and keep serving; the offending request simply gets no reply.
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled rejection — request abandoned, server still up:", reason);
+});
 
 const port = Number(process.env.PORT ?? 3000);
 app.listen(port, () => console.log(`eggsy server listening on :${port}`));

@@ -18,8 +18,10 @@ import { validateBody } from "../lib/validate";
 import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, postJournal, reverseJournal } from "../services/posting";
 import {
+  applyDefaultSalesAccounts,
   computeDocumentTotals,
   fromPaise,
+  groupRevenueByAccount,
   toPaise,
   type DocLineInput,
 } from "../services/documents";
@@ -362,6 +364,8 @@ salesDocumentsRouter.post(
 // ============================ Credit Notes ============================
 
 const creditNoteSchema = z.object({
+  /** Draw the document number from this series; omitted means the default. */
+  seriesId: z.string().uuid().optional(),
   customerId: z.string().uuid(),
   creditNoteDate: dateStr,
   reference: z.string().optional(),
@@ -445,8 +449,9 @@ salesDocumentsRouter.post(
           body.lines as DocLineInput[],
           customer.placeOfSupplyState,
         );
-        const number = await nextDocumentNumber(tx, "credit_note");
-        const { lines: computedLines, ...headerTotals } = totals;
+        const number = await nextDocumentNumber(tx, "credit_note", body.seriesId);
+        const { lines: rawLines, ...headerTotals } = totals;
+        const computedLines = await applyDefaultSalesAccounts(tx, rawLines);
 
         const [cn] = await tx
           .insert(creditNotes)
@@ -467,16 +472,7 @@ salesDocumentsRouter.post(
           .insert(creditNoteLines)
           .values(computedLines.map((l) => ({ ...l, creditNoteId: cn!.id })));
 
-        const salesDebit = fromPaise(
-          toPaise(totals.subTotal) - toPaise(totals.discountTotal) + toPaise(totals.roundOff),
-        );
-        const jeLines = [
-          { systemKey: "sales", debit: salesDebit, description: `Credit note ${number}` },
-          { systemKey: "ar", credit: totals.total },
-        ];
-        if (toPaise(totals.cgst) > 0) jeLines.push({ systemKey: "cgst_payable", debit: totals.cgst } as never);
-        if (toPaise(totals.sgst) > 0) jeLines.push({ systemKey: "sgst_payable", debit: totals.sgst } as never);
-        if (toPaise(totals.igst) > 0) jeLines.push({ systemKey: "igst_payable", debit: totals.igst } as never);
+        const jeLines = buildCreditNoteJeLines(totals, computedLines, number);
 
         const jeId = await postJournal(tx, {
           entryDate: body.creditNoteDate,
@@ -494,6 +490,131 @@ salesDocumentsRouter.post(
         return updated!;
       });
       res.status(201).json(result);
+    } catch (err) {
+      if (!handlePostingError(err, res)) throw err;
+    }
+  },
+);
+
+/**
+ * Reverse of an invoice's posting: DR income + output GST, CR AR. Income is
+ * debited per line account so a credit note unwinds the same revenue accounts
+ * the invoice credited.
+ */
+function buildCreditNoteJeLines(
+  totals: Awaited<ReturnType<typeof computeDocumentTotals>>,
+  lines: Array<{ accountId?: string | null; amount: string }>,
+  number: string,
+) {
+  const jeLines: Array<{
+    accountId?: string;
+    systemKey?: string;
+    debit?: string;
+    credit?: string;
+    description?: string;
+  }> = [];
+  let first = true;
+  for (const g of groupRevenueByAccount(lines, toPaise(totals.roundOff))) {
+    const description = first ? `Credit note ${number}` : undefined;
+    first = false;
+    jeLines.push(
+      g.accountId
+        ? { accountId: g.accountId, debit: fromPaise(g.paise), description }
+        : { systemKey: "sales", debit: fromPaise(g.paise), description },
+    );
+  }
+  jeLines.push({ systemKey: "ar", credit: totals.total });
+  if (toPaise(totals.cgst) > 0) jeLines.push({ systemKey: "cgst_payable", debit: totals.cgst } as never);
+  if (toPaise(totals.sgst) > 0) jeLines.push({ systemKey: "sgst_payable", debit: totals.sgst } as never);
+  if (toPaise(totals.igst) > 0) jeLines.push({ systemKey: "igst_payable", debit: totals.igst } as never);
+  return jeLines;
+}
+
+/**
+ * Editing re-states the credit note: the original journal is reversed and a fresh
+ * one posted. Blocked once any of it has been applied against an invoice.
+ */
+salesDocumentsRouter.patch(
+  "/credit-notes/:id",
+  requirePermission("sales", "edit"),
+  validateBody(creditNoteSchema.partial()),
+  async (req, res) => {
+    const body = req.body as Partial<z.infer<typeof creditNoteSchema>>;
+    try {
+      const result = await db.transaction(async (tx) => {
+        const cn = await tx.query.creditNotes.findFirst({
+          where: eq(creditNotes.id, req.params.id!),
+        });
+        if (!cn) throw new PostingError("Credit note not found");
+        if (cn.status === "void") throw new PostingError("A void credit note cannot be edited");
+        if (toPaise(cn.balance) !== toPaise(cn.total)) {
+          throw new PostingError("This credit note is partly applied to an invoice — unapply it first");
+        }
+
+        const customer = await loadCustomer(tx, body.customerId ?? cn.customerId);
+        const creditNoteDate = body.creditNoteDate ?? cn.creditNoteDate;
+
+        let inputLines: DocLineInput[];
+        if (body.lines) {
+          inputLines = body.lines as DocLineInput[];
+        } else {
+          const existing = await tx
+            .select()
+            .from(creditNoteLines)
+            .where(eq(creditNoteLines.creditNoteId, cn.id))
+            .orderBy(asc(creditNoteLines.lineOrder));
+          inputLines = existing.map((l) => ({
+            itemId: l.itemId ?? undefined,
+            accountId: l.accountId ?? undefined,
+            name: l.name,
+            description: l.description ?? undefined,
+            hsnOrSac: l.hsnOrSac ?? undefined,
+            quantity: l.quantity,
+            unit: l.unit ?? undefined,
+            rate: l.rate,
+            discountPercent: l.discountPercent,
+            taxId: l.taxId ?? undefined,
+          })) as DocLineInput[];
+        }
+
+        if (cn.journalEntryId) {
+          await reverseJournal(tx, cn.journalEntryId, creditNoteDate, req.session.user!.id);
+        }
+
+        const totals = await computeDocumentTotals(tx, inputLines, customer.placeOfSupplyState);
+        const { lines: rawLines, ...headerTotals } = totals;
+        const computedLines = await applyDefaultSalesAccounts(tx, rawLines);
+
+        await tx.delete(creditNoteLines).where(eq(creditNoteLines.creditNoteId, cn.id));
+        await tx
+          .insert(creditNoteLines)
+          .values(computedLines.map((l) => ({ ...l, creditNoteId: cn.id })));
+
+        const jeId = await postJournal(tx, {
+          entryDate: creditNoteDate,
+          narration: `Credit note ${cn.number} — ${customer.displayName}`,
+          sourceType: "credit_note",
+          sourceId: cn.id,
+          postedBy: req.session.user!.id,
+          lines: buildCreditNoteJeLines(totals, computedLines, cn.number),
+        });
+
+        const [updated] = await tx
+          .update(creditNotes)
+          .set({
+            customerId: customer.id,
+            creditNoteDate,
+            reference: body.reference ?? cn.reference,
+            customerNotes: body.customerNotes ?? cn.customerNotes,
+            ...headerTotals,
+            balance: headerTotals.total,
+            journalEntryId: jeId,
+          })
+          .where(eq(creditNotes.id, cn.id))
+          .returning();
+        return updated!;
+      });
+      res.json(result);
     } catch (err) {
       if (!handlePostingError(err, res)) throw err;
     }
@@ -611,3 +732,53 @@ salesDocumentsRouter.post(
     }
   },
 );
+
+// ---------- Re-post helpers (used by Bulk Update) ----------
+//
+// Reverse a document's posting and re-post it from whatever is currently stored,
+// leaving every user-visible field alone. Bulk Update calls these after swapping
+// the account on the lines so the ledger follows the new account.
+
+export async function repostCreditNote(tx: Tx, id: string, userId: string): Promise<void> {
+  const cn = await tx.query.creditNotes.findFirst({ where: eq(creditNotes.id, id) });
+  if (!cn) throw new PostingError("Credit note not found");
+  if (cn.status === "void") throw new PostingError(`Credit note ${cn.number} is void`);
+
+  const [customer] = await tx
+    .select({ displayName: contacts.displayName, placeOfSupplyState: contacts.placeOfSupplyState })
+    .from(contacts)
+    .where(eq(contacts.id, cn.customerId))
+    .limit(1);
+
+  const stored = await tx
+    .select()
+    .from(creditNoteLines)
+    .where(eq(creditNoteLines.creditNoteId, id))
+    .orderBy(asc(creditNoteLines.lineOrder));
+  const inputLines = stored.map((l) => ({
+    itemId: l.itemId ?? undefined,
+    accountId: l.accountId ?? undefined,
+    name: l.name,
+    description: l.description ?? undefined,
+    hsnOrSac: l.hsnOrSac ?? undefined,
+    quantity: l.quantity,
+    unit: l.unit ?? undefined,
+    rate: l.rate,
+    discountPercent: l.discountPercent,
+    taxId: l.taxId ?? undefined,
+  })) as DocLineInput[];
+
+  if (cn.journalEntryId) await reverseJournal(tx, cn.journalEntryId, cn.creditNoteDate, userId);
+
+  const totals = await computeDocumentTotals(tx, inputLines, customer?.placeOfSupplyState);
+  const computedLines = await applyDefaultSalesAccounts(tx, totals.lines);
+  const jeId = await postJournal(tx, {
+    entryDate: cn.creditNoteDate,
+    narration: `Credit note ${cn.number} — ${customer?.displayName ?? ""}`,
+    sourceType: "credit_note",
+    sourceId: id,
+    postedBy: userId,
+    lines: buildCreditNoteJeLines(totals, computedLines, cn.number),
+  });
+  await tx.update(creditNotes).set({ journalEntryId: jeId }).where(eq(creditNotes.id, id));
+}

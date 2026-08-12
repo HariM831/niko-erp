@@ -2,11 +2,13 @@ import { Router } from "express";
 import { and, asc, eq, ilike, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
+  bills,
   contactAddresses,
   contactPersons,
   contacts,
   contactType,
   gstTreatment,
+  invoices,
 } from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
@@ -87,7 +89,27 @@ contactsRouter.get("/", requirePermission("sales", "view"), async (req, res) => 
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(asc(contacts.displayName))
     .limit(500);
-  res.json(rows);
+
+  // "Receivables (BCY)" for customers / "Payables (BCY)" for vendors, Zoho's list-view balance column.
+  // Fetched separately and joined in JS: a correlated ${contacts.id} subquery inside .select() renders
+  // as an unqualified column, which resolves to the subquery's own table instead of the outer row.
+  const [receivables, payables] = await Promise.all([
+    db
+      .select({ customerId: invoices.customerId, total: sql<string>`SUM(${invoices.balanceDue})` })
+      .from(invoices)
+      .where(sql`${invoices.status} NOT IN ('draft', 'void')`)
+      .groupBy(invoices.customerId),
+    db
+      .select({ vendorId: bills.vendorId, total: sql<string>`SUM(${bills.balanceDue})` })
+      .from(bills)
+      .where(sql`${bills.status} NOT IN ('draft', 'void')`)
+      .groupBy(bills.vendorId),
+  ]);
+  const outstandingByContact = new Map<string, string>();
+  for (const r of receivables) outstandingByContact.set(r.customerId, r.total);
+  for (const r of payables) outstandingByContact.set(r.vendorId, r.total);
+
+  res.json(rows.map((r) => ({ ...r, outstanding: outstandingByContact.get(r.id) ?? "0.00" })));
 });
 
 contactsRouter.get("/:id", requirePermission("sales", "view"), async (req, res) => {

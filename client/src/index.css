@@ -113,3 +113,26 @@ body {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* A4 document paper (invoices, bills, credit notes, POs) — sized so the on-screen
+   preview and the printed page are the same physical sheet, edge to edge. */
+.a4-sheet {
+  width: 210mm;
+  min-height: 297mm;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 0;
+  }
+  html,
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .a4-sheet {
+    width: 100%;
+    min-height: 297mm;
+  }
+}

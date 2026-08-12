@@ -17,10 +17,11 @@ interface ContactRow {
   phone?: string;
   gstin?: string;
   gstTreatment?: string;
+  outstanding: string;
   isActive: boolean;
 }
 
-const contactColumns = [
+const contactColumns = (balanceHeader: string) => [
   {
     key: "name",
     header: "Name",
@@ -38,7 +39,12 @@ const contactColumns = [
       <span className="capitalize">{(r.gstTreatment ?? "").replace(/_/g, " ") || "—"}</span>
     ),
   },
-  { key: "gstin", header: "GSTIN", render: (r: ContactRow) => r.gstin ?? "—" },
+  {
+    key: "outstanding",
+    header: balanceHeader,
+    align: "right" as const,
+    render: (r: ContactRow) => <span className="tabular-nums">{formatMoney(r.outstanding)}</span>,
+  },
 ];
 
 export const CustomersPage = () => (
@@ -50,7 +56,8 @@ export const CustomersPage = () => (
     newLabel="New Customer"
     newPath="/sales/customers/new"
     rowPath={(r) => `/sales/customers/${r.id}`}
-    columns={contactColumns}
+    columns={contactColumns("Receivables (BCY)")}
+    views={activeViews}
   />
 );
 
@@ -63,7 +70,8 @@ export const VendorsPage = () => (
     newLabel="New Vendor"
     newPath="/purchases/vendors/new"
     rowPath={(r) => `/purchases/vendors/${r.id}`}
-    columns={contactColumns}
+    columns={contactColumns("Payables (BCY)")}
+    views={activeViews}
   />
 );
 
@@ -150,42 +158,24 @@ export const ItemsPage = () => (
   />
 );
 
-interface AccountRow {
-  id: string;
-  code: string;
-  name: string;
-  type: string;
-  isActive: boolean;
-}
-
-export const AccountsPage = () => (
-  <ListPage<AccountRow>
-    title="Chart of Accounts"
-    endpoint="/api/accounting/accounts"
-    rowKey={(r) => r.id}
-    rowPath={(r) => `/accountant/accounts/${r.id}`}
-    newLabel="New Account"
-    columns={[
-      { key: "code", header: "Code", render: (r) => <span className="tabular-nums">{r.code}</span> },
-      { key: "name", header: "Account Name", render: (r) => <span className="font-medium">{r.name}</span> },
-      { key: "type", header: "Type", render: (r) => <span className="capitalize">{r.type}</span> },
-      {
-        key: "active",
-        header: "Status",
-        render: (r) => <StatusBadge status={r.isActive ? "open" : "void"} />,
-      },
-    ]}
-  />
-);
-
 interface JournalRow {
   id: string;
   entryNumber: string;
   entryDate: string;
   narration: string;
+  reference: string | null;
   sourceType: string;
   status: string;
+  amount: string;
+  createdByName: string | null;
 }
+
+/** Zoho calls a posted journal "published". */
+const JOURNAL_STATUS: Record<string, string> = {
+  posted: "published",
+  draft: "draft",
+  reversed: "reversed",
+};
 
 export const JournalsPage = () => (
   <ListPage<JournalRow>
@@ -197,10 +187,12 @@ export const JournalsPage = () => (
     rowPath={(r) => `/accountant/journals/${r.id}`}
     columns={[
       { key: "date", header: "Date", render: (r) => formatDate(r.entryDate) },
-      { key: "number", header: "Number", render: (r) => <span className="font-medium text-brand-600">{r.entryNumber}</span> },
-      { key: "narration", header: "Narration", render: (r) => r.narration },
-      { key: "source", header: "Source", render: (r) => <span className="capitalize">{r.sourceType.replace(/_/g, " ")}</span> },
-      { key: "status", header: "Status", render: (r) => <StatusBadge status={r.status} /> },
+      { key: "number", header: "Journal#", render: (r) => <span className="font-medium text-brand-600">{r.entryNumber}</span> },
+      { key: "reference", header: "Reference Number", render: (r) => <span className="text-gray-600">{r.reference || r.narration}</span> },
+      { key: "status", header: "Status", render: (r) => <StatusBadge status={JOURNAL_STATUS[r.status] ?? r.status} /> },
+      { key: "notes", header: "Notes", render: (r) => <span className="text-gray-600">{r.reference ? r.narration : ""}</span> },
+      { key: "amount", header: "Amount", align: "right", render: (r) => formatMoney(r.amount) },
+      { key: "createdBy", header: "Created By", render: (r) => <span className="text-gray-600">{r.createdByName ?? "—"}</span> },
       {
         key: "files",
         header: "",

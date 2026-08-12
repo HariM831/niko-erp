@@ -1,5 +1,5 @@
 import { inArray } from "drizzle-orm";
-import { orgProfile, taxes } from "@shared/schema";
+import { items, orgProfile, taxes } from "@shared/schema";
 import type { Tx } from "../db";
 
 /** All arithmetic in integer paise to avoid float drift; output as "0.00" strings. */
@@ -110,6 +110,53 @@ export async function computeDocumentTotals(
     total: fromPaise(roundedTotalP),
     lines: computed,
   };
+}
+
+/**
+ * Fill in each line's income account: an explicit override wins, otherwise the
+ * item's default sales account. Lines that resolve to neither stay null and post
+ * to the `sales` system account, which is Zoho's catch-all "Sales" behaviour.
+ */
+export async function applyDefaultSalesAccounts<T extends ComputedLine>(
+  tx: Tx,
+  lines: T[],
+): Promise<T[]> {
+  const itemIds = [
+    ...new Set(lines.filter((l) => !l.accountId && l.itemId).map((l) => l.itemId!)),
+  ];
+  if (itemIds.length === 0) return lines;
+  const rows = await tx
+    .select({ id: items.id, salesAccountId: items.salesAccountId })
+    .from(items)
+    .where(inArray(items.id, itemIds));
+  const defaults = new Map(rows.map((r) => [r.id, r.salesAccountId]));
+  return lines.map((l) =>
+    l.accountId || !l.itemId ? l : { ...l, accountId: defaults.get(l.itemId) ?? undefined },
+  );
+}
+
+/**
+ * Revenue totals per income account, in paise. Round-off rides on the largest
+ * group so the journal still balances to the document total to the rupee.
+ * A null accountId means "post to the `sales` system account".
+ */
+export function groupRevenueByAccount(
+  lines: Array<{ accountId?: string | null; amount: string }>,
+  roundOffPaise: number,
+): Array<{ accountId: string | null; paise: number }> {
+  const byAccount = new Map<string | null, number>();
+  for (const l of lines) {
+    const key = l.accountId ?? null;
+    byAccount.set(key, (byAccount.get(key) ?? 0) + toPaise(l.amount));
+  }
+  const groups = [...byAccount.entries()].map(([accountId, paise]) => ({ accountId, paise }));
+  if (groups.length === 0) return [{ accountId: null, paise: roundOffPaise }];
+  if (roundOffPaise !== 0) {
+    let largest = groups[0]!;
+    for (const g of groups) if (Math.abs(g.paise) > Math.abs(largest.paise)) largest = g;
+    largest.paise += roundOffPaise;
+  }
+  return groups.filter((g) => g.paise !== 0);
 }
 
 export { toPaise, fromPaise };

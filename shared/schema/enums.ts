@@ -8,6 +8,37 @@ export const accountType = pgEnum("account_type", [
   "expense",
 ]);
 
+/**
+ * Zoho's granular account classification. `accountType` above stays the broad
+ * bucket the posting engine reasons about; this decides how an account is
+ * grouped and ordered on the Balance Sheet and P&L.
+ */
+export const accountSubtype = pgEnum("account_subtype", [
+  // Assets
+  "other_current_asset",
+  "cash",
+  "bank",
+  "accounts_receivable",
+  "stock",
+  "fixed_asset",
+  "other_asset",
+  // Liabilities
+  "other_current_liability",
+  "accounts_payable",
+  "credit_card",
+  "non_current_liability",
+  "other_liability",
+  // Equity
+  "equity",
+  // Income
+  "income",
+  "other_income",
+  // Expense
+  "expense",
+  "cost_of_goods_sold",
+  "other_expense",
+]);
+
 export const journalStatus = pgEnum("journal_status", [
   "draft",
   "posted",

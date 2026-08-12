@@ -1,10 +1,72 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
 import { StatusBadge } from "../components/list-page";
 import { CommentsTimeline } from "../components/comments";
 import { AttachmentsButton } from "../components/attachments";
+
+interface ContactRailRow {
+  id: string;
+  displayName: string;
+  outstanding: string;
+}
+
+/** Books-style split view: compact "name + balance" rail on the left, full record on the right. */
+function ContactSplitView({
+  type,
+  activeId,
+  children,
+}: {
+  type: "customer" | "vendor";
+  activeId: string;
+  children: React.ReactNode;
+}) {
+  const [, navigate] = useLocation();
+  const listPath = type === "customer" ? "/sales/customers" : "/purchases/vendors";
+  const newPath = `${listPath}/new`;
+  const { data: rows } = useQuery({
+    queryKey: ["contacts", type, "rail"],
+    queryFn: () => api<ContactRailRow[]>(`/api/contacts?type=${type}`),
+  });
+
+  return (
+    <div className="flex h-full">
+      <aside className="hidden w-64 shrink-0 flex-col border-r bg-white lg:flex print:hidden">
+        <div className="flex items-center justify-between border-b px-4 py-3">
+          <button
+            onClick={() => navigate(listPath)}
+            className="flex items-center gap-1 text-[15px] font-semibold text-gray-800 hover:text-brand-700"
+          >
+            All {type === "customer" ? "Customers" : "Vendors"} <span className="text-[10px] text-brand-500">▼</span>
+          </button>
+          <button
+            onClick={() => navigate(newPath)}
+            className="rounded-md bg-brand-500 px-2.5 py-1 text-[13px] font-medium text-white hover:bg-brand-600"
+          >
+            + New
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {rows?.map((r) => (
+            <button
+              key={r.id}
+              onClick={() => navigate(`${listPath}/${r.id}`)}
+              className={`block w-full border-b border-gray-100 px-4 py-2.5 text-left ${
+                r.id === activeId ? "border-l-2 border-l-brand-500 bg-brand-50" : "hover:bg-gray-50"
+              }`}
+            >
+              <div className="truncate text-[13px] font-medium text-gray-800">{r.displayName}</div>
+              <div className="text-xs tabular-nums text-gray-500">{formatMoney(r.outstanding)}</div>
+            </button>
+          ))}
+          {!rows?.length && <p className="p-4 text-[13px] text-gray-400">No records.</p>}
+        </div>
+      </aside>
+      <div className="min-w-0 flex-1 overflow-y-auto">{children}</div>
+    </div>
+  );
+}
 
 interface Contact {
   id: string;
@@ -17,9 +79,11 @@ interface Contact {
   gstTreatment: string;
   gstin?: string;
   pan?: string;
+  placeOfSupplyState?: string;
   paymentTermsDays: number;
   openingBalance: string;
-  persons: Array<{ id: string; firstName: string; lastName?: string; email?: string; phone?: string }>;
+  isActive: boolean;
+  persons: Array<{ id: string; firstName: string; lastName?: string; email?: string; phone?: string; isPrimary?: boolean }>;
   addresses: Array<{ id: string; kind: string; line1?: string; line2?: string; city?: string; state?: string; pincode?: string }>;
 }
 
@@ -38,8 +102,10 @@ type Tab = "overview" | "comments" | "transactions" | "statement";
 
 export function ContactDetailPage({ id }: { id: string }) {
   const [, navigate] = useLocation();
+  const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>("overview");
   const [newTxnOpen, setNewTxnOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const { data: contact, isLoading } = useQuery({
     queryKey: ["contact", id],
@@ -55,11 +121,19 @@ export function ContactDetailPage({ id }: { id: string }) {
 
   const isCustomer = contact.type === "customer";
   const listPath = isCustomer ? "/sales/customers" : "/purchases/vendors";
+
+  const toggleActive = async () => {
+    setMoreOpen(false);
+    if (contact.isActive) {
+      await api(`/api/contacts/${contact.id}`, { method: "DELETE" });
+    } else {
+      await api(`/api/contacts/${contact.id}`, { method: "PATCH", body: { isActive: true } });
+    }
+    await qc.invalidateQueries();
+  };
   const newTxnItems = isCustomer
     ? [
         { label: "Invoice", path: "/sales/invoices/new" },
-        { label: "Estimate", path: "/sales/estimates/new" },
-        { label: "Sales Order", path: "/sales/sales-orders/new" },
         { label: "Payment", path: "/sales/payments/new" },
         { label: "Credit Note", path: "/sales/credit-notes/new" },
       ]
@@ -72,7 +146,8 @@ export function ContactDetailPage({ id }: { id: string }) {
       ];
 
   return (
-    <div className="flex h-full flex-col">
+    <ContactSplitView type={contact.type} activeId={contact.id}>
+    <div className="flex min-h-full flex-col">
       <header className="border-b bg-white px-6 pt-3">
         <div className="mb-2 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -81,8 +156,13 @@ export function ContactDetailPage({ id }: { id: string }) {
             <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-gray-500">
               {contact.type}
             </span>
+            {!contact.isActive && (
+              <span className="rounded bg-red-50 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-red-500">
+                Inactive
+              </span>
+            )}
           </div>
-          <div className="relative flex items-center gap-2">
+          <div className="flex items-center gap-2">
             <button
               onClick={() => navigate(`${listPath}/${contact.id}/edit`)}
               className="btn-secondary"
@@ -90,25 +170,42 @@ export function ContactDetailPage({ id }: { id: string }) {
               Edit
             </button>
             <AttachmentsButton entityType="contact" entityId={contact.id} />
-            <button
-              onClick={() => setNewTxnOpen((o) => !o)}
-              className="btn-primary"
-            >
-              New Transaction ▾
-            </button>
-            {newTxnOpen && (
-              <div className="absolute right-0 top-10 z-20 w-44 rounded-lg border bg-white py-1 shadow-lg">
-                {newTxnItems.map((it) => (
+            <div className="relative">
+              <button
+                onClick={() => setNewTxnOpen((o) => !o)}
+                className="btn-primary"
+              >
+                New Transaction ▾
+              </button>
+              {newTxnOpen && (
+                <div className="absolute right-0 top-10 z-20 w-44 rounded-lg border bg-white py-1 shadow-lg">
+                  {newTxnItems.map((it) => (
+                    <button
+                      key={it.path}
+                      onClick={() => navigate(it.path)}
+                      className="block w-full px-3 py-1.5 text-left text-[13px] hover:bg-brand-50"
+                    >
+                      {it.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="relative">
+              <button onClick={() => setMoreOpen((o) => !o)} className="btn-secondary">
+                More ▾
+              </button>
+              {moreOpen && (
+                <div className="absolute right-0 top-10 z-20 w-44 rounded-lg border bg-white py-1 shadow-lg">
                   <button
-                    key={it.path}
-                    onClick={() => navigate(it.path)}
+                    onClick={() => void toggleActive()}
                     className="block w-full px-3 py-1.5 text-left text-[13px] hover:bg-brand-50"
                   >
-                    {it.label}
+                    {contact.isActive ? "Mark as Inactive" : "Mark as Active"}
                   </button>
-                ))}
-              </div>
-            )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
         <nav className="flex gap-5 text-[13px]">
@@ -126,10 +223,10 @@ export function ContactDetailPage({ id }: { id: string }) {
         </nav>
       </header>
 
-      <div className="flex-1 overflow-y-auto">
-        {tab === "overview" && <OverviewTab contact={contact} summary={summary} isCustomer={isCustomer} />}
+      <div className="flex-1">
+        {tab === "overview" && <OverviewTab contact={contact} summary={summary} isCustomer={isCustomer} navigate={navigate} />}
         {tab === "comments" && (
-          <div className="mx-auto flex h-full max-w-2xl flex-col py-4">
+          <div className="mx-auto flex max-w-2xl flex-col py-4">
             <CommentsTimeline entityType="contact" entityId={contact.id} />
           </div>
         )}
@@ -137,6 +234,7 @@ export function ContactDetailPage({ id }: { id: string }) {
         {tab === "statement" && <StatementTab id={id} />}
       </div>
     </div>
+    </ContactSplitView>
   );
 }
 
@@ -144,12 +242,26 @@ function OverviewTab({
   contact,
   summary,
   isCustomer,
+  navigate,
 }: {
   contact: Contact;
   summary?: { outstanding: string; unusedCredits: string };
   isCustomer: boolean;
+  navigate: (p: string) => void;
 }) {
   const billing = contact.addresses.find((a) => a.kind === "billing");
+  const shipping = contact.addresses.find((a) => a.kind === "shipping");
+  const renderAddress = (a?: Contact["addresses"][number]) =>
+    a ? (
+      <div className="text-gray-700">
+        {a.line1 && <div>{a.line1}</div>}
+        {a.line2 && <div>{a.line2}</div>}
+        <div>{[a.city, a.state, a.pincode].filter(Boolean).join(", ") || "—"}</div>
+      </div>
+    ) : (
+      <div className="text-gray-400">No address recorded</div>
+    );
+
   return (
     <div className="flex gap-0">
       <aside className="w-72 shrink-0 border-r bg-white p-5 text-[13px]">
@@ -159,26 +271,59 @@ function OverviewTab({
           {contact.email && <div className="mt-1 text-gray-600">{contact.email}</div>}
           {contact.phone && <div className="text-gray-600">📞 {contact.phone}</div>}
         </div>
+
         <div className="mb-4 border-t pt-4">
-          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Address</div>
-          {billing ? (
-            <div className="text-gray-700">
-              {billing.line1 && <div>{billing.line1}</div>}
-              {billing.line2 && <div>{billing.line2}</div>}
-              <div>
-                {[billing.city, billing.state, billing.pincode].filter(Boolean).join(", ") || "—"}
-              </div>
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Billing Address</div>
+          {renderAddress(billing)}
+        </div>
+        <div className="mb-4 border-t pt-4">
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Shipping Address</div>
+          {renderAddress(shipping)}
+        </div>
+
+        <div className="mb-4 border-t pt-4">
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Other Details</div>
+          <dl className="space-y-1.5 text-gray-700">
+            <div className="flex justify-between gap-3">
+              <dt className="text-gray-500">GST Treatment</dt>
+              <dd className="text-right capitalize">{contact.gstTreatment.replace(/_/g, " ")}</dd>
             </div>
-          ) : (
-            <div className="text-gray-400">No address recorded</div>
-          )}
+            {contact.gstin && (
+              <div className="flex justify-between gap-3">
+                <dt className="text-gray-500">GSTIN</dt>
+                <dd className="text-right">{contact.gstin}</dd>
+              </div>
+            )}
+            {contact.pan && (
+              <div className="flex justify-between gap-3">
+                <dt className="text-gray-500">PAN</dt>
+                <dd className="text-right">{contact.pan}</dd>
+              </div>
+            )}
+            <div className="flex justify-between gap-3">
+              <dt className="text-gray-500">Place of Supply</dt>
+              <dd className="text-right">{contact.placeOfSupplyState || "—"}</dd>
+            </div>
+          </dl>
         </div>
-        <div className="border-t pt-4">
-          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Tax</div>
-          <div className="capitalize text-gray-700">{contact.gstTreatment.replace(/_/g, " ")}</div>
-          {contact.gstin && <div className="text-gray-700">GSTIN: {contact.gstin}</div>}
-          {contact.pan && <div className="text-gray-700">PAN: {contact.pan}</div>}
-        </div>
+
+        {contact.persons.length > 0 && (
+          <div className="border-t pt-4">
+            <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">Contact Persons</div>
+            <ul className="space-y-2">
+              {contact.persons.map((p) => (
+                <li key={p.id}>
+                  <div className="text-gray-800">
+                    {p.firstName} {p.lastName ?? ""}
+                    {p.isPrimary && <span className="ml-1.5 rounded bg-gray-100 px-1 py-0.5 text-[10px] font-medium text-gray-500">PRIMARY</span>}
+                  </div>
+                  {p.email && <div className="text-xs text-gray-500">{p.email}</div>}
+                  {p.phone && <div className="text-xs text-gray-500">{p.phone}</div>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </aside>
 
       <div className="flex-1 p-6">
@@ -210,7 +355,94 @@ function OverviewTab({
             </tr>
           </tbody>
         </table>
+        <div className="mt-2">
+          <button
+            onClick={() => navigate(`${isCustomer ? "/sales/customers" : "/purchases/vendors"}/${contact.id}/edit`)}
+            className="text-[13px] font-medium text-brand-600 hover:underline"
+          >
+            Opening Balance: {formatMoney(contact.openingBalance)} · Edit
+          </button>
+        </div>
+
+        <IncomeChart contactId={contact.id} label={isCustomer ? "Income" : "Expense"} />
       </div>
+    </div>
+  );
+}
+
+function compactMoney(v: number) {
+  const abs = Math.abs(v);
+  if (abs >= 10000000) return `${(v / 10000000).toFixed(1)}Cr`;
+  if (abs >= 100000) return `${(v / 100000).toFixed(1)}L`;
+  if (abs >= 1000) return `${(v / 1000).toFixed(0)}K`;
+  return v.toFixed(0);
+}
+
+const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function IncomeChart({ contactId, label }: { contactId: string; label: string }) {
+  const [basis, setBasis] = useState<"accrual" | "cash">("accrual");
+  const [months, setMonths] = useState(6);
+  const { data } = useQuery({
+    queryKey: ["contact-income-chart", contactId, basis, months],
+    queryFn: () =>
+      api<{ periods: Array<{ month: string; total: number }>; total: number }>(
+        `/api/contacts/${contactId}/income-chart?basis=${basis}&months=${months}`,
+      ),
+  });
+
+  const width = 480;
+  const height = 160;
+  const padL = 44;
+  const padB = 18;
+  const periods = data?.periods ?? [];
+  const max = Math.max(...periods.map((p) => p.total), 1);
+  const barW = periods.length ? (width - padL - 10) / periods.length : 0;
+
+  return (
+    <div className="mt-8 max-w-2xl">
+      <div className="mb-1 flex items-center justify-between">
+        <h3 className="text-sm font-semibold">{label}</h3>
+        <div className="flex items-center gap-2 text-[13px]">
+          <select value={basis} onChange={(e) => setBasis(e.target.value as "accrual" | "cash")} className="input w-auto py-1">
+            <option value="accrual">Accrual</option>
+            <option value="cash">Cash</option>
+          </select>
+          <select value={months} onChange={(e) => setMonths(Number(e.target.value))} className="input w-auto py-1">
+            <option value={6}>Last 6 Months</option>
+            <option value={12}>Last 12 Months</option>
+          </select>
+        </div>
+      </div>
+      <p className="mb-2 text-xs text-gray-400">This chart is displayed in the organization's base currency.</p>
+
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-40 w-full">
+        {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+          <g key={f}>
+            <line x1={padL} x2={width} y1={height - padB - f * (height - padB - 10)} y2={height - padB - f * (height - padB - 10)} stroke="#ebeaf2" strokeWidth={1} />
+            <text x={0} y={height - padB - f * (height - padB - 10) + 3} fontSize={10} fill="#9ca3af">
+              {compactMoney(max * f)}
+            </text>
+          </g>
+        ))}
+        {periods.map((p, i) => {
+          const h = (p.total / max) * (height - padB - 10);
+          const x = padL + i * barW + barW * 0.2;
+          const [y = "", m = "1"] = p.month.split("-");
+          return (
+            <g key={p.month}>
+              <rect x={x} y={height - padB - h} width={barW * 0.6} height={h} fill="#65c366" rx={2} />
+              <text x={x + (barW * 0.6) / 2} y={height - 4} fontSize={9} fill="#9ca3af" textAnchor="middle">
+                {MONTHS_SHORT[Number(m) - 1]}{y.slice(2)}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+
+      <p className="mt-1 text-[13px] font-medium text-gray-700">
+        Total {label} ( Last {months} Months ) - {formatMoney(data?.total ?? 0)}
+      </p>
     </div>
   );
 }
@@ -223,8 +455,6 @@ const TXN_SECTIONS: Record<
     { key: "invoices", label: "Invoices", dateKey: "invoiceDate", basePath: "/sales/invoices", balanceKey: "balanceDue" },
     { key: "payments", label: "Payments Received", dateKey: "paymentDate", basePath: "/sales/payments", amountKey: "amount" },
     { key: "creditNotes", label: "Credit Notes", dateKey: "creditNoteDate", basePath: "/sales/credit-notes", balanceKey: "balance" },
-    { key: "salesOrders", label: "Sales Orders", dateKey: "orderDate", basePath: "/sales/sales-orders" },
-    { key: "estimates", label: "Estimates", dateKey: "estimateDate", basePath: "/sales/estimates" },
   ],
   vendor: [
     { key: "bills", label: "Bills", dateKey: "billDate", basePath: "/purchases/bills", balanceKey: "balanceDue" },

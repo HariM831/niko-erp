@@ -107,6 +107,77 @@ contactInsightsRouter.get(
   },
 );
 
+/** Monthly Income (customers) / Expense (vendors) bar-chart data, accrual or cash basis. */
+contactInsightsRouter.get(
+  "/:id/income-chart",
+  requirePermission("sales", "view"),
+  async (req, res) => {
+    const contact = await loadContact(req.params.id!);
+    if (!contact) return res.status(404).json({ error: "Contact not found" });
+    const months = Math.min(Math.max(Number(req.query.months) || 6, 1), 24);
+    const basis = req.query.basis === "cash" ? "cash" : "accrual";
+
+    const start = new Date();
+    start.setDate(1);
+    start.setMonth(start.getMonth() - (months - 1));
+    const startStr = start.toISOString().slice(0, 10);
+
+    let rows: Array<{ month: string; total: string }>;
+    if (contact.type === "customer") {
+      rows =
+        basis === "accrual"
+          ? await db.execute(sql`
+              SELECT to_char(date_trunc('month', invoice_date), 'YYYY-MM-01') AS month,
+                     SUM(sub_total - discount_total)::numeric(14,2) AS total
+              FROM invoices
+              WHERE customer_id = ${contact.id} AND status NOT IN ('draft', 'void') AND invoice_date >= ${startStr}
+              GROUP BY 1
+            `).then((r) => r.rows as Array<{ month: string; total: string }>)
+          : await db.execute(sql`
+              SELECT to_char(date_trunc('month', payment_date), 'YYYY-MM-01') AS month,
+                     SUM(amount)::numeric(14,2) AS total
+              FROM customer_payments
+              WHERE customer_id = ${contact.id} AND payment_date >= ${startStr}
+              GROUP BY 1
+            `).then((r) => r.rows as Array<{ month: string; total: string }>);
+    } else {
+      rows =
+        basis === "accrual"
+          ? await db.execute(sql`
+              SELECT to_char(date_trunc('month', bill_date), 'YYYY-MM-01') AS month,
+                     SUM(sub_total - discount_total)::numeric(14,2) AS total
+              FROM bills
+              WHERE vendor_id = ${contact.id} AND status NOT IN ('draft', 'void') AND bill_date >= ${startStr}
+              GROUP BY 1
+            `).then((r) => r.rows as Array<{ month: string; total: string }>)
+          : await db.execute(sql`
+              SELECT to_char(date_trunc('month', payment_date), 'YYYY-MM-01') AS month,
+                     SUM(amount)::numeric(14,2) AS total
+              FROM vendor_payments
+              WHERE vendor_id = ${contact.id} AND payment_date >= ${startStr}
+              GROUP BY 1
+            `).then((r) => r.rows as Array<{ month: string; total: string }>);
+    }
+    const byMonth = new Map(rows.map((r) => [r.month, Number(r.total)]));
+
+    const periods: Array<{ month: string; total: number }> = [];
+    const cursor = new Date(start);
+    for (let i = 0; i < months; i++) {
+      const key = cursor.toISOString().slice(0, 10).replace(/-\d\d$/, "-01");
+      periods.push({ month: key, total: byMonth.get(key) ?? 0 });
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+
+    res.json({
+      basis,
+      months,
+      label: contact.type === "customer" ? "Income" : "Expense",
+      periods,
+      total: periods.reduce((s, p) => s + p.total, 0),
+    });
+  },
+);
+
 interface StatementRow {
   id: string;
   date: string;

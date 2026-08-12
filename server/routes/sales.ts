@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, asc, desc, eq, getTableColumns, gte, lte } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gte, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   bankAccounts,
@@ -16,11 +16,22 @@ import { validateBody } from "../lib/validate";
 import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, postJournal, reverseJournal } from "../services/posting";
 import {
+  applyDefaultSalesAccounts,
   computeDocumentTotals,
   fromPaise,
+  groupRevenueByAccount,
   toPaise,
   type DocLineInput,
 } from "../services/documents";
+
+/** A journal line as accepted by postJournal: account by id or by system key. */
+type PostingLineInput = {
+  accountId?: string;
+  systemKey?: string;
+  debit?: string;
+  credit?: string;
+  description?: string;
+};
 
 export const salesRouter = Router();
 
@@ -30,6 +41,7 @@ const money = z.string().regex(/^\d+(\.\d{1,2})?$/);
 
 const lineSchema = z.object({
   itemId: z.string().uuid().optional(),
+  accountId: z.string().uuid().optional(),
   name: z.string().min(1),
   description: z.string().optional(),
   hsnOrSac: z.string().max(10).optional(),
@@ -41,6 +53,8 @@ const lineSchema = z.object({
 });
 
 const invoiceSchema = z.object({
+  /** Draw the document number from this series; omitted means the default. */
+  seriesId: z.string().uuid().optional(),
   customerId: z.string().uuid(),
   invoiceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -53,6 +67,8 @@ const invoiceSchema = z.object({
 });
 
 const paymentSchema = z.object({
+  /** Draw the document number from this series; omitted means the default. */
+  seriesId: z.string().uuid().optional(),
   customerId: z.string().uuid(),
   paymentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   amount: money,
@@ -79,7 +95,11 @@ async function loadCustomer(tx: Tx, id: string) {
   return customer;
 }
 
-/** DR AR / CR Sales + GST payable. Round-off folds into the sales credit. */
+/**
+ * DR AR / CR income + GST payable. Revenue is credited per line account, so an
+ * invoice mixing eggs and feed lands on both revenue accounts rather than one
+ * lump. Round-off folds into the largest revenue credit.
+ */
 async function postInvoiceJournal(
   tx: Tx,
   inv: {
@@ -97,13 +117,21 @@ async function postInvoiceJournal(
   customerName: string,
   postedBy: string,
 ): Promise<string> {
-  const salesCredit = fromPaise(
-    toPaise(inv.subTotal) - toPaise(inv.discountTotal) + toPaise(inv.roundOff),
-  );
-  const lines = [
+  const revenue = await tx
+    .select({ accountId: invoiceLines.accountId, amount: invoiceLines.amount })
+    .from(invoiceLines)
+    .where(eq(invoiceLines.invoiceId, inv.id));
+
+  const lines: PostingLineInput[] = [
     { systemKey: "ar", debit: inv.total, description: `Invoice ${inv.number}` },
-    { systemKey: "sales", credit: salesCredit },
   ];
+  for (const g of groupRevenueByAccount(revenue, toPaise(inv.roundOff))) {
+    lines.push(
+      g.accountId
+        ? { accountId: g.accountId, credit: fromPaise(g.paise) }
+        : { systemKey: "sales", credit: fromPaise(g.paise) },
+    );
+  }
   if (toPaise(inv.cgst) > 0) lines.push({ systemKey: "cgst_payable", credit: inv.cgst });
   if (toPaise(inv.sgst) > 0) lines.push({ systemKey: "sgst_payable", credit: inv.sgst });
   if (toPaise(inv.igst) > 0) lines.push({ systemKey: "igst_payable", credit: inv.igst });
@@ -143,6 +171,38 @@ salesRouter.get("/invoices", requirePermission("sales", "view"), async (req, res
   res.json(rows);
 });
 
+/** Zoho's "Payment Summary" insights banner on the Invoices list. */
+salesRouter.get("/invoices/summary", requirePermission("sales", "view"), async (_req, res) => {
+  const [agg] = await db.execute(sql`
+    SELECT
+      COALESCE(SUM(balance_due) FILTER (WHERE status IN ('sent', 'partially_paid')), 0)::numeric(14,2) AS total_outstanding,
+      COALESCE(SUM(balance_due) FILTER (WHERE status IN ('sent', 'partially_paid') AND due_date = CURRENT_DATE), 0)::numeric(14,2) AS due_today,
+      COALESCE(SUM(balance_due) FILTER (WHERE status IN ('sent', 'partially_paid') AND due_date > CURRENT_DATE AND due_date <= CURRENT_DATE + INTERVAL '30 days'), 0)::numeric(14,2) AS due_within_30,
+      COALESCE(SUM(balance_due) FILTER (WHERE status IN ('sent', 'partially_paid') AND due_date < CURRENT_DATE), 0)::numeric(14,2) AS overdue
+    FROM invoices
+  `).then((r) => r.rows as Array<Record<string, string>>);
+
+  const [avg] = await db.execute(sql`
+    SELECT AVG(paid_on - i.invoice_date::date)::numeric(6,1) AS avg_days
+    FROM invoices i
+    JOIN (
+      SELECT pa.invoice_id, MAX(cp.payment_date)::date AS paid_on
+      FROM payment_applications pa
+      JOIN customer_payments cp ON cp.id = pa.payment_id
+      GROUP BY pa.invoice_id
+    ) last_payment ON last_payment.invoice_id = i.id
+    WHERE i.status = 'paid'
+  `).then((r) => r.rows as Array<{ avg_days: string | null }>);
+
+  res.json({
+    totalOutstanding: agg?.total_outstanding ?? "0.00",
+    dueToday: agg?.due_today ?? "0.00",
+    dueWithin30Days: agg?.due_within_30 ?? "0.00",
+    overdue: agg?.overdue ?? "0.00",
+    avgDaysToGetPaid: avg?.avg_days ? Math.round(Number(avg.avg_days)) : 0,
+  });
+});
+
 salesRouter.get("/invoices/:id", requirePermission("sales", "view"), async (req, res) => {
   const inv = await db.query.invoices.findFirst({ where: eq(invoices.id, req.params.id!) });
   if (!inv) return res.status(404).json({ error: "Invoice not found" });
@@ -180,7 +240,7 @@ salesRouter.post(
           body.lines as DocLineInput[],
           body.placeOfSupplyState ?? customer.placeOfSupplyState,
         );
-        const number = await nextDocumentNumber(tx, "invoice");
+        const number = await nextDocumentNumber(tx, "invoice", body.seriesId);
         const dueDate =
           body.dueDate ?? computeDueDate(body.invoiceDate, customer.paymentTermsDays);
 
@@ -209,9 +269,10 @@ salesRouter.post(
           })
           .returning();
 
+        const withAccounts = await applyDefaultSalesAccounts(tx, totals.lines);
         await tx
           .insert(invoiceLines)
-          .values(totals.lines.map((l) => ({ ...l, invoiceId: inv!.id })));
+          .values(withAccounts.map((l) => ({ ...l, invoiceId: inv!.id })));
 
         if (body.saveAs === "sent") {
           const jeId = await postInvoiceJournal(tx, inv!, customer.displayName, req.session.user!.id);
@@ -256,10 +317,11 @@ salesRouter.patch(
             body.lines as DocLineInput[],
             body.placeOfSupplyState ?? inv.placeOfSupplyState,
           );
+          const withAccounts = await applyDefaultSalesAccounts(tx, totals.lines);
           await tx.delete(invoiceLines).where(eq(invoiceLines.invoiceId, inv.id));
           await tx
             .insert(invoiceLines)
-            .values(totals.lines.map((l) => ({ ...l, invoiceId: inv.id })));
+            .values(withAccounts.map((l) => ({ ...l, invoiceId: inv.id })));
           const { lines: _lines, ...headerTotals } = totals;
           totalsPatch = { ...headerTotals, balanceDue: headerTotals.total };
         }
@@ -367,7 +429,19 @@ salesRouter.get("/payments", requirePermission("sales", "view"), async (req, res
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(desc(customerPayments.paymentDate))
     .limit(200);
-  res.json(rows);
+
+  // Applied invoice numbers per payment, e.g. Zoho's "A-INV-...,A-INV-..." Invoice# column.
+  const invoiceNumbers = await db
+    .select({
+      paymentId: paymentApplications.paymentId,
+      numbers: sql<string>`STRING_AGG(${invoices.number}, ', ' ORDER BY ${invoices.number})`,
+    })
+    .from(paymentApplications)
+    .innerJoin(invoices, eq(invoices.id, paymentApplications.invoiceId))
+    .groupBy(paymentApplications.paymentId);
+  const numbersByPayment = new Map(invoiceNumbers.map((r) => [r.paymentId, r.numbers]));
+
+  res.json(rows.map((r) => ({ ...r, invoiceNumbers: numbersByPayment.get(r.id) ?? null })));
 });
 
 salesRouter.get("/payments/:id", requirePermission("sales", "view"), async (req, res) => {
@@ -441,7 +515,7 @@ salesRouter.post(
         }
         const unappliedP = amountP - appliedP;
 
-        const number = await nextDocumentNumber(tx, "customer_payment");
+        const number = await nextDocumentNumber(tx, "customer_payment", body.seriesId);
         const [payment] = await tx
           .insert(customerPayments)
           .values({
@@ -514,3 +588,164 @@ salesRouter.post(
     }
   },
 );
+
+/**
+ * Editing a payment re-states it end to end: the existing applications are undone
+ * (restoring each invoice's balance and status), the journal is reversed, then the
+ * new allocation is applied and a fresh journal posted.
+ */
+salesRouter.patch(
+  "/payments/:id",
+  requirePermission("sales", "edit"),
+  validateBody(paymentSchema.partial()),
+  async (req, res) => {
+    const body = req.body as Partial<z.infer<typeof paymentSchema>>;
+    try {
+      const result = await db.transaction(async (tx) => {
+        const payment = await tx.query.customerPayments.findFirst({
+          where: eq(customerPayments.id, req.params.id!),
+        });
+        if (!payment) throw new PostingError("Payment not found");
+
+        // Undo the old allocation so invoices are back to pre-payment balances.
+        const oldApps = await tx
+          .select()
+          .from(paymentApplications)
+          .where(eq(paymentApplications.paymentId, payment.id));
+        for (const app of oldApps) {
+          const inv = await tx.query.invoices.findFirst({ where: eq(invoices.id, app.invoiceId) });
+          if (!inv) continue;
+          const restoredP = toPaise(inv.balanceDue) + toPaise(app.amountApplied);
+          await tx
+            .update(invoices)
+            .set({
+              balanceDue: fromPaise(restoredP),
+              status: restoredP === toPaise(inv.total) ? "sent" : "partially_paid",
+              updatedAt: new Date(),
+            })
+            .where(eq(invoices.id, inv.id));
+        }
+        await tx.delete(paymentApplications).where(eq(paymentApplications.paymentId, payment.id));
+
+        const customer = await loadCustomer(tx, body.customerId ?? payment.customerId);
+        const paymentDate = body.paymentDate ?? payment.paymentDate;
+        const amount = body.amount ?? payment.amount;
+        const amountP = toPaise(amount);
+        if (amountP <= 0) throw new PostingError("Payment amount must be positive");
+
+        const [bank] = await tx
+          .select()
+          .from(bankAccounts)
+          .where(eq(bankAccounts.id, body.bankAccountId ?? payment.bankAccountId!))
+          .limit(1);
+        if (!bank) throw new PostingError("Bank account not found");
+
+        const applications =
+          body.applications ??
+          oldApps.map((a) => ({ invoiceId: a.invoiceId, amount: a.amountApplied }));
+
+        let appliedP = 0;
+        for (const app of applications) {
+          const inv = await tx.query.invoices.findFirst({ where: eq(invoices.id, app.invoiceId) });
+          if (!inv) throw new PostingError(`Invoice not found: ${app.invoiceId}`);
+          if (inv.customerId !== customer.id) {
+            throw new PostingError(`Invoice ${inv.number} belongs to a different customer`);
+          }
+          const appP = toPaise(app.amount);
+          if (appP <= 0) throw new PostingError("Application amounts must be positive");
+          if (appP > toPaise(inv.balanceDue)) {
+            throw new PostingError(
+              `Applying ${app.amount} exceeds balance due ${inv.balanceDue} on ${inv.number}`,
+            );
+          }
+          appliedP += appP;
+        }
+        if (appliedP > amountP) throw new PostingError("Applied total exceeds the payment amount");
+        const unappliedP = amountP - appliedP;
+
+        for (const app of applications) {
+          await tx.insert(paymentApplications).values({
+            paymentId: payment.id,
+            invoiceId: app.invoiceId,
+            amountApplied: app.amount,
+          });
+          const inv = (await tx.query.invoices.findFirst({ where: eq(invoices.id, app.invoiceId) }))!;
+          const newBalanceP = toPaise(inv.balanceDue) - toPaise(app.amount);
+          await tx
+            .update(invoices)
+            .set({
+              balanceDue: fromPaise(newBalanceP),
+              status: newBalanceP === 0 ? "paid" : "partially_paid",
+              updatedAt: new Date(),
+            })
+            .where(eq(invoices.id, inv.id));
+        }
+
+        if (payment.journalEntryId) {
+          await reverseJournal(tx, payment.journalEntryId, paymentDate, req.session.user!.id);
+        }
+        const jeLines = [
+          { accountId: bank.glAccountId, debit: amount, description: `Payment ${payment.number}` },
+        ];
+        if (appliedP > 0) jeLines.push({ systemKey: "ar", credit: fromPaise(appliedP) } as never);
+        if (unappliedP > 0) {
+          jeLines.push({ systemKey: "customer_advances", credit: fromPaise(unappliedP) } as never);
+        }
+        const jeId = await postJournal(tx, {
+          entryDate: paymentDate,
+          narration: `Payment ${payment.number} — ${customer.displayName}`,
+          sourceType: "customer_payment",
+          sourceId: payment.id,
+          postedBy: req.session.user!.id,
+          lines: jeLines,
+        });
+
+        const [updated] = await tx
+          .update(customerPayments)
+          .set({
+            customerId: customer.id,
+            paymentDate,
+            amount,
+            unappliedAmount: fromPaise(unappliedP),
+            mode: body.mode ?? payment.mode,
+            reference: body.reference ?? payment.reference,
+            bankAccountId: bank.id,
+            notes: body.notes ?? payment.notes,
+            journalEntryId: jeId,
+          })
+          .where(eq(customerPayments.id, payment.id))
+          .returning();
+        return updated!;
+      });
+      res.json(result);
+    } catch (err) {
+      if (err instanceof PostingError) return res.status(422).json({ error: err.message });
+      throw err;
+    }
+  },
+);
+
+// ---------- Re-post helper (used by Bulk Update) ----------
+//
+// Reverses an invoice's posting and re-posts it from stored state, leaving every
+// user-visible field alone. postInvoiceJournal reads the stored lines, which
+// already carry whatever account Bulk Update just wrote to them.
+
+export async function repostInvoice(tx: Tx, id: string, userId: string): Promise<void> {
+  const inv = await tx.query.invoices.findFirst({ where: eq(invoices.id, id) });
+  if (!inv) throw new PostingError("Invoice not found");
+  if (inv.status === "void") throw new PostingError(`Invoice ${inv.number} is void`);
+  // A draft has never been posted, so the new account simply applies when it is.
+  if (inv.status === "draft") return;
+
+  const [customer] = await tx
+    .select({ displayName: contacts.displayName })
+    .from(contacts)
+    .where(eq(contacts.id, inv.customerId))
+    .limit(1);
+
+  if (inv.journalEntryId) await reverseJournal(tx, inv.journalEntryId, inv.invoiceDate, userId);
+  const jeId = await postInvoiceJournal(tx, inv, customer?.displayName ?? "", userId);
+  await tx.update(invoices).set({ journalEntryId: jeId }).where(eq(invoices.id, id));
+}
+
