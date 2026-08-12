@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   Banknote,
   BookOpen,
+  Boxes,
   ChevronDown,
   ChevronRight,
   Home,
@@ -31,6 +32,14 @@ interface NavItem {
 const NAV: NavItem[] = [
   { label: "Home", icon: Home, path: "/" },
   { label: "Items", icon: Package, path: "/items" },
+  {
+    label: "Inventory",
+    icon: Boxes,
+    children: [
+      { label: "Stock on Hand", path: "/inventory/stock" },
+      { label: "Adjustments", path: "/inventory/adjustments" },
+    ],
+  },
   { label: "Banking", icon: Landmark, path: "/banking" },
   {
     label: "Sales",
@@ -61,6 +70,7 @@ const NAV: NavItem[] = [
       { label: "Manual Journals", path: "/accountant/journals" },
       { label: "Bulk Update", path: "/accountant/bulk-update" },
       { label: "Chart of Accounts", path: "/accountant/accounts" },
+      { label: "Fixed Assets", path: "/accountant/assets" },
       { label: "Budgets", path: "/accountant/budgets" },
       { label: "Transaction Locking", path: "/accountant/transaction-locking" },
     ],

@@ -35,6 +35,17 @@ import { JournalNewPage } from "./pages/journal-new";
 import { BankAccountNewPage, BankingDetailPage } from "./pages/banking-detail";
 import { BankingOverviewPage } from "./pages/banking-overview";
 import { SettingsPage } from "./pages/settings";
+import {
+  FixedAssetDetailPage,
+  FixedAssetNewPage,
+  FixedAssetsPage,
+} from "./pages/fixed-assets";
+import {
+  InventoryAdjustmentDetailPage,
+  InventoryAdjustmentNewPage,
+  InventoryAdjustmentsPage,
+  StockPage,
+} from "./pages/inventory";
 import { ActivityLogPage } from "./pages/activity-log";
 import { ItemDetailPage } from "./pages/item-detail";
 import {
@@ -131,7 +142,16 @@ export function App() {
         <Route path="/accountant/budgets/new">{() => <BudgetNewPage />}</Route>
         <Route path="/accountant/budgets/:id">{(p) => <BudgetDetailPage id={p.id!} />}</Route>
         <Route path="/accountant/budgets" component={BudgetsPage} />
+        <Route path="/accountant/assets/new">{() => <FixedAssetNewPage />}</Route>
+        <Route path="/accountant/assets/:id">{(p) => <FixedAssetDetailPage id={p.id!} />}</Route>
+        <Route path="/accountant/assets" component={FixedAssetsPage} />
         <Route path="/accountant/transaction-locking" component={TransactionLockingPage} />
+        <Route path="/inventory/adjustments/new">{() => <InventoryAdjustmentNewPage />}</Route>
+        <Route path="/inventory/adjustments/:id">
+          {(p) => <InventoryAdjustmentDetailPage id={p.id!} />}
+        </Route>
+        <Route path="/inventory/adjustments" component={InventoryAdjustmentsPage} />
+        <Route path="/inventory/stock" component={StockPage} />
         <Route path="/reports" component={ReportsPage} />
         <Route path="/activity-log" component={ActivityLogPage} />
         <Route path="/settings" component={SettingsPage} />
