@@ -105,6 +105,17 @@ export const creditNoteStatus = pgEnum("credit_note_status", [
   "void",
 ]);
 
+export const assetStatus = pgEnum("asset_status", [
+  "active",
+  "fully_depreciated",
+  "disposed",
+]);
+
+export const depreciationMethod = pgEnum("depreciation_method", [
+  "straight_line",
+  "written_down_value",
+]);
+
 export const paymentMode = pgEnum("payment_mode", [
   "cash",
   "bank_transfer",

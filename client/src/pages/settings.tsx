@@ -217,6 +217,8 @@ const SERIES_COLUMNS: Array<[entity: string, label: string]> = [
   ["vendor_payment", "Vendor Payment"],
   ["expense", "Expense"],
   ["journal_entry", "Journal"],
+  ["fixed_asset", "Fixed Asset"],
+  ["inventory_adjustment", "Inventory Adjustment"],
 ];
 
 function SeriesSection() {

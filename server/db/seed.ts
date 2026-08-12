@@ -125,6 +125,7 @@ const COA: Array<[string, string, AcctType, AcctSubtype, string?, string?, boole
   ["4101", "Interest on FD", "income", "other_income", undefined, "4100"],
   ["4102", "Interest Income (Other)", "income", "other_income", undefined, "4100"],
   ["4103", "Any Other Income", "income", "other_income", undefined, "4100"],
+  ["4104", "Gain on Disposal of Assets", "income", "other_income", "gain_on_disposal", "4100"],
 
   // ---------------- Cost of goods sold ----------------
   ["5000", "Cost of Goods Sold", "expense", "cost_of_goods_sold", "cogs"],
@@ -194,6 +195,9 @@ const COA: Array<[string, string, AcctType, AcctSubtype, string?, string?, boole
 
   ["6600", "Depreciation & Amortisation", "expense", "expense", "depreciation_expense"],
 
+  ["6700", "Inventory Adjustments (Write-off / Shrinkage)", "expense", "expense", "inventory_adjustment"],
+  ["6701", "Loss on Disposal of Assets", "expense", "other_expense", "loss_on_disposal"],
+
   ["7000", "Finance Cost", "expense", "other_expense", undefined, undefined, true],
   ["7001", "Interest on CC Account (44656290967)", "expense", "other_expense", undefined, "7000"],
   ["7002", "Interest on Term Loan (43766492854)", "expense", "other_expense", undefined, "7000"],
@@ -209,6 +213,8 @@ const SERIES: Array<[string, string]> = [
   ["vendor_payment", "VPMT-"],
   ["vendor_credit", "VCN-"],
   ["expense", "EXP-"],
+  ["fixed_asset", "FA-"],
+  ["inventory_adjustment", "IA-"],
 ];
 
 const TAXES: Array<[string, string]> = [

@@ -61,7 +61,7 @@ settingsRouter.get("/series", requirePermission("settings", "view"), async (_req
 const SERIES_ENTITIES = [
   "invoice", "credit_note", "customer_payment",
   "bill", "purchase_order", "vendor_credit", "vendor_payment", "expense",
-  "journal_entry",
+  "journal_entry", "fixed_asset", "inventory_adjustment",
 ] as const;
 
 /** Prefix a new series uses for each module before the user edits it. */
@@ -69,6 +69,7 @@ const DEFAULT_PREFIX: Record<string, string> = {
   invoice: "INV-", credit_note: "CN-", customer_payment: "CP-",
   bill: "BILL-", purchase_order: "PO-", vendor_credit: "VCN-",
   vendor_payment: "VP-", expense: "EXP-", journal_entry: "JE-",
+  fixed_asset: "FA-", inventory_adjustment: "IA-",
 };
 
 const newSeriesSchema = z.object({

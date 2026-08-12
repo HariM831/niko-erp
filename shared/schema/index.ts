@@ -4,6 +4,7 @@ export * from "./core";
 export * from "./accounting";
 export * from "./contacts";
 export * from "./items";
+export * from "./assets";
 export * from "./banking";
 export * from "./sales";
 export * from "./purchases";
