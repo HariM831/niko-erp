@@ -1,5 +1,5 @@
-import { Fragment, useState } from "react";
-import { Link, useLocation } from "wouter";
+import { createContext, Fragment, useContext, useEffect, useState } from "react";
+import { Link, useLocation, useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { api } from "../api";
@@ -233,46 +233,96 @@ export function ReportsPage() {
 
 // ---------- A single report ----------
 
+/**
+ * The applied period, so a drill-through link built deep inside a statement can
+ * carry the period the reader is actually looking at.
+ */
+const PeriodContext = createContext<{ from: string; to: string }>({ from: "", to: "" });
+
+/** Where clicking an account name goes. */
+export type Drill = "sales" | "purchases" | "ledger";
+
+function useDrillHref(drill: Drill) {
+  const period = useContext(PeriodContext);
+  return (accountId: string) => {
+    if (drill === "ledger") return `/accountant/accounts/${accountId}`;
+    const key = drill === "sales" ? "sales-by-item" : "purchase-by-item";
+    const p = new URLSearchParams({
+      range: "Custom",
+      from: period.from,
+      to: period.to,
+      accountId,
+    });
+    return `/reports/${key}?${p}`;
+  };
+}
+
 export function ReportViewPage({ reportKey }: { reportKey: string }) {
   const def = REPORTS.find((r) => r.key === reportKey);
-  const [preset, setPreset] = useState("This Year");
-  const [range, setRange] = useState(PRESETS["This Year"]!());
-  const [applied, setApplied] = useState(PRESETS["This Year"]!());
+  const [, navigate] = useLocation();
+  const search = useSearch();
   const [collapsed, setCollapsed] = useState(false);
+
+  // Filters live in the URL, not in state: that is what makes a drill-through
+  // able to hand the period to the next report, and a report link shareable.
+  const params = new URLSearchParams(search);
+  const accountId = params.get("accountId") ?? undefined;
+  const preset =
+    params.get("range") ?? (params.get("from") || params.get("to") ? "Custom" : "This Year");
+  const fallback = (PRESETS[preset] ?? PRESETS["This Year"]!)();
+  const applied = {
+    from: params.get("from") ?? fallback.from,
+    to: params.get("to") ?? fallback.to,
+  };
+
+  const [draft, setDraft] = useState(applied);
+  useEffect(() => {
+    setDraft({ from: applied.from, to: applied.to });
+  }, [applied.from, applied.to]);
 
   const { data: org } = useQuery({
     queryKey: ["org"],
     queryFn: () => api<{ name: string } | null>("/api/settings/org"),
   });
 
-  const params =
-    def?.period === "asOf" ? `?asOf=${applied.to}` : `?from=${applied.from}&to=${applied.to}`;
+  const query = new URLSearchParams(
+    def?.period === "asOf" ? { asOf: applied.to } : { from: applied.from, to: applied.to },
+  );
+  if (accountId) query.set("accountId", accountId);
   const { data, isLoading, error } = useQuery({
-    queryKey: ["report", reportKey, applied.from, applied.to],
-    queryFn: () => api<Record<string, unknown>>(`/api/reports/${reportKey}${params}`),
+    queryKey: ["report", reportKey, applied.from, applied.to, accountId ?? ""],
+    queryFn: () => api<Record<string, unknown>>(`/api/reports/${reportKey}?${query}`),
     enabled: !!def,
   });
 
   if (!def) {
     return (
       <div className="p-8 text-[13px] text-gray-500">
-        No such report. <Link href="/reports" className="text-[#1c5bd9] hover:underline">Back to the Reports Center</Link>.
+        No such report.{" "}
+        <Link href="/reports" className="text-[#1c5bd9] hover:underline">
+          Back to the Reports Center
+        </Link>
+        .
       </div>
     );
   }
 
-  const choose = (name: string) => {
-    setPreset(name);
-    if (name !== "Custom") {
-      const r = PRESETS[name]!();
-      setRange(r);
-      setApplied(r);
+  const apply = (next: { range?: string; from?: string; to?: string; account?: string | null }) => {
+    const range = next.range ?? preset;
+    const p = new URLSearchParams({ range });
+    if (range === "Custom") {
+      p.set("from", next.from ?? applied.from);
+      p.set("to", next.to ?? applied.to);
     }
+    const account = next.account === null ? undefined : (next.account ?? accountId);
+    if (account) p.set("accountId", account);
+    navigate(`/reports/${reportKey}?${p}`);
   };
 
   const hasTree = ["pnl", "balance-sheet", "pnl-horizontal", "balance-sheet-horizontal"].includes(
     reportKey,
   );
+  const filteredAccount = (data?.account ?? null) as { code: string; name: string } | null;
 
   return (
     <div className="flex h-full flex-col bg-[#f4f4f9]">
@@ -291,7 +341,7 @@ export function ReportViewPage({ reportKey }: { reportKey: string }) {
           <span className="text-gray-500">Date Range :</span>
           <select
             value={preset}
-            onChange={(e) => choose(e.target.value)}
+            onChange={(e) => apply({ range: e.target.value })}
             className="bg-transparent outline-none"
           >
             {Object.keys(PRESETS).map((p) => (
@@ -308,24 +358,40 @@ export function ReportViewPage({ reportKey }: { reportKey: string }) {
           Report Basis : <span className="text-gray-800">Accrual</span>
         </span>
 
+        {filteredAccount && (
+          <span className="flex h-8 items-center gap-2 rounded-md border border-brand-200 bg-brand-50 px-3 text-[13px] text-gray-500">
+            Account :{" "}
+            <span className="text-gray-800">
+              {filteredAccount.code} · {filteredAccount.name}
+            </span>
+            <button
+              onClick={() => apply({ account: null })}
+              className="text-gray-400 hover:text-red-600"
+              aria-label="Clear the account filter"
+            >
+              ×
+            </button>
+          </span>
+        )}
+
         {preset === "Custom" && (
           <>
             <input
               type="date"
-              value={range.from}
-              onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))}
+              value={draft.from}
+              onChange={(e) => setDraft((r) => ({ ...r, from: e.target.value }))}
               className="input h-8 w-auto py-0"
             />
             <input
               type="date"
-              value={range.to}
-              onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))}
+              value={draft.to}
+              onChange={(e) => setDraft((r) => ({ ...r, to: e.target.value }))}
               className="input h-8 w-auto py-0"
             />
           </>
         )}
 
-        <button onClick={() => setApplied(range)} className="btn-primary">
+        <button onClick={() => apply({ range: "Custom", ...draft })} className="btn-primary">
           Run Report
         </button>
         <Link href="/reports" className="ml-auto text-[13px] text-[#1c5bd9] hover:underline">
@@ -363,7 +429,9 @@ export function ReportViewPage({ reportKey }: { reportKey: string }) {
                 {error instanceof Error ? error.message : "Failed to run this report."}
               </p>
             ) : data ? (
-              <ReportBody reportKey={reportKey} data={data} collapsed={collapsed} />
+              <PeriodContext.Provider value={applied}>
+                <ReportBody reportKey={reportKey} data={data} collapsed={collapsed} />
+              </PeriodContext.Provider>
             ) : null}
           </div>
         </div>
@@ -423,13 +491,16 @@ const TotalRow = ({
 function TreeRows({
   nodes,
   collapsed,
+  drill,
   showCode = true,
 }: {
   nodes: TreeNode[];
   collapsed: boolean;
+  drill: Drill;
   /** The T-format drops account codes, as Zoho's horizontal statements do. */
   showCode?: boolean;
 }) {
+  const href = useDrillHref(drill);
   return (
     <>
       {nodes.map((n) => {
@@ -439,7 +510,7 @@ function TreeRows({
             <tr>
               <td className="px-2 py-2" style={{ paddingLeft: `${20 + n.depth * 20}px` }}>
                 <Link
-                  href={`/accountant/accounts/${n.accountId}`}
+                  href={href(n.accountId)}
                   className="font-medium text-[#1c5bd9] hover:underline"
                 >
                   {n.name}
@@ -450,7 +521,12 @@ function TreeRows({
             </tr>
             {showChildren && (
               <>
-                <TreeRows nodes={n.children} collapsed={collapsed} showCode={showCode} />
+                <TreeRows
+                  nodes={n.children}
+                  collapsed={collapsed}
+                  drill={drill}
+                  showCode={showCode}
+                />
                 <TotalRow label={`Total for ${n.name}`} value={n.total} indent={n.depth * 20} />
               </>
             )}
@@ -469,10 +545,12 @@ function SectionBlock({
   label,
   section,
   collapsed,
+  drill,
 }: {
   label: string;
   section: Section;
   collapsed: boolean;
+  drill: Drill;
 }) {
   return (
     <>
@@ -481,7 +559,7 @@ function SectionBlock({
         <td />
         <td />
       </tr>
-      <TreeRows nodes={section.nodes} collapsed={collapsed} />
+      <TreeRows nodes={section.nodes} collapsed={collapsed} drill={drill} />
       <TotalRow label={`Total for ${label}`} value={section.total} />
     </>
   );
@@ -532,28 +610,33 @@ function ReportBody({
             label="Operating Income"
             section={data.operatingIncome as Section}
             collapsed={collapsed}
+            drill="sales"
           />
           <SectionBlock
             label="Cost of Goods Sold"
             section={data.costOfGoodsSold as Section}
             collapsed={collapsed}
+            drill="purchases"
           />
           <KeyLine label="Gross Profit" value={data.grossProfit as string} />
           <SectionBlock
             label="Operating Expense"
             section={data.operatingExpense as Section}
             collapsed={collapsed}
+            drill="purchases"
           />
           <KeyLine label="Operating Profit" value={data.operatingProfit as string} />
           <SectionBlock
             label="Non Operating Income"
             section={data.otherIncome as Section}
             collapsed={collapsed}
+            drill="sales"
           />
           <SectionBlock
             label="Non Operating Expense"
             section={data.otherExpense as Section}
             collapsed={collapsed}
+            drill="purchases"
           />
           <KeyLine label="Net Profit/Loss" value={data.netProfit as string} />
         </StatementTable>
@@ -563,14 +646,27 @@ function ReportBody({
       return (
         <>
           <StatementTable>
-            <SectionBlock label="Assets" section={data.assets as Section} collapsed={collapsed} />
+            {/* Balance-sheet accounts are not item-driven, so their names go to
+                the account ledger rather than an item report. */}
+            <SectionBlock
+              label="Assets"
+              section={data.assets as Section}
+              collapsed={collapsed}
+              drill="ledger"
+            />
             <KeyLine label="Total Assets" value={data.totalAssets as string} />
             <SectionBlock
               label="Liabilities"
               section={data.liabilities as Section}
               collapsed={collapsed}
+              drill="ledger"
             />
-            <SectionBlock label="Equity" section={data.equity as Section} collapsed={collapsed} />
+            <SectionBlock
+              label="Equity"
+              section={data.equity as Section}
+              collapsed={collapsed}
+              drill="ledger"
+            />
             <tr>
               <td className="px-2 py-2 pl-5">Current Period Earnings</td>
               <td />
@@ -644,7 +740,7 @@ function HorizontalStatement({
     ? { heading: "Income", ...(data.income as Omit<SideData, "heading">) }
     : (data.right as SideData);
 
-  const Side = ({ side }: { side: SideData }) => (
+  const Side = ({ side, drill }: { side: SideData; drill: Drill }) => (
     <table className="w-full text-[14px]">
       <thead>
         <tr>
@@ -663,7 +759,7 @@ function HorizontalStatement({
               <td />
               <td />
             </tr>
-            <TreeRows nodes={s.nodes} collapsed={collapsed} showCode={false} />
+            <TreeRows nodes={s.nodes} collapsed={collapsed} drill={drill} showCode={false} />
             <TotalRow label={`Total ${s.label}`.toUpperCase()} value={s.total} />
           </Fragment>
         ))}
@@ -691,10 +787,10 @@ function HorizontalStatement({
   return (
     <div className="grid grid-cols-2 items-start gap-6">
       <div className="border-r pr-6">
-        <Side side={left} />
+        <Side side={left} drill={isPnl ? "purchases" : "ledger"} />
       </div>
       <div>
-        <Side side={right} />
+        <Side side={right} drill={isPnl ? "sales" : "ledger"} />
       </div>
     </div>
   );
@@ -709,8 +805,33 @@ function ItemTable({ data }: { data: Record<string, unknown> }) {
     amount: string;
     averagePrice: string;
   }>;
+  const account = (data.account ?? null) as { id: string; code: string; name: string } | null;
+
   if (!rows.length) {
-    return <p className="text-center text-[13px] text-gray-500">Nothing in this period.</p>;
+    // Arriving here from a statement line that showed a figure is not a
+    // contradiction: an amount booked without an item — a journal, an expense,
+    // a bill line posted straight to the account — is in the ledger but has no
+    // item to report. Say so, and offer the ledger, rather than showing a blank.
+    return (
+      <p className="text-center text-[13px] text-gray-500">
+        {account ? (
+          <>
+            Nothing with an item posted to {account.code} · {account.name} in this period.
+            <br />
+            Amounts booked without an item still reach the ledger —{" "}
+            <Link
+              href={`/accountant/accounts/${account.id}`}
+              className="text-[#1c5bd9] hover:underline"
+            >
+              open the account ledger
+            </Link>{" "}
+            to see them.
+          </>
+        ) : (
+          "Nothing in this period."
+        )}
+      </p>
+    );
   }
   return (
     <Sheet>

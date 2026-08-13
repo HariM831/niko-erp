@@ -567,6 +567,7 @@ async function itemMovement(
   from: string | undefined,
   to: string | undefined,
   side: "sales" | "purchases",
+  accountId?: string,
 ) {
   const dateCol = side === "sales" ? invoices.invoiceDate : bills.billDate;
   const doc = side === "sales" ? invoices : bills;
@@ -576,6 +577,25 @@ async function itemMovement(
   const conditions = [sql`${doc.status} NOT IN ('draft', 'void')`];
   if (from) conditions.push(gte(dateCol, from));
   if (to) conditions.push(lte(dateCol, to));
+
+  // Which account a line lands on, spelled exactly as posting resolves it: an
+  // explicit override, else the item's default, else — on the sales side only —
+  // the `sales` catch-all. Drilling from a P&L line has to reproduce this or the
+  // drill-through would show a different population than the figure clicked.
+  const lineAccount =
+    side === "sales"
+      ? sql`COALESCE(${invoiceLines.accountId}, ${items.salesAccountId},
+            (SELECT id FROM accounts WHERE system_key = 'sales'))`
+      : sql`COALESCE(${billLines.accountId}, ${items.purchaseAccountId})`;
+  const creditLineAccount =
+    side === "sales"
+      ? sql`COALESCE(${creditNoteLines.accountId}, ${items.salesAccountId},
+            (SELECT id FROM accounts WHERE system_key = 'sales'))`
+      : sql`COALESCE(${vendorCreditLines.accountId}, ${items.purchaseAccountId})`;
+
+  // The filter goes in WHERE, not in the document join: it reads a column from
+  // `items`, which is only in scope once that join has happened.
+  const accountFilter = accountId ? sql`${lineAccount} = ${accountId}` : undefined;
 
   const positive = await db
     .select({
@@ -588,6 +608,7 @@ async function itemMovement(
     .from(lines)
     .innerJoin(doc, and(eq(doc.id, lineDocId), ...conditions))
     .innerJoin(items, eq(items.id, lines.itemId))
+    .where(accountFilter)
     .groupBy(items.id, items.name, items.unit);
 
   // Returns net off the sale or purchase they reverse.
@@ -609,6 +630,7 @@ async function itemMovement(
     .from(creditLines)
     .innerJoin(creditDoc, and(eq(creditDoc.id, creditDocId), ...creditConditions))
     .innerJoin(items, eq(items.id, creditLines.itemId))
+    .where(accountId ? sql`${creditLineAccount} = ${accountId}` : undefined)
     .groupBy(items.id);
   const returnsByItem = new Map(negative.map((r) => [r.itemId, r]));
 
@@ -628,9 +650,20 @@ async function itemMovement(
     })
     .sort((a, b) => a.name.localeCompare(b.name));
 
+  // Named so the report can say what it has been narrowed to, rather than
+  // silently showing a subset that looks like the whole.
+  const [account] = accountId
+    ? await db
+        .select({ id: accounts.id, code: accounts.code, name: accounts.name })
+        .from(accounts)
+        .where(eq(accounts.id, accountId))
+        .limit(1)
+    : [];
+
   return {
     from: from ?? null,
     to: to ?? null,
+    account: account ?? null,
     rows,
     totalQuantity: rows.reduce((s, r) => s + Number(r.quantity), 0).toFixed(2),
     totalAmount: rows.reduce((s, r) => s + Number(r.amount), 0).toFixed(2),
@@ -638,13 +671,13 @@ async function itemMovement(
 }
 
 reportsRouter.get("/sales-by-item", requirePermission("reports", "view"), async (req, res) => {
-  const { from, to } = req.query as Record<string, string | undefined>;
-  res.json(await itemMovement(from, to, "sales"));
+  const { from, to, accountId } = req.query as Record<string, string | undefined>;
+  res.json(await itemMovement(from, to, "sales", accountId));
 });
 
 reportsRouter.get("/purchase-by-item", requirePermission("reports", "view"), async (req, res) => {
-  const { from, to } = req.query as Record<string, string | undefined>;
-  res.json(await itemMovement(from, to, "purchases"));
+  const { from, to, accountId } = req.query as Record<string, string | undefined>;
+  res.json(await itemMovement(from, to, "purchases", accountId));
 });
 
 // ---------- Expense by Category ----------
