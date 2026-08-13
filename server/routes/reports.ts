@@ -9,10 +9,18 @@ import {
   journalEntries,
   journalEntryLineTags,
   journalEntryLines,
+  billLines,
+  creditNoteLines,
+  creditNotes,
+  invoiceLines,
+  items,
+  vendorCreditLines,
+  vendorCredits,
   reportingTagOptions,
   reportingTags,
 } from "@shared/schema";
 import { db } from "../db";
+import { buildTree, pruneEmpty } from "../services/report-tree";
 import { requirePermission } from "../lib/rbac";
 
 export const reportsRouter = Router();
@@ -24,25 +32,44 @@ export const reportsRouter = Router();
  * is how a per-vehicle or per-shed P&L is produced without a GL account each.
  */
 async function accountMovements(from?: string, to?: string, tagOptionId?: string) {
-  const conditions = [eq(journalEntries.status, "posted")];
-  if (from) conditions.push(gte(journalEntries.entryDate, from));
-  if (to) conditions.push(lte(journalEntries.entryDate, to));
+  const windowConditions = [eq(journalEntries.status, "posted")];
+  if (from) windowConditions.push(gte(journalEntries.entryDate, from));
+  if (to) windowConditions.push(lte(journalEntries.entryDate, to));
 
+  // A line counts only when its entry fell in the window, and — when the report
+  // is scoped to a tag — only when it actually carries that tag. Both are guards
+  // inside the sum rather than WHERE clauses, because the query starts from
+  // accounts and a WHERE would throw away the ones with no matching lines.
+  const counts = tagOptionId
+    ? sql`${journalEntries.id} IS NOT NULL AND ${journalEntryLineTags.id} IS NOT NULL`
+    : sql`${journalEntries.id} IS NOT NULL`;
+
+  // Starts from accounts, not from lines: a parent account is a heading and
+  // never carries a posting, so joining the other way round dropped every
+  // group and left its children looking like unrelated top-level rows.
   const base = db
     .select({
       accountId: accounts.id,
       code: accounts.code,
       name: accounts.name,
       type: accounts.type,
+      subtype: accounts.subtype,
       parentId: accounts.parentId,
-      net: sql<string>`COALESCE(SUM(${journalEntryLines.debit} - ${journalEntryLines.credit}), 0)::numeric(14,2)`,
+      isGroup: accounts.isGroup,
+      net: sql<string>`COALESCE(SUM(
+        CASE WHEN ${counts} THEN ${journalEntryLines.debit} - ${journalEntryLines.credit}
+        ELSE 0 END
+      ), 0)::numeric(14,2)`,
     })
-    .from(journalEntryLines)
-    .innerJoin(journalEntries, and(eq(journalEntries.id, journalEntryLines.entryId), ...conditions))
-    .innerJoin(accounts, eq(accounts.id, journalEntryLines.accountId));
+    .from(accounts)
+    .leftJoin(journalEntryLines, eq(journalEntryLines.accountId, accounts.id))
+    .leftJoin(
+      journalEntries,
+      and(eq(journalEntries.id, journalEntryLines.entryId), ...windowConditions),
+    );
 
   const scoped = tagOptionId
-    ? base.innerJoin(
+    ? base.leftJoin(
         journalEntryLineTags,
         and(
           eq(journalEntryLineTags.lineId, journalEntryLines.id),
@@ -52,36 +79,127 @@ async function accountMovements(from?: string, to?: string, tagOptionId?: string
     : base;
 
   return scoped
-    .groupBy(accounts.id, accounts.code, accounts.name, accounts.type, accounts.parentId)
+    .groupBy(
+      accounts.id,
+      accounts.code,
+      accounts.name,
+      accounts.type,
+      accounts.subtype,
+      accounts.parentId,
+      accounts.isGroup,
+    )
     .orderBy(asc(accounts.code));
 }
 
 // ---------- Profit & Loss ----------
 
+type Movement = Awaited<ReturnType<typeof accountMovements>>[number];
+
+/**
+ * Rows for one P&L section, as a tree.
+ *
+ * Income sits credit-side, so its sign is flipped to read positive; expenses
+ * are already debit-positive. Subtypes decide the section: EGGSY has stored
+ * cost_of_goods_sold, other_income and other_expense since the chart was
+ * seeded, and the old flat report simply ignored them.
+ */
+function section(rows: Movement[], match: (r: Movement) => boolean, sign: 1 | -1) {
+  const picked = rows.filter(match).map((r) => ({
+    accountId: r.accountId,
+    code: r.code,
+    name: r.name,
+    type: r.type,
+    subtype: r.subtype,
+    parentId: r.parentId,
+    isGroup: r.isGroup,
+    net: sign * Number(r.net),
+  }));
+  const { nodes, total } = buildTree(picked);
+  return { nodes: pruneEmpty(nodes), total };
+}
+
 reportsRouter.get("/pnl", requirePermission("reports", "view"), async (req, res) => {
   const { from, to, tagOptionId } = req.query as Record<string, string | undefined>;
   const rows = await accountMovements(from, to, tagOptionId);
 
-  // Income accounts carry credit balances: display as -net.
-  const income = rows
-    .filter((r) => r.type === "income")
-    .map((r) => ({ code: r.code, name: r.name, amount: (-Number(r.net)).toFixed(2) }));
-  const expenseRows = rows
-    .filter((r) => r.type === "expense")
-    .map((r) => ({ code: r.code, name: r.name, amount: Number(r.net).toFixed(2) }));
+  const operatingIncome = section(rows, (r) => r.type === "income" && r.subtype !== "other_income", -1);
+  const cogs = section(rows, (r) => r.subtype === "cost_of_goods_sold", 1);
+  const operatingExpense = section(
+    rows,
+    (r) => r.type === "expense" && r.subtype !== "cost_of_goods_sold" && r.subtype !== "other_expense",
+    1,
+  );
+  const otherIncome = section(rows, (r) => r.subtype === "other_income", -1);
+  const otherExpense = section(rows, (r) => r.subtype === "other_expense", 1);
 
-  const totalIncome = income.reduce((s, r) => s + Number(r.amount), 0);
-  const totalExpenses = expenseRows.reduce((s, r) => s + Number(r.amount), 0);
+  const grossProfit = Number(operatingIncome.total) - Number(cogs.total);
+  const operatingProfit = grossProfit - Number(operatingExpense.total);
+  const netProfit = operatingProfit + Number(otherIncome.total) - Number(otherExpense.total);
 
   res.json({
     from: from ?? null,
     to: to ?? null,
     tagOptionId: tagOptionId ?? null,
-    income,
-    expenses: expenseRows,
-    totalIncome: totalIncome.toFixed(2),
-    totalExpenses: totalExpenses.toFixed(2),
-    netProfit: (totalIncome - totalExpenses).toFixed(2),
+    basis: "Accrual",
+    operatingIncome,
+    costOfGoodsSold: cogs,
+    grossProfit: grossProfit.toFixed(2),
+    operatingExpense,
+    operatingProfit: operatingProfit.toFixed(2),
+    otherIncome,
+    otherExpense,
+    netProfit: netProfit.toFixed(2),
+  });
+});
+
+/**
+ * The T-format P&L: expenses down the left, income down the right, the way an
+ * Indian statement is traditionally read. Same figures as the vertical report,
+ * arranged in two columns with the balancing profit shown on the short side.
+ */
+reportsRouter.get("/pnl-horizontal", requirePermission("reports", "view"), async (req, res) => {
+  const { from, to } = req.query as Record<string, string | undefined>;
+  const rows = await accountMovements(from, to);
+
+  const cogs = section(rows, (r) => r.subtype === "cost_of_goods_sold", 1);
+  const operatingExpense = section(
+    rows,
+    (r) => r.type === "expense" && r.subtype !== "cost_of_goods_sold" && r.subtype !== "other_expense",
+    1,
+  );
+  const otherExpense = section(rows, (r) => r.subtype === "other_expense", 1);
+  const operatingIncome = section(rows, (r) => r.type === "income" && r.subtype !== "other_income", -1);
+  const otherIncome = section(rows, (r) => r.subtype === "other_income", -1);
+
+  const expenseTotal =
+    Number(cogs.total) + Number(operatingExpense.total) + Number(otherExpense.total);
+  const incomeTotal = Number(operatingIncome.total) + Number(otherIncome.total);
+  const netProfit = incomeTotal - expenseTotal;
+
+  res.json({
+    from: from ?? null,
+    to: to ?? null,
+    basis: "Accrual",
+    expense: {
+      sections: [
+        { label: "Cost of Goods Sold", ...cogs },
+        { label: "Operating Expense", ...operatingExpense },
+        { label: "Non-Operating Expense", ...otherExpense },
+      ].filter((x) => x.nodes.length),
+      // The balancing figure goes on whichever side is short, so both columns
+      // add to the same number — the point of a T-format.
+      balancing: netProfit >= 0 ? { label: "Net Profit", amount: netProfit.toFixed(2) } : null,
+      total: (expenseTotal + Math.max(netProfit, 0)).toFixed(2),
+    },
+    income: {
+      sections: [
+        { label: "Operating Income", ...operatingIncome },
+        { label: "Non-Operating Income", ...otherIncome },
+      ].filter((x) => x.nodes.length),
+      balancing: netProfit < 0 ? { label: "Net Loss", amount: (-netProfit).toFixed(2) } : null,
+      total: (incomeTotal + Math.max(-netProfit, 0)).toFixed(2),
+    },
+    netProfit: netProfit.toFixed(2),
   });
 });
 
@@ -130,42 +248,71 @@ reportsRouter.get("/tag-summary", requirePermission("reports", "view"), async (r
 
 // ---------- Balance Sheet ----------
 
-reportsRouter.get("/balance-sheet", requirePermission("reports", "view"), async (req, res) => {
-  const { asOf } = req.query as Record<string, string | undefined>;
+/** Assets, liabilities and equity as trees, with earnings folded into equity. */
+async function balanceSheetSections(asOf?: string) {
   const rows = await accountMovements(undefined, asOf);
 
-  const section = (type: string, sign: 1 | -1) =>
-    rows
-      .filter((r) => r.type === type && Number(r.net) !== 0)
-      .map((r) => ({ code: r.code, name: r.name, amount: (sign * Number(r.net)).toFixed(2) }));
+  const assets = section(rows, (r) => r.type === "asset", 1);
+  const liabilities = section(rows, (r) => r.type === "liability", -1);
+  const equity = section(rows, (r) => r.type === "equity", -1);
 
-  const assets = section("asset", 1);
-  const liabilities = section("liability", -1);
-  const equity = section("equity", -1);
-
-  // Current-period earnings fold into equity so the sheet balances.
+  // Income less expense to date is not posted to equity anywhere, so the sheet
+  // only balances once it is added as its own line.
   const income = rows.filter((r) => r.type === "income").reduce((s, r) => s - Number(r.net), 0);
   const expense = rows.filter((r) => r.type === "expense").reduce((s, r) => s + Number(r.net), 0);
   const netEarnings = income - expense;
 
-  const totalAssets = assets.reduce((s, r) => s + Number(r.amount), 0);
-  const totalLiabilities = liabilities.reduce((s, r) => s + Number(r.amount), 0);
-  const totalEquity = equity.reduce((s, r) => s + Number(r.amount), 0) + netEarnings;
+  const totalAssets = Number(assets.total);
+  const totalLiabilities = Number(liabilities.total);
+  const totalEquity = Number(equity.total) + netEarnings;
 
-  res.json({
-    asOf: asOf ?? null,
+  return {
     assets,
     liabilities,
-    equity: [
-      ...equity,
-      { code: "—", name: "Current Period Earnings", amount: netEarnings.toFixed(2) },
-    ],
+    equity,
+    netEarnings: netEarnings.toFixed(2),
     totalAssets: totalAssets.toFixed(2),
     totalLiabilities: totalLiabilities.toFixed(2),
     totalEquity: totalEquity.toFixed(2),
     balanced: Math.abs(totalAssets - totalLiabilities - totalEquity) < 0.01,
-  });
+  };
+}
+
+reportsRouter.get("/balance-sheet", requirePermission("reports", "view"), async (req, res) => {
+  const { asOf } = req.query as Record<string, string | undefined>;
+  const s = await balanceSheetSections(asOf);
+  res.json({ asOf: asOf ?? null, basis: "Accrual", ...s });
 });
+
+/** T-format: what the business owes on the left, what it owns on the right. */
+reportsRouter.get(
+  "/balance-sheet-horizontal",
+  requirePermission("reports", "view"),
+  async (req, res) => {
+    const { asOf } = req.query as Record<string, string | undefined>;
+    const s = await balanceSheetSections(asOf);
+    res.json({
+      asOf: asOf ?? null,
+      basis: "Accrual",
+      left: {
+        heading: "Liabilities & Equity",
+        sections: [
+          { label: "Liabilities", ...s.liabilities },
+          { label: "Equity", ...s.equity },
+        ].filter((x) => x.nodes.length),
+        earnings: { label: "Current Period Earnings", amount: s.netEarnings },
+        total: (Number(s.totalLiabilities) + Number(s.totalEquity)).toFixed(2),
+      },
+      right: {
+        heading: "Assets",
+        sections: [{ label: "Assets", ...s.assets }].filter((x) => x.nodes.length),
+        earnings: null,
+        total: s.totalAssets,
+      },
+      balanced: s.balanced,
+    });
+  },
+);
 
 // ---------- Cash Flow (direct method summary) ----------
 
@@ -403,3 +550,157 @@ reportsRouter.get("/gst-summary", requirePermission("reports", "view"), async (r
     netPayable: (outCgst + outSgst + outIgst - inCgst - inSgst - inIgst - inExpense).toFixed(2),
   });
 });
+
+// ---------- Sales by Item / Purchase by Item ----------
+
+/**
+ * Quantity and value per item over a period.
+ *
+ * Credit notes and vendor credits are netted off rather than ignored: an item
+ * sold and then returned has not been sold, and a report that says otherwise
+ * overstates both quantity and revenue. Average price is derived from the net
+ * figures for the same reason.
+ */
+async function itemMovement(
+  from: string | undefined,
+  to: string | undefined,
+  side: "sales" | "purchases",
+) {
+  const dateCol = side === "sales" ? invoices.invoiceDate : bills.billDate;
+  const doc = side === "sales" ? invoices : bills;
+  const lines = side === "sales" ? invoiceLines : billLines;
+  const lineDocId = side === "sales" ? invoiceLines.invoiceId : billLines.billId;
+
+  const conditions = [sql`${doc.status} NOT IN ('draft', 'void')`];
+  if (from) conditions.push(gte(dateCol, from));
+  if (to) conditions.push(lte(dateCol, to));
+
+  const positive = await db
+    .select({
+      itemId: items.id,
+      name: items.name,
+      unit: items.unit,
+      quantity: sql<string>`COALESCE(SUM(${lines.quantity}), 0)::numeric(14,3)`,
+      amount: sql<string>`COALESCE(SUM(${lines.amount}), 0)::numeric(14,2)`,
+    })
+    .from(lines)
+    .innerJoin(doc, and(eq(doc.id, lineDocId), ...conditions))
+    .innerJoin(items, eq(items.id, lines.itemId))
+    .groupBy(items.id, items.name, items.unit);
+
+  // Returns net off the sale or purchase they reverse.
+  const creditDoc = side === "sales" ? creditNotes : vendorCredits;
+  const creditLines = side === "sales" ? creditNoteLines : vendorCreditLines;
+  const creditDocId = side === "sales" ? creditNoteLines.creditNoteId : vendorCreditLines.vendorCreditId;
+  const creditDate = side === "sales" ? creditNotes.creditNoteDate : vendorCredits.creditDate;
+
+  const creditConditions = [sql`${creditDoc.status} NOT IN ('draft', 'void')`];
+  if (from) creditConditions.push(gte(creditDate, from));
+  if (to) creditConditions.push(lte(creditDate, to));
+
+  const negative = await db
+    .select({
+      itemId: items.id,
+      quantity: sql<string>`COALESCE(SUM(${creditLines.quantity}), 0)::numeric(14,3)`,
+      amount: sql<string>`COALESCE(SUM(${creditLines.amount}), 0)::numeric(14,2)`,
+    })
+    .from(creditLines)
+    .innerJoin(creditDoc, and(eq(creditDoc.id, creditDocId), ...creditConditions))
+    .innerJoin(items, eq(items.id, creditLines.itemId))
+    .groupBy(items.id);
+  const returnsByItem = new Map(negative.map((r) => [r.itemId, r]));
+
+  const rows = positive
+    .map((r) => {
+      const ret = returnsByItem.get(r.itemId);
+      const quantity = Number(r.quantity) - Number(ret?.quantity ?? 0);
+      const amount = Number(r.amount) - Number(ret?.amount ?? 0);
+      return {
+        itemId: r.itemId,
+        name: r.name,
+        unit: r.unit,
+        quantity: quantity.toFixed(2),
+        amount: amount.toFixed(2),
+        averagePrice: quantity !== 0 ? (amount / quantity).toFixed(2) : "0.00",
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return {
+    from: from ?? null,
+    to: to ?? null,
+    rows,
+    totalQuantity: rows.reduce((s, r) => s + Number(r.quantity), 0).toFixed(2),
+    totalAmount: rows.reduce((s, r) => s + Number(r.amount), 0).toFixed(2),
+  };
+}
+
+reportsRouter.get("/sales-by-item", requirePermission("reports", "view"), async (req, res) => {
+  const { from, to } = req.query as Record<string, string | undefined>;
+  res.json(await itemMovement(from, to, "sales"));
+});
+
+reportsRouter.get("/purchase-by-item", requirePermission("reports", "view"), async (req, res) => {
+  const { from, to } = req.query as Record<string, string | undefined>;
+  res.json(await itemMovement(from, to, "purchases"));
+});
+
+// ---------- Expense by Category ----------
+
+/**
+ * Expense grouped by its top-level account, with the sub-accounts beneath.
+ *
+ * "Category" here is the parent expense account — EGGSY has no separate
+ * category concept, and inventing one would leave two ways to classify a cost.
+ * The client shows categories collapsed and expands on click, which is the bit
+ * Zoho's own version lacks.
+ */
+reportsRouter.get("/expense-by-category", requirePermission("reports", "view"), async (req, res) => {
+  const { from, to } = req.query as Record<string, string | undefined>;
+  const rows = await accountMovements(from, to);
+  const expense = section(rows, (r) => r.type === "expense", 1);
+
+  const categories = expense.nodes.map((n) => ({
+    accountId: n.accountId,
+    code: n.code,
+    name: n.name,
+    total: n.total,
+    /** Flattened descendants, so a three-deep chart still lists every leaf. */
+    children: flattenLeaves(n.children),
+  }));
+  const total = Number(expense.total);
+
+  res.json({
+    from: from ?? null,
+    to: to ?? null,
+    // A share of a negative or zero total is meaningless — a category can read
+    // -511% of the whole — so the percentage is withheld rather than printed.
+    categories: categories.map((c) => ({
+      ...c,
+      percentOfTotal: total > 0 ? ((Number(c.total) / total) * 100).toFixed(1) : null,
+    })),
+    total: expense.total,
+  });
+});
+
+/** Depth beyond the second level reads as noise on a summary, so it is flattened. */
+function flattenLeaves(
+  nodes: Array<{ accountId: string; code: string; name: string; total: string; children: unknown[] }>,
+): Array<{ accountId: string; code: string; name: string; total: string }> {
+  const out: Array<{ accountId: string; code: string; name: string; total: string }> = [];
+  for (const n of nodes) {
+    out.push({ accountId: n.accountId, code: n.code, name: n.name, total: n.total });
+    out.push(
+      ...flattenLeaves(
+        n.children as Array<{
+          accountId: string;
+          code: string;
+          name: string;
+          total: string;
+          children: unknown[];
+        }>,
+      ),
+    );
+  }
+  return out;
+}
