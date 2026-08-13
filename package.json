@@ -12,7 +12,8 @@
     "db:migrate": "tsx server/db/migrate.ts",
     "db:seed": "tsx server/db/seed.ts",
     "db:demo": "tsx server/db/demo-data.ts",
-    "admin:recover": "tsx scripts/recover-admin.ts"
+    "admin:recover": "tsx scripts/recover-admin.ts",
+    "books:reset": "tsx scripts/reset-books.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.101.4",
