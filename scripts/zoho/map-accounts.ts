@@ -121,14 +121,12 @@ const SYSTEM_KEYS: Array<{
     why: "the charge a fixed asset's schedule posts",
   },
   {
-    // Deliberately unresolved, and listed so it cannot be forgotten. Ind AS 2
-    // requires a stock write-down to be an expense of the period, so this
-    // cannot point at one of Zoho's five (all unused) stock asset accounts —
-    // that would net the loss against the asset and hide it. Whether it sits
-    // inside cost of sales or as a separate operating expense is the user's
-    // decision and is outstanding.
+    // Created, not mapped. Ind AS 2 requires a stock write-down to be an
+    // expense of the period, so this must not point at one of Zoho's five (all
+    // unused) stock asset accounts — that would net the loss against the asset
+    // and hide it from the P&L entirely.
     key: "inventory_adjustment",
-    why: "where a stock write-down lands — AWAITING DECISION, see account-map.md",
+    why: "where a stock write-down lands",
   },
 ];
 
@@ -168,6 +166,20 @@ const CREATE: Array<{
     type: "expense",
     subtype: "other_expense",
     why: "asset sold below book value",
+  },
+  {
+    // An operating expense rather than a cost of sales line, confirmed by the
+    // user. Keeping write-downs out of COGS stops an abnormal loss — a disease
+    // outbreak, a fire — from distorting gross margin, which is the whole
+    // reason standard practice separates them. When the feedmill module lands
+    // and normal mortality is tracked as a production cost, that becomes its
+    // own COGS account: splitting the two later is easy, disentangling them
+    // from COGS afterwards is not.
+    systemKey: "inventory_adjustment",
+    name: "Inventory Adjustments (Write-off / Shrinkage)",
+    type: "expense",
+    subtype: "expense",
+    why: "stock write-downs and shrinkage, visible as their own line",
   },
 ];
 
