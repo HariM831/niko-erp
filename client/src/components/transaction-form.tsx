@@ -3,6 +3,7 @@ import { useLocation, useSearch } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, formatMoney } from "../api";
 import { PendingAttachments, uploadPending } from "./pending-attachments";
+import { CustomFieldsBlock, type CustomFieldValues } from "./custom-fields";
 
 interface Contact {
   id: string;
@@ -102,6 +103,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<FormLine[]>([emptyLine()]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [customFields, setCustomFields] = useState<CustomFieldValues>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 

@@ -55,19 +55,11 @@ const SECTIONS: SectionDef[] = [
 
   { key: "m-transactions", label: "Transactions", group: "Module Settings", prefs: "transactions" },
   { key: "m-contacts", label: "Customers and Vendors", group: "Module Settings", entity: "contact", prefs: "contacts" },
-  { key: "m-items", label: "Items", group: "Module Settings", entity: "item", prefs: "items" },
-  { key: "m-invoices", label: "Invoices", group: "Module Settings", entity: "invoice", prefs: "invoices" },
-  { key: "m-credit-notes", label: "Credit Notes", group: "Module Settings", entity: "credit_note" },
-  { key: "m-payments-received", label: "Payments Received", group: "Module Settings", entity: "customer_payment" },
+  { key: "m-items", label: "Items", group: "Module Settings", prefs: "items" },
+  { key: "m-invoices", label: "Invoices", group: "Module Settings", prefs: "invoices" },
   { key: "m-bills", label: "Bills", group: "Module Settings", entity: "bill" },
-  { key: "m-purchase-orders", label: "Purchase Orders", group: "Module Settings", entity: "purchase_order" },
-  { key: "m-vendor-credits", label: "Vendor Credits", group: "Module Settings", entity: "vendor_credit" },
-  { key: "m-payments-made", label: "Payments Made", group: "Module Settings", entity: "vendor_payment" },
   { key: "m-expenses", label: "Expenses", group: "Module Settings", entity: "expense" },
-  { key: "m-accountant", label: "Accountant", group: "Module Settings", entity: "journal_entry", prefs: "accountant" },
-  { key: "m-fixed-assets", label: "Fixed Assets", group: "Module Settings", entity: "fixed_asset" },
-  { key: "m-inventory-adjustments", label: "Inventory Adjustments", group: "Module Settings", entity: "inventory_adjustment" },
-  { key: "m-locations", label: "Locations", group: "Module Settings", entity: "location" },
+  { key: "m-accountant", label: "Accountant", group: "Module Settings", prefs: "accountant" },
 ];
 
 /** Sections that are a form rather than a table, and so want a narrow measure. */

@@ -3,6 +3,7 @@ import { useLocation, useSearch } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { PendingAttachments, uploadPending } from "../components/pending-attachments";
+import { CustomFieldsBlock, type CustomFieldValues } from "../components/custom-fields";
 
 interface Account {
   id: string;
@@ -55,6 +56,7 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [customFields, setCustomFields] = useState<CustomFieldValues>({});
 
   const { data: accounts } = useQuery({
     queryKey: ["accounts-all"],
@@ -228,6 +230,14 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
           <div className="col-span-2">
             <label className={label}>Notes</label>
             <textarea value={form.notes} onChange={set("notes")} rows={2} className={inputCls} />
+          </div>
+          <div className="col-span-2">
+            <CustomFieldsBlock
+              entity="expense"
+              value={customFields}
+              onChange={setCustomFields}
+              columns={2}
+            />
           </div>
           <div className="col-span-2">
             <PendingAttachments files={pendingFiles} onChange={setPendingFiles} label="Attach Receipt(s)" />

@@ -138,5 +138,13 @@ export const NUMBERED_ENTITIES = ENTITIES.filter((e) => e.numbered).map((e) => e
 /** Entities a lookup custom field may point at. */
 export const LOOKUP_TARGETS = ENTITIES.filter((e) => e.lookupTarget).map((e) => e.key);
 
-/** Entities that may carry custom fields — everything the user creates. */
-export const CUSTOM_FIELD_ENTITIES = ENTITIES.filter((e) => e.key !== "account").map((e) => e.key);
+/**
+ * Entities that may carry custom fields.
+ *
+ * Deliberately short. Offering them everywhere meant fifteen settings pages
+ * for something used occasionally; these are the three places information
+ * genuinely arrives that has nowhere else to go — a weighbridge slip on a
+ * bill, a vehicle on an expense, a licence number on a contact. Adding another
+ * is one entry here, and its settings page appears.
+ */
+export const CUSTOM_FIELD_ENTITIES = ["contact", "bill", "expense"];
