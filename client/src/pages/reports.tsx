@@ -21,6 +21,22 @@ interface ReportDef {
   period: "range" | "asOf";
 }
 
+/**
+ * Reports read off the general ledger, which are the ones that state a basis.
+ * Zoho shows "Basis : Accrual" on these and not on the document-driven reports,
+ * and it is right to: basis is a question about when a posting is recognised,
+ * which a list of invoices is not answering.
+ */
+const LEDGER_BASED = new Set([
+  "pnl",
+  "pnl-horizontal",
+  "balance-sheet",
+  "balance-sheet-horizontal",
+  "cash-flow",
+  "expense-by-category",
+  "tag-summary",
+]);
+
 const REPORTS: ReportDef[] = [
   { key: "pnl", label: "Profit and Loss", category: "Business Overview", period: "range" },
   {
@@ -43,9 +59,16 @@ const REPORTS: ReportDef[] = [
     category: "Business Overview",
     period: "range",
   },
+  { key: "sales-by-customer", label: "Sales by Customer", category: "Sales", period: "range" },
   { key: "sales-by-item", label: "Sales by Item", category: "Sales", period: "range" },
   { key: "ar-aging", label: "AR Aging Summary", category: "Receivables", period: "asOf" },
   { key: "ap-aging", label: "AP Aging Summary", category: "Payables", period: "asOf" },
+  {
+    key: "purchases-by-vendor",
+    label: "Purchases by Vendor",
+    category: "Purchases and Expenses",
+    period: "range",
+  },
   {
     key: "purchase-by-item",
     label: "Purchases by Item",
@@ -360,9 +383,11 @@ export function ReportViewPage({ reportKey }: { reportKey: string }) {
 
         {/* EGGSY posts on accrual only, so the basis is stated rather than
             offered as a one-option dropdown. */}
-        <span className="flex h-8 items-center gap-2 rounded-md border bg-gray-50 px-3 text-[13px] text-gray-500">
-          Report Basis : <span className="text-gray-800">Accrual</span>
-        </span>
+        {LEDGER_BASED.has(reportKey) && (
+          <span className="flex h-8 items-center gap-2 rounded-md border bg-gray-50 px-3 text-[13px] text-gray-500">
+            Report Basis : <span className="text-gray-800">Accrual</span>
+          </span>
+        )}
 
         {filteredAccount && (
           <span className="flex h-8 items-center gap-2 rounded-md border border-brand-200 bg-brand-50 px-3 text-[13px] text-gray-500">
@@ -425,7 +450,9 @@ export function ReportViewPage({ reportKey }: { reportKey: string }) {
               <div className="text-[13px] text-[#222536]">{org?.name}</div>
               <h2 className="mt-1 text-[18px] font-medium text-black">{def.label}</h2>
               <div className="mt-1 text-[13px] text-gray-500">{periodLabel(def, applied)}</div>
-              <div className="text-[13px] text-gray-500">Basis : Accrual</div>
+              {LEDGER_BASED.has(reportKey) && (
+                <div className="text-[13px] text-gray-500">Basis : Accrual</div>
+              )}
             </div>
 
             {isLoading ? (
@@ -702,6 +729,12 @@ function ReportBody({
     case "purchase-by-item":
       return <ItemTable data={data} />;
 
+    case "sales-by-customer":
+      return <SalesByCustomer data={data} />;
+
+    case "purchases-by-vendor":
+      return <PurchasesByVendor data={data} />;
+
     case "expense-by-category":
       return <ExpenseByCategory data={data} />;
 
@@ -873,6 +906,137 @@ function ItemTable({ data }: { data: Record<string, unknown> }) {
             </td>
             <td className="px-2 py-2.5 text-right tabular-nums">{num(data.totalAmount as string)}</td>
             <td />
+          </tr>
+        </tbody>
+      </table>
+    </Sheet>
+  );
+}
+
+/**
+ * Two money columns, as Zoho has them: the taxable value the P&L sees, and what
+ * the customer was actually billed once tax and round-off are on.
+ */
+function SalesByCustomer({ data }: { data: Record<string, unknown> }) {
+  const rows = data.rows as Array<{
+    contactId: string;
+    name: string;
+    invoiceCount: number;
+    sales: string;
+    salesWithTax: string;
+  }>;
+  if (!rows.length) {
+    return <p className="text-center text-[13px] text-gray-500">No sales in this period.</p>;
+  }
+  return (
+    <Sheet>
+      <table className="w-full text-[14px]">
+        <thead>
+          <tr>
+            <th className={`${HEAD_CELL} pl-5 text-left`}>Name</th>
+            <th className={`${HEAD_CELL} w-32 text-right`}>Invoice Count</th>
+            <th className={`${HEAD_CELL} w-40 text-right`}>Sales</th>
+            <th className={`${HEAD_CELL} w-40 text-right`}>Sales with Tax</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.contactId}>
+              <td className="px-2 py-2 pl-5">
+                <Link
+                  href={`/sales/customers/${r.contactId}`}
+                  className="font-medium text-[#1c5bd9] hover:underline"
+                >
+                  {r.name}
+                </Link>
+              </td>
+              <td className="px-2 py-2 text-right tabular-nums">{r.invoiceCount}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{num(r.sales)}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{num(r.salesWithTax)}</td>
+            </tr>
+          ))}
+          <tr className="border-t-[0.7px] border-[#eee] font-bold">
+            <td className="px-2 py-2.5 pl-5">Total</td>
+            <td className="px-2 py-2.5 text-right tabular-nums">{data.totalCount as number}</td>
+            <td className="px-2 py-2.5 text-right tabular-nums">{num(data.totalSales as string)}</td>
+            <td className="px-2 py-2.5 text-right tabular-nums">
+              {num(data.totalSalesWithTax as string)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </Sheet>
+  );
+}
+
+/**
+ * Bills, vendor credits and expense claims per vendor. Most of what EGGSY
+ * spends is claimed rather than billed, so a bills-only version of this report
+ * would be missing the larger half of it.
+ */
+function PurchasesByVendor({ data }: { data: Record<string, unknown> }) {
+  const rows = data.rows as Array<{
+    contactId: string | null;
+    name: string;
+    expenseCount: number;
+    billCount: number;
+    vendorCreditCount: number;
+    amount: string;
+    amountWithTax: string;
+  }>;
+  if (!rows.length) {
+    return <p className="text-center text-[13px] text-gray-500">No purchases in this period.</p>;
+  }
+  return (
+    <Sheet>
+      <table className="w-full text-[14px]">
+        <thead>
+          <tr>
+            <th className={`${HEAD_CELL} pl-5 text-left`}>Vendor Name</th>
+            <th className={`${HEAD_CELL} w-28 text-right`}>Expense Count</th>
+            <th className={`${HEAD_CELL} w-24 text-right`}>Bill Count</th>
+            <th className={`${HEAD_CELL} w-28 text-right`}>Vendor Credit Count</th>
+            <th className={`${HEAD_CELL} w-36 text-right`}>Amount</th>
+            <th className={`${HEAD_CELL} w-36 text-right`}>Amount with Tax</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.contactId ?? "others"}>
+              <td className="px-2 py-2 pl-5">
+                {r.contactId ? (
+                  <Link
+                    href={`/purchases/vendors/${r.contactId}`}
+                    className="font-medium text-[#1c5bd9] hover:underline"
+                  >
+                    {r.name}
+                  </Link>
+                ) : (
+                  // Claims with no vendor named. Counted rather than dropped, so
+                  // the total still ties to what left the bank.
+                  <span title="Expenses recorded without a vendor">Others</span>
+                )}
+              </td>
+              <td className="px-2 py-2 text-right tabular-nums">{r.expenseCount}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{r.billCount}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{r.vendorCreditCount}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{num(r.amount)}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{num(r.amountWithTax)}</td>
+            </tr>
+          ))}
+          <tr className="border-t-[0.7px] border-[#eee] font-bold">
+            <td className="px-2 py-2.5 pl-5">Total</td>
+            <td className="px-2 py-2.5 text-right tabular-nums">
+              {data.totalExpenseCount as number}
+            </td>
+            <td className="px-2 py-2.5 text-right tabular-nums">{data.totalBillCount as number}</td>
+            <td className="px-2 py-2.5 text-right tabular-nums">
+              {data.totalVendorCreditCount as number}
+            </td>
+            <td className="px-2 py-2.5 text-right tabular-nums">{num(data.totalAmount as string)}</td>
+            <td className="px-2 py-2.5 text-right tabular-nums">
+              {num(data.totalAmountWithTax as string)}
+            </td>
           </tr>
         </tbody>
       </table>

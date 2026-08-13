@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { and, asc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import {
   accounts,
   bills,
@@ -733,6 +734,250 @@ reportsRouter.get("/sales-by-item", requirePermission("reports", "view"), async 
 reportsRouter.get("/purchase-by-item", requirePermission("reports", "view"), async (req, res) => {
   const { from, to, accountId } = req.query as Record<string, string | undefined>;
   res.json(await itemMovement(from, to, "purchases", accountId));
+});
+
+// ---------- Sales by Customer / Purchases by Vendor ----------
+
+/**
+ * Sales per customer.
+ *
+ * Two money columns, as Zoho has them: "Sales" is the taxable value the P&L
+ * sees, "Sales with Tax" is what the customer was actually billed — tax and
+ * round-off included. They differ, and a reader chasing either figure needs
+ * the one that matches where they came from.
+ *
+ * The count is of invoices only. Credit notes reduce the money but a return is
+ * not a sale, so counting it as one would overstate how often this customer
+ * bought.
+ */
+reportsRouter.get("/sales-by-customer", requirePermission("reports", "view"), async (req, res) => {
+  const { from, to } = req.query as Record<string, string | undefined>;
+
+  const window = (col: AnyPgColumn) => [
+    ...(from ? [gte(col, from)] : []),
+    ...(to ? [lte(col, to)] : []),
+  ];
+
+  const invoiceRows = await db
+    .select({
+      contactId: invoices.customerId,
+      name: contacts.displayName,
+      count: sql<number>`count(*)::int`,
+      net: sql<string>`COALESCE(SUM(${invoices.subTotal} - ${invoices.discountTotal}), 0)::numeric(14,2)`,
+      gross: sql<string>`COALESCE(SUM(${invoices.total}), 0)::numeric(14,2)`,
+    })
+    .from(invoices)
+    .innerJoin(contacts, eq(contacts.id, invoices.customerId))
+    .where(and(sql`${invoices.status} NOT IN ('draft', 'void')`, ...window(invoices.invoiceDate)))
+    .groupBy(invoices.customerId, contacts.displayName);
+
+  const creditRows = await db
+    .select({
+      contactId: creditNotes.customerId,
+      name: contacts.displayName,
+      net: sql<string>`COALESCE(SUM(${creditNotes.subTotal} - ${creditNotes.discountTotal}), 0)::numeric(14,2)`,
+      gross: sql<string>`COALESCE(SUM(${creditNotes.total}), 0)::numeric(14,2)`,
+    })
+    .from(creditNotes)
+    .innerJoin(contacts, eq(contacts.id, creditNotes.customerId))
+    .where(
+      and(sql`${creditNotes.status} NOT IN ('draft', 'void')`, ...window(creditNotes.creditNoteDate)),
+    )
+    .groupBy(creditNotes.customerId, contacts.displayName);
+
+  const byContact = new Map<
+    string,
+    { contactId: string; name: string; invoiceCount: number; sales: number; salesWithTax: number }
+  >();
+  for (const r of invoiceRows) {
+    byContact.set(r.contactId, {
+      contactId: r.contactId,
+      name: r.name,
+      invoiceCount: r.count,
+      sales: Number(r.net),
+      salesWithTax: Number(r.gross),
+    });
+  }
+  for (const r of creditRows) {
+    const row = byContact.get(r.contactId) ?? {
+      contactId: r.contactId,
+      name: r.name,
+      invoiceCount: 0,
+      sales: 0,
+      salesWithTax: 0,
+    };
+    row.sales -= Number(r.net);
+    row.salesWithTax -= Number(r.gross);
+    byContact.set(r.contactId, row);
+  }
+
+  const rows = [...byContact.values()]
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((r) => ({
+      ...r,
+      sales: r.sales.toFixed(2),
+      salesWithTax: r.salesWithTax.toFixed(2),
+    }));
+
+  res.json({
+    from: from ?? null,
+    to: to ?? null,
+    rows,
+    totalCount: rows.reduce((s, r) => s + r.invoiceCount, 0),
+    totalSales: rows.reduce((s, r) => s + Number(r.sales), 0).toFixed(2),
+    totalSalesWithTax: rows.reduce((s, r) => s + Number(r.salesWithTax), 0).toFixed(2),
+  });
+});
+
+/**
+ * Purchases per vendor, across bills, vendor credits and expense claims.
+ *
+ * Expenses belong here or the report would miss most of what EGGSY spends —
+ * electricity, freight and fuel are claims, not bills. An expense with no
+ * vendor named still has to be counted, so those collect under "Others" rather
+ * than being dropped.
+ *
+ * Journals are excluded: EGGSY does not record a contact on a journal entry, so
+ * there is no vendor to attribute one to. Zoho shows a Journal Count column;
+ * printing one full of zeros would claim an attribution that does not exist.
+ */
+reportsRouter.get("/purchases-by-vendor", requirePermission("reports", "view"), async (req, res) => {
+  const { from, to } = req.query as Record<string, string | undefined>;
+
+  const billRows = await db
+    .select({
+      contactId: bills.vendorId,
+      name: contacts.displayName,
+      count: sql<number>`count(*)::int`,
+      net: sql<string>`COALESCE(SUM(${bills.subTotal} - ${bills.discountTotal}), 0)::numeric(14,2)`,
+      gross: sql<string>`COALESCE(SUM(${bills.total}), 0)::numeric(14,2)`,
+    })
+    .from(bills)
+    .innerJoin(contacts, eq(contacts.id, bills.vendorId))
+    .where(
+      and(
+        sql`${bills.status} NOT IN ('draft', 'void')`,
+        ...(from ? [gte(bills.billDate, from)] : []),
+        ...(to ? [lte(bills.billDate, to)] : []),
+      ),
+    )
+    .groupBy(bills.vendorId, contacts.displayName);
+
+  const creditRows = await db
+    .select({
+      contactId: vendorCredits.vendorId,
+      name: contacts.displayName,
+      count: sql<number>`count(*)::int`,
+      net: sql<string>`COALESCE(SUM(${vendorCredits.subTotal} - ${vendorCredits.discountTotal}), 0)::numeric(14,2)`,
+      gross: sql<string>`COALESCE(SUM(${vendorCredits.total}), 0)::numeric(14,2)`,
+    })
+    .from(vendorCredits)
+    .innerJoin(contacts, eq(contacts.id, vendorCredits.vendorId))
+    .where(
+      and(
+        sql`${vendorCredits.status} NOT IN ('draft', 'void')`,
+        ...(from ? [gte(vendorCredits.creditDate, from)] : []),
+        ...(to ? [lte(vendorCredits.creditDate, to)] : []),
+      ),
+    )
+    .groupBy(vendorCredits.vendorId, contacts.displayName);
+
+  const expenseRows = await db
+    .select({
+      contactId: expenses.vendorId,
+      count: sql<number>`count(*)::int`,
+      net: sql<string>`COALESCE(SUM(${expenses.amount}), 0)::numeric(14,2)`,
+      gross: sql<string>`COALESCE(SUM(${expenses.amount} + ${expenses.taxAmount}), 0)::numeric(14,2)`,
+    })
+    .from(expenses)
+    .where(
+      and(
+        ...(from ? [gte(expenses.expenseDate, from)] : []),
+        ...(to ? [lte(expenses.expenseDate, to)] : []),
+      ),
+    )
+    .groupBy(expenses.vendorId);
+
+  // Expenses name their vendor optionally, so look the names up in one go
+  // rather than joining and silently losing the unnamed ones.
+  const expenseVendorIds = expenseRows.map((r) => r.contactId).filter((id): id is string => !!id);
+  const expenseNames = new Map(
+    expenseVendorIds.length
+      ? (
+          await db
+            .select({ id: contacts.id, name: contacts.displayName })
+            .from(contacts)
+            .where(inArray(contacts.id, expenseVendorIds))
+        ).map((c) => [c.id, c.name])
+      : [],
+  );
+
+  interface Row {
+    contactId: string | null;
+    name: string;
+    expenseCount: number;
+    billCount: number;
+    vendorCreditCount: number;
+    amount: number;
+    amountWithTax: number;
+  }
+  const byContact = new Map<string | null, Row>();
+  const row = (contactId: string | null, name: string): Row => {
+    const existing = byContact.get(contactId);
+    if (existing) return existing;
+    const fresh: Row = {
+      contactId,
+      name,
+      expenseCount: 0,
+      billCount: 0,
+      vendorCreditCount: 0,
+      amount: 0,
+      amountWithTax: 0,
+    };
+    byContact.set(contactId, fresh);
+    return fresh;
+  };
+
+  for (const r of billRows) {
+    const t = row(r.contactId, r.name);
+    t.billCount += r.count;
+    t.amount += Number(r.net);
+    t.amountWithTax += Number(r.gross);
+  }
+  for (const r of creditRows) {
+    const t = row(r.contactId, r.name);
+    t.vendorCreditCount += r.count;
+    t.amount -= Number(r.net);
+    t.amountWithTax -= Number(r.gross);
+  }
+  for (const r of expenseRows) {
+    const t = row(r.contactId, r.contactId ? (expenseNames.get(r.contactId) ?? "—") : "Others");
+    t.expenseCount += r.count;
+    t.amount += Number(r.net);
+    t.amountWithTax += Number(r.gross);
+  }
+
+  const rows = [...byContact.values()]
+    // "Others" leads, then vendors by name — Zoho's order.
+    .sort((a, b) =>
+      a.contactId === null ? -1 : b.contactId === null ? 1 : a.name.localeCompare(b.name),
+    )
+    .map((r) => ({
+      ...r,
+      amount: r.amount.toFixed(2),
+      amountWithTax: r.amountWithTax.toFixed(2),
+    }));
+
+  res.json({
+    from: from ?? null,
+    to: to ?? null,
+    rows,
+    totalExpenseCount: rows.reduce((s, r) => s + r.expenseCount, 0),
+    totalBillCount: rows.reduce((s, r) => s + r.billCount, 0),
+    totalVendorCreditCount: rows.reduce((s, r) => s + r.vendorCreditCount, 0),
+    totalAmount: rows.reduce((s, r) => s + Number(r.amount), 0).toFixed(2),
+    totalAmountWithTax: rows.reduce((s, r) => s + Number(r.amountWithTax), 0).toFixed(2),
+  });
 });
 
 // ---------- Expense by Category ----------
