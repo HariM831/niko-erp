@@ -111,7 +111,9 @@ export function NameCell({
 
 /** Right-aligned inline row actions, muted until hovered. */
 export function RowActions({ children }: { children: ReactNode }) {
-  return <div className="flex justify-end gap-4 text-[13px]">{children}</div>;
+  return (
+    <div className="flex shrink-0 justify-end gap-4 whitespace-nowrap text-[13px]">{children}</div>
+  );
 }
 
 export function RowAction({

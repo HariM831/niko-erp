@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, asc, desc, eq, getTableColumns, gte, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gte, lte, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   bankAccounts,
@@ -273,6 +273,7 @@ salesRouter.post(
           .values(withAccounts.map((l) => ({ ...l, invoiceId: inv!.id })));
 
         if (body.saveAs === "sent") {
+          await assertWithinCreditLimit(tx, customer, inv!.total, inv!.id);
           const jeId = await postInvoiceJournal(tx, inv!, customer.displayName, req.session.user!.id);
           const [updated] = await tx
             .update(invoices)
@@ -349,6 +350,53 @@ salesRouter.patch(
   },
 );
 
+/**
+ * Refuse to put a customer past their credit limit.
+ *
+ * Checked when an invoice is issued, not when it is drafted: a draft posts
+ * nothing to the ledger and owes nothing, so blocking one would stop people
+ * preparing work they are entitled to prepare.
+ *
+ * Outstanding is summed from issued, unvoided invoices — the same basis the
+ * customer's own statement uses, so the number in the error is one they can
+ * go and check.
+ */
+async function assertWithinCreditLimit(
+  tx: Tx,
+  customer: typeof contacts.$inferSelect,
+  addingTotal: string,
+  excludeInvoiceId?: string,
+): Promise<void> {
+  if (customer.creditLimit === null) return;
+  const limitP = toPaise(customer.creditLimit);
+  if (limitP <= 0) return;
+
+  const conditions = [
+    eq(invoices.customerId, customer.id),
+    ne(invoices.status, "draft"),
+    ne(invoices.status, "void"),
+  ];
+  if (excludeInvoiceId) conditions.push(ne(invoices.id, excludeInvoiceId));
+
+  const [row] = await tx
+    .select({
+      outstanding: sql<string>`COALESCE(SUM(${invoices.balanceDue}), 0)::numeric(14,2)`,
+    })
+    .from(invoices)
+    .where(and(...conditions));
+
+  const outstandingP = toPaise(row?.outstanding ?? "0");
+  const afterP = outstandingP + toPaise(addingTotal);
+  if (afterP <= limitP) return;
+
+  throw new PostingError(
+    `${customer.displayName} would owe ${fromPaise(afterP)} against a credit limit of ` +
+      `${fromPaise(limitP)}. Currently outstanding ${fromPaise(outstandingP)}, this invoice ` +
+      `${addingTotal} — over by ${fromPaise(afterP - limitP)}. Take a payment first, or raise ` +
+      `the limit on the customer.`,
+  );
+}
+
 salesRouter.post(
   "/invoices/:id/send",
   requirePermission("sales", "edit"),
@@ -361,6 +409,7 @@ salesRouter.post(
         if (!inv) throw new PostingError("Invoice not found");
         if (inv.status !== "draft") throw new PostingError("Invoice is not a draft");
         const customer = await loadCustomer(tx, inv.customerId);
+        await assertWithinCreditLimit(tx, customer, inv.total, inv.id);
         const jeId = await postInvoiceJournal(tx, inv, customer.displayName, req.session.user!.id);
         const [updated] = await tx
           .update(invoices)

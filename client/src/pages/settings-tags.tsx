@@ -72,11 +72,13 @@ export function ReportingTagsSection() {
       <div className="space-y-4">
         {tags?.map((tag) => (
           <div key={tag.id} className="rounded-md border border-gray-200">
-            <div className="flex items-center justify-between border-b bg-[#fafafc] px-4 py-2.5">
-              <div className="flex items-center gap-2">
-                <span className="text-[13px] font-medium">{tag.name}</span>
+            {/* gap + shrink-0 so the actions stay on one line and the name
+                truncates instead, rather than the whole row wrapping. */}
+            <div className="flex items-center justify-between gap-4 border-b bg-[#fafafc] px-4 py-2.5">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="truncate text-[13px] font-medium">{tag.name}</span>
                 {!tag.isActive && <Badge tone="gray">Inactive</Badge>}
-                <span className="text-[12px] text-gray-500">
+                <span className="shrink-0 text-[12px] text-gray-500">
                   {tag.options.length} option{tag.options.length === 1 ? "" : "s"}
                 </span>
               </div>
