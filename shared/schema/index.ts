@@ -8,6 +8,7 @@ export * from "./assets";
 export * from "./locations";
 export * from "./reporting-tags";
 export * from "./preferences";
+export * from "./custom-fields";
 export * from "./banking";
 export * from "./sales";
 export * from "./purchases";

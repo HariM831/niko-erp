@@ -105,6 +105,28 @@ export const creditNoteStatus = pgEnum("credit_note_status", [
   "void",
 ]);
 
+/**
+ * Custom field data types, matching Zoho's list minus the ones deferred:
+ * attachment, auto-generated number, and multi-select lookup.
+ */
+export const customFieldDataType = pgEnum("custom_field_data_type", [
+  "text",
+  "textarea",
+  "email",
+  "url",
+  "phone",
+  "number",
+  "decimal",
+  "amount",
+  "percent",
+  "date",
+  "datetime",
+  "checkbox",
+  "dropdown",
+  "multiselect",
+  "lookup",
+]);
+
 /** The kinds of place the business runs. Farms and the mill drive production;
     offices and warehouses exist for costing and stock location only. */
 export const locationType = pgEnum("location_type", [

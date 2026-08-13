@@ -7,6 +7,7 @@ import multer from "multer";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { attachments } from "@shared/schema";
+import { ATTACHABLE_ENTITIES } from "@shared/entities";
 import { db } from "../db";
 import { requireAuth } from "../lib/rbac";
 
@@ -26,17 +27,7 @@ const ALLOWED_TYPES = new Set([
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
 
-const ENTITY_TYPES = new Set([
-  "invoice",
-  "credit_note",
-  "bill",
-  "purchase_order",
-  "vendor_credit",
-  "expense",
-  "journal_entry",
-  "contact",
-  "item",
-]);
+const ENTITY_TYPES = new Set(ATTACHABLE_ENTITIES);
 
 const storage = multer.diskStorage({
   destination: UPLOAD_DIR,

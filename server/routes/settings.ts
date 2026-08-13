@@ -8,6 +8,7 @@ import {
   orgProfile,
   preferences,
 } from "@shared/schema";
+import { NUMBERED_ENTITIES } from "@shared/entities";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
@@ -67,11 +68,7 @@ settingsRouter.get("/series", requirePermission("settings", "view"), async (_req
 });
 
 /** The document types a series must define numbering for. */
-const SERIES_ENTITIES = [
-  "invoice", "credit_note", "customer_payment",
-  "bill", "purchase_order", "vendor_credit", "vendor_payment", "expense",
-  "journal_entry", "fixed_asset", "inventory_adjustment",
-] as const;
+const SERIES_ENTITIES = NUMBERED_ENTITIES;
 
 /** Prefix a new series uses for each module before the user edits it. */
 const DEFAULT_PREFIX: Record<string, string> = {

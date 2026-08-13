@@ -2,23 +2,14 @@ import { Router } from "express";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { comments, users } from "@shared/schema";
+import { ATTACHABLE_ENTITIES } from "@shared/entities";
 import { db } from "../db";
 import { requireAuth } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 
 export const commentsRouter = Router();
 
-const ENTITY_TYPES = new Set([
-  "invoice",
-  "credit_note",
-  "bill",
-  "purchase_order",
-  "vendor_credit",
-  "expense",
-  "journal_entry",
-  "contact",
-  "item",
-]);
+const ENTITY_TYPES = new Set(ATTACHABLE_ENTITIES);
 
 const querySchema = z.object({
   entityType: z.string().refine((v) => ENTITY_TYPES.has(v), "Unknown entity type"),
