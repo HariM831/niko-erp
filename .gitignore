@@ -3,3 +3,6 @@ dist/
 .env
 uploads/
 *.log
+
+# Zoho migration dump — live business data, never committed
+.zoho-dump/
