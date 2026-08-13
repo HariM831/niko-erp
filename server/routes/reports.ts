@@ -181,11 +181,13 @@ reportsRouter.get("/pnl-horizontal", requirePermission("reports", "view"), async
     to: to ?? null,
     basis: "Accrual",
     expense: {
+      // Empty sections are kept: a reader has to be able to tell "nil" from
+      // "not reported", which is why Zoho prints them too.
       sections: [
         { label: "Cost of Goods Sold", ...cogs },
         { label: "Operating Expense", ...operatingExpense },
-        { label: "Non-Operating Expense", ...otherExpense },
-      ].filter((x) => x.nodes.length),
+        { label: "Non Operating Expense", ...otherExpense },
+      ],
       // The balancing figure goes on whichever side is short, so both columns
       // add to the same number — the point of a T-format.
       balancing: netProfit >= 0 ? { label: "Net Profit", amount: netProfit.toFixed(2) } : null,
@@ -194,8 +196,8 @@ reportsRouter.get("/pnl-horizontal", requirePermission("reports", "view"), async
     income: {
       sections: [
         { label: "Operating Income", ...operatingIncome },
-        { label: "Non-Operating Income", ...otherIncome },
-      ].filter((x) => x.nodes.length),
+        { label: "Non Operating Income", ...otherIncome },
+      ],
       balancing: netProfit < 0 ? { label: "Net Loss", amount: (-netProfit).toFixed(2) } : null,
       total: (incomeTotal + Math.max(-netProfit, 0)).toFixed(2),
     },
@@ -299,13 +301,13 @@ reportsRouter.get(
         sections: [
           { label: "Liabilities", ...s.liabilities },
           { label: "Equity", ...s.equity },
-        ].filter((x) => x.nodes.length),
+        ],
         earnings: { label: "Current Period Earnings", amount: s.netEarnings },
         total: (Number(s.totalLiabilities) + Number(s.totalEquity)).toFixed(2),
       },
       right: {
         heading: "Assets",
-        sections: [{ label: "Assets", ...s.assets }].filter((x) => x.nodes.length),
+        sections: [{ label: "Assets", ...s.assets }],
         earnings: null,
         total: s.totalAssets,
       },

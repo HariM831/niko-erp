@@ -1,252 +1,1008 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
+import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { api, formatMoney } from "../api";
+import { ChevronDown, ChevronRight } from "lucide-react";
+import { api } from "../api";
 
-type ReportKey =
-  | "pnl"
-  | "balance-sheet"
-  | "cash-flow"
-  | "ar-aging"
-  | "ap-aging"
-  | "tag-summary"
-  | "gst-summary";
+/**
+ * Reports, laid out the way Zoho Books lays them out.
+ *
+ * The chrome is measured from the live product rather than approximated: report
+ * amounts carry no currency symbol, ordinary account rows have no divider (only
+ * "Total for" rows do), the header band is #f9f9fb on #615d82, and the report
+ * itself is an 850px column centred on a full-width white card.
+ */
 
-const REPORTS: Array<{ key: ReportKey; label: string; group: string }> = [
-  { key: "pnl", label: "Profit and Loss", group: "Business Overview" },
-  { key: "balance-sheet", label: "Balance Sheet", group: "Business Overview" },
-  { key: "cash-flow", label: "Cash Flow Statement", group: "Business Overview" },
-  { key: "ar-aging", label: "AR Aging Summary", group: "Receivables" },
-  { key: "ap-aging", label: "AP Aging Summary", group: "Payables" },
-  { key: "tag-summary", label: "Tag Summary", group: "Reporting Tags" },
-  { key: "gst-summary", label: "GST Summary (GSTR-3B)", group: "Taxes" },
+interface ReportDef {
+  key: string;
+  label: string;
+  category: string;
+  /** Period reports take from/to; position reports take a single as-of date. */
+  period: "range" | "asOf";
+}
+
+const REPORTS: ReportDef[] = [
+  { key: "pnl", label: "Profit and Loss", category: "Business Overview", period: "range" },
+  {
+    key: "pnl-horizontal",
+    label: "Horizontal Profit and Loss",
+    category: "Business Overview",
+    period: "range",
+  },
+  { key: "cash-flow", label: "Cash Flow Statement", category: "Business Overview", period: "range" },
+  { key: "balance-sheet", label: "Balance Sheet", category: "Business Overview", period: "asOf" },
+  {
+    key: "balance-sheet-horizontal",
+    label: "Horizontal Balance Sheet",
+    category: "Business Overview",
+    period: "asOf",
+  },
+  {
+    key: "tag-summary",
+    label: "Profit and Loss by Reporting Tag",
+    category: "Business Overview",
+    period: "range",
+  },
+  { key: "sales-by-item", label: "Sales by Item", category: "Sales", period: "range" },
+  { key: "ar-aging", label: "AR Aging Summary", category: "Receivables", period: "asOf" },
+  { key: "ap-aging", label: "AP Aging Summary", category: "Payables", period: "asOf" },
+  {
+    key: "purchase-by-item",
+    label: "Purchases by Item",
+    category: "Purchases and Expenses",
+    period: "range",
+  },
+  {
+    key: "expense-by-category",
+    label: "Expenses by Category",
+    category: "Purchases and Expenses",
+    period: "range",
+  },
+  { key: "gst-summary", label: "GSTR-3B Summary", category: "Taxes", period: "range" },
 ];
 
-interface TagOption {
-  id: string;
-  name: string;
-  isActive: boolean;
-}
-interface ReportingTag {
-  id: string;
-  name: string;
-  isActive: boolean;
-  options: TagOption[];
+const CATEGORIES = [...new Set(REPORTS.map((r) => r.category))];
+
+const today = () => new Date().toISOString().slice(0, 10);
+const monthStart = () => `${today().slice(0, 8)}01`;
+
+/** Zoho prints report periods as dd/MM/yyyy, not the ISO the inputs use. */
+const dmy = (iso: string) => iso.split("-").reverse().join("/");
+const periodLabel = (def: ReportDef, r: { from: string; to: string }) =>
+  def.period === "asOf" ? `As on ${dmy(r.to)}` : `From ${dmy(r.from)} To ${dmy(r.to)}`;
+
+/** Report amounts are bare numbers — the currency is stated once, on the page. */
+const num = (v: string | number | null | undefined) =>
+  Number(v ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** Zoho's date presets, resolved against today. */
+const PRESETS: Record<string, () => { from: string; to: string }> = {
+  Today: () => ({ from: today(), to: today() }),
+  "This Month": () => ({ from: monthStart(), to: today() }),
+  "This Quarter": () => {
+    const d = new Date();
+    const q = Math.floor(d.getMonth() / 3) * 3;
+    return { from: new Date(d.getFullYear(), q, 1).toISOString().slice(0, 10), to: today() };
+  },
+  "This Year": () => {
+    // Indian financial year: April to March.
+    const d = new Date();
+    const y = d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1;
+    return { from: `${y}-04-01`, to: today() };
+  },
+  "Previous Month": () => {
+    const d = new Date();
+    const first = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+    const last = new Date(d.getFullYear(), d.getMonth(), 0);
+    return { from: first.toISOString().slice(0, 10), to: last.toISOString().slice(0, 10) };
+  },
+  "Previous Year": () => {
+    const d = new Date();
+    const y = d.getMonth() >= 3 ? d.getFullYear() - 1 : d.getFullYear() - 2;
+    return { from: `${y}-04-01`, to: `${y + 1}-03-31` };
+  },
+  Custom: () => ({ from: monthStart(), to: today() }),
+};
+
+// ---------- Reports Center ----------
+
+const VISITED_KEY = "eggsy.reports.lastVisited";
+
+function readVisited(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem(VISITED_KEY) ?? "{}");
+  } catch {
+    return {};
+  }
 }
 
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-function monthStart(): string {
-  return `${today().slice(0, 8)}01`;
+function markVisited(key: string) {
+  const all = readVisited();
+  all[key] = new Date().toISOString();
+  localStorage.setItem(VISITED_KEY, JSON.stringify(all));
 }
 
-function Section({ title, rows, total }: { title: string; rows: Array<{ code: string; name: string; amount: string }>; total?: string }) {
+const visitedLabel = (iso: string | undefined) => {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  return `${dmy(d.toISOString().slice(0, 10))} ${d.toLocaleTimeString("en-IN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  })}`;
+};
+
+export function ReportsPage() {
+  const [, navigate] = useLocation();
+  const [category, setCategory] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const visited = readVisited();
+
+  const visible = REPORTS.filter(
+    (r) =>
+      (!category || r.category === category) &&
+      (!search || r.label.toLowerCase().includes(search.toLowerCase())),
+  );
+
   return (
-    <div className="mb-6">
-      <h3 className="mb-2 border-b pb-1 text-sm font-semibold uppercase tracking-wide text-gray-600">{title}</h3>
-      <table className="w-full text-[13px]">
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.code + r.name} className="border-b border-[#ebeaf2]">
-              <td className="py-1.5">{r.name}</td>
-              <td className="py-1.5 text-right tabular-nums">{formatMoney(r.amount)}</td>
+    <div className="flex h-full">
+      <aside className="w-60 shrink-0 overflow-y-auto border-r bg-white py-4">
+        <h2 className="mb-3 px-5 text-[15px] font-semibold text-[#212529]">Reports Center</h2>
+        <button
+          onClick={() => setCategory(null)}
+          className={`block w-full px-5 py-1.5 text-left text-[13px] ${
+            category === null
+              ? "bg-brand-50 font-medium text-brand-700"
+              : "text-gray-700 hover:bg-gray-50"
+          }`}
+        >
+          All Reports
+        </button>
+        <div className="mb-1 mt-4 px-5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+          Report Category
+        </div>
+        {CATEGORIES.map((c) => (
+          <button
+            key={c}
+            onClick={() => setCategory(c)}
+            className={`block w-full px-5 py-1.5 text-left text-[13px] ${
+              category === c
+                ? "bg-brand-50 font-medium text-brand-700"
+                : "text-gray-700 hover:bg-gray-50"
+            }`}
+          >
+            {c}
+          </button>
+        ))}
+      </aside>
+
+      <div className="min-w-0 flex-1 overflow-y-auto bg-white px-8 py-6">
+        <div className="mb-4 flex items-center justify-between gap-6">
+          <h1 className="whitespace-nowrap text-[18px] font-semibold text-[#212529]">
+            {category ?? "All Reports"}{" "}
+            <span className="ml-1 text-[13px] font-normal text-gray-400">{visible.length}</span>
+          </h1>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search reports"
+            className="input w-64"
+          />
+        </div>
+
+        <table className="w-full">
+          <thead>
+            <tr>
+              <th className="s-th">Report Name</th>
+              <th className="s-th w-56">Report Category</th>
+              <th className="s-th w-44">Created By</th>
+              <th className="s-th w-44">Last Visited</th>
             </tr>
-          ))}
-          {total !== undefined && (
-            <tr className="font-semibold">
-              <td className="py-1.5">Total {title}</td>
-              <td className="py-1.5 text-right tabular-nums">{formatMoney(total)}</td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {visible.map((r) => (
+              <tr key={r.key} className="s-row">
+                <td className="s-td">
+                  <button
+                    onClick={() => {
+                      markVisited(r.key);
+                      navigate(`/reports/${r.key}`);
+                    }}
+                    className="s-link"
+                  >
+                    {r.label}
+                  </button>
+                </td>
+                <td className="s-td text-gray-600">{r.category}</td>
+                <td className="s-td text-gray-500">System Generated</td>
+                <td className="s-td text-gray-500">{visitedLabel(visited[r.key])}</td>
+              </tr>
+            ))}
+            {visible.length === 0 && (
+              <tr>
+                <td colSpan={4} className="px-5 py-10 text-center text-[13px] text-gray-500">
+                  No report matches “{search}”.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
 
-export function ReportsPage() {
-  const [active, setActive] = useState<ReportKey>("pnl");
-  const [from, setFrom] = useState(monthStart());
-  const [to, setTo] = useState(today());
-  /** P&L narrowed to one tag option — a per-vehicle or per-shed view. */
-  const [tagOptionId, setTagOptionId] = useState("");
-  /** Tag Summary narrowed to a single dimension. */
-  const [tagId, setTagId] = useState("");
+// ---------- A single report ----------
 
-  const { data: allTags } = useQuery({
-    queryKey: ["reporting-tags"],
-    queryFn: () => api<ReportingTag[]>("/api/reporting-tags"),
+export function ReportViewPage({ reportKey }: { reportKey: string }) {
+  const def = REPORTS.find((r) => r.key === reportKey);
+  const [preset, setPreset] = useState("This Year");
+  const [range, setRange] = useState(PRESETS["This Year"]!());
+  const [applied, setApplied] = useState(PRESETS["This Year"]!());
+  const [collapsed, setCollapsed] = useState(false);
+
+  const { data: org } = useQuery({
+    queryKey: ["org"],
+    queryFn: () => api<{ name: string } | null>("/api/settings/org"),
   });
-  const tags = (allTags ?? [])
-    .filter((t) => t.isActive)
-    .map((t) => ({ ...t, options: t.options.filter((o) => o.isActive) }))
-    .filter((t) => t.options.length > 0);
 
-  const usesRange =
-    active === "pnl" || active === "cash-flow" || active === "gst-summary" || active === "tag-summary";
-
-  let params = usesRange ? `?from=${from}&to=${to}` : `?asOf=${to}`;
-  if (active === "pnl" && tagOptionId) params += `&tagOptionId=${tagOptionId}`;
-  if (active === "tag-summary" && tagId) params += `&tagId=${tagId}`;
-
+  const params =
+    def?.period === "asOf" ? `?asOf=${applied.to}` : `?from=${applied.from}&to=${applied.to}`;
   const { data, isLoading, error } = useQuery({
-    queryKey: ["report", active, from, to, tagOptionId, tagId],
-    queryFn: () => api<Record<string, unknown>>(`/api/reports/${active}${params}`),
+    queryKey: ["report", reportKey, applied.from, applied.to],
+    queryFn: () => api<Record<string, unknown>>(`/api/reports/${reportKey}${params}`),
+    enabled: !!def,
   });
 
-  const scopedOption = tags.flatMap((t) => t.options).find((o) => o.id === tagOptionId);
+  if (!def) {
+    return (
+      <div className="p-8 text-[13px] text-gray-500">
+        No such report. <Link href="/reports" className="text-[#1c5bd9] hover:underline">Back to the Reports Center</Link>.
+      </div>
+    );
+  }
 
-  const groups = [...new Set(REPORTS.map((r) => r.group))];
+  const choose = (name: string) => {
+    setPreset(name);
+    if (name !== "Custom") {
+      const r = PRESETS[name]!();
+      setRange(r);
+      setApplied(r);
+    }
+  };
+
+  const hasTree = ["pnl", "balance-sheet", "pnl-horizontal", "balance-sheet-horizontal"].includes(
+    reportKey,
+  );
 
   return (
-    <div className="flex h-full">
-      <aside className="w-60 overflow-y-auto border-r bg-white p-4">
-        <h2 className="mb-3 text-sm font-semibold">Reports</h2>
-        {groups.map((g) => (
-          <div key={g} className="mb-4">
-            <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-gray-400">{g}</div>
-            {REPORTS.filter((r) => r.group === g).map((r) => (
-              <button
-                key={r.key}
-                onClick={() => setActive(r.key)}
-                className={`block w-full rounded px-2 py-1.5 text-left text-[13px] ${
-                  active === r.key ? "bg-brand-50 font-medium text-brand-700" : "hover:bg-gray-50"
-                }`}
-              >
-                {r.label}
-              </button>
-            ))}
-          </div>
-        ))}
-      </aside>
-      <div className="flex-1 overflow-y-auto p-6">
-        <div className="mb-4 flex items-center gap-3">
-          <h1 className="text-lg font-semibold">{REPORTS.find((r) => r.key === active)?.label}</h1>
-          {usesRange && (
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="input w-auto py-1" />
-          )}
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="input w-auto py-1" />
-
-          {active === "pnl" && tags.length > 0 && (
-            <select
-              value={tagOptionId}
-              onChange={(e) => setTagOptionId(e.target.value)}
-              className="input w-auto py-1"
-            >
-              <option value="">Whole business</option>
-              {tags.map((t) => (
-                <optgroup key={t.id} label={t.name}>
-                  {t.options.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.name}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-          )}
-
-          {active === "tag-summary" && tags.length > 1 && (
-            <select value={tagId} onChange={(e) => setTagId(e.target.value)} className="input w-auto py-1">
-              <option value="">All tags</option>
-              {tags.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
-          )}
+    <div className="flex h-full flex-col bg-[#f4f4f9]">
+      <header className="bg-white px-6 py-2.5">
+        <div className="text-[12px] font-medium text-[#4c526c]">{def.category}</div>
+        <div className="flex items-baseline gap-2">
+          <h1 className="text-[18px] font-semibold text-[#212529]">{def.label}</h1>
+          <span className="text-gray-300">•</span>
+          <span className="text-[13px] text-gray-600">{periodLabel(def, applied)}</span>
         </div>
+      </header>
 
-        {active === "pnl" && scopedOption && (
-          <p className="mb-3 text-[13px] text-gray-600">
-            Showing only amounts tagged{" "}
-            <span className="font-medium text-gray-800">{scopedOption.name}</span>. Untagged income
-            and costs are excluded, so this will not add up to the whole business.
-          </p>
+      <div className="flex flex-wrap items-center gap-2 border-t bg-white px-6 py-2.5">
+        <span className="mr-1 text-[13px] text-gray-500">Filters :</span>
+        <label className="flex h-8 items-center gap-2 rounded-md border px-3 text-[13px]">
+          <span className="text-gray-500">Date Range :</span>
+          <select
+            value={preset}
+            onChange={(e) => choose(e.target.value)}
+            className="bg-transparent outline-none"
+          >
+            {Object.keys(PRESETS).map((p) => (
+              <option key={p} value={p}>
+                {p}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {/* EGGSY posts on accrual only, so the basis is stated rather than
+            offered as a one-option dropdown. */}
+        <span className="flex h-8 items-center gap-2 rounded-md border bg-gray-50 px-3 text-[13px] text-gray-500">
+          Report Basis : <span className="text-gray-800">Accrual</span>
+        </span>
+
+        {preset === "Custom" && (
+          <>
+            <input
+              type="date"
+              value={range.from}
+              onChange={(e) => setRange((r) => ({ ...r, from: e.target.value }))}
+              className="input h-8 w-auto py-0"
+            />
+            <input
+              type="date"
+              value={range.to}
+              onChange={(e) => setRange((r) => ({ ...r, to: e.target.value }))}
+              className="input h-8 w-auto py-0"
+            />
+          </>
         )}
-        <div className="card max-w-3xl p-8">
-          {isLoading ? (
-            <p className="text-sm text-gray-500">Loading…</p>
-          ) : error ? (
-            <p className="text-sm text-red-600">{error instanceof Error ? error.message : "Failed"}</p>
-          ) : data ? (
-            <ReportBody report={active} data={data} />
-          ) : null}
+
+        <button onClick={() => setApplied(range)} className="btn-primary">
+          Run Report
+        </button>
+        <Link href="/reports" className="ml-auto text-[13px] text-[#1c5bd9] hover:underline">
+          All reports
+        </Link>
+      </div>
+
+      <div className="flex-1 overflow-auto p-4">
+        <div className="min-h-full bg-white">
+          {hasTree && (
+            <div className="flex items-center gap-2 border-b px-6 py-2.5">
+              <label className="flex cursor-pointer items-center gap-2 text-[13px] text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={collapsed}
+                  onChange={(e) => setCollapsed(e.target.checked)}
+                />
+                Collapse Sub-Accounts
+              </label>
+            </div>
+          )}
+
+          <div className="px-6 py-8">
+            <div className="mb-6 text-center">
+              <div className="text-[13px] text-[#222536]">{org?.name}</div>
+              <h2 className="mt-1 text-[18px] font-medium text-black">{def.label}</h2>
+              <div className="mt-1 text-[13px] text-gray-500">{periodLabel(def, applied)}</div>
+              <div className="text-[13px] text-gray-500">Basis : Accrual</div>
+            </div>
+
+            {isLoading ? (
+              <p className="text-center text-[13px] text-gray-500">Loading…</p>
+            ) : error ? (
+              <p className="text-center text-[13px] text-red-600">
+                {error instanceof Error ? error.message : "Failed to run this report."}
+              </p>
+            ) : data ? (
+              <ReportBody reportKey={reportKey} data={data} collapsed={collapsed} />
+            ) : null}
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function ReportBody({ report, data }: { report: ReportKey; data: Record<string, unknown> }) {
-  type Rows = Array<{ code: string; name: string; amount: string }>;
-  switch (report) {
+// ---------- Shared pieces ----------
+
+interface TreeNode {
+  accountId: string;
+  code: string;
+  name: string;
+  depth: number;
+  amount: string;
+  total: string;
+  children: TreeNode[];
+}
+
+interface Section {
+  nodes: TreeNode[];
+  total: string;
+}
+
+/** 850px centred, the width Zoho gives a financial statement. */
+function Sheet({ children }: { children: React.ReactNode }) {
+  return <div className="mx-auto max-w-[850px]">{children}</div>;
+}
+
+const HEAD_CELL = "bg-[#f9f9fb] px-2 py-2 text-[11px] font-semibold uppercase text-[#615d82]";
+
+const Amount = ({ value, className = "" }: { value: string; className?: string }) => (
+  <td className={`w-40 px-2 py-2 text-right tabular-nums ${className}`}>{num(value)}</td>
+);
+
+/** A "Total for X" / "Gross Profit" line: bold, with the only divider Zoho draws. */
+const TotalRow = ({
+  label,
+  value,
+  indent = 0,
+}: {
+  label: string;
+  value: string;
+  indent?: number;
+}) => (
+  <tr className="border-b-[0.7px] border-[#eee] font-bold">
+    <td className="px-2 py-2 first:pl-5" style={{ paddingLeft: `${20 + indent}px` }}>
+      {label}
+    </td>
+    <td />
+    <Amount value={value} />
+  </tr>
+);
+
+/** One account and its children, indented, with a "Total for X" beneath any parent. */
+function TreeRows({
+  nodes,
+  collapsed,
+  showCode = true,
+}: {
+  nodes: TreeNode[];
+  collapsed: boolean;
+  /** The T-format drops account codes, as Zoho's horizontal statements do. */
+  showCode?: boolean;
+}) {
+  return (
+    <>
+      {nodes.map((n) => {
+        const showChildren = !collapsed && n.children.length > 0;
+        return (
+          <Fragment key={n.accountId}>
+            <tr>
+              <td className="px-2 py-2" style={{ paddingLeft: `${20 + n.depth * 20}px` }}>
+                <Link
+                  href={`/accountant/accounts/${n.accountId}`}
+                  className="font-medium text-[#1c5bd9] hover:underline"
+                >
+                  {n.name}
+                </Link>
+              </td>
+              <td className="w-28 px-2 py-2 text-gray-500">{showCode ? n.code : ""}</td>
+              <Amount value={showChildren ? n.amount : n.total} />
+            </tr>
+            {showChildren && (
+              <>
+                <TreeRows nodes={n.children} collapsed={collapsed} showCode={showCode} />
+                <TotalRow label={`Total for ${n.name}`} value={n.total} indent={n.depth * 20} />
+              </>
+            )}
+          </Fragment>
+        );
+      })}
+    </>
+  );
+}
+
+/**
+ * A statement section. Zoho keeps the heading and its total even when nothing
+ * posted to it, so a reader can tell "nil" from "not reported".
+ */
+function SectionBlock({
+  label,
+  section,
+  collapsed,
+}: {
+  label: string;
+  section: Section;
+  collapsed: boolean;
+}) {
+  return (
+    <>
+      <tr>
+        <td className="px-2 pb-1 pt-4 pl-5 font-bold text-black">{label}</td>
+        <td />
+        <td />
+      </tr>
+      <TreeRows nodes={section.nodes} collapsed={collapsed} />
+      <TotalRow label={`Total for ${label}`} value={section.total} />
+    </>
+  );
+}
+
+/** Gross Profit, Operating Profit, Net Profit — same weight as a section total. */
+const KeyLine = ({ label, value }: { label: string; value: string }) => (
+  <tr className="border-b-[0.7px] border-[#eee] font-bold">
+    <td className="px-2 py-2.5 pl-5">{label}</td>
+    <td />
+    <Amount value={value} />
+  </tr>
+);
+
+function StatementTable({ children }: { children: React.ReactNode }) {
+  return (
+    <Sheet>
+      <table className="w-full text-[14px]">
+        <thead>
+          <tr>
+            <th className={`${HEAD_CELL} pl-5 text-left`}>Account</th>
+            <th className={`${HEAD_CELL} w-28 text-left`}>Account Code</th>
+            <th className={`${HEAD_CELL} w-40 text-right`}>Total</th>
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </Sheet>
+  );
+}
+
+// ---------- Report bodies ----------
+
+function ReportBody({
+  reportKey,
+  data,
+  collapsed,
+}: {
+  reportKey: string;
+  data: Record<string, unknown>;
+  collapsed: boolean;
+}) {
+  switch (reportKey) {
     case "pnl":
       return (
-        <>
-          <Section title="Income" rows={data.income as Rows} total={data.totalIncome as string} />
-          <Section title="Expenses" rows={data.expenses as Rows} total={data.totalExpenses as string} />
-          <div className="flex justify-between border-t-2 pt-3 text-base font-semibold">
-            <span>Net Profit / (Loss)</span>
-            <span className="tabular-nums">{formatMoney(data.netProfit as string)}</span>
-          </div>
-        </>
+        <StatementTable>
+          <SectionBlock
+            label="Operating Income"
+            section={data.operatingIncome as Section}
+            collapsed={collapsed}
+          />
+          <SectionBlock
+            label="Cost of Goods Sold"
+            section={data.costOfGoodsSold as Section}
+            collapsed={collapsed}
+          />
+          <KeyLine label="Gross Profit" value={data.grossProfit as string} />
+          <SectionBlock
+            label="Operating Expense"
+            section={data.operatingExpense as Section}
+            collapsed={collapsed}
+          />
+          <KeyLine label="Operating Profit" value={data.operatingProfit as string} />
+          <SectionBlock
+            label="Non Operating Income"
+            section={data.otherIncome as Section}
+            collapsed={collapsed}
+          />
+          <SectionBlock
+            label="Non Operating Expense"
+            section={data.otherExpense as Section}
+            collapsed={collapsed}
+          />
+          <KeyLine label="Net Profit/Loss" value={data.netProfit as string} />
+        </StatementTable>
       );
+
     case "balance-sheet":
       return (
         <>
-          <Section title="Assets" rows={data.assets as Rows} total={data.totalAssets as string} />
-          <Section title="Liabilities" rows={data.liabilities as Rows} total={data.totalLiabilities as string} />
-          <Section title="Equity" rows={data.equity as Rows} total={data.totalEquity as string} />
+          <StatementTable>
+            <SectionBlock label="Assets" section={data.assets as Section} collapsed={collapsed} />
+            <KeyLine label="Total Assets" value={data.totalAssets as string} />
+            <SectionBlock
+              label="Liabilities"
+              section={data.liabilities as Section}
+              collapsed={collapsed}
+            />
+            <SectionBlock label="Equity" section={data.equity as Section} collapsed={collapsed} />
+            <tr>
+              <td className="px-2 py-2 pl-5">Current Period Earnings</td>
+              <td />
+              <Amount value={data.netEarnings as string} />
+            </tr>
+            <KeyLine
+              label="Total Liabilities & Equity"
+              value={(
+                Number(data.totalLiabilities as string) + Number(data.totalEquity as string)
+              ).toFixed(2)}
+            />
+          </StatementTable>
           {!(data.balanced as boolean) && (
-            <p className="text-sm font-medium text-red-600">⚠ Sheet does not balance — investigate.</p>
+            <Sheet>
+              <p className="pt-4 text-[13px] font-medium text-red-600">
+                Assets do not equal liabilities plus equity. Something posted one-sided — check the
+                journal before relying on this sheet.
+              </p>
+            </Sheet>
           )}
         </>
       );
-    case "cash-flow":
-      return (
+
+    case "pnl-horizontal":
+    case "balance-sheet-horizontal":
+      return <HorizontalStatement reportKey={reportKey} data={data} collapsed={collapsed} />;
+
+    case "sales-by-item":
+    case "purchase-by-item":
+      return <ItemTable data={data} />;
+
+    case "expense-by-category":
+      return <ExpenseByCategory data={data} />;
+
+    case "ar-aging":
+    case "ap-aging":
+      return <AgingSummary reportKey={reportKey} data={data} />;
+
+    default:
+      return <LegacyBody reportKey={reportKey} data={data} />;
+  }
+}
+
+interface SideData {
+  heading: string;
+  sections: Array<Section & { label: string }>;
+  earnings?: { label: string; amount: string } | null;
+  balancing?: { label: string; amount: string } | null;
+  total: string;
+}
+
+/**
+ * The T-format: two columns that add to the same figure, with the balancing
+ * profit or loss on the short side. Section headings and their totals are
+ * uppercase here, as Zoho renders them.
+ */
+function HorizontalStatement({
+  reportKey,
+  data,
+  collapsed,
+}: {
+  reportKey: string;
+  data: Record<string, unknown>;
+  collapsed: boolean;
+}) {
+  const isPnl = reportKey === "pnl-horizontal";
+  const left: SideData = isPnl
+    ? { heading: "Expense", ...(data.expense as Omit<SideData, "heading">) }
+    : (data.left as SideData);
+  const right: SideData = isPnl
+    ? { heading: "Income", ...(data.income as Omit<SideData, "heading">) }
+    : (data.right as SideData);
+
+  const Side = ({ side }: { side: SideData }) => (
+    <table className="w-full text-[14px]">
+      <thead>
+        <tr>
+          <th className={`${HEAD_CELL} pl-5 text-left`}>{side.heading}</th>
+          <th className={`${HEAD_CELL} w-24 text-left`} />
+          <th className={`${HEAD_CELL} w-36 text-right`} />
+        </tr>
+      </thead>
+      <tbody>
+        {side.sections.map((s) => (
+          <Fragment key={s.label}>
+            <tr>
+              <td className="px-2 pb-1 pl-5 pt-4 text-[12px] font-bold uppercase tracking-wide text-black">
+                {s.label}
+              </td>
+              <td />
+              <td />
+            </tr>
+            <TreeRows nodes={s.nodes} collapsed={collapsed} showCode={false} />
+            <TotalRow label={`Total ${s.label}`.toUpperCase()} value={s.total} />
+          </Fragment>
+        ))}
+        {side.earnings && (
+          <tr>
+            <td className="px-2 py-2 pl-5">{side.earnings.label}</td>
+            <td />
+            <Amount value={side.earnings.amount} />
+          </tr>
+        )}
+        {side.balancing && (
+          <TotalRow label={side.balancing.label.toUpperCase()} value={side.balancing.amount} />
+        )}
+        <tr className="border-t-[0.7px] border-[#eee] font-bold">
+          <td className="px-2 py-2.5 pl-5">Total</td>
+          <td />
+          <Amount value={side.total} />
+        </tr>
+      </tbody>
+    </table>
+  );
+
+  // items-start stops the shorter side's rows being stretched to match the
+  // taller one — a grid item that is a <table> fills its track otherwise.
+  return (
+    <div className="grid grid-cols-2 items-start gap-6">
+      <div className="border-r pr-6">
+        <Side side={left} />
+      </div>
+      <div>
+        <Side side={right} />
+      </div>
+    </div>
+  );
+}
+
+function ItemTable({ data }: { data: Record<string, unknown> }) {
+  const rows = data.rows as Array<{
+    itemId: string;
+    name: string;
+    unit: string;
+    quantity: string;
+    amount: string;
+    averagePrice: string;
+  }>;
+  if (!rows.length) {
+    return <p className="text-center text-[13px] text-gray-500">Nothing in this period.</p>;
+  }
+  return (
+    <Sheet>
+      <table className="w-full text-[14px]">
+        <thead>
+          <tr>
+            <th className={`${HEAD_CELL} pl-5 text-left`}>Item Name</th>
+            <th className={`${HEAD_CELL} w-32 text-right`}>Quantity</th>
+            <th className={`${HEAD_CELL} w-36 text-right`}>Amount</th>
+            <th className={`${HEAD_CELL} w-36 text-right`}>Average Price</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.itemId}>
+              <td className="px-2 py-2 pl-5">
+                <Link
+                  href={`/items/${r.itemId}`}
+                  className="font-medium text-[#1c5bd9] hover:underline"
+                >
+                  {r.name}
+                </Link>
+              </td>
+              <td className="px-2 py-2 text-right tabular-nums">
+                {Number(r.quantity).toLocaleString("en-IN")} {r.unit}
+              </td>
+              <td className="px-2 py-2 text-right tabular-nums">{num(r.amount)}</td>
+              <td className="px-2 py-2 text-right tabular-nums">{num(r.averagePrice)}</td>
+            </tr>
+          ))}
+          <tr className="border-t-[0.7px] border-[#eee] font-bold">
+            <td className="px-2 py-2.5 pl-5">Total</td>
+            <td className="px-2 py-2.5 text-right tabular-nums">
+              {Number(data.totalQuantity as string).toLocaleString("en-IN")}
+            </td>
+            <td className="px-2 py-2.5 text-right tabular-nums">{num(data.totalAmount as string)}</td>
+            <td />
+          </tr>
+        </tbody>
+      </table>
+    </Sheet>
+  );
+}
+
+/**
+ * Categories collapsed, expanding to their sub-accounts on click — the bit
+ * Zoho's own Expenses by Category lacks.
+ */
+function ExpenseByCategory({ data }: { data: Record<string, unknown> }) {
+  const [open, setOpen] = useState<Set<string>>(new Set());
+  const categories = data.categories as Array<{
+    accountId: string;
+    code: string;
+    name: string;
+    total: string;
+    percentOfTotal: string | null;
+    children: Array<{ accountId: string; code: string; name: string; total: string }>;
+  }>;
+  if (!categories.length) {
+    return <p className="text-center text-[13px] text-gray-500">No expenses in this period.</p>;
+  }
+
+  const toggle = (id: string) =>
+    setOpen((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  return (
+    <Sheet>
+      <table className="w-full text-[14px]">
+        <thead>
+          <tr>
+            <th className={`${HEAD_CELL} pl-5 text-left`}>Category</th>
+            <th className={`${HEAD_CELL} w-32 text-right`}>% of Total</th>
+            <th className={`${HEAD_CELL} w-40 text-right`}>Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {categories.map((c) => (
+            <Fragment key={c.accountId}>
+              <tr className="hover:bg-[#fafafc]">
+                <td className="px-2 py-2 pl-5">
+                  <button
+                    onClick={() => toggle(c.accountId)}
+                    disabled={!c.children.length}
+                    className="flex items-center gap-1.5 disabled:cursor-default"
+                  >
+                    {c.children.length > 0 ? (
+                      open.has(c.accountId) ? (
+                        <ChevronDown size={14} className="text-gray-400" />
+                      ) : (
+                        <ChevronRight size={14} className="text-gray-400" />
+                      )
+                    ) : (
+                      <span className="w-3.5" />
+                    )}
+                    <span className="font-medium">{c.name}</span>
+                    {c.children.length > 0 && (
+                      <span className="text-[11px] text-gray-400">
+                        {c.children.length} sub-account{c.children.length === 1 ? "" : "s"}
+                      </span>
+                    )}
+                  </button>
+                </td>
+                <td className="px-2 py-2 text-right tabular-nums text-gray-500">
+                  {c.percentOfTotal === null ? "—" : `${c.percentOfTotal}%`}
+                </td>
+                <td className="px-2 py-2 text-right font-medium tabular-nums">{num(c.total)}</td>
+              </tr>
+              {open.has(c.accountId) &&
+                c.children.map((ch) => (
+                  <tr key={ch.accountId} className="bg-[#fafafc]">
+                    <td className="px-2 py-2 pl-11">
+                      <Link
+                        href={`/accountant/accounts/${ch.accountId}`}
+                        className="font-medium text-[#1c5bd9] hover:underline"
+                      >
+                        {ch.name}
+                      </Link>
+                      <span className="ml-2 text-[11px] text-gray-400">{ch.code}</span>
+                    </td>
+                    <td />
+                    <td className="px-2 py-2 text-right tabular-nums">{num(ch.total)}</td>
+                  </tr>
+                ))}
+            </Fragment>
+          ))}
+          <tr className="border-t-[0.7px] border-[#eee] font-bold">
+            <td className="px-2 py-2.5 pl-5">Total</td>
+            <td />
+            <td className="px-2 py-2.5 text-right tabular-nums">{num(data.total as string)}</td>
+          </tr>
+        </tbody>
+      </table>
+      {categories.some((c) => c.percentOfTotal === null) && (
+        <p className="mt-4 text-[12px] text-gray-500">
+          A share is only shown when the period's total expense is positive — a credit balance would
+          otherwise print a percentage that reads as nonsense.
+        </p>
+      )}
+    </Sheet>
+  );
+}
+
+const BUCKETS = ["current", "1-15", "16-30", "31-45", "45+"] as const;
+const BUCKET_LABEL: Record<string, string> = {
+  current: "Current",
+  "1-15": "1 – 15 Days",
+  "16-30": "16 – 30 Days",
+  "31-45": "31 – 45 Days",
+  "45+": "Above 45 Days",
+};
+
+/**
+ * Ageing the way Zoho shows it: one row per contact, one column per bucket.
+ * The server hands back the open documents, so grouping happens here rather
+ * than being a second query.
+ */
+function AgingSummary({ reportKey, data }: { reportKey: string; data: Record<string, unknown> }) {
+  const isAr = reportKey === "ar-aging";
+  const docs = (isAr ? data.invoices : data.bills) as Array<{
+    customerId?: string;
+    customerName?: string;
+    vendorId?: string;
+    vendorName?: string;
+    balanceDue: string;
+    bucket: string;
+  }>;
+  if (!docs?.length) {
+    return <p className="text-center text-[13px] text-gray-500">Nothing outstanding on this date.</p>;
+  }
+
+  const byContact = new Map<
+    string,
+    { name: string; buckets: Record<string, number>; total: number }
+  >();
+  for (const d of docs) {
+    const id = (isAr ? d.customerId : d.vendorId)!;
+    const name = (isAr ? d.customerName : d.vendorName) ?? "—";
+    const row = byContact.get(id) ?? { name, buckets: {}, total: 0 };
+    row.buckets[d.bucket] = (row.buckets[d.bucket] ?? 0) + Number(d.balanceDue);
+    row.total += Number(d.balanceDue);
+    byContact.set(id, row);
+  }
+  const rows = [...byContact.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name));
+  const totals = data.totals as Record<string, string>;
+
+  return (
+    <Sheet>
+      <table className="w-full text-[14px]">
+        <thead>
+          <tr>
+            <th className={`${HEAD_CELL} pl-5 text-left`}>
+              {isAr ? "Customer Name" : "Vendor Name"}
+            </th>
+            {BUCKETS.map((b) => (
+              <th key={b} className={`${HEAD_CELL} text-right`}>
+                {BUCKET_LABEL[b]}
+              </th>
+            ))}
+            <th className={`${HEAD_CELL} text-right`}>Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([id, r]) => (
+            <tr key={id}>
+              <td className="px-2 py-2 pl-5">
+                <Link
+                  href={isAr ? `/sales/customers/${id}` : `/purchases/vendors/${id}`}
+                  className="font-medium text-[#1c5bd9] hover:underline"
+                >
+                  {r.name}
+                </Link>
+              </td>
+              {BUCKETS.map((b) => (
+                <td key={b} className="px-2 py-2 text-right tabular-nums">
+                  {r.buckets[b] ? num(r.buckets[b]!) : "-"}
+                </td>
+              ))}
+              <td className="px-2 py-2 text-right font-medium tabular-nums">{num(r.total)}</td>
+            </tr>
+          ))}
+          <tr className="border-t-[0.7px] border-[#eee] font-bold">
+            <td className="px-2 py-2.5 pl-5">Total</td>
+            {BUCKETS.map((b) => (
+              <td key={b} className="px-2 py-2.5 text-right tabular-nums">
+                {num(totals[b] ?? "0")}
+              </td>
+            ))}
+            <td className="px-2 py-2.5 text-right tabular-nums">{num(data.grandTotal as string)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </Sheet>
+  );
+}
+
+/** Reports that are plain tables: cash flow, tag summary, GST. */
+function LegacyBody({ reportKey, data }: { reportKey: string; data: Record<string, unknown> }) {
+  type Rows = Array<{ code: string; name: string; amount: string }>;
+
+  switch (reportKey) {
+    case "cash-flow": {
+      const block = (title: string, rows: Rows, total: string) => (
         <>
-          <div className="mb-4 flex justify-between text-sm">
-            <span>Opening Cash</span>
-            <span className="tabular-nums font-medium">{formatMoney(data.opening as string)}</span>
-          </div>
-          <Section title="Inflows" rows={data.inflows as Rows} total={data.totalInflows as string} />
-          <Section title="Outflows" rows={data.outflows as Rows} total={data.totalOutflows as string} />
-          <div className="flex justify-between border-t-2 pt-3 text-base font-semibold">
-            <span>Closing Cash</span>
-            <span className="tabular-nums">{formatMoney(data.closing as string)}</span>
-          </div>
+          <tr>
+            <td className="px-2 pb-1 pl-5 pt-4 font-bold text-black">{title}</td>
+            <td />
+          </tr>
+          {rows.map((r) => (
+            <tr key={r.code + r.name}>
+              <td className="px-2 py-2 pl-5">{r.name}</td>
+              <td className="w-40 px-2 py-2 text-right tabular-nums">{num(r.amount)}</td>
+            </tr>
+          ))}
+          <tr className="border-b-[0.7px] border-[#eee] font-bold">
+            <td className="px-2 py-2 pl-5">Total {title}</td>
+            <td className="px-2 py-2 text-right tabular-nums">{num(total)}</td>
+          </tr>
         </>
       );
-    case "ar-aging":
-    case "ap-aging": {
-      const totals = data.totals as Record<string, string>;
       return (
-        <>
-          <table className="mb-4 w-full text-sm">
+        <Sheet>
+          <table className="w-full text-[14px]">
             <thead>
-              <tr className="border-b border-[#ebeaf2] text-left text-xs uppercase text-gray-500">
-                {Object.keys(totals).map((k) => (
-                  <th key={k} className="py-2 text-right first:text-left">{k}</th>
-                ))}
+              <tr>
+                <th className={`${HEAD_CELL} pl-5 text-left`}>Account</th>
+                <th className={`${HEAD_CELL} w-40 text-right`}>Total</th>
               </tr>
             </thead>
             <tbody>
-              <tr>
-                {Object.values(totals).map((v, i) => (
-                  <td key={i} className="py-2 text-right tabular-nums first:text-left">{formatMoney(v)}</td>
-                ))}
+              <tr className="border-b-[0.7px] border-[#eee] font-bold">
+                <td className="px-2 py-2 pl-5">Opening Cash</td>
+                <td className="px-2 py-2 text-right tabular-nums">{num(data.opening as string)}</td>
+              </tr>
+              {block("Inflows", data.inflows as Rows, data.totalInflows as string)}
+              {block("Outflows", data.outflows as Rows, data.totalOutflows as string)}
+              <tr className="border-b-[0.7px] border-[#eee] font-bold">
+                <td className="px-2 py-2.5 pl-5">Closing Cash</td>
+                <td className="px-2 py-2.5 text-right tabular-nums">
+                  {num(data.closing as string)}
+                </td>
               </tr>
             </tbody>
           </table>
-          <div className="flex justify-between border-t pt-2 font-semibold">
-            <span>Total Outstanding</span>
-            <span className="tabular-nums">{formatMoney(data.grandTotal as string)}</span>
-          </div>
-        </>
+        </Sheet>
       );
     }
+
     case "tag-summary": {
       const rows = data.rows as Array<{
         tagName: string;
@@ -258,104 +1014,118 @@ function ReportBody({ report, data }: { report: ReportKey; data: Record<string, 
       }>;
       if (!rows.length) {
         return (
-          <p className="text-[13px] text-gray-500">
-            Nothing tagged in this period. Tag a journal line, an expense or a bill line and it
-            will appear here.
+          <p className="text-center text-[13px] text-gray-500">
+            Nothing tagged in this period. Tag a journal line, an expense or a bill line and it will
+            appear here.
           </p>
         );
       }
-      const groups = [...new Set(rows.map((r) => r.tagName))];
       return (
-        <>
-          {groups.map((g) => {
-            const groupRows = rows.filter((r) => r.tagName === g);
-            const totalNet = groupRows.reduce((s, r) => s + Number(r.net), 0);
-            return (
-              <div key={g} className="mb-6">
-                <h3 className="mb-2 border-b pb-1 text-sm font-semibold uppercase tracking-wide text-gray-600">
-                  {g}
-                </h3>
-                <table className="w-full text-[13px]">
-                  <thead>
-                    <tr className="border-b border-[#ebeaf2] text-left text-xs uppercase text-gray-500">
-                      <th className="py-2">Option</th>
-                      <th className="py-2 text-right">Income</th>
-                      <th className="py-2 text-right">Expense</th>
-                      <th className="py-2 text-right">Net</th>
+        <Sheet>
+          <table className="w-full text-[14px]">
+            <thead>
+              <tr>
+                <th className={`${HEAD_CELL} pl-5 text-left`}>Tag Option</th>
+                <th className={`${HEAD_CELL} w-36 text-right`}>Income</th>
+                <th className={`${HEAD_CELL} w-36 text-right`}>Expense</th>
+                <th className={`${HEAD_CELL} w-36 text-right`}>Net</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...new Set(rows.map((r) => r.tagName))].map((g) => {
+                const groupRows = rows.filter((r) => r.tagName === g);
+                const totalNet = groupRows.reduce((s, r) => s + Number(r.net), 0);
+                return (
+                  <Fragment key={g}>
+                    <tr>
+                      <td className="px-2 pb-1 pl-5 pt-4 font-bold text-black">{g}</td>
+                      <td />
+                      <td />
+                      <td />
                     </tr>
-                  </thead>
-                  <tbody>
                     {groupRows.map((r) => (
-                      <tr key={r.optionName} className="border-b border-[#ebeaf2]">
-                        <td className="py-1.5">
+                      <tr key={r.optionName}>
+                        <td className="px-2 py-2 pl-10">
                           {r.optionName}
                           <span className="ml-2 text-[11px] text-gray-400">
                             {r.lineCount} line{r.lineCount === 1 ? "" : "s"}
                           </span>
                         </td>
-                        <td className="py-1.5 text-right tabular-nums">{formatMoney(r.income)}</td>
-                        <td className="py-1.5 text-right tabular-nums">{formatMoney(r.expense)}</td>
+                        <td className="px-2 py-2 text-right tabular-nums">{num(r.income)}</td>
+                        <td className="px-2 py-2 text-right tabular-nums">{num(r.expense)}</td>
                         <td
-                          className={`py-1.5 text-right font-medium tabular-nums ${
-                            Number(r.net) < 0 ? "text-red-700" : "text-green-700"
+                          className={`px-2 py-2 text-right font-medium tabular-nums ${
+                            Number(r.net) < 0 ? "text-red-700" : ""
                           }`}
                         >
-                          {formatMoney(r.net)}
+                          {num(r.net)}
                         </td>
                       </tr>
                     ))}
-                    <tr className="font-semibold">
-                      <td className="py-1.5">Total {g}</td>
+                    <tr className="border-b-[0.7px] border-[#eee] font-bold">
+                      <td className="px-2 py-2 pl-5">Total for {g}</td>
                       <td />
                       <td />
-                      <td className="py-1.5 text-right tabular-nums">{formatMoney(totalNet)}</td>
+                      <td className="px-2 py-2 text-right tabular-nums">{num(totalNet)}</td>
                     </tr>
-                  </tbody>
-                </table>
-              </div>
-            );
-          })}
-          <p className="text-[12px] text-gray-500">
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+          <p className="mt-4 text-[12px] text-gray-500">
             Only tagged amounts appear here. A cost with no tag is still in the P&amp;L but belongs
             to no option, so these totals are not expected to reconcile to it.
           </p>
-        </>
+        </Sheet>
       );
     }
+
     case "gst-summary": {
       const out = data.outwardSupplies as Record<string, string>;
       const inp = data.inputTaxCredit as Record<string, string>;
-      const row = (label: string, v: Record<string, string>, keys: string[]) => (
-        <tr className="border-b border-gray-100">
-          <td className="py-1.5">{label}</td>
+      const keys = ["taxableValue", "cgst", "sgst", "igst"];
+      const row = (label: string, v: Record<string, string>) => (
+        <tr>
+          <td className="px-2 py-2 pl-5">{label}</td>
           {keys.map((k) => (
-            <td key={k} className="py-1.5 text-right tabular-nums">{formatMoney(v[k])}</td>
+            <td key={k} className="px-2 py-2 text-right tabular-nums">
+              {num(v[k] ?? "0")}
+            </td>
           ))}
         </tr>
       );
       return (
-        <>
-          <table className="mb-4 w-full text-[13px]">
+        <Sheet>
+          <table className="w-full text-[14px]">
             <thead>
-              <tr className="border-b border-[#ebeaf2] text-left text-xs uppercase text-gray-500">
-                <th className="py-2">Section</th>
-                <th className="py-2 text-right">Taxable</th>
-                <th className="py-2 text-right">CGST</th>
-                <th className="py-2 text-right">SGST</th>
-                <th className="py-2 text-right">IGST</th>
+              <tr>
+                <th className={`${HEAD_CELL} pl-5 text-left`}>Section</th>
+                <th className={`${HEAD_CELL} text-right`}>Taxable Value</th>
+                <th className={`${HEAD_CELL} text-right`}>CGST</th>
+                <th className={`${HEAD_CELL} text-right`}>SGST</th>
+                <th className={`${HEAD_CELL} text-right`}>IGST</th>
               </tr>
             </thead>
             <tbody>
-              {row("Outward supplies", out, ["taxableValue", "cgst", "sgst", "igst"])}
-              {row("Input tax credit", inp, ["taxableValue", "cgst", "sgst", "igst"])}
+              {row("Outward supplies", out)}
+              {row("Input tax credit", inp)}
+              <tr className="border-t-[0.7px] border-[#eee] font-bold">
+                <td className="px-2 py-2.5 pl-5">Net GST Payable</td>
+                <td />
+                <td />
+                <td />
+                <td className="px-2 py-2.5 text-right tabular-nums">
+                  {num(data.netPayable as string)}
+                </td>
+              </tr>
             </tbody>
           </table>
-          <div className="flex justify-between border-t pt-2 font-semibold">
-            <span>Net GST Payable</span>
-            <span className="tabular-nums">{formatMoney(data.netPayable as string)}</span>
-          </div>
-        </>
+        </Sheet>
       );
     }
+
+    default:
+      return <p className="text-center text-[13px] text-gray-500">This report has no renderer yet.</p>;
   }
 }

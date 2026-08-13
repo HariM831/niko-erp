@@ -3,7 +3,7 @@ import { useAuth } from "./auth";
 import { AppLayout } from "./components/layout";
 import { LoginPage } from "./pages/login";
 import { HomePage } from "./pages/home";
-import { ReportsPage } from "./pages/reports";
+import { ReportsPage, ReportViewPage } from "./pages/reports";
 import { ChartOfAccountsPage } from "./pages/chart-of-accounts";
 import { TransactionLockingPage } from "./pages/transaction-locking";
 import { BudgetDetailPage, BudgetNewPage, BudgetsPage } from "./pages/budgets";
@@ -152,6 +152,7 @@ export function App() {
         </Route>
         <Route path="/inventory/adjustments" component={InventoryAdjustmentsPage} />
         <Route path="/inventory/stock" component={StockPage} />
+        <Route path="/reports/:key">{(p) => <ReportViewPage reportKey={p.key!} />}</Route>
         <Route path="/reports" component={ReportsPage} />
         <Route path="/activity-log" component={ActivityLogPage} />
         <Route path="/settings" component={SettingsPage} />
