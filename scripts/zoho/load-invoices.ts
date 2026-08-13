@@ -1,0 +1,264 @@
+/**
+ * Phase 3: invoices, posted through EGGSY's own engine.
+ *
+ *   npx tsx scripts/zoho/load-invoices.ts             # say what would happen
+ *   npx tsx scripts/zoho/load-invoices.ts --commit    # do it
+ *
+ * Totals come from Zoho verbatim rather than being recomputed. EGGSY would
+ * re-derive them under its own rounding preference and drift by a rupee per
+ * document, which across 614 invoices is a reconciliation nobody can finish.
+ * The journal, though, is built by the same postInvoiceJournal the application
+ * uses, so an imported invoice posts exactly as one keyed in today would.
+ *
+ * Safe to re-run: an invoice already in zoho_id_map is skipped.
+ */
+import { readFile } from "node:fs/promises";
+import { eq } from "drizzle-orm";
+import { contacts, invoiceLines, invoices, users, zohoIdMap } from "@shared/schema";
+import { db, pool } from "../../server/db";
+import { postInvoiceJournal } from "../../server/routes/sales";
+
+interface ZohoLine {
+  item_id?: string;
+  name: string;
+  description?: string;
+  unit?: string;
+  quantity: number;
+  rate: number;
+  discount_amount?: number;
+  item_total: number;
+  account_id?: string;
+  hsn_or_sac?: string;
+}
+
+interface ZohoInvoice {
+  invoice_id: string;
+  invoice_number: string;
+  customer_id: string;
+  status: string;
+  date: string;
+  due_date: string;
+  reference_number?: string;
+  place_of_supply?: string;
+  notes?: string;
+  sub_total: number;
+  discount_total?: number;
+  adjustment?: number;
+  adjustment_description?: string;
+  adjustment_account_id?: string;
+  discount_account_id?: string;
+  total: number;
+  balance: number;
+  line_items: ZohoLine[];
+}
+
+/**
+ * Zoho tracks overdue as a status; EGGSY derives it from the due date, so an
+ * overdue invoice is simply one that was sent and is not yet paid.
+ */
+const STATUS: Record<string, "draft" | "sent" | "partially_paid" | "paid" | "void"> = {
+  draft: "draft",
+  sent: "sent",
+  viewed: "sent",
+  unpaid: "sent",
+  overdue: "sent",
+  partially_paid: "partially_paid",
+  paid: "paid",
+  void: "void",
+  voided: "void",
+};
+
+const money = (n: number | undefined) => (n ?? 0).toFixed(2);
+const paise = (n: number | undefined) => Math.round((n ?? 0) * 100);
+
+/**
+ * How a document-level discount reaches the ledger.
+ *
+ * Zoho lets a discount sit on the invoice header and posts it to a Discount
+ * account of its own. EGGSY has no header discount — its posting credits
+ * revenue with the sum of the lines — so the first attempt spread it across
+ * them instead. That balanced, but it classified the money differently from
+ * Zoho: ₹50 came off Sales rather than landing in Discount, and the two
+ * ledgers disagreed on an income account while agreeing on the total.
+ *
+ * A discount is just a negative adjustment: a signed amount posted to a named
+ * account, which EGGSY already models. One invoice in 614 has one.
+ */
+function discountAsAdjustment(inv: ZohoInvoice) {
+  const discountP = Math.round(Number(inv.discount_total ?? 0) * 100);
+  const adjustmentP = Math.round(Number(inv.adjustment ?? 0) * 100);
+  if (!discountP) return { amountP: adjustmentP, accountId: inv.adjustment_account_id ?? null };
+  if (adjustmentP) {
+    // Both would need two extra postings and EGGSY has one slot. No invoice in
+    // these books does it; refuse rather than silently drop one.
+    throw new Error(
+      `${inv.invoice_number} carries both a header discount and an adjustment, which cannot both be represented`,
+    );
+  }
+  return { amountP: -discountP, accountId: inv.discount_account_id ?? null };
+}
+
+async function main() {
+  const commit = process.argv.includes("--commit");
+  const raw = await readFile(".zoho-dump/detail/invoices.jsonl", "utf8");
+  const all: ZohoInvoice[] = raw.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+
+  // Oldest first, and a stable tiebreak so a re-run walks them in the same
+  // order — which is what makes generated numbering reproducible downstream.
+  all.sort((a, b) => a.date.localeCompare(b.date) || a.invoice_id.localeCompare(b.invoice_id));
+
+  const idsOf = async (entity: string) =>
+    new Map(
+      (
+        await db
+          .select({ zohoId: zohoIdMap.zohoId, eggsyId: zohoIdMap.eggsyId })
+          .from(zohoIdMap)
+          .where(eq(zohoIdMap.entity, entity))
+      ).map((r) => [r.zohoId, r.eggsyId]),
+    );
+  const contactFor = await idsOf("contact");
+  const itemFor = await idsOf("item");
+  const accountFor = await idsOf("account");
+  const done = await idsOf("invoice");
+
+  const todo = all.filter((i) => !done.has(i.invoice_id));
+
+  const problems: string[] = [];
+  for (const inv of todo) {
+    if (!contactFor.has(inv.customer_id)) {
+      problems.push(`${inv.invoice_number}: customer ${inv.customer_id} not imported`);
+    }
+    if (!STATUS[inv.status]) problems.push(`${inv.invoice_number}: unknown status "${inv.status}"`);
+    for (const l of inv.line_items ?? []) {
+      if (l.item_id && !itemFor.has(l.item_id)) {
+        problems.push(`${inv.invoice_number}: item ${l.item_id} not imported`);
+      }
+      if (l.account_id && !accountFor.has(l.account_id)) {
+        problems.push(`${inv.invoice_number}: account ${l.account_id} not imported`);
+      }
+    }
+    if (Number(inv.adjustment ?? 0) !== 0 && !accountFor.has(inv.adjustment_account_id ?? "")) {
+      problems.push(`${inv.invoice_number}: adjustment account not imported`);
+    }
+  }
+  if (problems.length) {
+    throw new Error(`Cannot import — unresolved references:\n  ${problems.slice(0, 20).join("\n  ")}`);
+  }
+
+  const totalValue = todo.reduce((s, i) => s + Number(i.total), 0);
+  console.log(`${all.length} invoices — ${todo.length} to import, ${done.size} already done`);
+  console.log(`  value ${totalValue.toLocaleString("en-IN")}`);
+  console.log(`  dates ${todo[0]?.date} .. ${todo[todo.length - 1]?.date}`);
+  console.log(`  lines ${todo.reduce((s, i) => s + (i.line_items?.length ?? 0), 0)}`);
+  console.log(`  with an adjustment ${todo.filter((i) => Number(i.adjustment ?? 0) !== 0).length}`);
+
+  if (!commit) {
+    console.log("\nDry run — nothing written. Re-run with --commit to apply.");
+    await pool.end();
+    return;
+  }
+
+  const [admin] = await db.select({ id: users.id }).from(users).limit(1);
+  if (!admin) throw new Error("No user to attribute the import to");
+
+  let posted = 0;
+  await db.transaction(async (tx) => {
+    for (const inv of todo) {
+      const customerId = contactFor.get(inv.customer_id)!;
+      const adj = discountAsAdjustment(inv);
+      const [row] = await tx
+        .insert(invoices)
+        .values({
+          number: inv.invoice_number,
+          customerId,
+          status: STATUS[inv.status]!,
+          invoiceDate: inv.date,
+          dueDate: inv.due_date || inv.date,
+          reference: inv.reference_number?.trim() || null,
+          placeOfSupplyState: inv.place_of_supply?.slice(0, 4) || null,
+          subTotal: money(inv.sub_total),
+          discountTotal: money(inv.discount_total),
+          // Nothing in these books carries tax or round-off; both were verified
+          // zero across all 614 invoices before this was written.
+          cgst: "0",
+          sgst: "0",
+          igst: "0",
+          adjustment: (adj.amountP / 100).toFixed(2),
+          adjustmentAccountId: adj.amountP !== 0 ? (accountFor.get(adj.accountId ?? "") ?? null) : null,
+          adjustmentDescription:
+            adj.amountP < 0 && Number(inv.discount_total ?? 0) !== 0
+              ? "Discount"
+              : inv.adjustment_description?.trim() || null,
+          roundOff: "0",
+          total: money(inv.total),
+          balanceDue: money(inv.balance),
+          customerNotes: inv.notes?.trim() || null,
+          createdBy: admin.id,
+        })
+        .returning();
+
+      const src = inv.line_items ?? [];
+      const lines = src.map((l, i) => ({
+        invoiceId: row!.id,
+        itemId: l.item_id ? (itemFor.get(l.item_id) ?? null) : null,
+        accountId: l.account_id ? (accountFor.get(l.account_id) ?? null) : null,
+        name: l.name?.trim() || "Item",
+        description: l.description?.trim() || null,
+        hsnOrSac: l.hsn_or_sac?.trim().slice(0, 10) || null,
+        quantity: String(l.quantity ?? 0),
+        unit: l.unit?.trim().slice(0, 20) || null,
+        rate: money(l.rate),
+        discountPercent: "0",
+        taxAmount: "0",
+        // Already net of any line discount, which is what EGGSY's `amount`
+        // means. A header discount is not netted here — it posts to its own
+        // account through the adjustment.
+        amount: money(l.item_total),
+        lineOrder: i,
+      }));
+      if (lines.length) await tx.insert(invoiceLines).values(lines);
+
+      // The posting credits revenue with the sum of the lines and debits the
+      // receivable with the total, so a mismatch here is a silent imbalance
+      // waiting to be found. Cheaper to catch it on the document than in a
+      // trial balance three thousand rows later.
+      const lineSum = lines.reduce((s, l) => s + paise(Number(l.amount)), 0);
+      const expected = paise(inv.total) - adj.amountP;
+      if (lineSum !== expected) {
+        throw new Error(
+          `${inv.invoice_number}: lines total ${lineSum / 100} but the invoice, less its ` +
+            `adjustment, is ${expected / 100}`,
+        );
+      }
+
+      const [customer] = await tx
+        .select({ displayName: contacts.displayName })
+        .from(contacts)
+        .where(eq(contacts.id, customerId))
+        .limit(1);
+
+      // Void invoices never posted in Zoho and must not post here.
+      if (STATUS[inv.status] !== "void" && STATUS[inv.status] !== "draft") {
+        const jeId = await postInvoiceJournal(tx, row!, customer?.displayName ?? "", admin.id);
+        await tx.update(invoices).set({ journalEntryId: jeId }).where(eq(invoices.id, row!.id));
+        posted += 1;
+      }
+
+      await tx.insert(zohoIdMap).values({
+        entity: "invoice",
+        zohoId: inv.invoice_id,
+        eggsyId: row!.id,
+        label: inv.invoice_number,
+      });
+    }
+  });
+
+  console.log(`\nCommitted ${todo.length} invoices, ${posted} posted to the ledger.`);
+  await pool.end();
+}
+
+main().catch(async (err) => {
+  console.error(`\n${err.message}`);
+  await pool.end().catch(() => {});
+  process.exitCode = 1;
+});

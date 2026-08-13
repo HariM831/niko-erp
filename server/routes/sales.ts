@@ -111,7 +111,7 @@ async function loadCustomer(tx: Tx, id: string) {
  * invoice mixing eggs and feed lands on both revenue accounts rather than one
  * lump. Round-off folds into the largest revenue credit.
  */
-async function postInvoiceJournal(
+export async function postInvoiceJournal(
   tx: Tx,
   inv: {
     id: string;
