@@ -83,8 +83,10 @@ export async function computeDocumentTotals(
 
   const computed: ComputedLine[] = lines.map((l, i) => {
     const qty = Number(l.quantity);
-    const rateP = toPaise(l.rate);
-    const grossP = Math.round(qty * rateP);
+    // Multiplied at the rate's own precision rather than rounding it to paise
+    // first: feed is priced to six decimals, and truncating 24.813751 to 24.81
+    // moves a 393,440 kg line by nearly two thousand rupees.
+    const grossP = Math.round(qty * Number(l.rate) * 100);
     const discPct = Number(l.discountPercent ?? 0);
     const lineDiscP = Math.round((grossP * discPct) / 100);
     const netP = grossP - lineDiscP;

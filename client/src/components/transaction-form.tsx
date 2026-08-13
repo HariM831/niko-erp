@@ -104,6 +104,8 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
   const [lines, setLines] = useState<FormLine[]>([emptyLine()]);
   /** Zoho's Adjustment: a typed correction with its own label and account. */
   const [adjustment, setAdjustment] = useState({ amount: "", accountId: "", description: "" });
+  /** Tax withheld from the vendor. Purchases only — nobody withholds from us. */
+  const [tds, setTds] = useState({ amount: "", section: "" });
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [customFields, setCustomFields] = useState<CustomFieldValues>({});
   const [error, setError] = useState<string | null>(null);
@@ -131,6 +133,13 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
     setFreightAccountId((existing.freightAccountId as string) ?? "");
     setDeliveryDate((existing.expectedDeliveryDate as string) ?? "");
     setNotes((existing.customerNotes as string) ?? "");
+    setTds({
+      amount:
+        existing.tdsAmount && Number(existing.tdsAmount) !== 0
+          ? String(Number(existing.tdsAmount))
+          : "",
+      section: (existing.tdsSection as string) ?? "",
+    });
     setAdjustment({
       amount:
         existing.adjustment && Number(existing.adjustment) !== 0
@@ -239,8 +248,11 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
     // figure that gets rounded is the one the customer actually pays.
     const raw = sub - disc + tax + Number(adjustment.amount || 0);
     const rounded = Math.round(raw);
-    return { sub, disc, tax, roundOff: rounded - raw, total: rounded };
-  }, [lines, taxes, adjustment.amount]);
+    // TDS comes off after rounding: it is withheld from what the vendor is
+    // paid, not part of what the purchase cost.
+    const withheld = Number(tds.amount || 0);
+    return { sub, disc, tax, roundOff: rounded - raw, withheld, total: rounded - withheld };
+  }, [lines, taxes, adjustment.amount, tds.amount]);
 
   const updateLine = (i: number, patch: Partial<FormLine>) =>
     setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
@@ -289,6 +301,10 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
         ...config.extraBody,
       };
       if (notes) body.customerNotes = notes;
+      if (Number(tds.amount || 0) !== 0) {
+        body.tdsAmount = Number(tds.amount).toFixed(2);
+        if (tds.section) body.tdsSection = tds.section;
+      }
       if (Number(adjustment.amount || 0) !== 0) {
         body.adjustment = {
           amount: Number(adjustment.amount).toFixed(2),
@@ -662,6 +678,24 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
               <span>Round Off</span>
               <span className="tabular-nums">{totals.roundOff >= 0 ? "" : "− "}{formatMoney(Math.abs(totals.roundOff))}</span>
             </div>
+            {config.contactType === "vendor" && (
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span className="text-gray-600">TDS</span>
+                <input
+                  value={tds.section}
+                  onChange={(e) => setTds((t) => ({ ...t, section: e.target.value }))}
+                  placeholder="section"
+                  className="w-20 border-b border-dashed border-gray-300 bg-transparent text-[12px] text-gray-500 outline-none focus:border-brand-400"
+                />
+                <input
+                  value={tds.amount}
+                  onChange={(e) => setTds((t) => ({ ...t, amount: e.target.value }))}
+                  placeholder="0.00"
+                  inputMode="decimal"
+                  className="w-20 border-b border-dashed border-gray-300 bg-transparent text-right text-[13px] tabular-nums outline-none focus:border-brand-400"
+                />
+              </div>
+            )}
             <div className="flex justify-between border-t pt-2 text-base font-semibold">
               <span>Total</span>
               <span className="tabular-nums">{formatMoney(totals.total)}</span>

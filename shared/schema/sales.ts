@@ -30,7 +30,12 @@ const lineColumns = {
   hsnOrSac: varchar("hsn_or_sac", { length: 10 }),
   quantity: qty("quantity").notNull().default("1"),
   unit: varchar("unit", { length: 20 }),
-  rate: money("rate").notNull().default("0"),
+  /**
+   * Unit price, to six decimals. Feed is priced per kilo to fractions of a
+   * paisa — Zoho carries rates like 24.813751 — and rounding that to paise
+   * makes a 393,440 kg line read 1,992 rupees away from its own amount.
+   */
+  rate: numeric("rate", { precision: 18, scale: 6 }).notNull().default("0"),
   discountPercent: numeric("discount_percent", { precision: 6, scale: 3 })
     .notNull()
     .default("0"),

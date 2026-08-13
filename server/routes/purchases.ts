@@ -137,6 +137,7 @@ function buildBillJeLines(
   totalP: number,
   billNumber: string,
   adjustment?: { paise: number; accountId: string | null },
+  tdsP = 0,
 ) {
   const jeLines: Array<{
     accountId?: string;
@@ -174,6 +175,9 @@ function buildBillJeLines(
     );
   }
 
+  // Withheld tax is owed to the government rather than the vendor, so it
+  // splits off the payable rather than reducing the cost.
+  if (tdsP > 0) jeLines.push({ systemKey: "tds_payable", credit: fromPaise(tdsP) });
   jeLines.push({ systemKey: "ap", credit: fromPaise(totalP) });
   return jeLines;
 }
@@ -453,6 +457,9 @@ const billSchema = z.object({
       description: z.string().max(100).optional(),
     })
     .optional(),
+  /** Tax withheld from the vendor under section 194 and the like. */
+  tdsAmount: money.optional(),
+  tdsSection: z.string().max(12).optional(),
   lines: z.array(billLineSchema).min(1).max(200),
 });
 
@@ -470,6 +477,8 @@ interface CreateBillArgs {
   notes?: string;
   purchaseOrderId?: string;
   adjustment?: { amount: string; accountId: string; description?: string };
+  tdsAmount?: string;
+  tdsSection?: string;
   lines: Array<z.infer<typeof lineSchema>>;
   postedBy: string;
 }
@@ -510,6 +519,8 @@ interface BillComputation {
   freightP: number;
   allocatedP: number[];
   lineAmountsP: number[];
+  /** Tax withheld at source, in paise. Reduces what the vendor is paid. */
+  tdsP: number;
 }
 
 /**
@@ -524,6 +535,7 @@ async function computeBill(
   lines: Array<z.infer<typeof lineSchema>>,
   freightAmount?: string,
   adjustment?: { amount: string; accountId?: string | null; description?: string | null },
+  tdsAmount?: string,
 ): Promise<BillComputation> {
   const resolvedLines = await resolveLineAccounts(tx, lines);
   const totals = await computeDocumentTotals(
@@ -532,11 +544,24 @@ async function computeBill(
     vendor.placeOfSupplyState,
     adjustment,
   );
-  const { lines: computedLines, ...headerTotals } = totals;
+  const { lines: computedLines, ...rest } = totals;
+  // Tax deducted at source is withheld from the vendor, so it comes off what
+  // they are owed: the expense stays gross and the payable is net.
+  const tdsP = toPaise(tdsAmount ?? "0");
+  const headerTotals = { ...rest, total: fromPaise(toPaise(rest.total) - tdsP) };
   const freightP = toPaise(freightAmount ?? "0");
   const lineAmountsP = computedLines.map((l) => toPaise(l.amount));
   const allocatedP = allocateFreight(lineAmountsP, freightP);
-  return { resolvedLines, totals, computedLines, headerTotals, freightP, allocatedP, lineAmountsP };
+  return {
+    resolvedLines,
+    totals: { ...totals, total: headerTotals.total },
+    computedLines,
+    headerTotals,
+    freightP,
+    allocatedP,
+    lineAmountsP,
+    tdsP,
+  };
 }
 
 /** Bill line rows with their costing columns filled in. */
@@ -630,6 +655,7 @@ function billGoodsJeLines(c: BillComputation, number: string) {
     toPaise(c.totals.total),
     number,
     { paise: toPaise(c.totals.adjustment), accountId: c.totals.adjustmentAccountId },
+    c.tdsP,
   );
 }
 
@@ -673,7 +699,7 @@ async function postFreightJournal(
 
 async function createBill(tx: Tx, args: CreateBillArgs) {
   const vendor = args.vendor;
-  const c = await computeBill(tx, vendor, args.lines, args.freightAmount, args.adjustment);
+  const c = await computeBill(tx, vendor, args.lines, args.freightAmount, args.adjustment, args.tdsAmount);
   const { computedLines, headerTotals, freightP, allocatedP, lineAmountsP, resolvedLines } = c;
   const number = await nextDocumentNumber(tx, "bill", args.seriesId);
   const dueDate = args.dueDate ?? computeDueDate(args.billDate, args.vendor.paymentTermsDays);
@@ -693,6 +719,8 @@ async function createBill(tx: Tx, args: CreateBillArgs) {
       freightAmount: fromPaise(freightP),
       freightVendorId: args.freightVendorId,
       freightAccountId: args.freightAccountId,
+      tdsAmount: fromPaise(c.tdsP),
+      tdsSection: args.tdsSection,
       balanceDue: headerTotals.total,
       notes: args.notes,
       createdBy: args.postedBy,
@@ -850,6 +878,8 @@ purchasesRouter.post(
           freightAccountId: body.freightAccountId,
           notes: body.notes,
           adjustment: body.adjustment,
+          tdsAmount: body.tdsAmount,
+          tdsSection: body.tdsSection,
           lines: body.lines,
           postedBy: req.session.user!.id,
         });
@@ -921,11 +951,18 @@ purchasesRouter.patch(
 
         await saveCustomFieldValues(tx, "bill", bill.id, body.customFields);
 
-        const c = await computeBill(tx, vendor, inputLines, freightAmount, {
-          amount: body.adjustment?.amount ?? bill.adjustment,
-          accountId: body.adjustment?.accountId ?? bill.adjustmentAccountId,
-          description: body.adjustment?.description ?? bill.adjustmentDescription,
-        });
+        const c = await computeBill(
+          tx,
+          vendor,
+          inputLines,
+          freightAmount,
+          {
+            amount: body.adjustment?.amount ?? bill.adjustment,
+            accountId: body.adjustment?.accountId ?? bill.adjustmentAccountId,
+            description: body.adjustment?.description ?? bill.adjustmentDescription,
+          },
+          body.tdsAmount ?? bill.tdsAmount,
+        );
         await tx.delete(billLines).where(eq(billLines.billId, bill.id));
         const editedLines = await tx
           .insert(billLines)
@@ -1969,6 +2006,78 @@ purchasesRouter.post(
   },
 );
 
+/**
+ * Post a bill from the rows already stored against it.
+ *
+ * The create path computes totals and posts in one pass, which is right when a
+ * person is typing a bill. An import is the other way round: the amounts are
+ * already known and authoritative, and recomputing them from quantity times
+ * rate moves 190 of Amino's lines — up to 213 rupees on one — because Zoho
+ * prices to six decimals. So this reads what is stored and posts exactly that.
+ */
+export async function postStoredBillJournal(
+  tx: Tx,
+  billId: string,
+  postedBy: string,
+): Promise<string> {
+  const bill = await tx.query.bills.findFirst({ where: eq(bills.id, billId) });
+  if (!bill) throw new PostingError("Bill not found");
+  const [vendor] = await tx
+    .select({ displayName: contacts.displayName })
+    .from(contacts)
+    .where(eq(contacts.id, bill.vendorId))
+    .limit(1);
+
+  const lines = await tx
+    .select({ accountId: billLines.accountId, amount: billLines.amount })
+    .from(billLines)
+    .where(eq(billLines.billId, billId));
+
+  const grouped = new Map<string, number>();
+  for (const l of lines) {
+    if (!l.accountId) throw new PostingError(`Bill ${bill.number} has a line with no account`);
+    grouped.set(l.accountId, (grouped.get(l.accountId) ?? 0) + toPaise(l.amount));
+  }
+
+  const jeLines: Array<{
+    accountId?: string;
+    systemKey?: string;
+    debit?: string;
+    credit?: string;
+    description?: string;
+  }> = [];
+  for (const [accountId, paise] of grouped) {
+    if (paise !== 0) {
+      jeLines.push({ accountId, debit: fromPaise(paise), description: `Bill ${bill.number}` });
+    }
+  }
+
+  const adjP = toPaise(bill.adjustment);
+  if (adjP !== 0) {
+    if (!bill.adjustmentAccountId) {
+      throw new PostingError(`Bill ${bill.number} has an adjustment but no account for it`);
+    }
+    jeLines.push(
+      adjP > 0
+        ? { accountId: bill.adjustmentAccountId, debit: fromPaise(adjP) }
+        : { accountId: bill.adjustmentAccountId, credit: fromPaise(-adjP) },
+    );
+  }
+
+  const tdsP = toPaise(bill.tdsAmount);
+  if (tdsP > 0) jeLines.push({ systemKey: "tds_payable", credit: fromPaise(tdsP) });
+  jeLines.push({ systemKey: "ap", credit: bill.total });
+
+  return postJournal(tx, {
+    entryDate: bill.billDate,
+    narration: `Bill ${bill.number} — ${vendor?.displayName ?? ""}`,
+    sourceType: "bill",
+    sourceId: bill.id,
+    postedBy,
+    lines: jeLines,
+  });
+}
+
 // ---------- Re-post helpers (used by Bulk Update) ----------
 //
 // Each one reverses a document's existing posting and re-posts it from whatever
@@ -2007,11 +2116,18 @@ export async function repostBill(tx: Tx, id: string, userId: string): Promise<vo
     if (je) await reverseJournal(tx, je, bill.billDate, userId);
   }
 
-  const c = await computeBill(tx, vendor, await storedBillLines(tx, id), bill.freightAmount, {
-    amount: bill.adjustment,
-    accountId: bill.adjustmentAccountId,
-    description: bill.adjustmentDescription,
-  });
+  const c = await computeBill(
+    tx,
+    vendor,
+    await storedBillLines(tx, id),
+    bill.freightAmount,
+    {
+      amount: bill.adjustment,
+      accountId: bill.adjustmentAccountId,
+      description: bill.adjustmentDescription,
+    },
+    bill.tdsAmount,
+  );
   await tx.delete(billLines).where(eq(billLines.billId, id));
   await tx.insert(billLines).values(billLineValues(c, id));
 
