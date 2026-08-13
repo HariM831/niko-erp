@@ -36,6 +36,7 @@ interface DetailLine {
   amount: string;
   allocatedFreight?: string;
   landedUnitCost?: string;
+  tags?: Array<{ tagName: string; optionName: string }>;
 }
 
 interface DetailDoc {
@@ -593,6 +594,21 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
                       <div>{l.name}</div>
                       {l.description && (
                         <div className="whitespace-pre-wrap text-[10px] text-[#727272]">{l.description}</div>
+                      )}
+                      {/* Internal analysis, not something the vendor should see —
+                          on screen only, never on the printed document. */}
+                      {l.tags && l.tags.length > 0 && (
+                        <div className="mt-0.5 flex flex-wrap gap-1 print:hidden">
+                          {l.tags.map((t) => (
+                            <span
+                              key={t.tagName}
+                              className="inline-flex items-center gap-1 rounded border border-[#c9c9c9] px-1 text-[9px] leading-4 text-[#4a4a4a]"
+                            >
+                              <span className="text-[#8a8a8a]">{t.tagName}</span>
+                              {t.optionName}
+                            </span>
+                          ))}
+                        </div>
                       )}
                     </td>
                     <td className="px-2 py-1.5 text-right align-top tabular-nums">
