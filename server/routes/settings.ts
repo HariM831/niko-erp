@@ -285,6 +285,10 @@ const preferencesSchema = z.object({
   allowDuplicateContactNames: z.boolean().optional(),
   defaultCustomerType: z.enum(["business", "individual"]).optional(),
   enableCreditLimit: z.boolean().optional(),
+  allowEditingSentInvoice: z.boolean().optional(),
+  hideZeroValueLines: z.boolean().optional(),
+  defaultInvoiceTerms: z.string().max(2000).nullable().optional(),
+  defaultInvoiceNotes: z.string().max(2000).nullable().optional(),
 });
 
 settingsRouter.patch(

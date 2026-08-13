@@ -1,7 +1,33 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { Banner, SettingsHeader } from "../components/settings-ui";
+
+/** One page per module, the way Zoho splits its Module Settings. */
+type Module = "transactions" | "contacts" | "items" | "invoices" | "accountant";
+
+const TITLES: Record<Module, { title: string; description: string }> = {
+  transactions: {
+    title: "Transactions",
+    description: "Discounts, additional charges and rounding, applied to every document.",
+  },
+  contacts: {
+    title: "Customers and Vendors",
+    description: "How contacts are created and what limits apply to them.",
+  },
+  items: {
+    title: "Items",
+    description: "Item naming, quantity precision and how stock behaves.",
+  },
+  invoices: {
+    title: "Invoices",
+    description: "What may be changed after an invoice is issued, and what it says by default.",
+  },
+  accountant: {
+    title: "Accountant",
+    description: "Chart of accounts rules.",
+  },
+};
 
 interface Preferences {
   discountLevel: string;
@@ -19,11 +45,15 @@ interface Preferences {
   allowDuplicateContactNames: boolean;
   defaultCustomerType: string;
   enableCreditLimit: boolean;
+  allowEditingSentInvoice: boolean;
+  hideZeroValueLines: boolean;
+  defaultInvoiceTerms: string | null;
+  defaultInvoiceNotes: string | null;
   requireAccountCode: boolean;
 }
 
-/** Zoho puts a bold question above each group, with the options beneath. */
-function Group({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+/** Zoho puts a question above each group, with the options beneath it. */
+function Group({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
   return (
     <div className="mb-7">
       <h3 className="text-[13px] font-medium text-[#212529]">{title}</h3>
@@ -87,7 +117,7 @@ function Check({
   );
 }
 
-export function PreferencesSection() {
+function PreferencesShell({ only }: { only: Module }) {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ["preferences"],
@@ -112,6 +142,7 @@ export function PreferencesSection() {
     setBusy(true);
     setError(null);
     try {
+      // requireAccountCode is fixed here, so it is never sent back.
       const { requireAccountCode: _fixed, ...body } = form;
       await api("/api/settings/preferences", { method: "PATCH", body });
       await qc.invalidateQueries();
@@ -127,191 +158,227 @@ export function PreferencesSection() {
 
   return (
     <div>
-      <SettingsHeader
-        title="Preferences"
-        description="How transactions, items and contacts behave across the whole organisation."
-      />
+      <SettingsHeader title={TITLES[only].title} description={TITLES[only].description} />
       {error && <Banner tone="error">{error}</Banner>}
-      {saved && <Banner tone="success">Preferences saved.</Banner>}
+      {saved && <Banner tone="success">Saved.</Banner>}
 
       <div className="max-w-2xl">
-        <h2 className="mb-4 border-b pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-          Transactions
-        </h2>
-
-        <Group title="Do you give discounts?">
-          <Radio
-            name="discount"
-            checked={form.discountLevel === "none"}
-            onChange={() => set({ discountLevel: "none" })}
-            label="I don't give discounts"
-          />
-          <Radio
-            name="discount"
-            checked={form.discountLevel === "line"}
-            onChange={() => set({ discountLevel: "line" })}
-            label="At line item level"
-          />
-          {form.discountLevel !== "none" && (
-            <div className="ml-6">
-              <Check
-                checked={form.discountBeforeTax}
-                onChange={(v) => set({ discountBeforeTax: v })}
-                label="Discount before tax"
-                hint="Tax is computed on the discounted amount rather than the full rate."
+        {only === "transactions" && (
+          <>
+            <Group title="Do you give discounts?">
+              <Radio
+                name="discount"
+                checked={form.discountLevel === "none"}
+                onChange={() => set({ discountLevel: "none" })}
+                label="I don't give discounts"
               />
-            </div>
-          )}
-        </Group>
+              <Radio
+                name="discount"
+                checked={form.discountLevel === "line"}
+                onChange={() => set({ discountLevel: "line" })}
+                label="At line item level"
+              />
+              {form.discountLevel !== "none" && (
+                <div className="ml-6">
+                  <Check
+                    checked={form.discountBeforeTax}
+                    onChange={(v) => set({ discountBeforeTax: v })}
+                    label="Discount before tax"
+                    hint="Tax is computed on the discounted amount rather than the full rate."
+                  />
+                </div>
+              )}
+              <p className="max-w-2xl text-[12px] text-gray-500">
+                Transaction-level discount is not offered yet — it needs a header discount field
+                on every document, which does not exist.
+              </p>
+            </Group>
 
-        <Group title="Select any additional charges you'd like to add">
-          <Check
-            checked={form.enableAdjustment}
-            onChange={(v) => set({ enableAdjustment: v })}
-            label="Adjustments"
-          />
-          <Check
-            checked={form.enableShippingCharge}
-            onChange={(v) => set({ enableShippingCharge: v })}
-            label="Freight / shipping charges"
-            hint="The freight block on bills, charged to the transporter as its own expense."
-          />
-        </Group>
+            <Group title="Select any additional charges you'd like to add">
+              <Check
+                checked={form.enableAdjustment}
+                onChange={(v) => set({ enableAdjustment: v })}
+                label="Adjustments"
+              />
+              <Check
+                checked={form.enableShippingCharge}
+                onChange={(v) => set({ enableShippingCharge: v })}
+                label="Freight / shipping charges"
+                hint="The freight block on bills, charged to the transporter as its own expense."
+              />
+            </Group>
 
-        <Group title="Rounding off in transactions">
-          <Radio
-            name="rounding"
-            checked={form.roundingMode === "none"}
-            onChange={() => set({ roundingMode: "none" })}
-            label="No rounding"
-          />
-          <Radio
-            name="rounding"
-            checked={form.roundingMode === "whole"}
-            onChange={() => set({ roundingMode: "whole" })}
-            label="Round off the total to the nearest whole number"
-          />
-          <Radio
-            name="rounding"
-            checked={form.roundingMode === "increment"}
-            onChange={() => set({ roundingMode: "increment" })}
-            label="Round off the total to the nearest incremental value"
-          />
-          {form.roundingMode === "increment" && (
-            <div className="ml-6 w-32">
-              <input
-                value={form.roundingIncrement}
-                onChange={(e) => set({ roundingIncrement: e.target.value })}
+            <Group title="Rounding off in transactions">
+              <Radio
+                name="rounding"
+                checked={form.roundingMode === "none"}
+                onChange={() => set({ roundingMode: "none" })}
+                label="No rounding"
+              />
+              <Radio
+                name="rounding"
+                checked={form.roundingMode === "whole"}
+                onChange={() => set({ roundingMode: "whole" })}
+                label="Round off the total to the nearest whole number"
+              />
+              <Radio
+                name="rounding"
+                checked={form.roundingMode === "increment"}
+                onChange={() => set({ roundingMode: "increment" })}
+                label="Round off the total to the nearest incremental value"
+              />
+              {form.roundingMode === "increment" && (
+                <div className="ml-6 w-32">
+                  <input
+                    value={form.roundingIncrement}
+                    onChange={(e) => set({ roundingIncrement: e.target.value })}
+                    className="input"
+                  />
+                </div>
+              )}
+              <p className="max-w-2xl text-[12px] text-gray-500">
+                The difference is recorded as round-off on the document, so it still ties to its
+                own lines whichever setting is chosen.
+              </p>
+            </Group>
+          </>
+        )}
+
+        {only === "items" && (
+          <>
+            <Group title="Set a decimal place for item quantities">
+              <div className="w-32">
+                <select
+                  value={String(form.quantityDecimals)}
+                  onChange={(e) => set({ quantityDecimals: Number(e.target.value) })}
+                  className="input"
+                >
+                  {[0, 1, 2, 3, 4].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </Group>
+
+            <Group title="Duplicate item name">
+              <Check
+                checked={form.allowDuplicateItemNames}
+                onChange={(v) => set({ allowDuplicateItemNames: v })}
+                label="Allow duplicate item names"
+                hint="With this off, a new item whose name already exists is refused."
+              />
+            </Group>
+
+            <Group title="Inventory">
+              <Check
+                checked={form.preventNegativeStock}
+                onChange={(v) => set({ preventNegativeStock: v })}
+                label="Prevent stock from going below zero"
+                hint="An adjustment that would take an item negative is refused outright."
+              />
+              <Check
+                checked={form.showOutOfStockWarning}
+                onChange={(v) => set({ showOutOfStockWarning: v })}
+                label="Show an out-of-stock warning when an item's stock drops below zero"
+              />
+              <Check
+                checked={form.notifyOnReorderLevel}
+                onChange={(v) => set({ notifyOnReorderLevel: v })}
+                label="Flag an item when its stock reaches the reorder level"
+              />
+            </Group>
+          </>
+        )}
+
+        {only === "contacts" && (
+          <>
+            <Group title="Duplicate display name">
+              <Check
+                checked={form.allowDuplicateContactNames}
+                onChange={(v) => set({ allowDuplicateContactNames: v })}
+                label="Allow duplicates for customer and vendor display name"
+              />
+            </Group>
+
+            <Group title="Default customer type" hint="Preselected when a new customer is created.">
+              <Radio
+                name="custtype"
+                checked={form.defaultCustomerType === "business"}
+                onChange={() => set({ defaultCustomerType: "business" })}
+                label="Business"
+              />
+              <Radio
+                name="custtype"
+                checked={form.defaultCustomerType === "individual"}
+                onChange={() => set({ defaultCustomerType: "individual" })}
+                label="Individual"
+              />
+            </Group>
+
+            <Group title="Customer credit limit">
+              <Check
+                checked={form.enableCreditLimit}
+                onChange={(v) => set({ enableCreditLimit: v })}
+                label="Enforce credit limits"
+                hint="Issuing an invoice that would put a customer past their limit is refused. Turn off to record the limit without acting on it."
+              />
+            </Group>
+          </>
+        )}
+
+        {only === "invoices" && (
+          <>
+            <Group title="Allow editing of a sent invoice?">
+              <Check
+                checked={form.allowEditingSentInvoice}
+                onChange={(v) => set({ allowEditingSentInvoice: v })}
+                label="Allow editing of sent invoice"
+                hint="The journal is reversed and re-posted, so the ledger keeps the trail. An invoice with payments applied stays locked either way."
+              />
+            </Group>
+
+            <Group title="Zero-value line items">
+              <Check
+                checked={form.hideZeroValueLines}
+                onChange={(v) => set({ hideZeroValueLines: v })}
+                label="Hide zero-value line items"
+                hint="They stay on the invoice when editing; this only affects the printed document."
+              />
+            </Group>
+
+            <Group title="Terms &amp; Conditions" hint="Prefilled on a new invoice.">
+              <textarea
+                value={form.defaultInvoiceTerms ?? ""}
+                onChange={(e) => set({ defaultInvoiceTerms: e.target.value || null })}
+                rows={3}
                 className="input"
               />
-            </div>
-          )}
-          <p className="max-w-2xl text-[12px] text-gray-500">
-            The difference is recorded as round-off on the document, so it still ties to its own
-            lines whichever setting is chosen.
-          </p>
-        </Group>
+            </Group>
 
-        <h2 className="mb-4 border-b pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-          Items &amp; Inventory
-        </h2>
+            <Group title="Customer Notes" hint="Prefilled on a new invoice.">
+              <textarea
+                value={form.defaultInvoiceNotes ?? ""}
+                onChange={(e) => set({ defaultInvoiceNotes: e.target.value || null })}
+                rows={2}
+                className="input"
+              />
+            </Group>
+          </>
+        )}
 
-        <Group title="Set a decimal place for item quantities">
-          <div className="w-32">
-            <select
-              value={String(form.quantityDecimals)}
-              onChange={(e) => set({ quantityDecimals: Number(e.target.value) })}
-              className="input"
-            >
-              {[0, 1, 2, 3, 4].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-          </div>
-        </Group>
-
-        <Group title="Duplicate item name">
-          <Check
-            checked={form.allowDuplicateItemNames}
-            onChange={(v) => set({ allowDuplicateItemNames: v })}
-            label="Allow duplicate item names"
-            hint="With this off, a new item whose name already exists is refused."
-          />
-        </Group>
-
-        <Group title="Inventory">
-          <Check
-            checked={form.preventNegativeStock}
-            onChange={(v) => set({ preventNegativeStock: v })}
-            label="Prevent stock from going below zero"
-            hint="An adjustment that would take an item negative is refused outright."
-          />
-          <Check
-            checked={form.showOutOfStockWarning}
-            onChange={(v) => set({ showOutOfStockWarning: v })}
-            label="Show an out-of-stock warning when an item's stock drops below zero"
-          />
-          <Check
-            checked={form.notifyOnReorderLevel}
-            onChange={(v) => set({ notifyOnReorderLevel: v })}
-            label="Flag an item when its stock reaches the reorder level"
-          />
-        </Group>
-
-        <h2 className="mb-4 border-b pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-          Customers &amp; Vendors
-        </h2>
-
-        <Group title="Duplicate display name">
-          <Check
-            checked={form.allowDuplicateContactNames}
-            onChange={(v) => set({ allowDuplicateContactNames: v })}
-            label="Allow duplicates for customer and vendor display name"
-          />
-        </Group>
-
-        <Group
-          title="Default customer type"
-          hint="Preselected when a new customer is created."
-        >
-          <Radio
-            name="custtype"
-            checked={form.defaultCustomerType === "business"}
-            onChange={() => set({ defaultCustomerType: "business" })}
-            label="Business"
-          />
-          <Radio
-            name="custtype"
-            checked={form.defaultCustomerType === "individual"}
-            onChange={() => set({ defaultCustomerType: "individual" })}
-            label="Individual"
-          />
-        </Group>
-
-        <Group title="Customer credit limit">
-          <Check
-            checked={form.enableCreditLimit}
-            onChange={(v) => set({ enableCreditLimit: v })}
-            label="Enforce credit limits"
-            hint="Issuing an invoice that would put a customer past their limit is refused. Turn off to record the limit without acting on it."
-          />
-        </Group>
-
-        <h2 className="mb-4 border-b pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
-          Accountant
-        </h2>
-
-        <Group title="Chart of accounts">
-          <Check
-            checked
-            disabled
-            onChange={() => {}}
-            label="Account code is mandatory and unique"
-            hint="Always on here, unlike Zoho: every account is referred to by code throughout EGGSY, so one without a code would have nothing to show."
-          />
-        </Group>
+        {only === "accountant" && (
+          <Group title="Chart of accounts">
+            <Check
+              checked
+              disabled
+              onChange={() => {}}
+              label="Account code is mandatory and unique"
+              hint="Always on here, unlike Zoho: every account is referred to by its code throughout EGGSY, so one without a code would have nothing to show."
+            />
+          </Group>
+        )}
 
         <div className="mt-2">
           <button onClick={() => void save()} disabled={busy} className="btn-primary">
@@ -322,3 +389,9 @@ export function PreferencesSection() {
     </div>
   );
 }
+
+export const TransactionPrefsSection = () => <PreferencesShell only="transactions" />;
+export const ContactPrefsSection = () => <PreferencesShell only="contacts" />;
+export const ItemPrefsSection = () => <PreferencesShell only="items" />;
+export const InvoicePrefsSection = () => <PreferencesShell only="invoices" />;
+export const AccountantPrefsSection = () => <PreferencesShell only="accountant" />;

@@ -308,6 +308,10 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const { data: prefs } = useQuery({
+    queryKey: ["preferences"],
+    queryFn: () => api<{ hideZeroValueLines: boolean }>("/api/settings/preferences"),
+  });
   const { data: doc, isLoading } = useQuery({
     queryKey: ["doc", kind, id],
     queryFn: () => api<DetailDoc>(`${config!.endpoint}/${id}`),
@@ -587,7 +591,9 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
                 </tr>
               </thead>
               <tbody>
-                {doc.lines.map((l, i) => (
+                {doc.lines
+                  .filter((l) => !prefs?.hideZeroValueLines || Number(l.amount) !== 0)
+                  .map((l, i) => (
                   <tr key={l.id} className="border-b border-[#9e9e9e]">
                     <td className="px-1.5 py-1.5 text-center align-top">{i + 1}</td>
                     <td className="px-2 py-1.5 align-top">

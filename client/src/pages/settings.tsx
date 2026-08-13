@@ -17,14 +17,24 @@ import { RolesSection, UsersSection } from "./settings-users";
 import { OpeningBalancesSection } from "./settings-opening";
 import { LocationsSection } from "./settings-locations";
 import { ReportingTagsSection } from "./settings-tags";
-import { PreferencesSection } from "./settings-preferences";
+import {
+  AccountantPrefsSection,
+  ContactPrefsSection,
+  InvoicePrefsSection,
+  ItemPrefsSection,
+  TransactionPrefsSection,
+} from "./settings-preferences";
 
 type Section =
   | "org"
   | "locations"
   | "users"
   | "roles"
-  | "preferences"
+  | "pref-transactions"
+  | "pref-contacts"
+  | "pref-items"
+  | "pref-invoices"
+  | "pref-accountant"
   | "taxes"
   | "series"
   | "reporting-tags"
@@ -36,12 +46,16 @@ const SECTIONS: Array<{ key: Section; label: string; group: string }> = [
   { key: "locations", label: "Locations", group: "Organisation" },
   { key: "users", label: "Users", group: "Users & Roles" },
   { key: "roles", label: "Roles", group: "Users & Roles" },
-  { key: "preferences", label: "Preferences", group: "Setup" },
   { key: "taxes", label: "Taxes", group: "Setup" },
   { key: "series", label: "Transaction Number Series", group: "Setup" },
   { key: "reporting-tags", label: "Reporting Tags", group: "Setup" },
   { key: "opening-balances", label: "Opening Balances", group: "Setup" },
   { key: "financial-years", label: "Financial Years & Locking", group: "Setup" },
+  { key: "pref-transactions", label: "Transactions", group: "Module Settings" },
+  { key: "pref-contacts", label: "Customers and Vendors", group: "Module Settings" },
+  { key: "pref-items", label: "Items", group: "Module Settings" },
+  { key: "pref-invoices", label: "Invoices", group: "Module Settings" },
+  { key: "pref-accountant", label: "Accountant", group: "Module Settings" },
 ];
 
 /** Sections that are a form rather than a table, and so want a narrow measure. */
@@ -80,7 +94,11 @@ export function SettingsPage() {
           {active === "locations" && <LocationsSection />}
           {active === "users" && <UsersSection />}
           {active === "roles" && <RolesSection />}
-          {active === "preferences" && <PreferencesSection />}
+          {active === "pref-transactions" && <TransactionPrefsSection />}
+          {active === "pref-contacts" && <ContactPrefsSection />}
+          {active === "pref-items" && <ItemPrefsSection />}
+          {active === "pref-invoices" && <InvoicePrefsSection />}
+          {active === "pref-accountant" && <AccountantPrefsSection />}
           {active === "taxes" && <TaxesSection />}
           {active === "series" && <SeriesSection />}
           {active === "reporting-tags" && <ReportingTagsSection />}

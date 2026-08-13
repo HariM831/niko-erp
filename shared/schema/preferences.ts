@@ -1,4 +1,12 @@
-import { boolean, integer, numeric, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  integer,
+  numeric,
+  pgTable,
+  text,
+  timestamp,
+  varchar,
+} from "drizzle-orm/pg-core";
 
 /**
  * Org-wide behaviour switches, mirroring Zoho's Module Settings.
@@ -47,6 +55,18 @@ export const preferences = pgTable("preferences", {
     .default("business"),
   /** Enforce contacts.creditLimit when an invoice is issued. */
   enableCreditLimit: boolean("enable_credit_limit").notNull().default(true),
+
+  // ---- Invoices ----
+  /**
+   * Permit editing an invoice after it has been sent. The journal is reversed
+   * and re-posted, so the ledger keeps the trail rather than being rewritten.
+   */
+  allowEditingSentInvoice: boolean("allow_editing_sent_invoice").notNull().default(false),
+  /** Leave nil-value lines off the printed document. */
+  hideZeroValueLines: boolean("hide_zero_value_lines").notNull().default(false),
+  /** Prefilled on a new invoice. */
+  defaultInvoiceTerms: text("default_invoice_terms"),
+  defaultInvoiceNotes: text("default_invoice_notes"),
 
   // ---- Accountant ----
   /** Account code is required on a new GL account. Codes are always unique. */

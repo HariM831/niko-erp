@@ -305,8 +305,18 @@ salesRouter.patch(
           where: eq(invoices.id, req.params.id!),
         });
         if (!inv) throw new PostingError("Invoice not found");
+        const prefs = await getPreferences(tx);
         if (inv.status !== "draft") {
-          throw new PostingError("Only draft invoices can be edited");
+          if (!prefs.allowEditingSentInvoice) {
+            throw new PostingError("Only draft invoices can be edited");
+          }
+          if (inv.status === "void") throw new PostingError("A void invoice cannot be edited");
+          // Money already received against it would no longer match the figures.
+          if (toPaise(inv.balanceDue) !== toPaise(inv.total)) {
+            throw new PostingError(
+              "Invoice has payments or credits applied — unapply them first",
+            );
+          }
         }
         const customer = await loadCustomer(tx, body.customerId ?? inv.customerId);
 
@@ -341,6 +351,22 @@ salesRouter.patch(
           })
           .where(eq(invoices.id, inv.id))
           .returning();
+
+        // An issued invoice keeps its ledger in step: the old entry is
+        // reversed and a fresh one posted, so the trail survives the edit.
+        if (inv.status !== "draft" && inv.journalEntryId) {
+          await reverseJournal(tx, inv.journalEntryId, updated!.invoiceDate, req.session.user!.id);
+          const jeId = await postInvoiceJournal(
+            tx,
+            updated!,
+            customer.displayName,
+            req.session.user!.id,
+          );
+          await tx
+            .update(invoices)
+            .set({ journalEntryId: jeId })
+            .where(eq(invoices.id, inv.id));
+        }
         return updated!;
       });
       res.json(result);
