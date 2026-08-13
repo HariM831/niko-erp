@@ -121,6 +121,41 @@ async function main() {
   const accountFor = await idsOf("account");
   const done = await idsOf("invoice");
 
+  /**
+   * Revenue is classified by what was sold, not by what the data-entry left
+   * blank.
+   *
+   * Zoho falls back to a catch-all "Sales" account whenever an invoice line
+   * names none, and in these books that swallowed ₹14.58cr — 192 lines of
+   * Egg's Large, 10 of Poultry Feed, 2 of Layer Birds — while identical lines
+   * on other invoices went to Eggs (Sales), feed and Chicks(Sales). The split
+   * is an artefact of who typed the invoice, not a fact about the business.
+   *
+   * So a line sitting on the catch-all is re-pointed at its item's own default
+   * account. A line that explicitly chose some other account is left alone, and
+   * a line with no item has nothing to go on and stays where it is.
+   *
+   * The consequence, accepted deliberately: EGGSY's revenue accounts no longer
+   * match Zoho's P&L account by account. Total revenue is identical, and that
+   * is what reconciliation checks.
+   */
+  const CATCH_ALL_SALES = "1849356000000000486";
+  const itemDefaultAccount = new Map<string, string>();
+  for (const line of (await readFile(".zoho-dump/detail/items.jsonl", "utf8")).trim().split("\n")) {
+    if (!line.trim()) continue;
+    const it = JSON.parse(line) as { item_id: string; account_id?: string };
+    if (it.account_id) itemDefaultAccount.set(it.item_id, it.account_id);
+  }
+
+  /** The Zoho account a line should post to, after the correction above. */
+  const accountForLine = (l: ZohoLine): string | undefined => {
+    if (l.item_id && (!l.account_id || l.account_id === CATCH_ALL_SALES)) {
+      return itemDefaultAccount.get(l.item_id) ?? l.account_id;
+    }
+    return l.account_id;
+  };
+  let reclassified = 0;
+
   const todo = all.filter((i) => !done.has(i.invoice_id));
 
   const problems: string[] = [];
@@ -133,8 +168,9 @@ async function main() {
       if (l.item_id && !itemFor.has(l.item_id)) {
         problems.push(`${inv.invoice_number}: item ${l.item_id} not imported`);
       }
-      if (l.account_id && !accountFor.has(l.account_id)) {
-        problems.push(`${inv.invoice_number}: account ${l.account_id} not imported`);
+      const resolved = accountForLine(l);
+      if (resolved && !accountFor.has(resolved)) {
+        problems.push(`${inv.invoice_number}: account ${resolved} not imported`);
       }
     }
     if (Number(inv.adjustment ?? 0) !== 0 && !accountFor.has(inv.adjustment_account_id ?? "")) {
@@ -151,6 +187,13 @@ async function main() {
   console.log(`  dates ${todo[0]?.date} .. ${todo[todo.length - 1]?.date}`);
   console.log(`  lines ${todo.reduce((s, i) => s + (i.line_items?.length ?? 0), 0)}`);
   console.log(`  with an adjustment ${todo.filter((i) => Number(i.adjustment ?? 0) !== 0).length}`);
+  const wouldMove = todo.flatMap((i) => i.line_items ?? []).filter(
+    (l) => accountForLine(l) && accountForLine(l) !== l.account_id,
+  );
+  console.log(
+    `  lines re-pointed from the catch-all to their item's account: ${wouldMove.length}` +
+      ` (${wouldMove.reduce((s, l) => s + Number(l.item_total ?? 0), 0).toLocaleString("en-IN")})`,
+  );
 
   if (!commit) {
     console.log("\nDry run — nothing written. Re-run with --commit to apply.");
@@ -201,7 +244,11 @@ async function main() {
       const lines = src.map((l, i) => ({
         invoiceId: row!.id,
         itemId: l.item_id ? (itemFor.get(l.item_id) ?? null) : null,
-        accountId: l.account_id ? (accountFor.get(l.account_id) ?? null) : null,
+        accountId: (() => {
+          const target = accountForLine(l);
+          if (target && target !== l.account_id) reclassified += 1;
+          return target ? (accountFor.get(target) ?? null) : null;
+        })(),
         name: l.name?.trim() || "Item",
         description: l.description?.trim() || null,
         hsnOrSac: l.hsn_or_sac?.trim().slice(0, 10) || null,
