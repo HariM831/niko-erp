@@ -68,10 +68,15 @@ async function main() {
     for (const f of files) {
       if (f === "chartofaccounts.jsonl" || f === "chartofaccounts-extra.jsonl") continue;
       const path = `${DIR}/${sub}/${f}`;
+      const before = referenced.size;
       const records = f.endsWith(".jsonl")
         ? await readJsonl(path)
         : [JSON.parse(await readFile(path, "utf8"))];
       harvest(records, referenced);
+      console.log(
+        `  scanned ${sub}/${f}: ${records.length} records, ` +
+          `${referenced.size - before} new account ids`,
+      );
     }
   }
 
