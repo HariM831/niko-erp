@@ -378,6 +378,15 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
   const billingAddr = contact?.addresses?.find((a) => a.kind === "billing");
   const shippingAddr = contact?.addresses?.find((a) => a.kind === "shipping") ?? billingAddr;
   const isSales = ["invoice", "credit-note"].includes(kind);
+
+  const allCustomFields = (doc.customFieldValues ?? []) as Array<{
+    fieldId: string;
+    label: string;
+    display: string;
+    showInPdf: boolean;
+  }>;
+  const pdfFields = allCustomFields.filter((f) => f.showInPdf);
+  const screenOnlyFields = allCustomFields.filter((f) => !f.showInPdf);
   const supply = placeOfSupply(contact?.placeOfSupplyState);
   const terms = termsLabel(doc[config.dateField] as string | undefined, doc.dueDate as string | undefined);
 
@@ -580,6 +589,19 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
                 ) : null}
               </div>
             </div>
+
+            {/* Custom fields flagged "Show in PDF" print on the sheet itself.
+                The rest stay on screen only, below the document. */}
+            {pdfFields.length > 0 && (
+              <div className="flex flex-wrap gap-x-8 gap-y-1 border-t border-[#9e9e9e] px-2.5 py-2">
+                {pdfFields.map((f) => (
+                  <div key={f.fieldId}>
+                    <span className="text-[#727272]">{f.label}: </span>
+                    <span className="font-bold">{f.display || "—"}</span>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <table className="w-full">
               <thead>
@@ -793,13 +815,7 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
               </div>
             )}
 
-            <CustomFieldsDisplay
-              values={
-                doc.customFieldValues as
-                  | Array<{ fieldId: string; label: string; display: string }>
-                  | undefined
-              }
-            />
+            <CustomFieldsDisplay values={screenOnlyFields} />
 
             {JOURNAL_SOURCE_TYPE[kind] && (
               <JournalSection
