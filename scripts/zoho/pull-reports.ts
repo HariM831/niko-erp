@@ -99,10 +99,9 @@ async function main() {
   await writeFile(`${DIR}/account-activity.json`, JSON.stringify(index, null, 2));
   console.log(`\naccount-activity.json: ${Object.keys(index).length} accounts ever used`);
   console.log(`\nWritten to ${DIR}/`);
-  process.exit(0);
 }
 
 main().catch((e) => {
   console.error(e.message);
-  process.exit(1);
+  process.exitCode = 1;
 });

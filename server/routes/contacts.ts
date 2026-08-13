@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, asc, eq, ilike, or, sql } from "drizzle-orm";
+import { and, asc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   bills,
@@ -76,8 +76,10 @@ function moduleFor(type: string | undefined) {
 contactsRouter.get("/", requirePermission("sales", "view"), async (req, res) => {
   const { type, search, isActive } = req.query as Record<string, string | undefined>;
   const conditions = [];
+  // A party that trades both ways belongs in both lists, so asking for
+  // customers has to return it too.
   if (type === "customer" || type === "vendor") {
-    conditions.push(eq(contacts.type, type));
+    conditions.push(inArray(contacts.type, [type, "both"]));
   }
   if (isActive !== undefined) conditions.push(eq(contacts.isActive, isActive === "true"));
   if (search) {

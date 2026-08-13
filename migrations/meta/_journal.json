@@ -190,6 +190,13 @@
       "when": 1786633434946,
       "tag": "0026_swift_firebrand",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1786635216885,
+      "tag": "0027_loud_riptide",
+      "breakpoints": true
     }
   ]
 }

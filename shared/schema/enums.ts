@@ -60,7 +60,14 @@ export const journalSourceType = pgEnum("journal_source_type", [
   "banking",
 ]);
 
-export const contactType = pgEnum("contact_type", ["customer", "vendor"]);
+/**
+ * `both` is for a party that trades in each direction — Nandamuri Poultries
+ * sells to Amino and buys from it, carrying a payable and a receivable at the
+ * same time. Zoho models that as two unrelated contact records, which splits
+ * the relationship in half and makes "what is our net position with them"
+ * unanswerable without knowing to look twice.
+ */
+export const contactType = pgEnum("contact_type", ["customer", "vendor", "both"]);
 
 export const gstTreatment = pgEnum("gst_treatment", [
   "registered_business",

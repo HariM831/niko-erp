@@ -19,7 +19,7 @@ function ContactSplitView({
   activeId,
   children,
 }: {
-  type: "customer" | "vendor";
+  type: "customer" | "vendor" | "both";
   activeId: string;
   children: React.ReactNode;
 }) {
@@ -71,7 +71,7 @@ function ContactSplitView({
 
 interface Contact {
   id: string;
-  type: "customer" | "vendor";
+  type: "customer" | "vendor" | "both";
   displayName: string;
   companyName?: string;
   email?: string;

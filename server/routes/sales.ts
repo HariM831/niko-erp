@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, asc, desc, eq, getTableColumns, gte, lte, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gte, inArray, lte, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   bankAccounts,
@@ -88,7 +88,7 @@ async function loadCustomer(tx: Tx, id: string) {
   const [customer] = await tx
     .select()
     .from(contacts)
-    .where(and(eq(contacts.id, id), eq(contacts.type, "customer")))
+    .where(and(eq(contacts.id, id), inArray(contacts.type, ["customer", "both"])))
     .limit(1);
   if (!customer) throw new PostingError("Customer not found");
   if (!customer.isActive) throw new PostingError("Customer is inactive");

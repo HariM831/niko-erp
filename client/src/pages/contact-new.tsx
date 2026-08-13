@@ -36,7 +36,7 @@ const emptyPerson = (): PersonForm => ({ salutation: "", firstName: "", lastName
 
 type SubTab = "other" | "address" | "persons";
 
-export function ContactNewPage({ type, editId }: { type: "customer" | "vendor"; editId?: string }) {
+export function ContactNewPage({ type, editId }: { type: "customer" | "vendor" | "both"; editId?: string }) {
   const [, navigate] = useLocation();
   const qc = useQueryClient();
   const listPath = type === "customer" ? "/sales/customers" : "/purchases/vendors";

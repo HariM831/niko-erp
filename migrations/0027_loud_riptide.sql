@@ -1,0 +1,1 @@
+ALTER TYPE "public"."contact_type" ADD VALUE 'both';

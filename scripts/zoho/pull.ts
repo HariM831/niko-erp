@@ -208,7 +208,8 @@ async function main() {
   const selected = only ? MODULES.filter((m) => m.path === only) : MODULES;
   if (only && !selected.length) {
     console.error(`No module "${only}". Known: ${MODULES.map((m) => m.path).join(", ")}`);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   let accountIds: string[] = [];
@@ -221,7 +222,6 @@ async function main() {
   if (!only && accountIds.length) await pullLedger(accountIds);
 
   console.log(`\nDone. Files are under ${DIR}/`);
-  process.exit(0);
 }
 
 main().catch((err) => {
@@ -235,5 +235,5 @@ main().catch((err) => {
   } else {
     console.error("Progress is on disk. Re-running continues from where it stopped.");
   }
-  process.exit(1);
+  process.exitCode = 1;
 });

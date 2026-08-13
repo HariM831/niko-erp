@@ -71,7 +71,7 @@ async function main() {
     }
     console.log(`\nDry run — nothing written. Re-run with --commit to apply.`);
     await pool.end();
-    process.exit(0);
+    return;
   }
 
   await db.transaction(async (tx) => {
@@ -126,11 +126,10 @@ async function main() {
 
   console.log(`\nCommitted. EGGSY now has ${count} accounts.`);
   await pool.end();
-  process.exit(0);
 }
 
 main().catch(async (err) => {
   console.error(`\n${err.message}`);
   await pool.end().catch(() => {});
-  process.exit(1);
+  process.exitCode = 1;
 });

@@ -74,10 +74,9 @@ async function main() {
   const ok = results.filter((r) => r.ok);
   console.log(`\n${ok.length} of ${results.length} reporting endpoints usable.`);
   console.log("Detail in .zoho-dump/probe-reports.json");
-  process.exit(0);
 }
 
 main().catch((e) => {
   console.error(e.message);
-  process.exit(1);
+  process.exitCode = 1;
 });

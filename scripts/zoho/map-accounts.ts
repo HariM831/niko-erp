@@ -209,12 +209,23 @@ async function main() {
     console.warn("No account-activity.json — run pull-reports.ts for a better mapping.\n");
   }
 
-  const raw = await readFile(`${DIR}/list/chartofaccounts.jsonl`, "utf8");
-  const accounts: ZohoAccount[] = raw
-    .trim()
-    .split("\n")
-    .filter(Boolean)
-    .map((l) => JSON.parse(l));
+  // Two files, because Zoho's chart endpoint does not return the whole chart.
+  // Ten accounts referenced by real documents — Audit fee, SBI General
+  // Insurance, Zoho's built-in Inventory Asset among them — are absent from the
+  // list and were fetched by id into the second file. Without them the document
+  // import would post to accounts EGGSY does not have.
+  const files = [`${DIR}/list/chartofaccounts.jsonl`, `${DIR}/list/chartofaccounts-extra.jsonl`];
+  const accounts: ZohoAccount[] = [];
+  const seenIds = new Set<string>();
+  for (const file of files) {
+    const raw = await readFile(file, "utf8").catch(() => "");
+    for (const line of raw.trim().split("\n").filter(Boolean)) {
+      const a = JSON.parse(line) as ZohoAccount;
+      if (seenIds.has(a.account_id)) continue;
+      seenIds.add(a.account_id);
+      accounts.push(a);
+    }
+  }
 
   const unknownTypes = [...new Set(accounts.map((a) => a.account_type))].filter(
     (t) => !TYPE_MAP[t],
@@ -473,10 +484,9 @@ async function main() {
     console.log(`  missing ${r.key.padEnd(22)} ${r.candidates.length ? `candidates: ${r.candidates.join(" | ")}` : "(none — will be created)"}`);
   }
   console.log(`\nReview: ${DIR}/account-map.md`);
-  process.exit(0);
 }
 
 main().catch((e) => {
   console.error(e.message);
-  process.exit(1);
+  process.exitCode = 1;
 });

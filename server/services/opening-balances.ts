@@ -80,7 +80,12 @@ export async function contactOpeningTotals(
   let payable = 0;
   for (const r of rows) {
     if (r.type === "customer") receivable = toPaise(r.total);
-    else payable = toPaise(r.total);
+    else if (r.type === "vendor") payable = toPaise(r.total);
+    // A `both` contact is deliberately in neither total. One signed column
+    // cannot say how much of an opening balance is owed to us and how much by
+    // us, and an else-branch here would quietly call the whole thing payable.
+    // No contact in the imported books has an opening balance, so this cannot
+    // bite today; if it ever needs to, the answer is two columns, not a guess.
   }
   return { receivable, payable };
 }

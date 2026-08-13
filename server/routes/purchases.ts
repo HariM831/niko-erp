@@ -69,7 +69,7 @@ async function loadVendor(tx: Tx, id: string) {
   const [vendor] = await tx
     .select()
     .from(contacts)
-    .where(and(eq(contacts.id, id), eq(contacts.type, "vendor")))
+    .where(and(eq(contacts.id, id), inArray(contacts.type, ["vendor", "both"])))
     .limit(1);
   if (!vendor) throw new PostingError("Vendor not found");
   if (!vendor.isActive) throw new PostingError("Vendor is inactive");

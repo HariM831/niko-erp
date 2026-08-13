@@ -155,10 +155,9 @@ async function main() {
     console.log(`\n${failed.length} endpoint(s) unavailable — likely scope or plan:`);
     for (const f of failed) console.log(`  ${f.path}: ${f.error}`);
   }
-  process.exit(0);
 }
 
 main().catch((err) => {
   console.error(`\n${err.message}`);
-  process.exit(1);
+  process.exitCode = 1;
 });
