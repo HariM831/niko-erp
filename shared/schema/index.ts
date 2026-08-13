@@ -14,3 +14,4 @@ export * from "./sales";
 export * from "./purchases";
 export * from "./attachments";
 export * from "./comments";
+export * from "./migration";

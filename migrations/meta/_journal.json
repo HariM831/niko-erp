@@ -183,6 +183,13 @@
       "when": 1786623560681,
       "tag": "0025_great_luminals",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1786633434946,
+      "tag": "0026_swift_firebrand",
+      "breakpoints": true
     }
   ]
 }
