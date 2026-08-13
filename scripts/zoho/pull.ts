@@ -179,17 +179,22 @@ async function pullLedger(accountIds: string[]) {
         page,
         per_page: 200,
       });
-      const rows = (body.account_transactions ?? []) as Array<Record<string, unknown>>;
+      // This report nests one level deeper than the rest of the API: the outer
+      // `account_transactions` holds a single wrapper, and the transactions are
+      // inside that. Reading the outer array as the rows makes every page look
+      // like one row — which silently capped every account at a single page of
+      // 200 and lost the rest of its history.
+      const wrapper = (body.account_transactions as Array<Record<string, unknown>> | undefined)?.[0];
+      const rows = (wrapper?.account_transactions ?? []) as Array<Record<string, unknown>>;
       if (rows.length) {
         await write(
           file,
           rows.map((r) => ({ ...r, account_id: accountId })),
         );
       }
-      // This endpoint does not always return a page_context, so stop on a short
-      // page rather than trusting a has_more flag that may not be there.
-      const ctx = body.page_context as { has_more_page?: boolean } | undefined;
-      if (rows.length < 200 || ctx?.has_more_page === false) break;
+      // No page_context on this endpoint, so a short page is the only signal
+      // that the account is exhausted.
+      if (rows.length < 200) break;
       page += 1;
     }
     await appendFile(`${DIR}/ledger/accounts-done.jsonl`, JSON.stringify({ account_id: accountId }) + "\n");

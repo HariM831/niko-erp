@@ -247,19 +247,49 @@ async function main() {
     list.sort((x, y) => x.account_name.localeCompare(y.account_name));
   }
 
+  /**
+   * Codes already issued, so they never move.
+   *
+   * The first version regenerated every code from scratch on each run, which
+   * meant adding eleven accounts renumbered everything that sorted after them
+   * and the load failed on a unique-code collision. Worse than the failure is
+   * what a success would have meant: a code is user-visible and ends up on
+   * statements and drill-through links, so silently reassigning them would
+   * rewrite the meaning of the chart under the reader.
+   */
+  let issued: Record<string, string> = {};
+  try {
+    issued = JSON.parse(await readFile(`${DIR}/code-assignments.json`, "utf8"));
+  } catch {
+    /* first run — nothing issued yet */
+  }
+
   const counters = new Map<number, number>();
+  // Continue each band past whatever it has already handed out.
+  for (const code of Object.values(issued)) {
+    const n = Number(code);
+    if (!Number.isFinite(n)) continue;
+    const band = Math.floor(n / 500) * 500;
+    counters.set(band, Math.max(counters.get(band) ?? 0, n - band));
+  }
   const mapped: Mapped[] = [];
 
   const visit = (a: ZohoAccount) => {
     const { type, subtype } = TYPE_MAP[a.account_type]!;
     const band = bandFor(type, subtype);
-    const next = (counters.get(band) ?? 0) + 1;
-    counters.set(band, next);
+    const existing = issued[a.account_id];
+    let code = existing ?? a.account_code?.trim();
+    if (!code) {
+      const next = (counters.get(band) ?? 0) + 1;
+      counters.set(band, next);
+      code = String(band + next);
+    }
 
     mapped.push({
       zohoId: a.account_id,
-      // A real Zoho code wins; otherwise one generated from the band.
-      code: a.account_code?.trim() || String(band + next),
+      // An already-issued code wins, then a real Zoho code, then a new one
+      // from the band.
+      code,
       name: a.account_name,
       type,
       subtype,
@@ -332,11 +362,16 @@ async function main() {
   // they take the next free code in their band.
   const created: Mapped[] = CREATE.map((c) => {
     const band = bandFor(c.type, c.subtype);
-    const next = (counters.get(band) ?? 0) + 1;
-    counters.set(band, next);
+    const zohoId = `eggsy:${c.systemKey}`;
+    let code = issued[zohoId];
+    if (!code) {
+      const next = (counters.get(band) ?? 0) + 1;
+      counters.set(band, next);
+      code = String(band + next);
+    }
     return {
-      zohoId: `eggsy:${c.systemKey}`,
-      code: String(band + next),
+      zohoId,
+      code,
       name: c.name,
       type: c.type,
       subtype: c.subtype,
@@ -362,6 +397,11 @@ async function main() {
   await writeFile(
     `${DIR}/account-map.json`,
     JSON.stringify({ accounts: mapped, systemKeys: resolved, createdCount: created.length }, null, 2),
+  );
+  // Written every run so the next one inherits them and no code ever moves.
+  await writeFile(
+    `${DIR}/code-assignments.json`,
+    JSON.stringify(Object.fromEntries(mapped.map((m) => [m.zohoId, m.code])), null, 2),
   );
 
   // ---- review document ----
