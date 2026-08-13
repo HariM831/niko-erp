@@ -176,6 +176,13 @@
       "when": 1786622333698,
       "tag": "0024_marvelous_satana",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1786623560681,
+      "tag": "0025_great_luminals",
+      "breakpoints": true
     }
   ]
 }

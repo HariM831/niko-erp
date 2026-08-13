@@ -35,6 +35,8 @@ const fieldSchema = z.object({
     "dropdown",
     "multiselect",
     "lookup",
+    "multiselect_lookup",
+    "autonumber",
   ]),
   isMandatory: z.boolean().optional(),
   showInPdf: z.boolean().optional(),
@@ -44,6 +46,8 @@ const fieldSchema = z.object({
   maxValue: z.string().optional(),
   lookupEntity: z.string().optional(),
   options: z.array(z.string().min(1).max(80)).max(100).optional(),
+  numberPrefix: z.string().max(20).optional(),
+  numberPadding: z.number().int().min(1).max(10).optional(),
 });
 
 /** The catalogue the settings screen renders its tabs from. */
@@ -90,7 +94,9 @@ customFieldsRouter.post(
   async (req, res) => {
     const body = req.body as z.infer<typeof fieldSchema>;
     try {
-      if (body.dataType === "lookup") assertLookupTarget(body.lookupEntity);
+      if (body.dataType === "lookup" || body.dataType === "multiselect_lookup") {
+        assertLookupTarget(body.lookupEntity);
+      }
       if (NEEDS_OPTIONS.includes(body.dataType) && !body.options?.length) {
         throw new PostingError(`A ${body.dataType} field needs at least one choice`);
       }
@@ -119,7 +125,11 @@ customFieldsRouter.post(
             maxLength: body.maxLength,
             minValue: body.minValue,
             maxValue: body.maxValue,
-            lookupEntity: body.dataType === "lookup" ? body.lookupEntity : null,
+            lookupEntity: ["lookup", "multiselect_lookup"].includes(body.dataType)
+              ? body.lookupEntity
+              : null,
+            numberPrefix: body.dataType === "autonumber" ? (body.numberPrefix ?? "") : null,
+            numberPadding: body.numberPadding ?? 5,
             sortOrder: n,
           })
           .returning();

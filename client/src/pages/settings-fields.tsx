@@ -52,6 +52,8 @@ export const DATA_TYPES: Array<{ key: string; label: string }> = [
   { key: "dropdown", label: "Dropdown" },
   { key: "multiselect", label: "Multi-select" },
   { key: "lookup", label: "Lookup" },
+  { key: "multiselect_lookup", label: "Multi-select Lookup" },
+  { key: "autonumber", label: "Auto-Generate Number" },
 ];
 
 const TYPE_LABEL = Object.fromEntries(DATA_TYPES.map((t) => [t.key, t.label]));
@@ -218,6 +220,7 @@ function FieldModal({
   const [showInPdf, setShowInPdf] = useState(field?.showInPdf ?? false);
   const [helpText, setHelpText] = useState(field?.helpText ?? "");
   const [lookupEntity, setLookupEntity] = useState(field?.lookupEntity ?? lookupTargets[0] ?? "");
+  const [numberPrefix, setNumberPrefix] = useState("");
   const [optionText, setOptionText] = useState(
     field?.options.map((o) => o.label).join("\n") ?? "",
   );
@@ -245,7 +248,10 @@ function FieldModal({
             isMandatory,
             showInPdf,
             helpText: helpText || undefined,
-            lookupEntity: dataType === "lookup" ? lookupEntity : undefined,
+            lookupEntity: ["lookup", "multiselect_lookup"].includes(dataType)
+              ? lookupEntity
+              : undefined,
+            numberPrefix: dataType === "autonumber" ? numberPrefix : undefined,
             options: needsOptions
               ? optionText.split("\n").map((s) => s.trim()).filter(Boolean)
               : undefined,
@@ -309,7 +315,7 @@ function FieldModal({
           )}
         </div>
 
-        {dataType === "lookup" && !editing && (
+        {["lookup", "multiselect_lookup"].includes(dataType) && !editing && (
           <div>
             <label className="label-required">Looks up *</label>
             <select
@@ -323,6 +329,22 @@ function FieldModal({
                 </option>
               ))}
             </select>
+          </div>
+        )}
+
+        {dataType === "autonumber" && !editing && (
+          <div>
+            <label className="label">Prefix</label>
+            <input
+              value={numberPrefix}
+              onChange={(e) => setNumberPrefix(e.target.value)}
+              placeholder="BATCH-"
+              className="input"
+            />
+            <p className="mt-1 text-[12px] text-gray-500">
+              Assigned when the record is saved and never changed afterwards, so it stays a
+              reliable reference.
+            </p>
           </div>
         )}
 

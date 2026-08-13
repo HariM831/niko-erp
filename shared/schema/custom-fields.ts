@@ -42,6 +42,15 @@ export const customFields = pgTable(
     /** For lookup fields: which entity the value points at. */
     lookupEntity: varchar("lookup_entity", { length: 40 }),
 
+    /**
+     * Auto-number settings. Its own counter rather than a document series: a
+     * custom field numbering itself must not compete with the document's real
+     * number, which is a different thing entirely.
+     */
+    numberPrefix: varchar("number_prefix", { length: 20 }),
+    numberPadding: integer("number_padding").notNull().default(5),
+    nextNumber: integer("next_number").notNull().default(1),
+
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [uniqueIndex("uq_custom_field_label").on(t.entity, t.label)],
@@ -107,4 +116,23 @@ export const customFieldValueOptions = pgTable(
       .references(() => customFieldOptions.id),
   },
   (t) => [uniqueIndex("uq_custom_field_value_option").on(t.valueId, t.optionId)],
+);
+
+/**
+ * Records picked by a multi-select lookup field. Mirrors how multi-select
+ * options are stored, but pointing at master data instead of choices. Order of
+ * insertion is preserved, so "Farm A, Farm C" reads back as entered.
+ */
+export const customFieldValueLookups = pgTable(
+  "custom_field_value_lookups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    valueId: uuid("value_id")
+      .notNull()
+      .references(() => customFieldValues.id, { onDelete: "cascade" }),
+    /** No FK: the target table depends on the field's lookupEntity. */
+    lookupId: uuid("lookup_id").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (t) => [uniqueIndex("uq_custom_field_value_lookup").on(t.valueId, t.lookupId)],
 );

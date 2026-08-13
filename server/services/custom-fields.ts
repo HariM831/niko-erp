@@ -1,8 +1,9 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import {
   accounts,
   contacts,
   customFieldOptions,
+  customFieldValueLookups,
   customFieldValueOptions,
   customFieldValues,
   customFields,
@@ -67,16 +68,31 @@ export async function saveCustomFieldValues(
     optionsByField.set(o.fieldId, list);
   }
 
-  // Wipe first: replacement semantics keep "cleared" and "never set" the same.
+  // An auto-number is issued once and never reissued, so the numbers already
+  // on this record are carried across the wipe. Without this, every edit would
+  // hand the record a fresh number and the old one would be lost.
   const existing = await tx
-    .select({ id: customFieldValues.id })
+    .select({ id: customFieldValues.id, fieldId: customFieldValues.fieldId, valueText: customFieldValues.valueText })
     .from(customFieldValues)
     .where(eq(customFieldValues.entityId, entityId));
+  const issuedNumbers = new Map(
+    existing
+      .filter((v) => defs.some((d) => d.id === v.fieldId && d.dataType === "autonumber"))
+      .map((v) => [v.fieldId, v.valueText]),
+  );
+
+  // Wipe: replacement semantics keep "cleared" and "never set" the same.
   if (existing.length) {
     await tx.delete(customFieldValues).where(eq(customFieldValues.entityId, entityId));
   }
 
   for (const def of defs) {
+    if (def.dataType === "autonumber") {
+      const value = issuedNumbers.get(def.id) ?? (await claimNumber(tx, def));
+      await tx.insert(customFieldValues).values({ fieldId: def.id, entityId, valueText: value });
+      continue;
+    }
+
     const raw = input[def.id];
     const empty =
       raw === undefined ||
@@ -100,6 +116,11 @@ export async function saveCustomFieldValues(
         .insert(customFieldValueOptions)
         .values(row.optionIds.map((optionId) => ({ valueId: saved!.id, optionId })));
     }
+    if (row.lookupIds?.length) {
+      await tx
+        .insert(customFieldValueLookups)
+        .values(row.lookupIds.map((lookupId, i) => ({ valueId: saved!.id, lookupId, sortOrder: i })));
+    }
   }
 }
 
@@ -109,7 +130,7 @@ async function buildValueRow(
   def: CustomField,
   raw: unknown,
   options: Array<typeof customFieldOptions.$inferSelect>,
-): Promise<{ columns: Record<string, unknown>; optionIds?: string[] }> {
+): Promise<{ columns: Record<string, unknown>; optionIds?: string[]; lookupIds?: string[] }> {
   const asText = () => {
     const v = String(raw);
     if (def.maxLength && v.length > def.maxLength) {
@@ -208,9 +229,39 @@ async function buildValueRow(
       return { columns: { valueLookupId: targetId } };
     }
 
+    case "multiselect_lookup": {
+      const ids = [...new Set((Array.isArray(raw) ? raw : [raw]).map(String))];
+      for (const id of ids) {
+        if (!(await lookupExists(tx, def.lookupEntity, id))) {
+          throw new PostingError(`"${def.label}" points at a record that no longer exists`);
+        }
+      }
+      return { columns: {}, lookupIds: ids };
+    }
+
     default:
       throw new PostingError(`Unsupported field type on "${def.label}"`);
   }
+}
+
+/**
+ * Claim the next number for an auto-number field. The row lock taken by UPDATE
+ * serialises concurrent claims; a rolled-back save releases the number only if
+ * no later one was issued, which is the same gap-on-failure behaviour document
+ * numbering already accepts.
+ */
+async function claimNumber(tx: Tx, def: CustomField): Promise<string> {
+  const [row] = await tx
+    .update(customFields)
+    .set({ nextNumber: sql`${customFields.nextNumber} + 1` })
+    .where(eq(customFields.id, def.id))
+    .returning({
+      claimed: sql<number>`${customFields.nextNumber} - 1`,
+      prefix: customFields.numberPrefix,
+      padding: customFields.numberPadding,
+    });
+  if (!row) throw new PostingError(`"${def.label}" has no numbering configured`);
+  return `${row.prefix ?? ""}${String(row.claimed).padStart(row.padding, "0")}`;
 }
 
 /** Lookup targets are master data, each with its own table and label column. */
@@ -304,6 +355,16 @@ export async function readCustomFieldValues(
     } else if (def.dataType === "dropdown") {
       const option = singleOptions.find((o) => o.id === v.optionId);
       out.push({ ...base, display: option?.label ?? "—", raw: v.optionId });
+    } else if (def.dataType === "multiselect_lookup") {
+      const picks = await tx
+        .select({ lookupId: customFieldValueLookups.lookupId })
+        .from(customFieldValueLookups)
+        .where(eq(customFieldValueLookups.valueId, v.id))
+        .orderBy(asc(customFieldValueLookups.sortOrder));
+      if (!picks.length) continue;
+      const names = [];
+      for (const p of picks) names.push(await lookupLabel(tx, def.lookupEntity, p.lookupId));
+      out.push({ ...base, display: names.join(", "), raw: picks.map((p) => p.lookupId) });
     } else if (def.dataType === "lookup") {
       const name = await lookupLabel(tx, def.lookupEntity, v.valueLookupId);
       out.push({ ...base, display: name, raw: v.valueLookupId });

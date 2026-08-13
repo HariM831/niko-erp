@@ -125,6 +125,8 @@ export const customFieldDataType = pgEnum("custom_field_data_type", [
   "dropdown",
   "multiselect",
   "lookup",
+  "multiselect_lookup",
+  "autonumber",
 ]);
 
 /** The kinds of place the business runs. Farms and the mill drive production;

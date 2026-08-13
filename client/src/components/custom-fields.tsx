@@ -71,6 +71,68 @@ function LookupSelect({
   );
 }
 
+/** Several master-data records, kept in the order they were picked. */
+function LookupMultiSelect({
+  field,
+  value,
+  onChange,
+}: {
+  field: FieldDef;
+  value: unknown;
+  onChange: (v: unknown) => void;
+}) {
+  const source = field.lookupEntity ? LOOKUP_SOURCES[field.lookupEntity] : undefined;
+  const { data } = useQuery({
+    queryKey: ["lookup", field.lookupEntity],
+    queryFn: () => api<Array<Record<string, string>>>(source!.url),
+    enabled: !!source,
+  });
+  if (!source) return <p className="text-[12px] text-red-600">Misconfigured lookup</p>;
+  const chosen = Array.isArray(value) ? (value as string[]) : [];
+  const label = (r: Record<string, string>) => (source.label as (x: unknown) => string)(r);
+
+  return (
+    <div>
+      {chosen.length > 0 && (
+        <div className="mb-1.5 flex flex-wrap gap-1">
+          {chosen.map((id) => {
+            const r = (data ?? []).find((x) => x.id === id);
+            return (
+              <span
+                key={id}
+                className="inline-flex items-center gap-1 rounded-full border border-gray-200 px-2 py-0.5 text-[12px]"
+              >
+                {r ? label(r) : "(deleted)"}
+                <button
+                  onClick={() => onChange(chosen.filter((c) => c !== id))}
+                  className="text-gray-400 hover:text-red-600"
+                  aria-label="Remove"
+                >
+                  ×
+                </button>
+              </span>
+            );
+          })}
+        </div>
+      )}
+      <select
+        value=""
+        onChange={(e) => e.target.value && onChange([...chosen, e.target.value])}
+        className="input"
+      >
+        <option value="">Add…</option>
+        {(data ?? [])
+          .filter((r) => !chosen.includes(r.id ?? ""))
+          .map((r) => (
+            <option key={r.id} value={r.id}>
+              {label(r)}
+            </option>
+          ))}
+      </select>
+    </div>
+  );
+}
+
 function FieldInput({
   field,
   value,
@@ -164,6 +226,20 @@ function FieldInput({
     }
     case "lookup":
       return <LookupSelect field={field} value={value} onChange={onChange} />;
+    case "multiselect_lookup":
+      return <LookupMultiSelect field={field} value={value} onChange={onChange} />;
+    case "autonumber":
+      // Issued by the server on save, so there is nothing to type. Showing a
+      // predicted number would be a promise a concurrent save could break.
+      return (
+        <div className="flex h-9 items-center text-[13px] text-gray-500">
+          {value ? (
+            <span className="font-medium tabular-nums text-gray-800">{String(value)}</span>
+          ) : (
+            "Assigned on save"
+          )}
+        </div>
+      );
     default:
       // text, email, url, phone, number, decimal, amount, percent
       return (
