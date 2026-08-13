@@ -1820,7 +1820,7 @@ async function expenseTagOptionIds(
   return rows.map((r) => r.optionId);
 }
 
-function buildExpenseJeLines(args: {
+export function buildExpenseJeLines(args: {
   expenseAccountId: string;
   bankGlAccountId: string;
   amount: string;
