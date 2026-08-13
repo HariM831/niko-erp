@@ -52,24 +52,8 @@ export const items = pgTable("items", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-export const priceLists = pgTable("price_lists", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull().unique(),
-  description: text("description"),
-  /** "markup" | "markdown" percentage list or per-item custom rates. */
-  kind: varchar("kind", { length: 10 }).notNull().default("custom"),
-  percentage: numeric("percentage", { precision: 6, scale: 3 }),
-  isActive: boolean("is_active").notNull().default(true),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
-
-export const priceListItems = pgTable("price_list_items", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  priceListId: uuid("price_list_id")
-    .notNull()
-    .references(() => priceLists.id, { onDelete: "cascade" }),
-  itemId: uuid("item_id")
-    .notNull()
-    .references(() => items.id, { onDelete: "cascade" }),
-  customRate: numeric("custom_rate", { precision: 14, scale: 2 }).notNull(),
-});
+// NOTE: no price lists by design. Eggs are priced from a daily benchmark rate
+// plus a per-agreement spread in ₹/egg, not from a stored per-customer rate —
+// a static list would need rewriting every morning and would quote a stale
+// price the first time nobody did. When the Sales module lands it brings a
+// daily price table and agreement spreads instead.
