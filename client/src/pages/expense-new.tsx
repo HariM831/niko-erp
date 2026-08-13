@@ -110,6 +110,14 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
         ]),
       ),
     );
+    setCustomFields(
+      Object.fromEntries(
+        ((existing.customFieldValues ?? []) as Array<{ fieldId: string; raw: unknown }>).map((v) => [
+          v.fieldId,
+          v.raw,
+        ]),
+      ),
+    );
   }, [existing]);
 
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) =>
@@ -131,6 +139,7 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
           reference: form.reference || undefined,
           notes: form.notes || undefined,
           tagOptionIds: Object.values(lineTags).filter(Boolean),
+          customFields,
         },
       })) as { id: string };
       if (pendingFiles.length && created?.id) {

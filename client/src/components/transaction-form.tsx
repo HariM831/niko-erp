@@ -129,6 +129,14 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
     setFreightAccountId((existing.freightAccountId as string) ?? "");
     setDeliveryDate((existing.expectedDeliveryDate as string) ?? "");
     setNotes((existing.customerNotes as string) ?? "");
+    setCustomFields(
+      Object.fromEntries(
+        ((existing.customFieldValues ?? []) as Array<{ fieldId: string; raw: unknown }>).map((v) => [
+          v.fieldId,
+          v.raw,
+        ]),
+      ),
+    );
     if (existing.lines?.length) {
       setLines(
         existing.lines.map((l) => ({
@@ -266,6 +274,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
               ? { tagOptionIds: Object.values(l.tags ?? {}).filter(Boolean) }
               : {}),
           })),
+        customFields,
         ...config.extraBody,
       };
       if (notes) body.customerNotes = notes;

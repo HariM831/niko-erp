@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
+import { CustomFieldsDisplay } from "../components/custom-fields";
 import { StatusBadge } from "../components/list-page";
 import { CommentsTimeline } from "../components/comments";
 import { AttachmentsButton } from "../components/attachments";
@@ -363,6 +364,14 @@ function OverviewTab({
             Opening Balance: {formatMoney(contact.openingBalance)} · Edit
           </button>
         </div>
+
+        <CustomFieldsDisplay
+          values={
+            (contact as unknown as {
+              customFieldValues?: Array<{ fieldId: string; label: string; display: string }>;
+            }).customFieldValues
+          }
+        />
 
         <IncomeChart contactId={contact.id} label={isCustomer ? "Income" : "Expense"} />
       </div>

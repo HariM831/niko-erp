@@ -6,6 +6,7 @@ import { StatusBadge } from "../components/list-page";
 import { AttachmentsButton } from "../components/attachments";
 import { CommentsButton } from "../components/comments";
 import { JournalSection } from "../components/journal-section";
+import { CustomFieldsDisplay } from "../components/custom-fields";
 
 /** Route kind → journal_entries.source_type; kinds that never post a journal are omitted. */
 const JOURNAL_SOURCE_TYPE: Record<string, string> = {
@@ -791,6 +792,14 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
                 </table>
               </div>
             )}
+
+            <CustomFieldsDisplay
+              values={
+                doc.customFieldValues as
+                  | Array<{ fieldId: string; label: string; display: string }>
+                  | undefined
+              }
+            />
 
             {JOURNAL_SOURCE_TYPE[kind] && (
               <JournalSection

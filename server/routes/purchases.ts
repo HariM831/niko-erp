@@ -29,6 +29,7 @@ import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, postJournal, reverseJournal } from "../services/posting";
+import { readCustomFieldValues, saveCustomFieldValues } from "../services/custom-fields";
 import {
   computeDocumentTotals,
   fromPaise,
@@ -424,6 +425,8 @@ const billSchema = z.object({
   freightVendorId: z.string().uuid().optional(),
   freightAccountId: z.string().uuid().optional(),
   notes: z.string().optional(),
+  /** Custom field values, keyed by field id. */
+  customFields: z.record(z.string(), z.any()).optional(),
   lines: z.array(billLineSchema).min(1).max(200),
 });
 
@@ -775,8 +778,11 @@ purchasesRouter.get("/bills/:id", requirePermission("purchases", "view"), async 
         )
     : [];
 
+  const customFieldValues = await readCustomFieldValues(db, "bill", bill.id);
+
   res.json({
     ...bill,
+    customFieldValues,
     lines: lines.map((l) => ({
       ...l,
       tags: lineTags.filter((t) => t.billLineId === l.id),
@@ -796,7 +802,7 @@ purchasesRouter.post(
     try {
       const result = await db.transaction(async (tx) => {
         const vendor = await loadVendor(tx, body.vendorId);
-        return createBill(tx, {
+        const bill = await createBill(tx, {
           vendor,
           seriesId: body.seriesId,
           billDate: body.billDate,
@@ -810,6 +816,8 @@ purchasesRouter.post(
           lines: body.lines,
           postedBy: req.session.user!.id,
         });
+        await saveCustomFieldValues(tx, "bill", bill.id, body.customFields);
+        return bill;
       });
       res.status(201).json(result);
     } catch (err) {
@@ -873,6 +881,8 @@ purchasesRouter.patch(
             taxId: l.taxId ?? undefined,
           }));
         }
+
+        await saveCustomFieldValues(tx, "bill", bill.id, body.customFields);
 
         const c = await computeBill(tx, vendor, inputLines, freightAmount);
         await tx.delete(billLines).where(eq(billLines.billId, bill.id));
@@ -1618,6 +1628,8 @@ const expenseSchema = z.object({
   notes: z.string().optional(),
   /** Reporting tags for the cost — one option per tag. */
   tagOptionIds: z.array(z.string().uuid()).max(10).optional(),
+  /** Custom field values, keyed by field id. */
+  customFields: z.record(z.string(), z.any()).optional(),
 });
 
 purchasesRouter.get("/expenses", requirePermission("purchases", "view"), async (req, res) => {
@@ -1678,8 +1690,11 @@ purchasesRouter.get("/expenses/:id", requirePermission("purchases", "view"), asy
         )
     : [];
 
+  const customFieldValues = await readCustomFieldValues(db, "expense", expense.id);
+
   res.json({
     ...expense,
+    customFieldValues,
     expenseAccountName: acct ? `${acct.code} · ${acct.name}` : null,
     paidThroughName: paidThrough?.name ?? null,
     contactName: vendor?.displayName ?? null,
@@ -1795,6 +1810,8 @@ purchasesRouter.patch(
           body.tagOptionIds ??
           (await expenseTagOptionIds(tx, expense.journalEntryId, expense.expenseAccountId));
 
+        await saveCustomFieldValues(tx, "expense", expense.id, body.customFields);
+
         if (expense.journalEntryId) {
           await reverseJournal(tx, expense.journalEntryId, expenseDate, req.session.user!.id);
         }
@@ -1886,6 +1903,8 @@ purchasesRouter.post(
           number,
           tagOptionIds: body.tagOptionIds,
         });
+
+        await saveCustomFieldValues(tx, "expense", expense!.id, body.customFields);
 
         const jeId = await postJournal(tx, {
           entryDate: body.expenseDate,

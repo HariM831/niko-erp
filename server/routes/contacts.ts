@@ -14,6 +14,7 @@ import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { getPreferences } from "../services/preferences";
+import { readCustomFieldValues, saveCustomFieldValues } from "../services/custom-fields";
 
 export const contactsRouter = Router();
 
@@ -62,6 +63,8 @@ const contactSchema = z.object({
   notes: z.string().optional(),
   persons: z.array(personSchema).max(10).optional(),
   addresses: z.array(addressSchema).max(10).optional(),
+  /** Custom field values, keyed by field id. */
+  customFields: z.record(z.string(), z.any()).optional(),
 });
 
 // The module permission is "sales" for customers and "purchases" for vendors;
@@ -125,7 +128,8 @@ contactsRouter.get("/:id", requirePermission("sales", "view"), async (req, res) 
     db.select().from(contactPersons).where(eq(contactPersons.contactId, contact.id)),
     db.select().from(contactAddresses).where(eq(contactAddresses.contactId, contact.id)),
   ]);
-  res.json({ ...contact, persons, addresses });
+  const customFieldValues = await readCustomFieldValues(db, "contact", contact.id);
+  res.json({ ...contact, persons, addresses, customFieldValues });
 });
 
 contactsRouter.post("/", validateBody(contactSchema), async (req, res, next) => {
@@ -146,8 +150,9 @@ contactsRouter.post("/", validateBody(contactSchema), async (req, res, next) => 
             );
           }
         }
-        const { persons, addresses, ...contactData } = body;
+        const { persons, addresses, customFields, ...contactData } = body;
         const [contact] = await tx.insert(contacts).values(contactData).returning();
+        await saveCustomFieldValues(tx, "contact", contact!.id, customFields);
         if (persons?.length) {
           await tx
             .insert(contactPersons)
@@ -185,7 +190,8 @@ contactsRouter.patch("/:id", validateBody(contactPatchSchema), async (req, res, 
     try {
       const body = req.body as z.infer<typeof contactPatchSchema>;
       const result = await db.transaction(async (tx) => {
-        const { persons, addresses, ...contactData } = body;
+        const { persons, addresses, customFields, ...contactData } = body;
+        await saveCustomFieldValues(tx, "contact", existing.id, customFields);
         const [updated] = await tx
           .update(contacts)
           .set({ ...contactData, updatedAt: new Date() })

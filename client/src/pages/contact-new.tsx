@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
+import { CustomFieldsBlock, type CustomFieldValues } from "../components/custom-fields";
 
 const GST_TREATMENTS = [
   ["registered_business", "Registered Business"],
@@ -56,6 +57,7 @@ export function ContactNewPage({ type, editId }: { type: "customer" | "vendor"; 
   const [billing, setBilling] = useState<AddressForm>(emptyAddress);
   const [shipping, setShipping] = useState<AddressForm>(emptyAddress);
   const [persons, setPersons] = useState<PersonForm[]>([{ ...emptyPerson(), isPrimary: true }]);
+  const [customFields, setCustomFields] = useState<CustomFieldValues>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -89,6 +91,14 @@ export function ContactNewPage({ type, editId }: { type: "customer" | "vendor"; 
     });
     setBilling(b ? { line1: b.line1 ?? "", line2: b.line2 ?? "", city: b.city ?? "", state: b.state ?? "", pincode: b.pincode ?? "" } : emptyAddress);
     setShipping(s ? { line1: s.line1 ?? "", line2: s.line2 ?? "", city: s.city ?? "", state: s.state ?? "", pincode: s.pincode ?? "" } : emptyAddress);
+    setCustomFields(
+      Object.fromEntries(
+        ((existing.customFieldValues ?? []) as Array<{ fieldId: string; raw: unknown }>).map((v) => [
+          v.fieldId,
+          v.raw,
+        ]),
+      ),
+    );
     if (existing.persons?.length) {
       setPersons(
         existing.persons.map((p) => ({
@@ -140,6 +150,7 @@ export function ContactNewPage({ type, editId }: { type: "customer" | "vendor"; 
           placeOfSupplyState: form.placeOfSupplyState || undefined,
           paymentTermsDays: Number(form.paymentTermsDays) || 0,
           openingBalance: form.openingBalance || undefined,
+          customFields,
           addresses: addresses.length ? addresses : undefined,
           persons: validPersons.length
             ? validPersons.map((p) => ({
@@ -268,6 +279,14 @@ export function ContactNewPage({ type, editId }: { type: "customer" | "vendor"; 
                   <input value={form.openingBalance} onChange={set("openingBalance")} placeholder="0.00" className={inputCls} />
                 </div>
               )}
+              <div className="col-span-2">
+                <CustomFieldsBlock
+                  entity="contact"
+                  value={customFields}
+                  onChange={setCustomFields}
+                  columns={2}
+                />
+              </div>
             </div>
           )}
 
