@@ -452,6 +452,12 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
           )}
         </div>
 
+        <CustomFieldsBlock
+          entity={config.entityType}
+          value={customFields}
+          onChange={setCustomFields}
+        />
+
         <table className="mb-3 w-full text-[13px]">
           <thead className="table-head">
             <tr>
