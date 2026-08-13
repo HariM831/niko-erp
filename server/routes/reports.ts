@@ -78,17 +78,71 @@ async function accountMovements(from?: string, to?: string, tagOptionId?: string
       )
     : base;
 
-  return scoped
-    .groupBy(
-      accounts.id,
-      accounts.code,
-      accounts.name,
-      accounts.type,
-      accounts.subtype,
-      accounts.parentId,
-      accounts.isGroup,
-    )
-    .orderBy(asc(accounts.code));
+  const [rows, itemised] = await Promise.all([
+    scoped
+      .groupBy(
+        accounts.id,
+        accounts.code,
+        accounts.name,
+        accounts.type,
+        accounts.subtype,
+        accounts.parentId,
+        accounts.isGroup,
+      )
+      .orderBy(asc(accounts.code)),
+    accountsWithItemLines(from, to),
+  ]);
+
+  return rows.map((r) => ({ ...r, hasItemLines: itemised.has(r.accountId) }));
+}
+
+/**
+ * Accounts that have at least one document line naming an item, in the window.
+ *
+ * This is what decides where a statement line drills to. Most operating costs
+ * never reach an item — electricity is an expense claim, depreciation is a
+ * journal — so sending every expense account to an item report gave an empty
+ * page for nine accounts out of thirteen. An account is only worth opening as
+ * items when items are actually behind it; otherwise the ledger is the answer.
+ *
+ * The account is resolved exactly as posting resolves it, so membership here
+ * matches what the item report will actually find.
+ */
+async function accountsWithItemLines(from?: string, to?: string): Promise<Set<string>> {
+  const window = (dateCol: string) => sql`
+    ${from ? sql`AND ${sql.raw(dateCol)} >= ${from}` : sql``}
+    ${to ? sql`AND ${sql.raw(dateCol)} <= ${to}` : sql``}`;
+
+  const rows = await db.execute(sql`
+    SELECT DISTINCT account_id FROM (
+      SELECT COALESCE(l.account_id, it.sales_account_id,
+                      (SELECT id FROM accounts WHERE system_key = 'sales')) AS account_id
+        FROM invoice_lines l
+        JOIN invoices d ON d.id = l.invoice_id AND d.status NOT IN ('draft','void')
+             ${window("d.invoice_date")}
+        JOIN items it ON it.id = l.item_id
+      UNION ALL
+      SELECT COALESCE(l.account_id, it.sales_account_id,
+                      (SELECT id FROM accounts WHERE system_key = 'sales'))
+        FROM credit_note_lines l
+        JOIN credit_notes d ON d.id = l.credit_note_id AND d.status NOT IN ('draft','void')
+             ${window("d.credit_note_date")}
+        JOIN items it ON it.id = l.item_id
+      UNION ALL
+      SELECT COALESCE(l.account_id, it.purchase_account_id)
+        FROM bill_lines l
+        JOIN bills d ON d.id = l.bill_id AND d.status NOT IN ('draft','void')
+             ${window("d.bill_date")}
+        JOIN items it ON it.id = l.item_id
+      UNION ALL
+      SELECT COALESCE(l.account_id, it.purchase_account_id)
+        FROM vendor_credit_lines l
+        JOIN vendor_credits d ON d.id = l.vendor_credit_id AND d.status NOT IN ('draft','void')
+             ${window("d.credit_date")}
+        JOIN items it ON it.id = l.item_id
+    ) x WHERE account_id IS NOT NULL
+  `);
+  return new Set(rows.rows.map((r) => (r as { account_id: string }).account_id));
 }
 
 // ---------- Profit & Loss ----------
@@ -112,6 +166,7 @@ function section(rows: Movement[], match: (r: Movement) => boolean, sign: 1 | -1
     subtype: r.subtype,
     parentId: r.parentId,
     isGroup: r.isGroup,
+    hasItemLines: r.hasItemLines,
     net: sign * Number(r.net),
   }));
   const { nodes, total } = buildTree(picked);
@@ -719,23 +774,19 @@ reportsRouter.get("/expense-by-category", requirePermission("reports", "view"), 
 });
 
 /** Depth beyond the second level reads as noise on a summary, so it is flattened. */
-function flattenLeaves(
-  nodes: Array<{ accountId: string; code: string; name: string; total: string; children: unknown[] }>,
-): Array<{ accountId: string; code: string; name: string; total: string }> {
-  const out: Array<{ accountId: string; code: string; name: string; total: string }> = [];
+type Leaf = { accountId: string; code: string; name: string; total: string; hasItemLines: boolean };
+
+function flattenLeaves(nodes: Array<Leaf & { children: unknown[] }>): Leaf[] {
+  const out: Leaf[] = [];
   for (const n of nodes) {
-    out.push({ accountId: n.accountId, code: n.code, name: n.name, total: n.total });
-    out.push(
-      ...flattenLeaves(
-        n.children as Array<{
-          accountId: string;
-          code: string;
-          name: string;
-          total: string;
-          children: unknown[];
-        }>,
-      ),
-    );
+    out.push({
+      accountId: n.accountId,
+      code: n.code,
+      name: n.name,
+      total: n.total,
+      hasItemLines: n.hasItemLines,
+    });
+    out.push(...flattenLeaves(n.children as Array<Leaf & { children: unknown[] }>));
   }
   return out;
 }

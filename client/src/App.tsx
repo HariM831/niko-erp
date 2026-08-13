@@ -136,7 +136,11 @@ export function App() {
         <Route path="/accountant/journals/new" component={JournalNewPage} />
         <Route path="/accountant/journals/:id">{(p) => <JournalDetailPage id={p.id!} />}</Route>
         <Route path="/accountant/journals" component={JournalsPage} />
-        <Route path="/accountant/accounts/:id">{(p) => <AccountLedgerPage id={p.id!} />}</Route>
+        {/* Keyed on the account so drilling from one ledger to another resets
+            the page's own date filters instead of keeping the previous ones. */}
+        <Route path="/accountant/accounts/:id">
+          {(p) => <AccountLedgerPage key={p.id} id={p.id!} />}
+        </Route>
         <Route path="/accountant/accounts" component={ChartOfAccountsPage} />
         <Route path="/accountant/bulk-update" component={BulkUpdatePage} />
         <Route path="/accountant/budgets/new">{() => <BudgetNewPage />}</Route>

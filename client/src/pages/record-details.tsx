@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { amountInWords, api, formatMoney } from "../api";
 import { StatusBadge } from "../components/list-page";
@@ -477,8 +477,11 @@ export function AccountLedgerPage({ id }: { id: string }) {
     const year = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
     return `${year}-04-01`;
   };
-  const [from, setFrom] = useState(fyStart());
-  const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
+  // A report drilling in here passes its own period, so the ledger opens on the
+  // window the figure was clicked in rather than resetting to the year.
+  const search = new URLSearchParams(useSearch());
+  const [from, setFrom] = useState(search.get("from") ?? fyStart());
+  const [to, setTo] = useState(search.get("to") ?? new Date().toISOString().slice(0, 10));
 
   const { data: accounts } = useQuery({
     queryKey: ["accounts-all"],

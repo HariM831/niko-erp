@@ -18,6 +18,11 @@ export interface AccountRow {
   isGroup: boolean;
   /** Net movement on this account alone, already sign-corrected by the caller. */
   net: number;
+  /**
+   * Whether any document line naming an item posted here in the window. Decides
+   * whether the statement drills into an item report or into the ledger.
+   */
+  hasItemLines: boolean;
 }
 
 export interface TreeNode {
@@ -25,6 +30,7 @@ export interface TreeNode {
   code: string;
   name: string;
   isGroup: boolean;
+  hasItemLines: boolean;
   depth: number;
   /** This account's own movement. */
   amount: string;
@@ -63,6 +69,7 @@ export function buildTree(rows: AccountRow[]): { nodes: TreeNode[]; total: strin
       code: row.code,
       name: row.name,
       isGroup: row.isGroup,
+      hasItemLines: row.hasItemLines,
       depth,
       amount: money(row.net),
       total: money(row.net + descendantTotal),

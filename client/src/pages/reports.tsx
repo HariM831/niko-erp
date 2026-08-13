@@ -239,21 +239,27 @@ export function ReportsPage() {
  */
 const PeriodContext = createContext<{ from: string; to: string }>({ from: "", to: "" });
 
-/** Where clicking an account name goes. */
+/** Which item report a section prefers, when items are behind the account. */
 export type Drill = "sales" | "purchases" | "ledger";
 
+/**
+ * Where clicking an account name goes.
+ *
+ * An item report only when items are genuinely behind the account. Most
+ * operating costs never touch one — electricity is an expense claim,
+ * depreciation is a journal — so those open the account ledger for the same
+ * period instead of an item report with nothing in it.
+ */
 function useDrillHref(drill: Drill) {
   const period = useContext(PeriodContext);
-  return (accountId: string) => {
-    if (drill === "ledger") return `/accountant/accounts/${accountId}`;
-    const key = drill === "sales" ? "sales-by-item" : "purchase-by-item";
-    const p = new URLSearchParams({
-      range: "Custom",
-      from: period.from,
-      to: period.to,
-      accountId,
-    });
-    return `/reports/${key}?${p}`;
+  return (node: { accountId: string; hasItemLines: boolean }) => {
+    const p = new URLSearchParams({ from: period.from, to: period.to });
+    if (drill === "ledger" || !node.hasItemLines) {
+      return `/accountant/accounts/${node.accountId}?${p}`;
+    }
+    p.set("range", "Custom");
+    p.set("accountId", node.accountId);
+    return `/reports/${drill === "sales" ? "sales-by-item" : "purchase-by-item"}?${p}`;
   };
 }
 
@@ -446,6 +452,7 @@ interface TreeNode {
   accountId: string;
   code: string;
   name: string;
+  hasItemLines: boolean;
   depth: number;
   amount: string;
   total: string;
@@ -509,10 +516,7 @@ function TreeRows({
           <Fragment key={n.accountId}>
             <tr>
               <td className="px-2 py-2" style={{ paddingLeft: `${20 + n.depth * 20}px` }}>
-                <Link
-                  href={href(n.accountId)}
-                  className="font-medium text-[#1c5bd9] hover:underline"
-                >
+                <Link href={href(n)} className="font-medium text-[#1c5bd9] hover:underline">
                   {n.name}
                 </Link>
               </td>
@@ -882,13 +886,20 @@ function ItemTable({ data }: { data: Record<string, unknown> }) {
  */
 function ExpenseByCategory({ data }: { data: Record<string, unknown> }) {
   const [open, setOpen] = useState<Set<string>>(new Set());
+  const href = useDrillHref("purchases");
   const categories = data.categories as Array<{
     accountId: string;
     code: string;
     name: string;
     total: string;
     percentOfTotal: string | null;
-    children: Array<{ accountId: string; code: string; name: string; total: string }>;
+    children: Array<{
+      accountId: string;
+      code: string;
+      name: string;
+      total: string;
+      hasItemLines: boolean;
+    }>;
   }>;
   if (!categories.length) {
     return <p className="text-center text-[13px] text-gray-500">No expenses in this period.</p>;
@@ -948,10 +959,7 @@ function ExpenseByCategory({ data }: { data: Record<string, unknown> }) {
                 c.children.map((ch) => (
                   <tr key={ch.accountId} className="bg-[#fafafc]">
                     <td className="px-2 py-2 pl-11">
-                      <Link
-                        href={`/accountant/accounts/${ch.accountId}`}
-                        className="font-medium text-[#1c5bd9] hover:underline"
-                      >
+                      <Link href={href(ch)} className="font-medium text-[#1c5bd9] hover:underline">
                         {ch.name}
                       </Link>
                       <span className="ml-2 text-[11px] text-gray-400">{ch.code}</span>
