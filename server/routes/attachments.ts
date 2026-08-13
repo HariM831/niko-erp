@@ -9,6 +9,7 @@ import { z } from "zod";
 import { attachments } from "@shared/schema";
 import { ATTACHABLE_ENTITIES } from "@shared/entities";
 import { db } from "../db";
+import { nextDocumentNumber } from "../lib/numbering";
 import { requireAuth } from "../lib/rbac";
 
 export const attachmentsRouter = Router();
@@ -75,18 +76,25 @@ attachmentsRouter.post("/", requireAuth, upload.single("file"), async (req, res)
   if (!req.file) {
     return res.status(400).json({ error: "No file received (10 MB max; pdf/image/sheet/doc only)" });
   }
-  const [row] = await db
-    .insert(attachments)
-    .values({
-      entityType: parsed.data.entityType,
-      entityId: parsed.data.entityId,
-      fileName: req.file.originalname.slice(0, 255),
-      storedName: req.file.filename,
-      mimeType: req.file.mimetype,
-      sizeBytes: req.file.size,
-      uploadedBy: req.session.user!.id,
-    })
-    .returning();
+  // The filing reference and the row are claimed together: a number handed out
+  // for a file that then failed to save would point at nothing on the shelf.
+  const row = await db.transaction(async (tx) => {
+    const filingRef = await nextDocumentNumber(tx, "attachment");
+    const [created] = await tx
+      .insert(attachments)
+      .values({
+        filingRef,
+        entityType: parsed.data.entityType,
+        entityId: parsed.data.entityId,
+        fileName: req.file!.originalname.slice(0, 255),
+        storedName: req.file!.filename,
+        mimeType: req.file!.mimetype,
+        sizeBytes: req.file!.size,
+        uploadedBy: req.session.user!.id,
+      })
+      .returning();
+    return created!;
+  });
   res.status(201).json(row);
 });
 

@@ -169,6 +169,13 @@
       "when": 1786618908142,
       "tag": "0023_married_gamora",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1786622333698,
+      "tag": "0024_marvelous_satana",
+      "breakpoints": true
     }
   ]
 }

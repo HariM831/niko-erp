@@ -14,6 +14,11 @@ export const attachments = pgTable(
   "attachments",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+  /**
+   * Filing reference, written on the physical sheet before it goes in the box.
+   * Unique and never reused, so a number on paper always finds one scan.
+   */
+  filingRef: varchar("filing_ref", { length: 30 }).unique(),
     entityType: varchar("entity_type", { length: 30 }).notNull(),
     entityId: uuid("entity_id").notNull(),
     fileName: text("file_name").notNull(),

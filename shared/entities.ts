@@ -113,6 +113,19 @@ export const ENTITIES: EntityDef[] = [
     lookupTarget: false,
   },
   {
+    /**
+     * Not a record you create, but a numbered one: every uploaded file gets a
+     * filing reference so the scan and the paper in the box can find each
+     * other. Numbered like any other document so the prefix is configurable.
+     */
+    key: "attachment",
+    label: "Document",
+    plural: "Documents",
+    module: "settings",
+    numbered: true,
+    lookupTarget: false,
+  },
+  {
     key: "inventory_adjustment",
     label: "Inventory Adjustment",
     plural: "Inventory Adjustments",
@@ -129,7 +142,7 @@ export const isEntity = (key: string): boolean => BY_KEY.has(key);
 
 /** Entities that carry attachments and comments. */
 export const ATTACHABLE_ENTITIES = ENTITIES.filter(
-  (e) => e.key !== "location" && e.key !== "account",
+  (e) => !["location", "account", "attachment"].includes(e.key),
 ).map((e) => e.key);
 
 /** Entities a number series must define numbering for. */

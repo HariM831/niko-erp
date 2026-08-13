@@ -4,6 +4,7 @@ import { FileText, Image as ImageIcon, Paperclip, Trash2, Upload } from "lucide-
 import { api } from "../api";
 
 interface Attachment {
+  filingRef: string | null;
   id: string;
   fileName: string;
   mimeType: string;
@@ -163,7 +164,16 @@ export function AttachmentsButton({
                     >
                       {f.fileName}
                     </a>
-                    <div className="text-[11px] text-gray-400">{formatSize(f.sizeBytes)}</div>
+                    {/* The filing reference goes on the paper sheet before it
+                        is filed, so the box and the scan find each other. */}
+                    <div className="flex items-center gap-2 text-[11px] text-gray-400">
+                      {f.filingRef && (
+                        <span className="rounded border border-gray-200 px-1 font-medium tabular-nums text-gray-600">
+                          {f.filingRef}
+                        </span>
+                      )}
+                      <span>{formatSize(f.sizeBytes)}</span>
+                    </div>
                   </div>
                   <button
                     onClick={() => void remove(f.id)}
