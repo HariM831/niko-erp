@@ -1,6 +1,7 @@
 import { inArray } from "drizzle-orm";
 import { items, orgProfile, taxes } from "@shared/schema";
 import type { Tx } from "../db";
+import { applyRounding, getPreferences } from "./preferences";
 
 /** All arithmetic in integer paise to avoid float drift; output as "0.00" strings. */
 const toPaise = (s: string | number | undefined): number =>
@@ -99,7 +100,11 @@ export async function computeDocumentTotals(
   const igstP = interState ? taxTotalP : 0;
 
   const rawTotalP = subTotalP - discountP + taxTotalP;
-  const roundedTotalP = Math.round(rawTotalP / 100) * 100;
+  // Rounding is an org preference — Zoho defaults to none, EGGSY to whole
+  // rupees. Whatever it is, the difference is recorded as roundOff so the
+  // document still ties to its own lines.
+  const prefs = await getPreferences(tx);
+  const roundedTotalP = applyRounding(rawTotalP, prefs.roundingMode, prefs.roundingIncrement);
   const roundOffP = roundedTotalP - rawTotalP;
 
   return {

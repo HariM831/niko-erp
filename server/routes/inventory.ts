@@ -9,6 +9,7 @@ import {
   items,
 } from "@shared/schema";
 import { db } from "../db";
+import { getPreferences } from "../services/preferences";
 import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { nextDocumentNumber } from "../lib/numbering";
@@ -141,6 +142,7 @@ inventoryRouter.post(
           throw new PostingError("Every line is zero — nothing to adjust");
         }
 
+        const prefs = await getPreferences(tx);
         const movements = lines
           .filter((l) => Number(l.quantityChange) !== 0 || Number(l.valueChange) !== 0)
           .map((l) => ({
@@ -175,7 +177,7 @@ inventoryRouter.post(
           contraAccountId: body.adjustmentAccountId,
           narration: `Inventory adjustment ${number} — ${body.reason}`,
           postedBy: req.session.user!.id,
-          preventNegative: true,
+          preventNegative: prefs.preventNegativeStock,
         });
         if (journalEntryId) {
           await tx

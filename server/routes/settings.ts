@@ -1,12 +1,19 @@
 import { Router } from "express";
 import { asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
-import { documentSeries, financialYears, numberSeries, orgProfile } from "@shared/schema";
+import {
+  documentSeries,
+  financialYears,
+  numberSeries,
+  orgProfile,
+  preferences,
+} from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
 import { getOpeningBalances, saveOpeningBalances } from "../services/opening-balances";
+import { getPreferences } from "../services/preferences";
 
 export const settingsRouter = Router();
 
@@ -253,5 +260,50 @@ settingsRouter.put(
       if (err instanceof PostingError) return res.status(422).json({ error: err.message });
       throw err;
     }
+  },
+);
+
+// ---------- Preferences ----------
+
+settingsRouter.get("/preferences", requirePermission("settings", "view"), async (_req, res) => {
+  res.json(await getPreferences(db));
+});
+
+const preferencesSchema = z.object({
+  discountLevel: z.enum(["none", "line", "transaction"]).optional(),
+  discountBeforeTax: z.boolean().optional(),
+  enableAdjustment: z.boolean().optional(),
+  enableShippingCharge: z.boolean().optional(),
+  taxTreatment: z.enum(["exclusive", "inclusive", "both"]).optional(),
+  roundingMode: z.enum(["none", "whole", "increment"]).optional(),
+  roundingIncrement: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
+  quantityDecimals: z.number().int().min(0).max(4).optional(),
+  allowDuplicateItemNames: z.boolean().optional(),
+  preventNegativeStock: z.boolean().optional(),
+  showOutOfStockWarning: z.boolean().optional(),
+  notifyOnReorderLevel: z.boolean().optional(),
+  allowDuplicateContactNames: z.boolean().optional(),
+  defaultCustomerType: z.enum(["business", "individual"]).optional(),
+  enableCreditLimit: z.boolean().optional(),
+});
+
+settingsRouter.patch(
+  "/preferences",
+  requirePermission("settings", "edit"),
+  validateBody(preferencesSchema),
+  async (req, res) => {
+    const patch = { ...req.body, updatedAt: new Date() };
+    const [existing] = await db.select({ id: preferences.id }).from(preferences).limit(1);
+    const [row] = existing
+      ? await db
+          .update(preferences)
+          .set(patch)
+          .where(eq(preferences.id, existing.id))
+          .returning()
+      : await db
+          .insert(preferences)
+          .values({ id: "default", ...patch })
+          .returning();
+    res.json(row);
   },
 );

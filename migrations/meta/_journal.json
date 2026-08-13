@@ -148,6 +148,13 @@
       "when": 1786609309832,
       "tag": "0020_flowery_gamora",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786609915938,
+      "tag": "0021_eager_pretty_boy",
+      "breakpoints": true
     }
   ]
 }

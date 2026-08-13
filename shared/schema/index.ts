@@ -7,6 +7,7 @@ export * from "./items";
 export * from "./assets";
 export * from "./locations";
 export * from "./reporting-tags";
+export * from "./preferences";
 export * from "./banking";
 export * from "./sales";
 export * from "./purchases";

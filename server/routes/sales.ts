@@ -15,6 +15,7 @@ import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, postJournal, reverseJournal } from "../services/posting";
+import { getPreferences } from "../services/preferences";
 import {
   applyDefaultSalesAccounts,
   computeDocumentTotals,
@@ -367,6 +368,8 @@ async function assertWithinCreditLimit(
   addingTotal: string,
   excludeInvoiceId?: string,
 ): Promise<void> {
+  const prefs = await getPreferences(tx);
+  if (!prefs.enableCreditLimit) return;
   if (customer.creditLimit === null) return;
   const limitP = toPaise(customer.creditLimit);
   if (limitP <= 0) return;

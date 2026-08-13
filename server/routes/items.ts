@@ -17,6 +17,7 @@ import {
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
+import { getPreferences } from "../services/preferences";
 
 export const itemsRouter = Router();
 
@@ -146,6 +147,15 @@ itemsRouter.post(
   requirePermission("items", "create"),
   validateBody(itemSchema),
   async (req, res) => {
+    // Uniqueness is enforced here rather than by an index, because whether
+    // duplicates are allowed is an org preference.
+    const prefs = await getPreferences(db);
+    if (!prefs.allowDuplicateItemNames) {
+      const clash = await db.query.items.findFirst({ where: eq(items.name, req.body.name) });
+      if (clash) {
+        return res.status(422).json({ error: `An item named "${req.body.name}" already exists` });
+      }
+    }
     const body = req.body as z.infer<typeof itemSchema>;
     if (body.trackInventory && !body.inventoryAccountId) {
       return res

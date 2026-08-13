@@ -17,12 +17,14 @@ import { RolesSection, UsersSection } from "./settings-users";
 import { OpeningBalancesSection } from "./settings-opening";
 import { LocationsSection } from "./settings-locations";
 import { ReportingTagsSection } from "./settings-tags";
+import { PreferencesSection } from "./settings-preferences";
 
 type Section =
   | "org"
   | "locations"
   | "users"
   | "roles"
+  | "preferences"
   | "taxes"
   | "series"
   | "reporting-tags"
@@ -34,6 +36,7 @@ const SECTIONS: Array<{ key: Section; label: string; group: string }> = [
   { key: "locations", label: "Locations", group: "Organisation" },
   { key: "users", label: "Users", group: "Users & Roles" },
   { key: "roles", label: "Roles", group: "Users & Roles" },
+  { key: "preferences", label: "Preferences", group: "Setup" },
   { key: "taxes", label: "Taxes", group: "Setup" },
   { key: "series", label: "Transaction Number Series", group: "Setup" },
   { key: "reporting-tags", label: "Reporting Tags", group: "Setup" },
@@ -77,6 +80,7 @@ export function SettingsPage() {
           {active === "locations" && <LocationsSection />}
           {active === "users" && <UsersSection />}
           {active === "roles" && <RolesSection />}
+          {active === "preferences" && <PreferencesSection />}
           {active === "taxes" && <TaxesSection />}
           {active === "series" && <SeriesSection />}
           {active === "reporting-tags" && <ReportingTagsSection />}

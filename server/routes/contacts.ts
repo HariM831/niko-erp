@@ -13,8 +13,12 @@ import {
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
+import { getPreferences } from "../services/preferences";
 
 export const contactsRouter = Router();
+
+/** Thrown inside the transaction so the insert rolls back, caught as a 422. */
+class DuplicateContactError extends Error {}
 
 const money = z.string().regex(/^-?\d+(\.\d{1,2})?$/);
 
@@ -129,6 +133,19 @@ contactsRouter.post("/", validateBody(contactSchema), async (req, res, next) => 
   requirePermission(moduleFor(body.type), "create")(req, res, async () => {
     try {
       const result = await db.transaction(async (tx) => {
+        // displayName carries no unique index, because whether duplicates are
+        // allowed is an org preference rather than a schema rule.
+        const prefs = await getPreferences(tx);
+        if (!prefs.allowDuplicateContactNames) {
+          const clash = await tx.query.contacts.findFirst({
+            where: eq(contacts.displayName, body.displayName),
+          });
+          if (clash) {
+            throw new DuplicateContactError(
+              `A contact named "${body.displayName}" already exists`,
+            );
+          }
+        }
         const { persons, addresses, ...contactData } = body;
         const [contact] = await tx.insert(contacts).values(contactData).returning();
         if (persons?.length) {
@@ -145,6 +162,9 @@ contactsRouter.post("/", validateBody(contactSchema), async (req, res, next) => 
       });
       res.status(201).json(result);
     } catch (err) {
+      if (err instanceof DuplicateContactError) {
+        return res.status(422).json({ error: err.message });
+      }
       next(err);
     }
   });

@@ -15,7 +15,11 @@ import { contacts } from "./contacts";
 export const items = pgTable("items", {
   id: uuid("id").primaryKey().defaultRandom(),
   type: itemType("type").notNull().default("goods"),
-  name: text("name").notNull().unique(),
+  /**
+   * Not unique at the database level: whether duplicate item names are allowed
+   * is an org preference, so the check lives in the route instead.
+   */
+  name: text("name").notNull(),
   sku: varchar("sku", { length: 60 }),
   unit: varchar("unit", { length: 20 }).notNull().default("pcs"),
   hsnOrSac: varchar("hsn_or_sac", { length: 10 }),
