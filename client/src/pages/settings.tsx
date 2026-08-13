@@ -17,6 +17,7 @@ import { RolesSection, UsersSection } from "./settings-users";
 import { OpeningBalancesSection } from "./settings-opening";
 import { LocationsSection } from "./settings-locations";
 import { ReportingTagsSection } from "./settings-tags";
+import { CustomFieldsTab } from "./settings-fields";
 import {
   AccountantPrefsSection,
   ContactPrefsSection,
@@ -25,23 +26,23 @@ import {
   TransactionPrefsSection,
 } from "./settings-preferences";
 
-type Section =
-  | "org"
-  | "locations"
-  | "users"
-  | "roles"
-  | "pref-transactions"
-  | "pref-contacts"
-  | "pref-items"
-  | "pref-invoices"
-  | "pref-accountant"
-  | "taxes"
-  | "series"
-  | "reporting-tags"
-  | "opening-balances"
-  | "financial-years";
+type Section = string;
 
-const SECTIONS: Array<{ key: Section; label: string; group: string }> = [
+/**
+ * Zoho gives each module its own settings page with tabs across the top —
+ * Preferences where the module has any, and Fields for its custom fields.
+ */
+interface SectionDef {
+  key: Section;
+  label: string;
+  group: string;
+  /** Entity key from shared/entities.ts, when the module carries custom fields. */
+  entity?: string;
+  /** Which preferences block belongs to this module, if any. */
+  prefs?: "transactions" | "contacts" | "items" | "invoices" | "accountant";
+}
+
+const SECTIONS: SectionDef[] = [
   { key: "org", label: "Organisation Profile", group: "Organisation" },
   { key: "locations", label: "Locations", group: "Organisation" },
   { key: "users", label: "Users", group: "Users & Roles" },
@@ -51,11 +52,22 @@ const SECTIONS: Array<{ key: Section; label: string; group: string }> = [
   { key: "reporting-tags", label: "Reporting Tags", group: "Setup" },
   { key: "opening-balances", label: "Opening Balances", group: "Setup" },
   { key: "financial-years", label: "Financial Years & Locking", group: "Setup" },
-  { key: "pref-transactions", label: "Transactions", group: "Module Settings" },
-  { key: "pref-contacts", label: "Customers and Vendors", group: "Module Settings" },
-  { key: "pref-items", label: "Items", group: "Module Settings" },
-  { key: "pref-invoices", label: "Invoices", group: "Module Settings" },
-  { key: "pref-accountant", label: "Accountant", group: "Module Settings" },
+
+  { key: "m-transactions", label: "Transactions", group: "Module Settings", prefs: "transactions" },
+  { key: "m-contacts", label: "Customers and Vendors", group: "Module Settings", entity: "contact", prefs: "contacts" },
+  { key: "m-items", label: "Items", group: "Module Settings", entity: "item", prefs: "items" },
+  { key: "m-invoices", label: "Invoices", group: "Module Settings", entity: "invoice", prefs: "invoices" },
+  { key: "m-credit-notes", label: "Credit Notes", group: "Module Settings", entity: "credit_note" },
+  { key: "m-payments-received", label: "Payments Received", group: "Module Settings", entity: "customer_payment" },
+  { key: "m-bills", label: "Bills", group: "Module Settings", entity: "bill" },
+  { key: "m-purchase-orders", label: "Purchase Orders", group: "Module Settings", entity: "purchase_order" },
+  { key: "m-vendor-credits", label: "Vendor Credits", group: "Module Settings", entity: "vendor_credit" },
+  { key: "m-payments-made", label: "Payments Made", group: "Module Settings", entity: "vendor_payment" },
+  { key: "m-expenses", label: "Expenses", group: "Module Settings", entity: "expense" },
+  { key: "m-accountant", label: "Accountant", group: "Module Settings", entity: "journal_entry", prefs: "accountant" },
+  { key: "m-fixed-assets", label: "Fixed Assets", group: "Module Settings", entity: "fixed_asset" },
+  { key: "m-inventory-adjustments", label: "Inventory Adjustments", group: "Module Settings", entity: "inventory_adjustment" },
+  { key: "m-locations", label: "Locations", group: "Module Settings", entity: "location" },
 ];
 
 /** Sections that are a form rather than a table, and so want a narrow measure. */
@@ -63,6 +75,7 @@ const FORM_SECTIONS = new Set<Section>(["org"]);
 
 export function SettingsPage() {
   const [active, setActive] = useState<Section>("org");
+  const activeDef = SECTIONS.find((x) => x.key === active);
   return (
     <div className="flex h-full">
       <aside className="w-60 shrink-0 border-r bg-white p-4">
@@ -94,16 +107,12 @@ export function SettingsPage() {
           {active === "locations" && <LocationsSection />}
           {active === "users" && <UsersSection />}
           {active === "roles" && <RolesSection />}
-          {active === "pref-transactions" && <TransactionPrefsSection />}
-          {active === "pref-contacts" && <ContactPrefsSection />}
-          {active === "pref-items" && <ItemPrefsSection />}
-          {active === "pref-invoices" && <InvoicePrefsSection />}
-          {active === "pref-accountant" && <AccountantPrefsSection />}
           {active === "taxes" && <TaxesSection />}
           {active === "series" && <SeriesSection />}
           {active === "reporting-tags" && <ReportingTagsSection />}
           {active === "opening-balances" && <OpeningBalancesSection />}
           {active === "financial-years" && <FinancialYearsSection />}
+          {activeDef?.group === "Module Settings" && <ModuleSettings def={activeDef} />}
         </div>
       </div>
     </div>
@@ -835,5 +844,54 @@ function LockPeriodModal({
         unlocked again from this screen.
       </p>
     </Modal>
+  );
+}
+
+/**
+ * One module's settings, with Zoho's tab bar across the top. A module without
+ * preferences shows only Fields; one without custom fields shows only
+ * Preferences; most show both.
+ */
+function ModuleSettings({ def }: { def: SectionDef }) {
+  const tabs: Array<"preferences" | "fields"> = [
+    ...(def.prefs ? (["preferences"] as const) : []),
+    ...(def.entity ? (["fields"] as const) : []),
+  ];
+  const [tab, setTab] = useState<"preferences" | "fields">(tabs[0] ?? "fields");
+
+  const PREFS = {
+    transactions: TransactionPrefsSection,
+    contacts: ContactPrefsSection,
+    items: ItemPrefsSection,
+    invoices: InvoicePrefsSection,
+    accountant: AccountantPrefsSection,
+  } as const;
+  const Prefs = def.prefs ? PREFS[def.prefs] : null;
+
+  return (
+    <div>
+      <h2 className="text-[18px] font-semibold text-[#212529]">{def.label}</h2>
+      {tabs.length > 1 && (
+        <div className="mb-5 mt-3 flex gap-6 border-b">
+          {tabs.map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`-mb-px border-b-2 pb-2 text-[13px] capitalize ${
+                tab === t
+                  ? "border-brand-500 font-medium text-brand-700"
+                  : "border-transparent text-gray-500 hover:text-gray-800"
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      )}
+      {tabs.length === 1 && <div className="mb-5" />}
+
+      {tab === "preferences" && Prefs && <Prefs />}
+      {tab === "fields" && def.entity && <CustomFieldsTab entity={def.entity} />}
+    </div>
   );
 }

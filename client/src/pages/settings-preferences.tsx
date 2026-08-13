@@ -1,30 +1,25 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
-import { Banner, SettingsHeader } from "../components/settings-ui";
+import { Banner } from "../components/settings-ui";
 
 /** One page per module, the way Zoho splits its Module Settings. */
 type Module = "transactions" | "contacts" | "items" | "invoices" | "accountant";
 
-const TITLES: Record<Module, { title: string; description: string }> = {
+const TITLES: Record<Module, { description: string }> = {
   transactions: {
-    title: "Transactions",
     description: "Discounts, additional charges and rounding, applied to every document.",
   },
   contacts: {
-    title: "Customers and Vendors",
     description: "How contacts are created and what limits apply to them.",
   },
   items: {
-    title: "Items",
     description: "Item naming, quantity precision and how stock behaves.",
   },
   invoices: {
-    title: "Invoices",
     description: "What may be changed after an invoice is issued, and what it says by default.",
   },
   accountant: {
-    title: "Accountant",
     description: "Chart of accounts rules.",
   },
 };
@@ -158,7 +153,8 @@ function PreferencesShell({ only }: { only: Module }) {
 
   return (
     <div>
-      <SettingsHeader title={TITLES[only].title} description={TITLES[only].description} />
+      {/* The module page owns the title; this only carries the description. */}
+      <p className="mb-5 max-w-3xl text-[13px] text-gray-500">{TITLES[only].description}</p>
       {error && <Banner tone="error">{error}</Banner>}
       {saved && <Banner tone="success">Saved.</Banner>}
 
