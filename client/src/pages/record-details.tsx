@@ -357,6 +357,7 @@ interface JournalDoc {
     debit: string;
     credit: string;
     description?: string;
+    tags?: Array<{ tag: string; option: string }>;
   }>;
 }
 
@@ -429,7 +430,22 @@ export function JournalDetailPage({ id }: { id: string }) {
                   {acctName(l.accountId)}
                 </Link>
               </td>
-              <td className="px-3 py-2.5 text-gray-600">{l.description ?? ""}</td>
+              <td className="px-3 py-2.5 text-gray-600">
+                {l.description ?? ""}
+                {l.tags && l.tags.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {l.tags.map((t) => (
+                      <span
+                        key={t.tag}
+                        className="inline-flex items-center gap-1 rounded-full border border-gray-200 px-2 py-0.5 text-[11px] text-gray-600"
+                      >
+                        <span className="text-gray-400">{t.tag}</span>
+                        {t.option}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </td>
               <td className="px-3 py-2.5 text-right tabular-nums">
                 {Number(l.debit) > 0 ? formatMoney(l.debit) : ""}
               </td>

@@ -1,12 +1,15 @@
 import { Router } from "express";
-import { and, asc, desc, eq, getTableColumns, gte, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gte, inArray, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   accountSubtype,
   accountType,
   accounts,
   journalEntries,
+  journalEntryLineTags,
   journalEntryLines,
+  reportingTagOptions,
+  reportingTags,
   transactionLocks,
   users,
 } from "@shared/schema";
@@ -131,7 +134,39 @@ accountingRouter.get(
       .from(journalEntryLines)
       .where(eq(journalEntryLines.entryId, entry.id))
       .orderBy(asc(journalEntryLines.lineOrder));
-    res.json({ ...entry, lines });
+
+    // Reporting tags per line, so the detail view can show what a cost was
+    // charged to rather than only that it was charged.
+    const tagRows = lines.length
+      ? await db
+          .select({
+            lineId: journalEntryLineTags.lineId,
+            tagName: reportingTags.name,
+            optionName: reportingTagOptions.name,
+          })
+          .from(journalEntryLineTags)
+          .innerJoin(reportingTags, eq(reportingTags.id, journalEntryLineTags.tagId))
+          .innerJoin(
+            reportingTagOptions,
+            eq(reportingTagOptions.id, journalEntryLineTags.optionId),
+          )
+          .where(
+            inArray(
+              journalEntryLineTags.lineId,
+              lines.map((l) => l.id),
+            ),
+          )
+      : [];
+
+    res.json({
+      ...entry,
+      lines: lines.map((l) => ({
+        ...l,
+        tags: tagRows
+          .filter((t) => t.lineId === l.id)
+          .map((t) => ({ tag: t.tagName, option: t.optionName })),
+      })),
+    });
   },
 );
 
