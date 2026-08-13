@@ -53,18 +53,30 @@ async function accessToken(): Promise<string> {
     grant_type: "refresh_token",
   });
 
-  const res = await fetch(`${ACCOUNTS_HOST}/oauth/v2/token?${params}`, { method: "POST" });
-  const body = (await res.json()) as {
+  // Retried for the same reason the API calls are: this runs mid-pull, once an
+  // hour, and a momentary network fault here would end the run.
+  let res: Response | null = null;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    try {
+      res = await fetch(`${ACCOUNTS_HOST}/oauth/v2/token?${params}`, { method: "POST" });
+      break;
+    } catch (err) {
+      if (attempt === 5) throw new Error(`Token refresh unreachable: ${(err as Error).message}`);
+      await new Promise((r) => setTimeout(r, 2000 * 2 ** attempt));
+    }
+  }
+
+  const body = (await res!.json()) as {
     access_token?: string;
     expires_in?: number;
     error?: string;
   };
 
-  if (!res.ok || !body.access_token) {
+  if (!res!.ok || !body.access_token) {
     // Zoho answers 200 with an error body for bad credentials, so the status
     // alone is not enough to go on.
     throw new Error(
-      `Could not get an access token: ${body.error ?? res.statusText}. ` +
+      `Could not get an access token: ${body.error ?? res!.statusText}. ` +
         `Check ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET and ZOHO_REFRESH_TOKEN in .env, ` +
         `and that the self-client was created in the .in data centre.`,
     );
@@ -112,9 +124,27 @@ export async function zohoGet<T = Record<string, unknown>>(
   const query = new URLSearchParams({ organization_id: ORG_ID() });
   for (const [k, v] of Object.entries(params)) query.set(k, String(v));
 
-  const res = await fetch(`${API_HOST}/${path}?${query}`, {
-    headers: { Authorization: `Zoho-oauthtoken ${await accessToken()}` },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_HOST}/${path}?${query}`, {
+      headers: { Authorization: `Zoho-oauthtoken ${await accessToken()}` },
+    });
+  } catch (err) {
+    // A dropped socket, a DNS blip, a reset connection. These surface as a
+    // thrown TypeError with no status, so the checks below never see them —
+    // which is how an eight-thousand-request pull died at request 3,000 with
+    // "fetch failed". Transient by nature, so they get the same backoff, with
+    // more attempts than an HTTP error because the cause is usually momentary.
+    if (attempt < 8) {
+      const backoff = Math.min(2000 * 2 ** attempt, 60_000);
+      console.warn(
+        `  network error on ${path} (${(err as Error).message}) — retrying in ${backoff / 1000}s`,
+      );
+      await sleep(backoff);
+      return zohoGet<T>(path, params, attempt + 1);
+    }
+    throw new Error(`GET ${path}: network unreachable after ${attempt} retries`);
+  }
 
   if (res.status === 401 && attempt === 0) {
     cachedToken = null;
