@@ -18,6 +18,18 @@ interface Contact {
   id: string;
   displayName: string;
 }
+interface TagOption {
+  id: string;
+  name: string;
+  isActive: boolean;
+}
+interface ReportingTag {
+  id: string;
+  name: string;
+  isActive: boolean;
+  options: TagOption[];
+}
+
 interface Tax {
   id: string;
   name: string;
@@ -38,6 +50,8 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
     reference: "",
     notes: "",
   });
+  /** Chosen option per tag — one select each, so two vehicles cannot both be picked. */
+  const [lineTags, setLineTags] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -58,24 +72,42 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
     queryKey: ["taxes"],
     queryFn: () => api<Tax[]>("/api/taxes"),
   });
+  const { data: allTags } = useQuery({
+    queryKey: ["reporting-tags"],
+    queryFn: () => api<ReportingTag[]>("/api/reporting-tags"),
+  });
+  const tags = (allTags ?? [])
+    .filter((t) => t.isActive)
+    .map((t) => ({ ...t, options: t.options.filter((o) => o.isActive) }))
+    .filter((t) => t.options.length > 0);
+
   const { data: existing } = useQuery({
     queryKey: ["expense", editId],
-    queryFn: () => api<Record<string, string | null>>(`/api/purchases/expenses/${editId}`),
+    queryFn: () => api<Record<string, unknown>>(`/api/purchases/expenses/${editId}`),
     enabled: !!editId,
   });
 
   useEffect(() => {
     if (!existing) return;
+    const str = (k: string) => (existing[k] as string | null) ?? "";
     setForm({
-      expenseDate: existing.expenseDate ?? "",
-      expenseAccountId: existing.expenseAccountId ?? "",
-      paidThroughId: existing.paidThroughId ?? "",
-      vendorId: existing.vendorId ?? "",
+      expenseDate: str("expenseDate"),
+      expenseAccountId: str("expenseAccountId"),
+      paidThroughId: str("paidThroughId"),
+      vendorId: str("vendorId"),
       amount: existing.amount ? String(Number(existing.amount)) : "",
-      taxId: existing.taxId ?? "",
-      reference: existing.reference ?? "",
-      notes: existing.notes ?? "",
+      taxId: str("taxId"),
+      reference: str("reference"),
+      notes: str("notes"),
     });
+    setLineTags(
+      Object.fromEntries(
+        ((existing.tags ?? []) as Array<{ tagId: string; optionId: string }>).map((t) => [
+          t.tagId,
+          t.optionId,
+        ]),
+      ),
+    );
   }, [existing]);
 
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) =>
@@ -96,6 +128,7 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
           taxId: form.taxId || undefined,
           reference: form.reference || undefined,
           notes: form.notes || undefined,
+          tagOptionIds: Object.values(lineTags).filter(Boolean),
         },
       })) as { id: string };
       if (pendingFiles.length && created?.id) {
@@ -175,6 +208,23 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
             <label className={label}>Reference</label>
             <input value={form.reference} onChange={set("reference")} className={inputCls} />
           </div>
+          {tags.map((t) => (
+            <div key={t.id}>
+              <label className={label}>{t.name}</label>
+              <select
+                value={lineTags[t.id] ?? ""}
+                onChange={(e) => setLineTags((m) => ({ ...m, [t.id]: e.target.value }))}
+                className={inputCls}
+              >
+                <option value="">—</option>
+                {t.options.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ))}
           <div className="col-span-2">
             <label className={label}>Notes</label>
             <textarea value={form.notes} onChange={set("notes")} rows={2} className={inputCls} />

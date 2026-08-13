@@ -18,6 +18,8 @@ export interface DocLineInput {
   rate: string;
   discountPercent?: string;
   taxId?: string;
+  /** Reporting tag options, carried through to the line's ledger posting. */
+  tagOptionIds?: string[];
 }
 
 export interface ComputedLine extends DocLineInput {

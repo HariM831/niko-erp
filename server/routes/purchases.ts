@@ -1,15 +1,20 @@
 import { Router } from "express";
-import { and, asc, desc, eq, getTableColumns, gte, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gte, inArray, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   accounts,
   bankAccounts,
+  billLineTags,
   billLines,
   bills,
   contacts,
   expenses,
   items,
+  journalEntryLineTags,
+  journalEntryLines,
   paymentMode,
+  reportingTagOptions,
+  reportingTags,
   purchaseOrderLines,
   purchaseOrders,
   users,
@@ -47,6 +52,16 @@ const lineSchema = z.object({
   rate: money,
   discountPercent: z.string().regex(/^\d+(\.\d{1,3})?$/).optional(),
   taxId: z.string().uuid().optional(),
+});
+
+/**
+ * Bills carry reporting tags; purchase orders and vendor credits do not, so
+ * they keep the plain line schema. Accepting a field one of them would quietly
+ * drop is worse than refusing it.
+ */
+const billLineSchema = lineSchema.extend({
+  /** Reporting tag options for this line — one option per tag. */
+  tagOptionIds: z.array(z.string().uuid()).max(10).optional(),
 });
 
 async function loadVendor(tx: Tx, id: string) {
@@ -115,19 +130,31 @@ function handlePostingError(err: unknown, res: { status: (n: number) => { json: 
  * first line's account group.
  */
 function buildBillJeLines(
-  grouped: Map<string, number>,
+  grouped: Map<string, { accountId: string; netP: number; tagOptionIds?: string[] }>,
   taxTotalP: number,
   roundOffP: number,
   totalP: number,
   billNumber: string,
 ) {
-  const jeLines: Array<{ accountId?: string; systemKey?: string; debit?: string; credit?: string; description?: string }> = [];
+  const jeLines: Array<{
+    accountId?: string;
+    systemKey?: string;
+    debit?: string;
+    credit?: string;
+    description?: string;
+    tagOptionIds?: string[];
+  }> = [];
   let first = true;
-  for (const [accountId, netP] of grouped) {
+  for (const { accountId, netP, tagOptionIds } of grouped.values()) {
     const withRound = first ? netP + roundOffP : netP;
     first = false;
     if (withRound !== 0) {
-      jeLines.push({ accountId, debit: fromPaise(withRound), description: `Bill ${billNumber}` });
+      jeLines.push({
+        accountId,
+        debit: fromPaise(withRound),
+        description: `Bill ${billNumber}`,
+        tagOptionIds,
+      });
     }
   }
   if (taxTotalP > 0) jeLines.push({ systemKey: "input_gst", debit: fromPaise(taxTotalP) });
@@ -397,7 +424,7 @@ const billSchema = z.object({
   freightVendorId: z.string().uuid().optional(),
   freightAccountId: z.string().uuid().optional(),
   notes: z.string().optional(),
-  lines: z.array(lineSchema).min(1).max(200),
+  lines: z.array(billLineSchema).min(1).max(200),
 });
 
 interface CreateBillArgs {
@@ -485,8 +512,11 @@ function billLineValues(c: BillComputation, billId: string) {
   return c.computedLines.map((l, i) => {
     const landedP = c.lineAmountsP[i]! + c.allocatedP[i]!;
     const qtyNum = Number(l.quantity);
+    // tagOptionIds rides along on the computed line but is not a bill_lines
+    // column — it belongs to bill_line_tags, inserted once the line has an id.
+    const { tagOptionIds: _tags, ...columns } = l;
     return {
-      ...l,
+      ...columns,
       accountId: c.resolvedLines[i]!.accountId,
       billId,
       allocatedFreight: fromPaise(c.allocatedP[i]!),
@@ -495,12 +525,70 @@ function billLineValues(c: BillComputation, billId: string) {
   });
 }
 
-/** The goods entry: line accounts debited, AP credited. Freight is excluded by design. */
-function billGoodsJeLines(c: BillComputation, number: string) {
-  const grouped = new Map<string, number>();
+/** Stable key for a set of tags, so two lines tagged alike group together. */
+const tagKey = (ids: string[] | undefined) => [...(ids ?? [])].sort().join(",");
+
+/**
+ * Persist each bill line's tags. Runs after the lines exist because the join
+ * needs their ids. The unique index on (line, tag) is the backstop; this
+ * refuses the same case with a message naming the problem.
+ */
+async function saveBillLineTags(
+  tx: Tx,
+  c: BillComputation,
+  insertedIds: Array<{ id: string; lineOrder: number }>,
+): Promise<void> {
+  const optionIds = [...new Set(c.computedLines.flatMap((l) => l.tagOptionIds ?? []))];
+  if (!optionIds.length) return;
+
+  const options = await tx
+    .select({
+      id: reportingTagOptions.id,
+      tagId: reportingTagOptions.tagId,
+      name: reportingTagOptions.name,
+      isActive: reportingTagOptions.isActive,
+    })
+    .from(reportingTagOptions)
+    .where(inArray(reportingTagOptions.id, optionIds));
+  const byId = new Map(options.map((o) => [o.id, o]));
+  const idByOrder = new Map(insertedIds.map((r) => [r.lineOrder, r.id]));
+
+  const rows: Array<{ billLineId: string; tagId: string; optionId: string }> = [];
   c.computedLines.forEach((l, i) => {
-    const acct = c.resolvedLines[i]!.accountId;
-    grouped.set(acct, (grouped.get(acct) ?? 0) + toPaise(l.amount));
+    const billLineId = idByOrder.get(l.lineOrder ?? i);
+    if (!billLineId) return;
+    const seen = new Set<string>();
+    for (const optionId of l.tagOptionIds ?? []) {
+      const option = byId.get(optionId);
+      if (!option) throw new PostingError("Unknown reporting tag option");
+      if (!option.isActive) {
+        throw new PostingError(`Tag option "${option.name}" is no longer in use`);
+      }
+      if (seen.has(option.tagId)) {
+        throw new PostingError("A line can only carry one option per tag");
+      }
+      seen.add(option.tagId);
+      rows.push({ billLineId, tagId: option.tagId, optionId });
+    }
+  });
+  if (rows.length) await tx.insert(billLineTags).values(rows);
+}
+
+/**
+ * The goods entry: line accounts debited, AP credited. Freight is excluded by design.
+ *
+ * Lines are grouped by account AND by their tags. Grouping on the account alone
+ * would merge diesel for one vehicle with diesel for another into a single
+ * ledger line, and the second vehicle's tag would have nowhere to go.
+ */
+function billGoodsJeLines(c: BillComputation, number: string) {
+  const grouped = new Map<string, { accountId: string; netP: number; tagOptionIds?: string[] }>();
+  c.computedLines.forEach((l, i) => {
+    const accountId = c.resolvedLines[i]!.accountId;
+    const key = `${accountId}|${tagKey(l.tagOptionIds)}`;
+    const existing = grouped.get(key);
+    if (existing) existing.netP += toPaise(l.amount);
+    else grouped.set(key, { accountId, netP: toPaise(l.amount), tagOptionIds: l.tagOptionIds });
   });
   const taxTotalP = toPaise(c.totals.cgst) + toPaise(c.totals.sgst) + toPaise(c.totals.igst);
   return buildBillJeLines(grouped, taxTotalP, toPaise(c.totals.roundOff), toPaise(c.totals.total), number);
@@ -572,7 +660,11 @@ async function createBill(tx: Tx, args: CreateBillArgs) {
     })
     .returning();
 
-  await tx.insert(billLines).values(billLineValues(c, bill!.id));
+  const insertedLines = await tx
+    .insert(billLines)
+    .values(billLineValues(c, bill!.id))
+    .returning({ id: billLines.id, lineOrder: billLines.lineOrder });
+  await saveBillLineTags(tx, c, insertedLines);
 
   const jeId = await postJournal(tx, {
     entryDate: args.billDate,
@@ -662,9 +754,34 @@ purchasesRouter.get("/bills/:id", requirePermission("purchases", "view"), async 
   const carrier = bill.freightVendorId
     ? await db.query.contacts.findFirst({ where: eq(contacts.id, bill.freightVendorId) })
     : null;
+
+  const lineTags = lines.length
+    ? await db
+        .select({
+          billLineId: billLineTags.billLineId,
+          tagId: billLineTags.tagId,
+          optionId: billLineTags.optionId,
+          tagName: reportingTags.name,
+          optionName: reportingTagOptions.name,
+        })
+        .from(billLineTags)
+        .innerJoin(reportingTags, eq(reportingTags.id, billLineTags.tagId))
+        .innerJoin(reportingTagOptions, eq(reportingTagOptions.id, billLineTags.optionId))
+        .where(
+          inArray(
+            billLineTags.billLineId,
+            lines.map((l) => l.id),
+          ),
+        )
+    : [];
+
   res.json({
     ...bill,
-    lines,
+    lines: lines.map((l) => ({
+      ...l,
+      tags: lineTags.filter((t) => t.billLineId === l.id),
+      tagOptionIds: lineTags.filter((t) => t.billLineId === l.id).map((t) => t.optionId),
+    })),
     payments: applications,
     freightVendorName: carrier?.displayName ?? null,
   });
@@ -759,7 +876,11 @@ purchasesRouter.patch(
 
         const c = await computeBill(tx, vendor, inputLines, freightAmount);
         await tx.delete(billLines).where(eq(billLines.billId, bill.id));
-        await tx.insert(billLines).values(billLineValues(c, bill.id));
+        const editedLines = await tx
+          .insert(billLines)
+          .values(billLineValues(c, bill.id))
+          .returning({ id: billLines.id, lineOrder: billLines.lineOrder });
+        await saveBillLineTags(tx, c, editedLines);
 
         const jeId = await postJournal(tx, {
           entryDate: billDate,
@@ -1495,6 +1616,8 @@ const expenseSchema = z.object({
   taxId: z.string().uuid().optional(),
   reference: z.string().optional(),
   notes: z.string().optional(),
+  /** Reporting tags for the cost — one option per tag. */
+  tagOptionIds: z.array(z.string().uuid()).max(10).optional(),
 });
 
 purchasesRouter.get("/expenses", requirePermission("purchases", "view"), async (req, res) => {
@@ -1535,11 +1658,33 @@ purchasesRouter.get("/expenses/:id", requirePermission("purchases", "view"), asy
   const vendor = expense.vendorId
     ? await db.query.contacts.findFirst({ where: eq(contacts.id, expense.vendorId) })
     : null;
+  const tags = expense.journalEntryId
+    ? await db
+        .select({
+          tagId: journalEntryLineTags.tagId,
+          optionId: journalEntryLineTags.optionId,
+          tagName: reportingTags.name,
+          optionName: reportingTagOptions.name,
+        })
+        .from(journalEntryLineTags)
+        .innerJoin(journalEntryLines, eq(journalEntryLines.id, journalEntryLineTags.lineId))
+        .innerJoin(reportingTags, eq(reportingTags.id, journalEntryLineTags.tagId))
+        .innerJoin(reportingTagOptions, eq(reportingTagOptions.id, journalEntryLineTags.optionId))
+        .where(
+          and(
+            eq(journalEntryLines.entryId, expense.journalEntryId),
+            eq(journalEntryLines.accountId, expense.expenseAccountId),
+          ),
+        )
+    : [];
+
   res.json({
     ...expense,
     expenseAccountName: acct ? `${acct.code} · ${acct.name}` : null,
     paidThroughName: paidThrough?.name ?? null,
     contactName: vendor?.displayName ?? null,
+    tags,
+    tagOptionIds: tags.map((t) => t.optionId),
   });
 });
 
@@ -1555,15 +1700,57 @@ async function expenseTaxPaise(tx: Tx, amount: string, taxId?: string) {
 }
 
 /** DR expense (+ input GST if taxed), CR the paid-through bank/cash account. */
+/**
+ * The tags currently on an expense, read off its journal.
+ *
+ * An expense has one cost account, so its tags live unambiguously on that one
+ * journal line and need no storage of their own. Anything that re-posts an
+ * expense has to read them back first, or reversing the old journal would drop
+ * them silently.
+ */
+async function expenseTagOptionIds(
+  tx: Tx,
+  journalEntryId: string | null,
+  expenseAccountId: string,
+): Promise<string[]> {
+  if (!journalEntryId) return [];
+  const rows = await tx
+    .select({ optionId: journalEntryLineTags.optionId })
+    .from(journalEntryLineTags)
+    .innerJoin(journalEntryLines, eq(journalEntryLines.id, journalEntryLineTags.lineId))
+    .where(
+      and(
+        eq(journalEntryLines.entryId, journalEntryId),
+        eq(journalEntryLines.accountId, expenseAccountId),
+      ),
+    );
+  return rows.map((r) => r.optionId);
+}
+
 function buildExpenseJeLines(args: {
   expenseAccountId: string;
   bankGlAccountId: string;
   amount: string;
   taxP: number;
   number: string;
+  tagOptionIds?: string[];
 }) {
-  const jeLines: Array<{ accountId?: string; systemKey?: string; debit?: string; credit?: string; description?: string }> = [
-    { accountId: args.expenseAccountId, debit: args.amount, description: `Expense ${args.number}` },
+  const jeLines: Array<{
+    accountId?: string;
+    systemKey?: string;
+    debit?: string;
+    credit?: string;
+    description?: string;
+    tagOptionIds?: string[];
+  }> = [
+    {
+      accountId: args.expenseAccountId,
+      debit: args.amount,
+      description: `Expense ${args.number}`,
+      // The cost line is the one worth tagging: the bank credit is just where
+      // the money came from, not what it was spent on.
+      tagOptionIds: args.tagOptionIds,
+    },
     { accountId: args.bankGlAccountId, credit: fromPaise(toPaise(args.amount) + args.taxP) },
   ];
   if (args.taxP > 0) jeLines.push({ systemKey: "input_gst", debit: fromPaise(args.taxP) });
@@ -1602,6 +1789,12 @@ purchasesRouter.patch(
         const taxId = body.taxId ?? expense.taxId ?? undefined;
         const taxP = await expenseTaxPaise(tx, amount, taxId);
 
+        // A patch that says nothing about tags keeps the ones already there,
+        // so editing an amount cannot quietly untag the cost.
+        const tagOptionIds =
+          body.tagOptionIds ??
+          (await expenseTagOptionIds(tx, expense.journalEntryId, expense.expenseAccountId));
+
         if (expense.journalEntryId) {
           await reverseJournal(tx, expense.journalEntryId, expenseDate, req.session.user!.id);
         }
@@ -1617,6 +1810,7 @@ purchasesRouter.patch(
             amount,
             taxP,
             number: expense.number,
+            tagOptionIds,
           }),
         });
 
@@ -1690,6 +1884,7 @@ purchasesRouter.post(
           amount: body.amount,
           taxP,
           number,
+          tagOptionIds: body.tagOptionIds,
         });
 
         const jeId = await postJournal(tx, {
@@ -1834,6 +2029,12 @@ export async function repostExpense(tx: Tx, id: string, userId: string): Promise
     .limit(1);
   if (!bank) throw new PostingError("Paid-through account not found");
 
+  // Read the tags before the reversal, or they vanish with the old journal.
+  const tagOptionIds = await expenseTagOptionIds(
+    tx,
+    expense.journalEntryId,
+    expense.expenseAccountId,
+  );
   if (expense.journalEntryId) {
     await reverseJournal(tx, expense.journalEntryId, expense.expenseDate, userId);
   }
@@ -1849,6 +2050,7 @@ export async function repostExpense(tx: Tx, id: string, userId: string): Promise
       amount: expense.amount,
       taxP: await expenseTaxPaise(tx, expense.amount, expense.taxId ?? undefined),
       number: expense.number,
+      tagOptionIds,
     }),
   });
   await tx.update(expenses).set({ journalEntryId: jeId }).where(eq(expenses.id, id));

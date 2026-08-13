@@ -41,9 +41,24 @@ export interface FormLine {
   rate: string;
   discountPercent: string;
   taxId?: string;
+  /** Chosen option per tag. One column per tag keeps "one option per tag" true
+      by construction — there is nowhere to put a second vehicle. */
+  tags?: Record<string, string>;
 }
 
-const emptyLine = (): FormLine => ({ name: "", quantity: "1", rate: "0", discountPercent: "0" });
+interface TagOption {
+  id: string;
+  name: string;
+  isActive: boolean;
+}
+interface ReportingTag {
+  id: string;
+  name: string;
+  isActive: boolean;
+  options: TagOption[];
+}
+
+const emptyLine = (): FormLine => ({ name: "", quantity: "1", rate: "0", discountPercent: "0", tags: {} });
 
 export interface TransactionFormConfig {
   title: string;
@@ -57,6 +72,8 @@ export interface TransactionFormConfig {
   dateLabel: string;
   /** Show per-line expense account column (bills, vendor credits). */
   withAccountColumn?: boolean;
+  /** Reporting tag columns — only where the server stores them. */
+  withTags?: boolean;
   /** Offer "Save and Send" (invoices) in addition to draft. */
   withSend?: boolean;
   /** Capture the vendor's own bill number (bills). */
@@ -121,6 +138,14 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
           rate: String(Number(l.rate)),
           discountPercent: String(Number(l.discountPercent ?? 0)),
           taxId: (l.taxId as string) ?? undefined,
+          // Rebuild the per-tag map from what the document came back with, so
+          // editing a bill keeps the tags it was saved with.
+          tags: Object.fromEntries(
+            ((l.tags ?? []) as Array<{ tagId: string; optionId: string }>).map((t) => [
+              t.tagId,
+              t.optionId,
+            ]),
+          ),
         })),
       );
     }
@@ -154,6 +179,18 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
     queryFn: () => api<Account[]>("/api/accounting/accounts"),
     enabled: !!config.withAccountColumn,
   });
+  const { data: allTags } = useQuery({
+    queryKey: ["reporting-tags"],
+    queryFn: () => api<ReportingTag[]>("/api/reporting-tags"),
+    enabled: !!config.withTags,
+  });
+  // A tag with no usable options would only add an empty column.
+  const tags = !config.withTags
+    ? []
+    : (allTags ?? [])
+        .filter((t) => t.isActive)
+        .map((t) => ({ ...t, options: t.options.filter((o) => o.isActive) }))
+        .filter((t) => t.options.length > 0);
 
   // A sale credits income; a purchase debits an expense or capitalises an asset.
   // Headings can't be posted to, so they never appear here.
@@ -223,6 +260,9 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
             rate: l.rate,
             discountPercent: l.discountPercent || undefined,
             taxId: l.taxId || undefined,
+            ...(config.withTags
+              ? { tagOptionIds: Object.values(l.tags ?? {}).filter(Boolean) }
+              : {}),
           })),
         ...config.extraBody,
       };
@@ -411,6 +451,11 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
               <th className="w-28 border border-[#ebeaf2] px-2 py-2">Rate</th>
               <th className="w-20 border border-[#ebeaf2] px-2 py-2">Disc %</th>
               <th className="w-32 border border-[#ebeaf2] px-2 py-2">Tax</th>
+              {tags.map((t) => (
+                <th key={t.id} className="w-40 border border-[#ebeaf2] px-2 py-2 whitespace-nowrap">
+                  {t.name}
+                </th>
+              ))}
               <th className="w-28 border border-[#ebeaf2] px-2 py-2 text-right">Amount</th>
               <th className="w-8 border border-[#ebeaf2]" />
             </tr>
@@ -478,6 +523,24 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                       ))}
                     </select>
                   </td>
+                  {tags.map((t) => (
+                    <td key={t.id} className="border border-[#ebeaf2] px-1 py-1">
+                      <select
+                        value={l.tags?.[t.id] ?? ""}
+                        onChange={(e) =>
+                          updateLine(i, { tags: { ...(l.tags ?? {}), [t.id]: e.target.value } })
+                        }
+                        className={inputCls}
+                      >
+                        <option value="">—</option>
+                        {t.options.map((o) => (
+                          <option key={o.id} value={o.id}>
+                            {o.name}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                  ))}
                   <td className="border border-[#ebeaf2] px-2 py-1 text-right tabular-nums">{formatMoney(net)}</td>
                   <td className="border border-[#ebeaf2] text-center">
                     {lines.length > 1 && (

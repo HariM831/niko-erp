@@ -8,6 +8,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { journalEntryLines } from "./accounting";
+import { billLines } from "./purchases";
 
 /**
  * A reporting dimension — "Vehicle", "Shed", "Cost Centre". Costs and income
@@ -62,4 +63,30 @@ export const journalEntryLineTags = pgTable(
       .references(() => reportingTagOptions.id),
   },
   (t) => [uniqueIndex("uq_line_tag").on(t.lineId, t.tagId)],
+);
+
+/**
+ * Tags on a bill line.
+ *
+ * A bill's journal groups its lines by account, so two lines charged to the
+ * same account but different vehicles collapse into one ledger line — the
+ * document has to keep its own tags or editing a bill would lose them.
+ * Expenses need no equivalent: they carry a single account, so their tags map
+ * straight onto their one journal line and are read back from there.
+ */
+export const billLineTags = pgTable(
+  "bill_line_tags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    billLineId: uuid("bill_line_id")
+      .notNull()
+      .references(() => billLines.id, { onDelete: "cascade" }),
+    tagId: uuid("tag_id")
+      .notNull()
+      .references(() => reportingTags.id),
+    optionId: uuid("option_id")
+      .notNull()
+      .references(() => reportingTagOptions.id),
+  },
+  (t) => [uniqueIndex("uq_bill_line_tag").on(t.billLineId, t.tagId)],
 );

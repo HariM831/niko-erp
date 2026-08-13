@@ -36,6 +36,7 @@ const configs: Record<string, TransactionFormConfig> = {
     withAccountColumn: true,
     withVendorBillNumber: true,
     withFreight: true,
+    withTags: true,
   },
   "purchase-order": {
     title: "New Purchase Order",
