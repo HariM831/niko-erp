@@ -59,6 +59,19 @@ const TYPE_MAP: Record<string, { type: string; subtype: string }> = {
   other_expense: { type: "expense", subtype: "other_expense" },
 };
 
+/**
+ * Accounts renamed on the way in, keyed by Zoho's name.
+ *
+ * Recorded here rather than edited in the database, because the loader updates
+ * every account it manages on each run — a rename made directly would be
+ * silently reverted the next time the chart is reloaded.
+ */
+const RENAME: Record<string, string> = {
+  // The account holds every bird sale, not only chicks: the June batches were
+  // point-of-lay layers. Confirmed by the user.
+  "Chicks(Sales)": "Bird (Sales)",
+};
+
 /** Starting number for each subtype's code band, following the seeded chart. */
 const BAND: Record<string, number> = {
   asset: 1000,
@@ -290,7 +303,7 @@ async function main() {
       // An already-issued code wins, then a real Zoho code, then a new one
       // from the band.
       code,
-      name: a.account_name,
+      name: RENAME[a.account_name] ?? a.account_name,
       type,
       subtype,
       parentZohoId: a.parent_account_id || null,

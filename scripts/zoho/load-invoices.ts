@@ -72,6 +72,45 @@ const money = (n: number | undefined) => (n ?? 0).toFixed(2);
 const paise = (n: number | undefined) => Math.round((n ?? 0) * 100);
 
 /**
+ * Sixteen invoice lines carry no item and no description at all, and between
+ * them hold ₹4.45cr of revenue. Nothing in the data names what was sold, so
+ * each was identified from the rate, the date and the customer, and confirmed
+ * by the user before being written down here.
+ *
+ * Every one of these invoices has exactly one blank line, which is why the
+ * invoice number alone is enough to key on — asserted below rather than
+ * assumed.
+ */
+const EXTRA_LARGE = "1849356000003055003"; // Eggs — Extra Large
+const LAYER_BIRDS = "1849356000001634783"; // Layer Birds (Layer Commercial Bovans).
+
+const MANUAL_ITEM: Record<string, string> = {
+  // ₹1,310–1,312 to egg retailers in the same week. Egg's Large has never been
+  // sold at that price; the only two lines in the whole book priced ₹1,312 are
+  // Eggs — Extra Large, dated 6 Aug, to two of these same customers.
+  "A-INV-EG-27-0567": EXTRA_LARGE,
+  "A-INV-EG-27-0573": EXTRA_LARGE,
+  "A-INV-EG-27-0576": EXTRA_LARGE,
+  "A-INV-EG-27-0577": EXTRA_LARGE,
+  "A-INV-EG-27-0578": EXTRA_LARGE,
+  "A-INV-EG-27-0579": EXTRA_LARGE,
+  "A-INV-EG-27-0584": EXTRA_LARGE,
+  "A-INV-EG-27-0585": EXTRA_LARGE,
+  "A-INV-EG-27-0589": EXTRA_LARGE,
+  // Seven consecutive daily invoices to Nandamuri, 15–21k birds at ₹341. No
+  // item was ever priced at ₹341 — the earlier bird sales are all ₹379 — which
+  // is why this could not be inferred: a bird's price tracks the age it is sold
+  // at, so the rate moves between batches and matches nothing on file.
+  "INV-2026-27/0274": LAYER_BIRDS,
+  "INV-2026-27/0275": LAYER_BIRDS,
+  "INV-2026-27/0276": LAYER_BIRDS,
+  "INV-2026-27/0277": LAYER_BIRDS,
+  "INV-2026-27/0278": LAYER_BIRDS,
+  "INV-2026-27/0279": LAYER_BIRDS,
+  "INV-2026-27/0280": LAYER_BIRDS,
+};
+
+/**
  * How a document-level discount reaches the ledger.
  *
  * Zoho lets a discount sit on the invoice header and posts it to a Discount
@@ -147,14 +186,33 @@ async function main() {
     if (it.account_id) itemDefaultAccount.set(it.item_id, it.account_id);
   }
 
-  /** The Zoho account a line should post to, after the correction above. */
-  const accountForLine = (l: ZohoLine): string | undefined => {
-    if (l.item_id && (!l.account_id || l.account_id === CATCH_ALL_SALES)) {
-      return itemDefaultAccount.get(l.item_id) ?? l.account_id;
+  /** The item a line is for: its own, or the one identified for a blank line. */
+  const itemForLine = (invoiceNumber: string, l: ZohoLine): string | undefined =>
+    l.item_id || MANUAL_ITEM[invoiceNumber];
+
+  /** The Zoho account a line should post to, after the corrections above. */
+  const accountForLine = (invoiceNumber: string, l: ZohoLine): string | undefined => {
+    const item = itemForLine(invoiceNumber, l);
+    if (item && (!l.account_id || l.account_id === CATCH_ALL_SALES)) {
+      return itemDefaultAccount.get(item) ?? l.account_id;
     }
     return l.account_id;
   };
   let reclassified = 0;
+  let identified = 0;
+
+  // The manual list keys on the invoice number, which is only safe while each
+  // of those invoices has exactly one line missing an item.
+  for (const inv of all) {
+    if (!MANUAL_ITEM[inv.invoice_number]) continue;
+    const blanks = (inv.line_items ?? []).filter((l) => !l.item_id).length;
+    if (blanks !== 1) {
+      throw new Error(
+        `${inv.invoice_number} has ${blanks} lines without an item; the manual classification ` +
+          `assumes exactly one and cannot say which it means`,
+      );
+    }
+  }
 
   const todo = all.filter((i) => !done.has(i.invoice_id));
 
@@ -168,7 +226,7 @@ async function main() {
       if (l.item_id && !itemFor.has(l.item_id)) {
         problems.push(`${inv.invoice_number}: item ${l.item_id} not imported`);
       }
-      const resolved = accountForLine(l);
+      const resolved = accountForLine(inv.invoice_number, l);
       if (resolved && !accountFor.has(resolved)) {
         problems.push(`${inv.invoice_number}: account ${resolved} not imported`);
       }
@@ -187,8 +245,12 @@ async function main() {
   console.log(`  dates ${todo[0]?.date} .. ${todo[todo.length - 1]?.date}`);
   console.log(`  lines ${todo.reduce((s, i) => s + (i.line_items?.length ?? 0), 0)}`);
   console.log(`  with an adjustment ${todo.filter((i) => Number(i.adjustment ?? 0) !== 0).length}`);
-  const wouldMove = todo.flatMap((i) => i.line_items ?? []).filter(
-    (l) => accountForLine(l) && accountForLine(l) !== l.account_id,
+  const wouldMove = todo.flatMap((i) =>
+    (i.line_items ?? []).filter(
+      (l) =>
+        accountForLine(i.invoice_number, l) &&
+        accountForLine(i.invoice_number, l) !== l.account_id,
+    ),
   );
   console.log(
     `  lines re-pointed from the catch-all to their item's account: ${wouldMove.length}` +
@@ -243,9 +305,13 @@ async function main() {
       const src = inv.line_items ?? [];
       const lines = src.map((l, i) => ({
         invoiceId: row!.id,
-        itemId: l.item_id ? (itemFor.get(l.item_id) ?? null) : null,
+        itemId: (() => {
+          const item = itemForLine(inv.invoice_number, l);
+          if (item && !l.item_id) identified += 1;
+          return item ? (itemFor.get(item) ?? null) : null;
+        })(),
         accountId: (() => {
-          const target = accountForLine(l);
+          const target = accountForLine(inv.invoice_number, l);
           if (target && target !== l.account_id) reclassified += 1;
           return target ? (accountFor.get(target) ?? null) : null;
         })(),
