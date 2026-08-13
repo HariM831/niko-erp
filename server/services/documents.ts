@@ -35,6 +35,9 @@ export interface ComputedTotals {
   cgst: string;
   sgst: string;
   igst: string;
+  adjustment: string;
+  adjustmentAccountId: string | null;
+  adjustmentDescription: string | null;
   roundOff: string;
   total: string;
   lines: ComputedLine[];
@@ -50,6 +53,12 @@ export async function computeDocumentTotals(
   tx: Tx,
   lines: DocLineInput[],
   placeOfSupplyState: string | null | undefined,
+  /**
+   * A manual correction to the total. Applied after tax and before rounding,
+   * which is the order Zoho uses, so a document that rounds to the rupee still
+   * rounds the figure the reader actually pays.
+   */
+  adjustment?: { amount: string; accountId?: string | null; description?: string | null },
 ): Promise<ComputedTotals> {
   const taxIds = [...new Set(lines.map((l) => l.taxId).filter((v): v is string => !!v))];
   const taxRows = taxIds.length
@@ -99,7 +108,8 @@ export async function computeDocumentTotals(
   const sgstP = interState ? 0 : taxTotalP - cgstP;
   const igstP = interState ? taxTotalP : 0;
 
-  const rawTotalP = subTotalP - discountP + taxTotalP;
+  const adjustmentP = toPaise(adjustment?.amount ?? "0");
+  const rawTotalP = subTotalP - discountP + taxTotalP + adjustmentP;
   // Rounding is an org preference — Zoho defaults to none, EGGSY to whole
   // rupees. Whatever it is, the difference is recorded as roundOff so the
   // document still ties to its own lines.
@@ -113,6 +123,9 @@ export async function computeDocumentTotals(
     cgst: fromPaise(cgstP),
     sgst: fromPaise(sgstP),
     igst: fromPaise(igstP),
+    adjustment: fromPaise(adjustmentP),
+    adjustmentAccountId: adjustmentP !== 0 ? (adjustment?.accountId ?? null) : null,
+    adjustmentDescription: adjustmentP !== 0 ? (adjustment?.description ?? null) : null,
     roundOff: fromPaise(roundOffP),
     total: fromPaise(roundedTotalP),
     lines: computed,

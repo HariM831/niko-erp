@@ -48,7 +48,15 @@ const totalsColumns = {
   cgst: money("cgst").notNull().default("0"),
   sgst: money("sgst").notNull().default("0"),
   igst: money("igst").notNull().default("0"),
+  /**
+   * A manual correction to the document total — Zoho's "Adjustment" line.
+   * Distinct from roundOff, which is derived: this is a figure someone typed,
+   * and it posts to an account of its own rather than riding on the largest
+   * revenue line. Amino's books use it on 228 documents.
+   */
   adjustment: money("adjustment").notNull().default("0"),
+  adjustmentAccountId: uuid("adjustment_account_id").references(() => accounts.id),
+  adjustmentDescription: text("adjustment_description"),
   roundOff: money("round_off").notNull().default("0"),
   total: money("total").notNull().default("0"),
 };

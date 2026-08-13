@@ -197,6 +197,13 @@
       "when": 1786635216885,
       "tag": "0027_loud_riptide",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1786640391548,
+      "tag": "0028_curly_songbird",
+      "breakpoints": true
     }
   ]
 }

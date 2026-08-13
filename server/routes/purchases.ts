@@ -136,6 +136,7 @@ function buildBillJeLines(
   roundOffP: number,
   totalP: number,
   billNumber: string,
+  adjustment?: { paise: number; accountId: string | null },
 ) {
   const jeLines: Array<{
     accountId?: string;
@@ -159,6 +160,20 @@ function buildBillJeLines(
     }
   }
   if (taxTotalP > 0) jeLines.push({ systemKey: "input_gst", debit: fromPaise(taxTotalP) });
+
+  // The adjustment is inside the payable, so its own account takes the other
+  // side — debited when it increases what is owed, credited when it reduces it.
+  if (adjustment && adjustment.paise !== 0) {
+    if (!adjustment.accountId) {
+      throw new PostingError(`Bill ${billNumber} has an adjustment but no account to post it to`);
+    }
+    jeLines.push(
+      adjustment.paise > 0
+        ? { accountId: adjustment.accountId, debit: fromPaise(adjustment.paise) }
+        : { accountId: adjustment.accountId, credit: fromPaise(-adjustment.paise) },
+    );
+  }
+
   jeLines.push({ systemKey: "ap", credit: fromPaise(totalP) });
   return jeLines;
 }
@@ -427,6 +442,17 @@ const billSchema = z.object({
   notes: z.string().optional(),
   /** Custom field values, keyed by field id. */
   customFields: z.record(z.string(), z.any()).optional(),
+  /**
+   * A manual correction to the total, posted to its own account rather than
+   * folded into revenue or cost.
+   */
+  adjustment: z
+    .object({
+      amount: money,
+      accountId: z.string().uuid(),
+      description: z.string().max(100).optional(),
+    })
+    .optional(),
   lines: z.array(billLineSchema).min(1).max(200),
 });
 
@@ -443,6 +469,7 @@ interface CreateBillArgs {
   freightAccountId?: string;
   notes?: string;
   purchaseOrderId?: string;
+  adjustment?: { amount: string; accountId: string; description?: string };
   lines: Array<z.infer<typeof lineSchema>>;
   postedBy: string;
 }
@@ -496,12 +523,14 @@ async function computeBill(
   vendor: typeof contacts.$inferSelect,
   lines: Array<z.infer<typeof lineSchema>>,
   freightAmount?: string,
+  adjustment?: { amount: string; accountId?: string | null; description?: string | null },
 ): Promise<BillComputation> {
   const resolvedLines = await resolveLineAccounts(tx, lines);
   const totals = await computeDocumentTotals(
     tx,
     resolvedLines as DocLineInput[],
     vendor.placeOfSupplyState,
+    adjustment,
   );
   const { lines: computedLines, ...headerTotals } = totals;
   const freightP = toPaise(freightAmount ?? "0");
@@ -594,7 +623,14 @@ function billGoodsJeLines(c: BillComputation, number: string) {
     else grouped.set(key, { accountId, netP: toPaise(l.amount), tagOptionIds: l.tagOptionIds });
   });
   const taxTotalP = toPaise(c.totals.cgst) + toPaise(c.totals.sgst) + toPaise(c.totals.igst);
-  return buildBillJeLines(grouped, taxTotalP, toPaise(c.totals.roundOff), toPaise(c.totals.total), number);
+  return buildBillJeLines(
+    grouped,
+    taxTotalP,
+    toPaise(c.totals.roundOff),
+    toPaise(c.totals.total),
+    number,
+    { paise: toPaise(c.totals.adjustment), accountId: c.totals.adjustmentAccountId },
+  );
 }
 
 /**
@@ -637,7 +673,7 @@ async function postFreightJournal(
 
 async function createBill(tx: Tx, args: CreateBillArgs) {
   const vendor = args.vendor;
-  const c = await computeBill(tx, vendor, args.lines, args.freightAmount);
+  const c = await computeBill(tx, vendor, args.lines, args.freightAmount, args.adjustment);
   const { computedLines, headerTotals, freightP, allocatedP, lineAmountsP, resolvedLines } = c;
   const number = await nextDocumentNumber(tx, "bill", args.seriesId);
   const dueDate = args.dueDate ?? computeDueDate(args.billDate, args.vendor.paymentTermsDays);
@@ -813,6 +849,7 @@ purchasesRouter.post(
           freightVendorId: body.freightVendorId,
           freightAccountId: body.freightAccountId,
           notes: body.notes,
+          adjustment: body.adjustment,
           lines: body.lines,
           postedBy: req.session.user!.id,
         });
@@ -884,7 +921,11 @@ purchasesRouter.patch(
 
         await saveCustomFieldValues(tx, "bill", bill.id, body.customFields);
 
-        const c = await computeBill(tx, vendor, inputLines, freightAmount);
+        const c = await computeBill(tx, vendor, inputLines, freightAmount, {
+          amount: body.adjustment?.amount ?? bill.adjustment,
+          accountId: body.adjustment?.accountId ?? bill.adjustmentAccountId,
+          description: body.adjustment?.description ?? bill.adjustmentDescription,
+        });
         await tx.delete(billLines).where(eq(billLines.billId, bill.id));
         const editedLines = await tx
           .insert(billLines)
@@ -1966,7 +2007,11 @@ export async function repostBill(tx: Tx, id: string, userId: string): Promise<vo
     if (je) await reverseJournal(tx, je, bill.billDate, userId);
   }
 
-  const c = await computeBill(tx, vendor, await storedBillLines(tx, id), bill.freightAmount);
+  const c = await computeBill(tx, vendor, await storedBillLines(tx, id), bill.freightAmount, {
+    amount: bill.adjustment,
+    accountId: bill.adjustmentAccountId,
+    description: bill.adjustmentDescription,
+  });
   await tx.delete(billLines).where(eq(billLines.billId, id));
   await tx.insert(billLines).values(billLineValues(c, id));
 

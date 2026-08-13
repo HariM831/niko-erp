@@ -102,6 +102,8 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
   const [deliveryDate, setDeliveryDate] = useState("");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<FormLine[]>([emptyLine()]);
+  /** Zoho's Adjustment: a typed correction with its own label and account. */
+  const [adjustment, setAdjustment] = useState({ amount: "", accountId: "", description: "" });
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [customFields, setCustomFields] = useState<CustomFieldValues>({});
   const [error, setError] = useState<string | null>(null);
@@ -129,6 +131,14 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
     setFreightAccountId((existing.freightAccountId as string) ?? "");
     setDeliveryDate((existing.expectedDeliveryDate as string) ?? "");
     setNotes((existing.customerNotes as string) ?? "");
+    setAdjustment({
+      amount:
+        existing.adjustment && Number(existing.adjustment) !== 0
+          ? String(Number(existing.adjustment))
+          : "",
+      accountId: (existing.adjustmentAccountId as string) ?? "",
+      description: (existing.adjustmentDescription as string) ?? "",
+    });
     setCustomFields(
       Object.fromEntries(
         ((existing.customFieldValues ?? []) as Array<{ fieldId: string; raw: unknown }>).map((v) => [
@@ -187,7 +197,6 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
   const { data: accounts } = useQuery({
     queryKey: ["accounts-all"],
     queryFn: () => api<Account[]>("/api/accounting/accounts"),
-    enabled: !!config.withAccountColumn,
   });
   const { data: allTags } = useQuery({
     queryKey: ["reporting-tags"],
@@ -226,10 +235,12 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
       disc += d;
       tax += ((gross - d) * taxRate(l.taxId)) / 100;
     }
-    const raw = sub - disc + tax;
+    // The adjustment lands before rounding, the order the server uses, so the
+    // figure that gets rounded is the one the customer actually pays.
+    const raw = sub - disc + tax + Number(adjustment.amount || 0);
     const rounded = Math.round(raw);
     return { sub, disc, tax, roundOff: rounded - raw, total: rounded };
-  }, [lines, taxes]);
+  }, [lines, taxes, adjustment.amount]);
 
   const updateLine = (i: number, patch: Partial<FormLine>) =>
     setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
@@ -278,6 +289,13 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
         ...config.extraBody,
       };
       if (notes) body.customerNotes = notes;
+      if (Number(adjustment.amount || 0) !== 0) {
+        body.adjustment = {
+          amount: Number(adjustment.amount).toFixed(2),
+          accountId: adjustment.accountId,
+          description: adjustment.description || undefined,
+        };
+      }
       if (config.withVendorBillNumber && vendorBillNumber) body.vendorBillNumber = vendorBillNumber;
       if (config.withFreight && Number(freightAmount) > 0) {
         body.freightAmount = Number(freightAmount).toFixed(2);
@@ -609,6 +627,36 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
             <div className="mb-1.5 flex justify-between">
               <span>Tax</span>
               <span className="tabular-nums">{formatMoney(totals.tax)}</span>
+            </div>
+            {/* Zoho puts the adjustment here, between tax and the total, with
+                an editable label. It needs an account of its own — it is a real
+                posting, not a rounding artefact. */}
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <input
+                value={adjustment.description}
+                onChange={(e) => setAdjustment((a) => ({ ...a, description: e.target.value }))}
+                placeholder="Adjustment"
+                className="w-24 border-b border-dashed border-gray-300 bg-transparent text-[13px] outline-none focus:border-brand-400"
+              />
+              <select
+                value={adjustment.accountId}
+                onChange={(e) => setAdjustment((a) => ({ ...a, accountId: e.target.value }))}
+                className="min-w-0 flex-1 border-b border-dashed border-gray-300 bg-transparent text-[12px] text-gray-500 outline-none focus:border-brand-400"
+              >
+                <option value="">account…</option>
+                {(accounts ?? []).map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.code} · {a.name}
+                  </option>
+                ))}
+              </select>
+              <input
+                value={adjustment.amount}
+                onChange={(e) => setAdjustment((a) => ({ ...a, amount: e.target.value }))}
+                placeholder="0.00"
+                inputMode="decimal"
+                className="w-20 border-b border-dashed border-gray-300 bg-transparent text-right text-[13px] tabular-nums outline-none focus:border-brand-400"
+              />
             </div>
             <div className="mb-2 flex justify-between text-gray-600">
               <span>Round Off</span>

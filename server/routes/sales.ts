@@ -63,6 +63,17 @@ const invoiceSchema = z.object({
   placeOfSupplyState: z.string().max(4).optional(),
   customerNotes: z.string().optional(),
   termsAndConditions: z.string().optional(),
+  /**
+   * A manual correction to the total, posted to its own account rather than
+   * folded into revenue or cost.
+   */
+  adjustment: z
+    .object({
+      amount: money,
+      accountId: z.string().uuid(),
+      description: z.string().max(100).optional(),
+    })
+    .optional(),
   lines: z.array(lineSchema).min(1).max(200),
 });
 
@@ -111,6 +122,8 @@ async function postInvoiceJournal(
     cgst: string;
     sgst: string;
     igst: string;
+    adjustment: string;
+    adjustmentAccountId: string | null;
     roundOff: string;
     total: string;
   },
@@ -135,6 +148,21 @@ async function postInvoiceJournal(
   if (toPaise(inv.cgst) > 0) lines.push({ systemKey: "cgst_payable", credit: inv.cgst });
   if (toPaise(inv.sgst) > 0) lines.push({ systemKey: "sgst_payable", credit: inv.sgst });
   if (toPaise(inv.igst) > 0) lines.push({ systemKey: "igst_payable", credit: inv.igst });
+
+  // The adjustment rides in the receivable, so its own account takes the other
+  // side. Credited when it increases the total, debited when it reduces it —
+  // the sign does that, so a negative adjustment needs no special case.
+  const adjP = toPaise(inv.adjustment);
+  if (adjP !== 0) {
+    if (!inv.adjustmentAccountId) {
+      throw new PostingError(`Invoice ${inv.number} has an adjustment but no account to post it to`);
+    }
+    lines.push(
+      adjP > 0
+        ? { accountId: inv.adjustmentAccountId, credit: fromPaise(adjP) }
+        : { accountId: inv.adjustmentAccountId, debit: fromPaise(-adjP) },
+    );
+  }
 
   return postJournal(tx, {
     entryDate: inv.invoiceDate,
@@ -239,6 +267,7 @@ salesRouter.post(
           tx,
           body.lines as DocLineInput[],
           body.placeOfSupplyState ?? customer.placeOfSupplyState,
+          body.adjustment,
         );
         const number = await nextDocumentNumber(tx, "invoice", body.seriesId);
         const dueDate =
@@ -326,6 +355,7 @@ salesRouter.patch(
             tx,
             body.lines as DocLineInput[],
             body.placeOfSupplyState ?? inv.placeOfSupplyState,
+            body.adjustment,
           );
           const withAccounts = await applyDefaultSalesAccounts(tx, totals.lines);
           await tx.delete(invoiceLines).where(eq(invoiceLines.invoiceId, inv.id));

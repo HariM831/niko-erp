@@ -50,7 +50,10 @@ const totalsColumns = {
   cgst: money("cgst").notNull().default("0"),
   sgst: money("sgst").notNull().default("0"),
   igst: money("igst").notNull().default("0"),
+  /** See the note on the sales side: a typed correction, not derived rounding. */
   adjustment: money("adjustment").notNull().default("0"),
+  adjustmentAccountId: uuid("adjustment_account_id").references(() => accounts.id),
+  adjustmentDescription: text("adjustment_description"),
   roundOff: money("round_off").notNull().default("0"),
   total: money("total").notNull().default("0"),
 };
