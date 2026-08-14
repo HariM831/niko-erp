@@ -69,11 +69,19 @@ const MODULES: Module[] = [
     detail: true,
     detailKey: "purchaseorder",
   },
+  {
+    // Pulled after all: these are not only the bank feed. Alongside rows that
+    // mirror an imported document — a customer_payment row carries the same
+    // transaction_id as the payment itself — they hold transfers between own
+    // accounts, loan drawdowns and repayments, and money recorded straight in
+    // banking with no document behind it. Skipping them left the banks out by
+    // crores, so they come in and the duplicates are filtered at load time.
+    path: "banktransactions",
+    key: "banktransactions",
+    idField: "transaction_id",
+    detail: false,
+  },
 ];
-
-// Bank transactions are deliberately not pulled: they are the bank feed, and
-// the payments and expenses already carry the same money movement. Importing
-// both would double-count it.
 
 const listFile = (m: Module) => `${DIR}/list/${m.path.replace(/\//g, "-")}.jsonl`;
 const detailFile = (m: Module) => `${DIR}/detail/${m.path.replace(/\//g, "-")}.jsonl`;
