@@ -41,6 +41,28 @@ interface BankTxn {
   offset_account_name?: string;
 }
 
+/**
+ * The other side for the transactions Zoho records no offset against.
+ *
+ * Not inferred from the type alone — each was confirmed against Zoho's own
+ * closing balance, which is only reachable by one account:
+ *
+ *   loan payments      Zoho Payroll - Loan Account is 37,400 short of Zoho's
+ *                      figure, exactly their total. Staff loans paid out, not
+ *                      borrowings repaid — the narration is empty on all ten,
+ *                      so the balance is what identifies it.
+ *   customer refunds   Unearned Revenue is 31,00,000 short, exactly their total.
+ *   vendor refunds     Accounts Payable, the standard treatment: a vendor
+ *                      returning an overpayment reverses it. This one moves AP
+ *                      the right way but does not close it — a separate
+ *                      71.35 lakh sits between EGGSY and Zoho on that account.
+ */
+const OFFSET_BY_TYPE: Record<string, { systemKey?: string; code?: string }> = {
+  vendorpayment_refund: { systemKey: "ap" },
+  payment_refund: { systemKey: "customer_advances" },
+  loan_payment: { code: "1149" },
+};
+
 /** Types that arrived as documents already and must not be posted twice. */
 const ALREADY_IMPORTED = new Set(["expense", "vendor_payment", "customer_payment", "journal"]);
 
@@ -93,16 +115,33 @@ async function main() {
     ).map((b) => [b.id, b.glAccountId]),
   );
 
+  // Accounts reachable by system key or code, for the offsets Zoho leaves blank.
+  const named = await db
+    .select({ id: accounts.id, code: accounts.code, systemKey: accounts.systemKey })
+    .from(accounts);
+  const byKey = new Map(named.filter((a) => a.systemKey).map((a) => [a.systemKey!, a.id]));
+  const byCode = new Map(named.map((a) => [a.code, a.id]));
+  const fallbackOffset = (type: string): string | undefined => {
+    const spec = OFFSET_BY_TYPE[type];
+    if (!spec) return undefined;
+    return spec.systemKey ? byKey.get(spec.systemKey) : byCode.get(spec.code!);
+  };
+
   const candidates = unique.filter(
     (t) => !ALREADY_IMPORTED.has(t.transaction_type) && !done.has(t.transaction_id),
   );
-  const noOffset = candidates.filter((t) => !t.offset_account_name?.trim());
-  const todo = candidates.filter((t) => t.offset_account_name?.trim());
+  const noOffset = candidates.filter(
+    (t) => !t.offset_account_name?.trim() && !fallbackOffset(t.transaction_type),
+  );
+  const todo = candidates.filter(
+    (t) => t.offset_account_name?.trim() || fallbackOffset(t.transaction_type),
+  );
 
   const problems: string[] = [];
   for (const t of todo) {
     if (!bankFor.has(t.account_id)) problems.push(`${t.date} ${t.transaction_type}: bank not imported`);
-    const matches = byName.get(t.offset_account_name!.trim().toLowerCase()) ?? [];
+    if (!t.offset_account_name?.trim()) continue; // resolved by type instead
+    const matches = byName.get(t.offset_account_name.trim().toLowerCase()) ?? [];
     if (matches.length === 0) {
       problems.push(`${t.date} ${t.transaction_type}: no account named "${t.offset_account_name}"`);
     } else if (matches.length > 1) {
@@ -152,7 +191,9 @@ async function main() {
   await db.transaction(async (tx) => {
     for (const t of todo) {
       const bankGl = glOfBank.get(bankFor.get(t.account_id)!)!;
-      const offsetGl = accountFor.get(byName.get(t.offset_account_name!.trim().toLowerCase())![0]!)!;
+      const offsetGl = t.offset_account_name?.trim()
+        ? accountFor.get(byName.get(t.offset_account_name.trim().toLowerCase())![0]!)!
+        : fallbackOffset(t.transaction_type)!;
       const amount = money(t.amount);
 
       // Zoho's debit_or_credit is written from the bank's point of view, so a
