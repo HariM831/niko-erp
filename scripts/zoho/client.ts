@@ -114,11 +114,11 @@ export interface ZohoError extends Error {
  * the token once and tries again. Anything else — a 404, a bad request — is
  * raised immediately, because retrying will not fix it.
  */
-export async function zohoGet<T = Record<string, unknown>>(
+async function zohoFetch(
   path: string,
   params: Record<string, string | number> = {},
   attempt = 0,
-): Promise<T> {
+): Promise<Response> {
   await pace();
 
   const query = new URLSearchParams({ organization_id: ORG_ID() });
@@ -141,22 +141,31 @@ export async function zohoGet<T = Record<string, unknown>>(
         `  network error on ${path} (${(err as Error).message}) — retrying in ${backoff / 1000}s`,
       );
       await sleep(backoff);
-      return zohoGet<T>(path, params, attempt + 1);
+      return zohoFetch(path, params, attempt + 1);
     }
     throw new Error(`GET ${path}: network unreachable after ${attempt} retries`);
   }
 
   if (res.status === 401 && attempt === 0) {
     cachedToken = null;
-    return zohoGet<T>(path, params, attempt + 1);
+    return zohoFetch(path, params, attempt + 1);
   }
 
   if ((res.status === 429 || res.status >= 500) && attempt < 5) {
     const backoff = 2000 * 2 ** attempt;
     console.warn(`  ${res.status} on ${path} — retrying in ${backoff / 1000}s`);
     await sleep(backoff);
-    return zohoGet<T>(path, params, attempt + 1);
+    return zohoFetch(path, params, attempt + 1);
   }
+
+  return res;
+}
+
+export async function zohoGet<T = Record<string, unknown>>(
+  path: string,
+  params: Record<string, string | number> = {},
+): Promise<T> {
+  const res = await zohoFetch(path, params);
 
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown> & {
     code?: number;
@@ -172,6 +181,36 @@ export async function zohoGet<T = Record<string, unknown>>(
     throw err;
   }
   return body as T;
+}
+
+/**
+ * The bytes behind an attachment, rather than a JSON body.
+ *
+ * Shares the pacing, backoff and token refresh above, because a run fetching
+ * three thousand files needs them more than a run fetching a few hundred pages.
+ * A failure still answers in JSON even on a file endpoint, so the error path
+ * reads the body the same way.
+ */
+export async function zohoGetFile(
+  path: string,
+  params: Record<string, string | number> = {},
+): Promise<{ bytes: Buffer; contentType: string }> {
+  const res = await zohoFetch(path, params);
+
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { code?: number; message?: string };
+    const err = new Error(
+      `GET ${path} failed: ${res.status} ${body.message ?? res.statusText}`,
+    ) as ZohoError;
+    err.status = res.status;
+    err.zohoCode = body.code;
+    throw err;
+  }
+
+  return {
+    bytes: Buffer.from(await res.arrayBuffer()),
+    contentType: (res.headers.get("content-type") ?? "application/octet-stream").split(";")[0]!,
+  };
 }
 
 // ---------- Paging ----------
