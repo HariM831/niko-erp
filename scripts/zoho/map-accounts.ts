@@ -134,6 +134,10 @@ const SYSTEM_KEYS: Array<{
     why: "the charge a fixed asset's schedule posts",
   },
   {
+    key: "vendor_advances",
+    why: "payments made to a supplier before any bill exists",
+  },
+  {
     // Created, not mapped. Ind AS 2 requires a stock write-down to be an
     // expense of the period, so this must not point at one of Zoho's five (all
     // unused) stock asset accounts — that would net the loss against the asset
@@ -179,6 +183,19 @@ const CREATE: Array<{
     type: "expense",
     subtype: "other_expense",
     why: "asset sold below book value",
+  },
+  {
+    // The mirror of Unearned Revenue on the purchase side, confirmed by the
+    // user. A payment made before any bill exists is money the supplier owes
+    // back in goods, not a reduction of what we owe them — Zoho keeps it out
+    // of Accounts Payable, whose balance is the open bills alone. EGGSY was
+    // debiting AP with every payment, which understated the payable by
+    // 1.31 crore and made 136 vendors read as overpaid.
+    systemKey: "vendor_advances",
+    name: "Advance to Suppliers",
+    type: "asset",
+    subtype: "other_current_asset",
+    why: "payments made before a bill exists",
   },
   {
     // An operating expense rather than a cost of sales line, confirmed by the

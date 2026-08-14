@@ -52,13 +52,14 @@ interface BankTxn {
  *                      borrowings repaid — the narration is empty on all ten,
  *                      so the balance is what identifies it.
  *   customer refunds   Unearned Revenue is 31,00,000 short, exactly their total.
- *   vendor refunds     Accounts Payable, the standard treatment: a vendor
- *                      returning an overpayment reverses it. This one moves AP
- *                      the right way but does not close it — a separate
- *                      71.35 lakh sits between EGGSY and Zoho on that account.
+ *   vendor refunds     Advance to Suppliers. A vendor returning money paid
+ *                      ahead of any bill hands back the advance, not a payable.
  */
 const OFFSET_BY_TYPE: Record<string, { systemKey?: string; code?: string }> = {
-  vendorpayment_refund: { systemKey: "ap" },
+  // A vendor returning money it was paid ahead of any bill gives back the
+  // advance, not a payable. Posting these to AP overstated it by 21.81 lakh —
+  // the same error as debiting AP with the advance in the first place.
+  vendorpayment_refund: { systemKey: "vendor_advances" },
   payment_refund: { systemKey: "customer_advances" },
   loan_payment: { code: "1149" },
 };

@@ -16,11 +16,13 @@ import {
   invoices,
   journalEntries,
   journalEntryLines,
+  vendorPaymentApplications,
+  vendorPayments,
   zohoIdMap,
 } from "@shared/schema";
 import { db, pool } from "../../server/db";
 
-const ENTITIES = ["invoice"] as const;
+const ENTITIES = ["invoice", "vendor_payment", "bank_transaction"] as const;
 type Entity = (typeof ENTITIES)[number];
 
 async function main() {
@@ -50,14 +52,23 @@ async function main() {
   await db.transaction(async (tx) => {
     // Journals first: the document holds a reference to its entry, so the
     // entry cannot go while the document still points at it.
-    const entries = await tx
-      .select({ id: journalEntries.id })
-      .from(journalEntries)
-      .where(inArray(journalEntries.sourceId, ids));
+    const entries =
+      entity === "bank_transaction"
+        ? ids.map((id) => ({ id }))
+        : await tx
+            .select({ id: journalEntries.id })
+            .from(journalEntries)
+            .where(inArray(journalEntries.sourceId, ids));
     const entryIds = entries.map((e) => e.id);
 
     if (entity === "invoice") {
       await tx.update(invoices).set({ journalEntryId: null }).where(inArray(invoices.id, ids));
+    }
+    if (entity === "vendor_payment") {
+      await tx
+        .update(vendorPayments)
+        .set({ journalEntryId: null })
+        .where(inArray(vendorPayments.id, ids));
     }
     if (entryIds.length) {
       await tx.delete(journalEntryLines).where(inArray(journalEntryLines.entryId, entryIds));
@@ -67,6 +78,14 @@ async function main() {
       await tx.delete(invoiceLines).where(inArray(invoiceLines.invoiceId, ids));
       await tx.delete(invoices).where(inArray(invoices.id, ids));
     }
+    if (entity === "vendor_payment") {
+      await tx
+        .delete(vendorPaymentApplications)
+        .where(inArray(vendorPaymentApplications.paymentId, ids));
+      await tx.delete(vendorPayments).where(inArray(vendorPayments.id, ids));
+    }
+    // A bank transaction has no document of its own: the id map points straight
+    // at the journal entry, which the block above has already removed.
     await tx.delete(zohoIdMap).where(eq(zohoIdMap.entity, entity));
     console.log(`Removed ${ids.length} ${entity}(s) and ${entryIds.length} journal entries.`);
   });

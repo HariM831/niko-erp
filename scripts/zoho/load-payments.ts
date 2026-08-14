@@ -265,11 +265,31 @@ async function main() {
         });
       }
 
-      // DR payable; CR bank for what left, TDS payable for anything withheld.
-      const lines: Array<Record<string, string | undefined>> = [
-        { systemKey: "ap", debit: money(p.amount), description: `Payment ${p.payment_number}` },
-        { accountId: glOfBank.get(bankId)!, credit: ((paise(p.amount) - tdsP) / 100).toFixed(2) },
-      ];
+      // DR the payable for what this settles and Advance to Suppliers for what
+      // it does not, exactly as the customer side splits between receivable and
+      // unearned revenue. Debiting the whole amount to the payable understated
+      // it by the 1.31 crore paid ahead of any bill, and left 136 vendors
+      // reading as overpaid.
+      const unappliedP = paise(p.amount) - appliedP;
+      const lines: Array<Record<string, string | undefined>> = [];
+      if (appliedP > 0) {
+        lines.push({
+          systemKey: "ap",
+          debit: (appliedP / 100).toFixed(2),
+          description: `Payment ${p.payment_number}`,
+        });
+      }
+      if (unappliedP > 0) {
+        lines.push({
+          systemKey: "vendor_advances",
+          debit: (unappliedP / 100).toFixed(2),
+          description: `Payment ${p.payment_number} — on account`,
+        });
+      }
+      lines.push({
+        accountId: glOfBank.get(bankId)!,
+        credit: ((paise(p.amount) - tdsP) / 100).toFixed(2),
+      });
       if (tdsP > 0) lines.push({ systemKey: "tds_payable", credit: (tdsP / 100).toFixed(2) });
 
       const jeId = await postJournal(tx, {
