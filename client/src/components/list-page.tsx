@@ -2,6 +2,8 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
+import { AdvancedSearch, type Criteria, type SearchField } from "./advanced-search";
+import { useSearchContext } from "./search-context";
 
 export interface Column<T> {
   key: string;
@@ -21,7 +23,6 @@ interface ListPageProps<T> {
   endpoint: string;
   columns: Column<T>[];
   views?: ListView[];
-  searchPlaceholder?: string;
   newLabel?: string;
   /** Route for the create form; renders the "+ New" button when set. */
   newPath?: string;
@@ -37,6 +38,11 @@ interface ListPageProps<T> {
   banner?: ReactNode;
   /** Extra buttons placed before "+ New" in the header, e.g. "Upload Bill". */
   extraActions?: ReactNode;
+  /**
+   * Fields offered by Advanced Search. Omitted means the module has none yet,
+   * and only the quick search shows.
+   */
+  searchFields?: SearchField[];
 }
 
 /**
@@ -48,7 +54,6 @@ export function ListPage<T>({
   endpoint,
   columns,
   views,
-  searchPlaceholder,
   newLabel,
   newPath,
   onNew,
@@ -59,11 +64,15 @@ export function ListPage<T>({
   compact,
   banner,
   extraActions,
+  searchFields,
 }: ListPageProps<T>) {
   const [, navigate] = useLocation();
   const [activeView, setActiveView] = useState(0);
   const [viewsOpen, setViewsOpen] = useState(false);
-  const [search, setSearch] = useState("");
+  // The term is owned by the top bar's search box, which is where it is typed.
+  const { register, term: search } = useSearchContext();
+  const [criteria, setCriteria] = useState<Criteria>({});
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const viewsRef = useRef<HTMLDivElement>(null);
 
@@ -78,15 +87,38 @@ export function ListPage<T>({
   const handleNew = onNew ?? (newPath ? () => navigate(newPath) : undefined);
   const handleRow = onRowClick ?? (rowPath ? (row: T) => navigate(rowPath(row)) : undefined);
 
-  const params = new URLSearchParams(views?.[activeView]?.params ?? {});
+  const viewParams = views?.[activeView]?.params ?? {};
+  // Point the top bar's search box at this list. Keyed on the module and the
+  // saved view rather than on the handlers, which are new closures every render
+  // and would re-register — and so clear the term — on every keystroke.
+  const viewKey = JSON.stringify(viewParams);
+  const handlersRef = useRef({ rowPath, handleRow });
+  handlersRef.current = { rowPath, handleRow };
+  useEffect(() => {
+    register({
+      title,
+      endpoint,
+      params: JSON.parse(viewKey) as Record<string, string>,
+      rowPath: handlersRef.current.rowPath
+        ? (row) => handlersRef.current.rowPath!(row as T)
+        : undefined,
+      onOpen: handlersRef.current.handleRow
+        ? (row) => handlersRef.current.handleRow!(row as T)
+        : undefined,
+    });
+    return () => register(null);
+  }, [register, title, endpoint, viewKey]);
+  const params = new URLSearchParams(viewParams);
   if (search) params.set("search", search);
+  for (const [k, v] of Object.entries(criteria)) params.set(k, v);
   const qs = params.toString();
   const url = qs ? `${endpoint}${endpoint.includes("?") ? "&" : "?"}${qs}` : endpoint;
 
   const { data, isLoading, error } = useQuery({
-    queryKey: [endpoint, views?.[activeView]?.label ?? "all", search],
+    queryKey: [endpoint, views?.[activeView]?.label ?? "all", search, criteria],
     queryFn: () => api<T[]>(url),
   });
+  const criteriaCount = Object.keys(criteria).length;
 
   const allSelected = !!data?.length && data.every((r) => selected.has(rowKey(r)));
   const toggleAll = () =>
@@ -136,13 +168,17 @@ export function ListPage<T>({
           )}
         </div>
         <div className="flex items-center gap-2">
-          {searchPlaceholder && (
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={searchPlaceholder}
-              className="input w-52"
-            />
+          {searchFields && (
+            <button
+              onClick={() => setAdvancedOpen(true)}
+              className={`whitespace-nowrap rounded border px-2 py-1.5 text-[13px] ${
+                criteriaCount
+                  ? "border-brand-500 bg-brand-50 text-brand-700"
+                  : "border-gray-300 text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              Advanced{criteriaCount ? ` (${criteriaCount})` : ""}
+            </button>
           )}
           {extraActions}
           {handleNew && (
@@ -231,50 +267,23 @@ export function ListPage<T>({
           </table>
         )}
       </div>
+
+      {advancedOpen && searchFields && (
+        <AdvancedSearch
+          title={title}
+          fields={searchFields}
+          initial={criteria}
+          onClose={() => setAdvancedOpen(false)}
+          onApply={(c) => {
+            setCriteria(c);
+            setAdvancedOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }
 
-/** Colored status text (uppercase, no pill) with due/overdue awareness. */
-const STATUS_TEXT: Record<string, string> = {
-  draft: "text-gray-500",
-  sent: "text-blue-600",
-  open: "text-blue-600",
-  confirmed: "text-blue-600",
-  issued: "text-blue-600",
-  accepted: "text-green-600",
-  paid: "text-green-600",
-  closed: "text-green-600",
-  billed: "text-green-600",
-  invoiced: "text-green-600",
-  posted: "text-green-600",
-  partially_paid: "text-amber-600",
-  partially_billed: "text-amber-600",
-  declined: "text-red-600",
-  void: "text-gray-400",
-  cancelled: "text-red-600",
-  reversed: "text-red-600",
-  expired: "text-gray-400",
-  overdue: "text-orange-600",
-  matched: "text-green-600",
-  unmatched: "text-blue-600",
-  excluded: "text-gray-400",
-};
+// StatusBadge lives in its own module; re-exported so existing imports still resolve.
+export { StatusBadge } from "./status-badge";
 
-export function StatusBadge({ status, dueDate }: { status: string; dueDate?: string }) {
-  let label = status.replace(/_/g, " ");
-  let cls = STATUS_TEXT[status] ?? "text-gray-500";
-  if ((status === "sent" || status === "open") && dueDate) {
-    const today = new Date().toISOString().slice(0, 10);
-    if (dueDate < today) {
-      label = "overdue";
-      cls = STATUS_TEXT.overdue!;
-    } else if (dueDate === today) {
-      label = "due today";
-      cls = STATUS_TEXT.overdue!;
-    }
-  }
-  return (
-    <span className={`text-[11px] font-semibold uppercase tracking-wide ${cls}`}>{label}</span>
-  );
-}

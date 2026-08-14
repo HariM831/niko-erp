@@ -29,6 +29,14 @@ import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, postJournal, reverseJournal } from "../services/posting";
+import { advancedSearch, listLimit, quickSearch } from "../services/document-search";
+import {
+  billSearch,
+  expenseSearch,
+  purchaseOrderSearch,
+  vendorCreditSearch,
+  vendorPaymentSearch,
+} from "../services/search-specs";
 import { readCustomFieldValues, saveCustomFieldValues } from "../services/custom-fields";
 import {
   computeDocumentTotals,
@@ -197,20 +205,26 @@ const poSchema = z.object({
 });
 
 purchasesRouter.get("/orders", requirePermission("purchases", "view"), async (req, res) => {
-  const { vendorId, status, from, to } = req.query as Record<string, string | undefined>;
+  const query = req.query as Record<string, string | undefined>;
+  const { vendorId, status, from, to, search } = query;
   const conditions = [];
   if (vendorId) conditions.push(eq(purchaseOrders.vendorId, vendorId));
   if (status) conditions.push(eq(purchaseOrders.status, status as typeof purchaseOrders.$inferSelect.status));
   if (from) conditions.push(gte(purchaseOrders.orderDate, from));
   if (to) conditions.push(lte(purchaseOrders.orderDate, to));
-  const rows = await db
+  const quick = quickSearch(purchaseOrderSearch, search);
+  if (quick) conditions.push(quick);
+  const advanced = advancedSearch(purchaseOrderSearch, query);
+  conditions.push(...advanced);
+
+  const rows = db
     .select({ ...getTableColumns(purchaseOrders), contactName: contacts.displayName })
     .from(purchaseOrders)
     .leftJoin(contacts, eq(contacts.id, purchaseOrders.vendorId))
     .where(conditions.length ? and(...conditions) : undefined)
-    .orderBy(desc(purchaseOrders.orderDate))
-    .limit(200);
-  res.json(rows);
+    .orderBy(desc(purchaseOrders.orderDate));
+  const limit = listLimit(query, !!quick || advanced.length > 0);
+  res.json(limit === undefined ? await rows : await rows.limit(limit));
 });
 
 purchasesRouter.get("/orders/:id", requirePermission("purchases", "view"), async (req, res) => {
@@ -777,13 +791,19 @@ purchasesRouter.get("/bills/summary", requirePermission("purchases", "view"), as
 });
 
 purchasesRouter.get("/bills", requirePermission("purchases", "view"), async (req, res) => {
-  const { vendorId, status, from, to } = req.query as Record<string, string | undefined>;
+  const query = req.query as Record<string, string | undefined>;
+  const { vendorId, status, from, to, search } = query;
   const conditions = [];
   if (vendorId) conditions.push(eq(bills.vendorId, vendorId));
   if (status) conditions.push(eq(bills.status, status as typeof bills.$inferSelect.status));
   if (from) conditions.push(gte(bills.billDate, from));
   if (to) conditions.push(lte(bills.billDate, to));
-  const rows = await db
+  const quick = quickSearch(billSearch, search);
+  if (quick) conditions.push(quick);
+  const advanced = advancedSearch(billSearch, query);
+  conditions.push(...advanced);
+
+  const rows = db
     .select({
       ...getTableColumns(bills),
       contactName: contacts.displayName,
@@ -793,9 +813,9 @@ purchasesRouter.get("/bills", requirePermission("purchases", "view"), async (req
     .leftJoin(contacts, eq(contacts.id, bills.vendorId))
     .leftJoin(users, eq(users.id, bills.createdBy))
     .where(conditions.length ? and(...conditions) : undefined)
-    .orderBy(desc(bills.billDate))
-    .limit(200);
-  res.json(rows);
+    .orderBy(desc(bills.billDate));
+  const limit = listLimit(query, !!quick || advanced.length > 0);
+  res.json(limit === undefined ? await rows : await rows.limit(limit));
 });
 
 purchasesRouter.get("/bills/:id", requirePermission("purchases", "view"), async (req, res) => {
@@ -1067,18 +1087,25 @@ const vendorPaymentSchema = z.object({
 });
 
 purchasesRouter.get("/payments", requirePermission("purchases", "view"), async (req, res) => {
-  const { vendorId, from, to } = req.query as Record<string, string | undefined>;
+  const query = req.query as Record<string, string | undefined>;
+  const { vendorId, from, to, search } = query;
   const conditions = [];
   if (vendorId) conditions.push(eq(vendorPayments.vendorId, vendorId));
   if (from) conditions.push(gte(vendorPayments.paymentDate, from));
   if (to) conditions.push(lte(vendorPayments.paymentDate, to));
-  const rows = await db
+  const quick = quickSearch(vendorPaymentSearch, search);
+  if (quick) conditions.push(quick);
+  const advanced = advancedSearch(vendorPaymentSearch, query);
+  conditions.push(...advanced);
+
+  const base = db
     .select({ ...getTableColumns(vendorPayments), contactName: contacts.displayName })
     .from(vendorPayments)
     .leftJoin(contacts, eq(contacts.id, vendorPayments.vendorId))
     .where(conditions.length ? and(...conditions) : undefined)
-    .orderBy(desc(vendorPayments.paymentDate))
-    .limit(200);
+    .orderBy(desc(vendorPayments.paymentDate));
+  const limit = listLimit(query, !!quick || advanced.length > 0);
+  const rows = limit === undefined ? await base : await base.limit(limit);
 
   // Applied bill numbers per payment, Zoho's "Bill#" column.
   const billNumbers = await db
@@ -1381,18 +1408,24 @@ purchasesRouter.get(
   "/vendor-credits",
   requirePermission("purchases", "view"),
   async (req, res) => {
-    const { vendorId, status } = req.query as Record<string, string | undefined>;
+    const query = req.query as Record<string, string | undefined>;
+    const { vendorId, status, search } = query;
     const conditions = [];
     if (vendorId) conditions.push(eq(vendorCredits.vendorId, vendorId));
     if (status) conditions.push(eq(vendorCredits.status, status as typeof vendorCredits.$inferSelect.status));
-    const rows = await db
+    const quick = quickSearch(vendorCreditSearch, search);
+    if (quick) conditions.push(quick);
+    const advanced = advancedSearch(vendorCreditSearch, query);
+    conditions.push(...advanced);
+
+    const rows = db
       .select({ ...getTableColumns(vendorCredits), contactName: contacts.displayName })
       .from(vendorCredits)
       .leftJoin(contacts, eq(contacts.id, vendorCredits.vendorId))
       .where(conditions.length ? and(...conditions) : undefined)
-      .orderBy(desc(vendorCredits.creditDate))
-      .limit(200);
-    res.json(rows);
+      .orderBy(desc(vendorCredits.creditDate));
+    const limit = listLimit(query, !!quick || advanced.length > 0);
+    res.json(limit === undefined ? await rows : await rows.limit(limit));
   },
 );
 
@@ -1711,11 +1744,17 @@ const expenseSchema = z.object({
 });
 
 purchasesRouter.get("/expenses", requirePermission("purchases", "view"), async (req, res) => {
-  const { from, to } = req.query as Record<string, string | undefined>;
+  const query = req.query as Record<string, string | undefined>;
+  const { from, to, search } = query;
   const conditions = [];
   if (from) conditions.push(gte(expenses.expenseDate, from));
   if (to) conditions.push(lte(expenses.expenseDate, to));
-  const rows = await db
+  const quick = quickSearch(expenseSearch, search);
+  if (quick) conditions.push(quick);
+  const advanced = advancedSearch(expenseSearch, query);
+  conditions.push(...advanced);
+
+  const rows = db
     .select({
       ...getTableColumns(expenses),
       contactName: contacts.displayName,
@@ -1727,9 +1766,9 @@ purchasesRouter.get("/expenses", requirePermission("purchases", "view"), async (
     .leftJoin(accounts, eq(accounts.id, expenses.expenseAccountId))
     .leftJoin(bankAccounts, eq(bankAccounts.id, expenses.paidThroughId))
     .where(conditions.length ? and(...conditions) : undefined)
-    .orderBy(desc(expenses.expenseDate))
-    .limit(200);
-  res.json(rows);
+    .orderBy(desc(expenses.expenseDate));
+  const limit = listLimit(query, !!quick || advanced.length > 0);
+  res.json(limit === undefined ? await rows : await rows.limit(limit));
 });
 
 purchasesRouter.get("/expenses/:id", requirePermission("purchases", "view"), async (req, res) => {

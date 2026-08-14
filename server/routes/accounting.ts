@@ -17,6 +17,8 @@ import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { PostingError, postJournal, reverseJournal } from "../services/posting";
+import { advancedSearch, listLimit, quickSearch } from "../services/document-search";
+import { journalSearch } from "../services/search-specs";
 
 export const accountingRouter = Router();
 
@@ -89,21 +91,27 @@ accountingRouter.get(
   "/journals",
   requirePermission("accounting", "view"),
   async (req, res) => {
-    const { from, to, all } = req.query as Record<string, string | undefined>;
+    const query = req.query as Record<string, string | undefined>;
+    const { from, to, all, search } = query;
     const conditions = [];
     // Zoho's "Manual Journals" lists only hand-written entries; the postings that
     // documents generate belong to those documents. `?all=1` opts into everything.
     if (all !== "1") conditions.push(eq(journalEntries.sourceType, "manual"));
     if (from) conditions.push(gte(journalEntries.entryDate, from));
     if (to) conditions.push(lte(journalEntries.entryDate, to));
+    const quick = quickSearch(journalSearch, search);
+    if (quick) conditions.push(quick);
+    const advanced = advancedSearch(journalSearch, query);
+    conditions.push(...advanced);
 
-    const rows = await db
+    const base = db
       .select({ ...getTableColumns(journalEntries), createdByName: users.name })
       .from(journalEntries)
       .leftJoin(users, eq(users.id, journalEntries.postedBy))
       .where(conditions.length ? and(...conditions) : undefined)
-      .orderBy(desc(journalEntries.entryDate))
-      .limit(200);
+      .orderBy(desc(journalEntries.entryDate));
+    const limit = listLimit(query, !!quick || advanced.length > 0);
+    const rows = limit === undefined ? await base : await base.limit(limit);
 
     // Entry value = its debit total (a balanced entry's two sides are equal).
     // Fetched separately: a correlated subquery inside .select() renders the outer

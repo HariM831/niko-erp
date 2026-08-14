@@ -1,6 +1,7 @@
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { ListPage, StatusBadge, type Column, type ListView } from "../components/list-page";
+import type { SearchField } from "../components/advanced-search";
 import { AttachmentsButton } from "../components/attachments";
 import { api, formatMoney } from "../api";
 
@@ -74,6 +75,115 @@ export function docColumns(dateKey: string, opts: DocColumnOpts): Column<DocRow>
 const statusViews = (statuses: string[]): ListView[] => [
   { label: "All", params: {} },
   ...statuses.map((s) => ({ label: s.replace(/_/g, " "), params: { status: s } })),
+];
+
+/**
+ * Advanced-search fields per module.
+ *
+ * These mirror Zoho's Advanced Search, minus the fields EGGSY has no equivalent
+ * for — GST treatment, place of supply, TCS, tax exemptions and projects are
+ * absent by design, and offering them as boxes that filter nothing would be
+ * worse than not offering them.
+ *
+ * The keys must match what the module declares in server/services/search-specs;
+ * a key with no counterpart there is read by nothing.
+ */
+const dated = (label: string): SearchField[] => [
+  { key: "date", label, kind: "dateRange" },
+  { key: "created", label: "Created Between", kind: "dateRange" },
+];
+
+export const BILL_SEARCH: SearchField[] = [
+  { key: "number", label: "Bill#", kind: "text" },
+  { key: "vendorBillNumber", label: "Vendor Bill#", kind: "text" },
+  { key: "reference", label: "Reference#", kind: "text" },
+  { key: "vendorId", label: "Vendor", kind: "contact", contactType: "vendor" },
+  { key: "vendorPan", label: "Vendor PAN", kind: "text" },
+  { key: "status", label: "Status", kind: "select", options: ["open", "partially_paid", "paid", "void"] },
+  ...dated("Bill Date"),
+  { key: "dueDate", label: "Due Date", kind: "dateRange" },
+  { key: "total", label: "Total", kind: "numberRange" },
+  { key: "itemDescription", label: "Item Description", kind: "text" },
+  { key: "account", label: "Account", kind: "account" },
+  { key: "notes", label: "Notes", kind: "text" },
+];
+
+export const INVOICE_SEARCH: SearchField[] = [
+  { key: "number", label: "Invoice#", kind: "text" },
+  { key: "reference", label: "Reference#", kind: "text" },
+  { key: "customerId", label: "Customer", kind: "contact", contactType: "customer" },
+  { key: "customerGstin", label: "Customer GSTIN", kind: "text" },
+  { key: "status", label: "Status", kind: "select", options: ["draft", "sent", "partially_paid", "paid", "void"] },
+  ...dated("Invoice Date"),
+  { key: "dueDate", label: "Due Date", kind: "dateRange" },
+  { key: "total", label: "Total", kind: "numberRange" },
+  { key: "itemDescription", label: "Item Description", kind: "text" },
+  { key: "account", label: "Account", kind: "account" },
+  { key: "notes", label: "Notes", kind: "text" },
+];
+
+export const EXPENSE_SEARCH: SearchField[] = [
+  { key: "number", label: "Expense#", kind: "text" },
+  { key: "reference", label: "Reference#", kind: "text" },
+  { key: "vendorId", label: "Vendor", kind: "contact", contactType: "vendor" },
+  ...dated("Expense Date"),
+  { key: "total", label: "Amount", kind: "numberRange" },
+  { key: "account", label: "Expense Account", kind: "account" },
+  { key: "notes", label: "Notes", kind: "text" },
+];
+
+const paymentSearch = (side: "customer" | "vendor"): SearchField[] => [
+  { key: "number", label: "Payment#", kind: "text" },
+  { key: "reference", label: "Reference#", kind: "text" },
+  {
+    key: side === "customer" ? "customerId" : "vendorId",
+    label: side === "customer" ? "Customer" : "Vendor",
+    kind: "contact",
+    contactType: side,
+  },
+  { key: "mode", label: "Mode", kind: "select", options: ["cash", "bank_transfer", "upi", "cheque", "card"] },
+  ...dated("Payment Date"),
+  { key: "total", label: "Amount", kind: "numberRange" },
+  { key: "notes", label: "Notes", kind: "text" },
+];
+export const CUSTOMER_PAYMENT_SEARCH = paymentSearch("customer");
+export const VENDOR_PAYMENT_SEARCH = paymentSearch("vendor");
+
+export const VENDOR_CREDIT_SEARCH: SearchField[] = [
+  { key: "number", label: "Credit Note#", kind: "text" },
+  { key: "reference", label: "Reference#", kind: "text" },
+  { key: "vendorId", label: "Vendor", kind: "contact", contactType: "vendor" },
+  { key: "status", label: "Status", kind: "select", options: ["open", "closed", "void"] },
+  ...dated("Credit Date"),
+  { key: "total", label: "Total", kind: "numberRange" },
+  { key: "account", label: "Account", kind: "account" },
+  { key: "notes", label: "Notes", kind: "text" },
+];
+
+export const CREDIT_NOTE_SEARCH: SearchField[] = [
+  { key: "number", label: "Credit Note#", kind: "text" },
+  { key: "reference", label: "Reference#", kind: "text" },
+  { key: "customerId", label: "Customer", kind: "contact", contactType: "customer" },
+  { key: "status", label: "Status", kind: "select", options: ["open", "closed", "void"] },
+  ...dated("Credit Note Date"),
+  { key: "total", label: "Total", kind: "numberRange" },
+  { key: "account", label: "Account", kind: "account" },
+  { key: "notes", label: "Notes", kind: "text" },
+];
+
+export const PURCHASE_ORDER_SEARCH: SearchField[] = [
+  { key: "number", label: "Order#", kind: "text" },
+  { key: "reference", label: "Reference#", kind: "text" },
+  { key: "vendorId", label: "Vendor", kind: "contact", contactType: "vendor" },
+  {
+    key: "status",
+    label: "Status",
+    kind: "select",
+    options: ["draft", "issued", "partially_billed", "billed", "closed", "cancelled"],
+  },
+  { key: "created", label: "Created Between", kind: "dateRange" },
+  { key: "total", label: "Total", kind: "numberRange" },
+  { key: "account", label: "Account", kind: "account" },
 ];
 
 export const INVOICE_VIEWS = statusViews(["draft", "sent", "partially_paid", "paid", "void"]);
@@ -152,6 +262,7 @@ export const InvoicesPage = () => (
   <ListPage<DocRow>
     title="Invoices"
     endpoint="/api/sales/invoices"
+    searchFields={INVOICE_SEARCH}
     rowKey={(r) => r.id}
     views={INVOICE_VIEWS}
     newPath="/sales/invoices/new"
@@ -165,6 +276,7 @@ export const CustomerPaymentsPage = () => (
   <ListPage<DocRow>
     title="Received Payments"
     endpoint="/api/sales/payments"
+    searchFields={CUSTOMER_PAYMENT_SEARCH}
     rowKey={(r) => r.id}
     newPath="/sales/payments/new"
     rowPath={(r) => `/sales/payments/${r.id}`}
@@ -186,6 +298,7 @@ export const CreditNotesPage = () => (
   <ListPage<DocRow>
     title="Credit Notes"
     endpoint="/api/sales/credit-notes"
+    searchFields={CREDIT_NOTE_SEARCH}
     rowKey={(r) => r.id}
     views={statusViews(["open", "closed", "void"])}
     newPath="/sales/credit-notes/new"
@@ -214,6 +327,7 @@ export const PurchaseOrdersPage = () => (
   <ListPage<DocRow>
     title="Purchase Orders"
     endpoint="/api/purchases/orders"
+    searchFields={PURCHASE_ORDER_SEARCH}
     rowKey={(r) => r.id}
     views={statusViews(["draft", "issued", "partially_billed", "billed", "closed", "cancelled"])}
     newPath="/purchases/orders/new"
@@ -261,6 +375,7 @@ export const BillsPage = () => {
     <ListPage<DocRow>
       title="Bills"
       endpoint="/api/purchases/bills"
+      searchFields={BILL_SEARCH}
       rowKey={(r) => r.id}
       views={BILL_VIEWS}
       newPath="/purchases/bills/new"
@@ -280,6 +395,7 @@ export const VendorPaymentsPage = () => (
   <ListPage<DocRow>
     title="Payments"
     endpoint="/api/purchases/payments"
+    searchFields={VENDOR_PAYMENT_SEARCH}
     rowKey={(r) => r.id}
     newPath="/purchases/payments/new"
     rowPath={(r) => `/purchases/payments/${r.id}`}
@@ -301,6 +417,7 @@ export const VendorCreditsPage = () => (
   <ListPage<DocRow>
     title="Vendor Credits"
     endpoint="/api/purchases/vendor-credits"
+    searchFields={VENDOR_CREDIT_SEARCH}
     rowKey={(r) => r.id}
     views={statusViews(["open", "closed", "void"])}
     newPath="/purchases/vendor-credits/new"
@@ -321,6 +438,7 @@ export const ExpensesPage = () => (
   <ListPage<DocRow>
     title="Expenses"
     endpoint="/api/purchases/expenses"
+    searchFields={EXPENSE_SEARCH}
     rowKey={(r) => r.id}
     newPath="/purchases/expenses/new"
     rowPath={(r) => `/purchases/expenses/${r.id}`}

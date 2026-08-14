@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, ChevronDown, Plus, Search } from "lucide-react";
+import { Bell, ChevronDown, Plus } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
+import { QuickSearch } from "./quick-search";
+import { useSearchContext } from "./search-context";
 
 const QUICK_CREATE: Array<{ group: string; items: Array<{ label: string; path: string }> }> = [
   {
@@ -41,6 +43,7 @@ export function TopBar() {
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const { config, term, setTerm } = useSearchContext();
 
   const { data: org } = useQuery({
     queryKey: ["org"],
@@ -57,14 +60,24 @@ export function TopBar() {
 
   return (
     <div className="flex h-[52px] items-center justify-between gap-4 border-b border-gray-200 bg-white pl-5 pr-4 print:hidden">
+      {/*
+        The box that was here was decorative — hard-coded to "Customers" on
+        every page, bound to no state, read by nothing. It now searches whichever
+        list is open, and shows nothing at all on pages that are not lists rather
+        than offering a search that would go nowhere.
+      */}
       <div className="flex min-w-0 flex-1 items-center gap-4">
-        <div className="relative w-full max-w-md">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <input
-            placeholder="Search in Customers ( / )"
-            className="w-full rounded-lg border border-gray-200 bg-gray-50 py-[7px] pl-9 pr-3 text-[13px] transition-colors placeholder:text-gray-400 focus:border-brand-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-brand-100"
+        {config && (
+          <QuickSearch
+            title={config.title}
+            endpoint={config.endpoint}
+            params={config.params}
+            value={term}
+            onChange={setTerm}
+            rowPath={config.rowPath}
+            onOpen={config.onOpen}
           />
-        </div>
+        )}
       </div>
 
       <div className="flex items-center gap-1.5" ref={ref}>

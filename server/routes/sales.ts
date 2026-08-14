@@ -15,6 +15,8 @@ import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, postJournal, reverseJournal } from "../services/posting";
+import { advancedSearch, listLimit, quickSearch } from "../services/document-search";
+import { customerPaymentSearch, invoiceSearch } from "../services/search-specs";
 import { getPreferences } from "../services/preferences";
 import {
   applyDefaultSalesAccounts,
@@ -183,20 +185,26 @@ function computeDueDate(invoiceDate: string, termsDays: number): string {
 // ---------- Invoice routes ----------
 
 salesRouter.get("/invoices", requirePermission("sales", "view"), async (req, res) => {
-  const { customerId, status, from, to } = req.query as Record<string, string | undefined>;
+  const query = req.query as Record<string, string | undefined>;
+  const { customerId, status, from, to, search } = query;
   const conditions = [];
   if (customerId) conditions.push(eq(invoices.customerId, customerId));
   if (status) conditions.push(eq(invoices.status, status as typeof invoices.$inferSelect.status));
   if (from) conditions.push(gte(invoices.invoiceDate, from));
   if (to) conditions.push(lte(invoices.invoiceDate, to));
-  const rows = await db
+  const quick = quickSearch(invoiceSearch, search);
+  if (quick) conditions.push(quick);
+  const advanced = advancedSearch(invoiceSearch, query);
+  conditions.push(...advanced);
+
+  const rows = db
     .select({ ...getTableColumns(invoices), contactName: contacts.displayName })
     .from(invoices)
     .leftJoin(contacts, eq(contacts.id, invoices.customerId))
     .where(conditions.length ? and(...conditions) : undefined)
-    .orderBy(desc(invoices.invoiceDate))
-    .limit(200);
-  res.json(rows);
+    .orderBy(desc(invoices.invoiceDate));
+  const limit = listLimit(query, !!quick || advanced.length > 0);
+  res.json(limit === undefined ? await rows : await rows.limit(limit));
 });
 
 /** Zoho's "Payment Summary" insights banner on the Invoices list. */
@@ -523,18 +531,25 @@ salesRouter.post(
 // ---------- Payments Received ----------
 
 salesRouter.get("/payments", requirePermission("sales", "view"), async (req, res) => {
-  const { customerId, from, to } = req.query as Record<string, string | undefined>;
+  const query = req.query as Record<string, string | undefined>;
+  const { customerId, from, to, search } = query;
   const conditions = [];
   if (customerId) conditions.push(eq(customerPayments.customerId, customerId));
   if (from) conditions.push(gte(customerPayments.paymentDate, from));
   if (to) conditions.push(lte(customerPayments.paymentDate, to));
-  const rows = await db
+  const quick = quickSearch(customerPaymentSearch, search);
+  if (quick) conditions.push(quick);
+  const advanced = advancedSearch(customerPaymentSearch, query);
+  conditions.push(...advanced);
+
+  const base = db
     .select({ ...getTableColumns(customerPayments), contactName: contacts.displayName })
     .from(customerPayments)
     .leftJoin(contacts, eq(contacts.id, customerPayments.customerId))
     .where(conditions.length ? and(...conditions) : undefined)
-    .orderBy(desc(customerPayments.paymentDate))
-    .limit(200);
+    .orderBy(desc(customerPayments.paymentDate));
+  const limit = listLimit(query, !!quick || advanced.length > 0);
+  const rows = limit === undefined ? await base : await base.limit(limit);
 
   // Applied invoice numbers per payment, e.g. Zoho's "A-INV-...,A-INV-..." Invoice# column.
   const invoiceNumbers = await db

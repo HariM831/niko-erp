@@ -12,6 +12,7 @@ import {
 } from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
+import { contains } from "../services/document-search";
 import { validateBody } from "../lib/validate";
 import { getPreferences } from "../services/preferences";
 import { readCustomFieldValues, saveCustomFieldValues } from "../services/custom-fields";
@@ -83,21 +84,26 @@ contactsRouter.get("/", requirePermission("sales", "view"), async (req, res) => 
   }
   if (isActive !== undefined) conditions.push(eq(contacts.isActive, isActive === "true"));
   if (search) {
+    // contains() escapes the LIKE metacharacters, so a search for "50%" looks
+    // for that text rather than matching every contact.
+    const term = contains(search);
     conditions.push(
       or(
-        ilike(contacts.displayName, `%${search}%`),
-        ilike(contacts.companyName, `%${search}%`),
-        ilike(contacts.phone, `%${search}%`),
-        ilike(contacts.gstin, `%${search}%`),
+        ilike(contacts.displayName, term),
+        ilike(contacts.companyName, term),
+        ilike(contacts.phone, term),
+        ilike(contacts.gstin, term),
       ),
     );
   }
+  // The quick-search dropdown asks for a handful; the list itself takes the lot.
+  const asked = Number((req.query as Record<string, string | undefined>).limit);
   const rows = await db
     .select()
     .from(contacts)
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(asc(contacts.displayName))
-    .limit(500);
+    .limit(Number.isFinite(asked) && asked > 0 ? asked : 500);
 
   // "Receivables (BCY)" for customers / "Payables (BCY)" for vendors, Zoho's list-view balance column.
   // Fetched separately and joined in JS: a correlated ${contacts.id} subquery inside .select() renders

@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../auth";
 import { TopBar } from "./topbar";
+import { SearchProvider } from "./search-context";
 
 interface NavChild {
   label: string;
@@ -98,6 +99,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const navItems = isAdmin ? [...NAV, ...ADMIN_NAV] : NAV;
 
   return (
+    // The provider wraps both the top bar and the page, because the search box
+    // lives in one and the list it searches lives in the other.
+    <SearchProvider>
     <div className="flex h-screen overflow-hidden">
       <aside className="flex w-[218px] flex-col bg-sidebar text-gray-400 print:hidden">
         <div className="flex h-14 items-center gap-2.5 px-4">
@@ -196,5 +200,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
         <main className="flex-1 overflow-y-auto">{children}</main>
       </div>
     </div>
+    </SearchProvider>
   );
 }

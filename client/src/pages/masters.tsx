@@ -52,7 +52,6 @@ export const CustomersPage = () => (
     title="Customers"
     endpoint="/api/contacts?type=customer"
     rowKey={(r) => r.id}
-    searchPlaceholder="Search customers…"
     newLabel="New Customer"
     newPath="/sales/customers/new"
     rowPath={(r) => `/sales/customers/${r.id}`}
@@ -66,7 +65,6 @@ export const VendorsPage = () => (
     title="Vendors"
     endpoint="/api/contacts?type=vendor"
     rowKey={(r) => r.id}
-    searchPlaceholder="Search vendors…"
     newLabel="New Vendor"
     newPath="/purchases/vendors/new"
     rowPath={(r) => `/purchases/vendors/${r.id}`}
@@ -99,7 +97,6 @@ export const ItemsPage = () => (
     endpoint="/api/items"
     rowKey={(r) => r.id}
     views={activeViews}
-    searchPlaceholder="Search items…"
     newLabel="New Item"
     newPath="/items/new"
     rowPath={(r) => `/items/${r.id}`}

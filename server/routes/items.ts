@@ -16,6 +16,7 @@ import {
 } from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
+import { contains } from "../services/document-search";
 import { validateBody } from "../lib/validate";
 import { getPreferences } from "../services/preferences";
 
@@ -53,17 +54,18 @@ itemsRouter.get("/", requirePermission("items", "view"), async (req, res) => {
   const conditions = [];
   if (isActive !== undefined) conditions.push(eq(items.isActive, isActive === "true"));
   if (search) {
-    conditions.push(
-      or(ilike(items.name, `%${search}%`), ilike(items.sku, `%${search}%`)),
-    );
+    // Escaped, so "50%" searches for that text instead of matching everything.
+    const term = contains(search);
+    conditions.push(or(ilike(items.name, term), ilike(items.sku, term)));
   }
+  const asked = Number((req.query as Record<string, string | undefined>).limit);
   const rows = await db
     .select({ ...getTableColumns(items), preferredVendorName: contacts.displayName })
     .from(items)
     .leftJoin(contacts, eq(contacts.id, items.preferredVendorId))
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(asc(items.name))
-    .limit(500);
+    .limit(Number.isFinite(asked) && asked > 0 ? asked : 500);
 
   // Latest image attachment per item, used as the list thumbnail.
   const images = await db

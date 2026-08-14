@@ -13,6 +13,8 @@ import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, postJournal, reverseJournal } from "../services/posting";
+import { advancedSearch, listLimit, quickSearch } from "../services/document-search";
+import { creditNoteSearch } from "../services/search-specs";
 import {
   applyDefaultSalesAccounts,
   computeDocumentTotals,
@@ -75,18 +77,24 @@ salesDocumentsRouter.get(
   "/credit-notes",
   requirePermission("sales", "view"),
   async (req, res) => {
-    const { customerId, status } = req.query as Record<string, string | undefined>;
+    const query = req.query as Record<string, string | undefined>;
+    const { customerId, status, search } = query;
     const conditions = [];
     if (customerId) conditions.push(eq(creditNotes.customerId, customerId));
     if (status) conditions.push(eq(creditNotes.status, status as typeof creditNotes.$inferSelect.status));
-    const rows = await db
+    const quick = quickSearch(creditNoteSearch, search);
+    if (quick) conditions.push(quick);
+    const advanced = advancedSearch(creditNoteSearch, query);
+    conditions.push(...advanced);
+
+    const rows = db
       .select({ ...getTableColumns(creditNotes), contactName: contacts.displayName })
       .from(creditNotes)
       .leftJoin(contacts, eq(contacts.id, creditNotes.customerId))
       .where(conditions.length ? and(...conditions) : undefined)
-      .orderBy(desc(creditNotes.creditNoteDate))
-      .limit(200);
-    res.json(rows);
+      .orderBy(desc(creditNotes.creditNoteDate));
+    const limit = listLimit(query, !!quick || advanced.length > 0);
+    res.json(limit === undefined ? await rows : await rows.limit(limit));
   },
 );
 
