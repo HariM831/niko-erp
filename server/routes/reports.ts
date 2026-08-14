@@ -55,6 +55,7 @@ async function accountMovements(from?: string, to?: string, tagOptionId?: string
       name: accounts.name,
       type: accounts.type,
       subtype: accounts.subtype,
+      systemKey: accounts.systemKey,
       parentId: accounts.parentId,
       isGroup: accounts.isGroup,
       net: sql<string>`COALESCE(SUM(
@@ -307,18 +308,53 @@ reportsRouter.get("/tag-summary", requirePermission("reports", "view"), async (r
 // ---------- Balance Sheet ----------
 
 /** Assets, liabilities and equity as trees, with earnings folded into equity. */
+/**
+ * The 31 March before the date given — the last day of the previous financial
+ * year, India running 1 April to 31 March. Everything up to it is a closed
+ * year and belongs in retained earnings; everything after is this year's.
+ */
+function priorYearsEnd(asOf: string): string {
+  const [y, m] = asOf.split("-").map(Number);
+  return `${m! >= 4 ? y! : y! - 1}-03-31`;
+}
+
 async function balanceSheetSections(asOf?: string) {
   const rows = await accountMovements(undefined, asOf);
 
-  const assets = section(rows, (r) => r.type === "asset", 1);
-  const liabilities = section(rows, (r) => r.type === "liability", -1);
-  const equity = section(rows, (r) => r.type === "equity", -1);
+  const pnlNet = (rs: Movement[]) =>
+    rs
+      .filter((r) => r.type === "income" || r.type === "expense")
+      .reduce((s, r) => s + Number(r.net), 0);
 
-  // Income less expense to date is not posted to equity anywhere, so the sheet
-  // only balances once it is added as its own line.
-  const income = rows.filter((r) => r.type === "income").reduce((s, r) => s - Number(r.net), 0);
-  const expense = rows.filter((r) => r.type === "expense").reduce((s, r) => s + Number(r.net), 0);
-  const netEarnings = income - expense;
+  // Retained earnings is derived, not posted — Zoho does the same and has never
+  // written a closing entry to the account. It is the accumulated result of
+  // every financial year before this one, and it lands on the retained earnings
+  // account itself so the sheet reads as Zoho's does.
+  //
+  // Derived and posted amounts add rather than compete, so a real closing entry
+  // posted later is not double-counted: it moves the same figure out of the
+  // prior-year profit and loss and onto the account, leaving the line unchanged.
+  const today = new Date().toISOString().slice(0, 10);
+  const priorRows = await accountMovements(undefined, priorYearsEnd(asOf ?? today));
+  const priorYearsResult = pnlNet(priorRows);
+
+  const retainedId = rows.find((r) => r.systemKey === "retained_earnings")?.accountId;
+  const withRetained = retainedId
+    ? rows.map((r) =>
+        r.accountId === retainedId
+          ? { ...r, net: (Number(r.net) + priorYearsResult).toFixed(2) }
+          : r,
+      )
+    : rows;
+
+  const assets = section(withRetained, (r) => r.type === "asset", 1);
+  const liabilities = section(withRetained, (r) => r.type === "liability", -1);
+  const equity = section(withRetained, (r) => r.type === "equity", -1);
+
+  // What is left is this financial year's result, which no account holds yet.
+  // Without a retained earnings account to fold the rest into, this stays the
+  // whole accumulated figure and the sheet still balances.
+  const netEarnings = -(pnlNet(rows) - (retainedId ? priorYearsResult : 0));
 
   const totalAssets = Number(assets.total);
   const totalLiabilities = Number(liabilities.total);
@@ -358,7 +394,7 @@ reportsRouter.get(
           { label: "Liabilities", ...s.liabilities },
           { label: "Equity", ...s.equity },
         ],
-        earnings: { label: "Current Period Earnings", amount: s.netEarnings },
+        earnings: { label: "Current Year Earnings", amount: s.netEarnings },
         total: (Number(s.totalLiabilities) + Number(s.totalEquity)).toFixed(2),
       },
       right: {

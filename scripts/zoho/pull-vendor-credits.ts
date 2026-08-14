@@ -6,8 +6,14 @@
  * owing money that Zoho considers settled. Fetching one by id works and reports
  * status "closed", so the list simply omits fully applied credits.
  *
- * Their ids are recoverable from the bills that reference them, which is what
- * this uses. A reminder that a list count is not the population.
+ * Their ids come from two places, because neither alone is complete. The bills
+ * name the credits applied to them; the ledger names every credit that ever
+ * posted, applied or not. Bills alone missed two — #54 and #32, both United
+ * Army Supply Syndicate, ₹1,065 between them — which sat unapplied and so were
+ * referenced by no bill at all. That ₹1,065 was the gap I had wrongly written
+ * off as Zoho's balance sheet disagreeing with its own bills.
+ *
+ * A reminder that a list count is not the population.
  */
 import { appendFile, readFile } from "node:fs/promises";
 import { zohoGet, type ZohoError } from "./client";
@@ -28,6 +34,11 @@ async function main() {
   for (const b of bills) {
     for (const c of b.vendor_credits ?? []) ids.add(String(c.vendor_credit_id));
   }
+  const fromBills = ids.size;
+  for (const p of await readJsonl(".zoho-dump/ledger/all-postings.jsonl")) {
+    if (p.transaction_type === "vendor_credit") ids.add(String(p.transaction_id));
+  }
+  console.log(`${fromBills} referenced by bills, ${ids.size - fromBills} more found only in the ledger`);
   const have = new Set((await readJsonl(OUT)).map((r) => String(r.vendorcredit_id ?? r.vendor_credit_id)));
   const todo = [...ids].filter((id) => !have.has(id));
 

@@ -16,12 +16,14 @@
  * compare.
  */
 import { readFile, writeFile } from "node:fs/promises";
-import { and, eq, lte, sql } from "drizzle-orm";
+import { and, eq, inArray, lte, sql } from "drizzle-orm";
 import { accounts, journalEntries, journalEntryLines, zohoIdMap } from "@shared/schema";
 import { db, pool } from "../../server/db";
 
 /** Zoho's reports are as at this date; EGGSY is measured to the same day. */
 const AS_AT = "2026-08-13";
+/** Last day of the financial year before AS_AT — India runs 1 April to 31 March. */
+const PRIOR_YEARS_END = "2026-03-31";
 
 interface ZohoNode {
   account_id?: string;
@@ -62,12 +64,33 @@ async function main() {
   }
   console.log(`Zoho reports ${zoho.size} accounts`);
 
+  // Retained earnings is derived in both systems rather than journalised —
+  // Zoho has never posted to the account, and neither has EGGSY. Comparing the
+  // raw ledger balance against Zoho's reported figure would show the whole of
+  // it as a difference, so the same derivation the balance sheet uses is
+  // applied here: the accumulated result of every year before the current one.
+  const [prior] = await db
+    .select({
+      v: sql<string>`COALESCE(SUM(${journalEntryLines.debit} - ${journalEntryLines.credit}), 0)::numeric(16,2)`,
+    })
+    .from(journalEntryLines)
+    .innerJoin(journalEntries, eq(journalEntries.id, journalEntryLines.entryId))
+    .innerJoin(accounts, eq(accounts.id, journalEntryLines.accountId))
+    .where(
+      and(
+        inArray(accounts.type, ["income", "expense"]),
+        lte(journalEntries.entryDate, PRIOR_YEARS_END),
+      ),
+    );
+  const priorYearsResult = Number(prior!.v);
+
   const rows = await db
     .select({
       zohoId: zohoIdMap.zohoId,
       code: accounts.code,
       name: accounts.name,
       type: accounts.type,
+      systemKey: accounts.systemKey,
       balance: sql<string>`COALESCE(SUM(${journalEntryLines.debit} - ${journalEntryLines.credit}), 0)::numeric(16,2)`,
     })
     .from(accounts)
@@ -77,7 +100,7 @@ async function main() {
       journalEntries,
       and(eq(journalEntries.id, journalEntryLines.entryId), lte(journalEntries.entryDate, AS_AT)),
     )
-    .groupBy(zohoIdMap.zohoId, accounts.code, accounts.name, accounts.type)
+    .groupBy(zohoIdMap.zohoId, accounts.code, accounts.name, accounts.type, accounts.systemKey)
     .orderBy(accounts.code);
 
   const compared: Array<{
@@ -90,7 +113,8 @@ async function main() {
   }> = [];
 
   for (const r of rows) {
-    const eggsy = Number(r.balance);
+    const eggsy =
+      Number(r.balance) + (r.systemKey === "retained_earnings" ? priorYearsResult : 0);
     const raw = r.zohoId ? zoho.get(r.zohoId) : undefined;
     // Zoho prints everything positive in its natural direction.
     const zo =

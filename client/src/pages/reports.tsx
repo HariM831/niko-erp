@@ -699,7 +699,7 @@ function ReportBody({
               drill="ledger"
             />
             <tr>
-              <td className="px-2 py-2 pl-5">Current Period Earnings</td>
+              <td className="px-2 py-2 pl-5">Current Year Earnings</td>
               <td />
               <Amount value={data.netEarnings as string} />
             </tr>
