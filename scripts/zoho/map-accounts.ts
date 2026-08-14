@@ -134,7 +134,13 @@ const SYSTEM_KEYS: Array<{
     why: "the charge a fixed asset's schedule posts",
   },
   {
+    // Zoho already has an account for these and I missed it, creating a new
+    // "Advance to Suppliers" instead. The trial balance found it: Prepaid
+    // Expenses was short by 1,08,68,516.87, exactly what the invented account
+    // held, and EGGSY's own 25,900 plus that figure is Zoho's balance to the
+    // rupee. Mapped, not created.
     key: "vendor_advances",
+    exact: "Prepaid Expenses",
     why: "payments made to a supplier before any bill exists",
   },
   {
@@ -183,19 +189,6 @@ const CREATE: Array<{
     type: "expense",
     subtype: "other_expense",
     why: "asset sold below book value",
-  },
-  {
-    // The mirror of Unearned Revenue on the purchase side, confirmed by the
-    // user. A payment made before any bill exists is money the supplier owes
-    // back in goods, not a reduction of what we owe them — Zoho keeps it out
-    // of Accounts Payable, whose balance is the open bills alone. EGGSY was
-    // debiting AP with every payment, which understated the payable by
-    // 1.31 crore and made 136 vendors read as overpaid.
-    systemKey: "vendor_advances",
-    name: "Advance to Suppliers",
-    type: "asset",
-    subtype: "other_current_asset",
-    why: "payments made before a bill exists",
   },
   {
     // An operating expense rather than a cost of sales line, confirmed by the
