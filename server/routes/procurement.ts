@@ -466,6 +466,17 @@ const createReceiptSchema = z.object({
   seriesId: z.string().uuid().optional(),
   locationId: z.string().uuid(),
   gateId: z.string().uuid().optional(),
+  /**
+   * The device's fix at the moment of gate-in.
+   *
+   * Optional, and never blocking: a phone indoors or with location refused
+   * still has to be able to let a truck in. What it changes is whether the
+   * receipt can say WHERE it was raised — without it, `gate_in_geofence`
+   * records `no_fix`, which is the honest answer rather than a silent null.
+   */
+  latitude: z.number().min(-90).max(90).optional(),
+  longitude: z.number().min(-180).max(180).optional(),
+  accuracyM: z.number().nonnegative().optional(),
   /** The gate's one decision. A turn-away is a record, not an absence of one. */
   decision: z.enum(["allow", "turn_away"]).default("allow"),
   exitReason: z.string().optional(),
@@ -495,13 +506,30 @@ procurementRouter.post(
         const number = await nextDocumentNumber(tx, "procurement_receipt", body.seriesId);
         const turnedAway = body.decision === "turn_away";
 
+        // Resolved against the live gates, so the receipt records where it was
+        // raised rather than only where somebody said it was. Returns a no_fix
+        // verdict when the device gave nothing, which never blocks the gate.
+        const fix =
+          body.latitude != null && body.longitude != null
+            ? { latitude: body.latitude, longitude: body.longitude, accuracyM: body.accuracyM }
+            : null;
+        const place = await resolvePlace(tx, fix);
+
         const [receipt] = await tx
           .insert(procurementReceipts)
           .values({
             number,
             status: turnedAway ? "turned_away" : "gate_in",
             locationId: body.locationId,
-            gateId: body.gateId,
+            // The gate the fix actually lands at wins over the one the client
+            // named: a phone knows where it is, a dropdown knows what was last
+            // selected. An explicit choice still stands when there is no fix.
+            gateId: place.gateId ?? body.gateId,
+            gateInLatitude: fix ? String(fix.latitude) : null,
+            gateInLongitude: fix ? String(fix.longitude) : null,
+            gateInAccuracyM: fix?.accuracyM != null ? String(fix.accuracyM) : null,
+            gateInDistanceM: place.distanceM != null ? place.distanceM.toFixed(2) : null,
+            gateInGeofence: place.verdict,
             vendorId: body.vendorId,
             vehicleNumber: normalisePlate(body.vehicleNumber) ?? body.vehicleNumber,
             vendorBillNumber: body.vendorBillNumber,

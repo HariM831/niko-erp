@@ -12,6 +12,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api } from "../api";
+import { useAuth } from "../auth";
 import { StatusBadge } from "../components/status-badge";
 
 type Station = "weighbridge" | "qc" | "unloading" | "weigh-out";
@@ -223,6 +224,8 @@ function bandOf(p: QcParam): string {
  * the `override` permission, and recorded as an override rather than a pass.
  */
 function QcPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
+  const { can } = useAuth();
+  const mayOverride = can("procurement", "override");
   const [readings, setReadings] = useState<Record<string, Record<string, string>>>({});
   const [overrides, setOverrides] = useState<Record<string, { verdict: "accept" | "reject"; reason: string }>>({});
   const [manual, setManual] = useState<Record<string, "accept" | "reject">>({});
@@ -375,8 +378,12 @@ function QcPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
                 </>
               )}
 
-              {/* Disagreeing with the spec is possible, but never silent. */}
-              {v.verdict !== "no_spec" && (
+              {/* Disagreeing with the spec is possible, but never silent — and
+                  only offered to someone who may actually do it. The server
+                  refuses an override without the permission either way; showing
+                  the checkbox to an operator who cannot use it just means the
+                  refusal arrives after they have typed a reason. */}
+              {v.verdict !== "no_spec" && mayOverride && (
                 <div className="mt-2 border-t border-gray-100 pt-2">
                   <label className="flex items-center gap-2 text-[12px] text-gray-600">
                     <input

@@ -382,6 +382,13 @@ export function GateInPage() {
           vendorBillNumber: billNumber || undefined,
           vendorBillDate: billDate || undefined,
           deviceCapturedAt: new Date().toISOString(),
+          // The same fix the photos are stamped with, so the receipt itself can
+          // say which gate it was raised at and how far off it was. Absent when
+          // the device refused or had no signal, which the server records as
+          // no_fix rather than as nothing at all.
+          latitude: fix?.latitude,
+          longitude: fix?.longitude,
+          accuracyM: fix?.accuracy,
           lines: usable.map((l, i) => ({
             purchaseOrderId: matches[i]?.chosen?.purchaseOrderId,
             poLineId: matches[i]?.chosen?.poLineId,

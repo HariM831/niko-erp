@@ -19,6 +19,7 @@ import { LocationsSection } from "./settings-locations";
 import { ReportingTagsSection } from "./settings-tags";
 import { CustomFieldsTab } from "./settings-fields";
 import { DeductionRulesSection } from "./deduction-rules";
+import { ProcurementSitesSection } from "./procurement-sites";
 import {
   AccountantPrefsSection,
   ContactPrefsSection,
@@ -41,8 +42,8 @@ interface SectionDef {
   entity?: string;
   /** Which preferences block belongs to this module, if any. */
   prefs?: "transactions" | "contacts" | "items" | "invoices" | "accountant";
-  /** Modules with a settings screen of their own name it here. */
-  extra?: { key: string; label: string };
+  /** Screens a module owns beyond preferences and custom fields. */
+  extras?: Array<{ key: string; label: string }>;
 }
 
 const SECTIONS: SectionDef[] = [
@@ -67,7 +68,10 @@ const SECTIONS: SectionDef[] = [
     label: "Procurement",
     group: "Module Settings",
     entity: "procurement_receipt",
-    extra: { key: "deductions", label: "Deduction Rules" },
+    extras: [
+      { key: "deductions", label: "Deduction Rules" },
+      { key: "sites", label: "Gates & Weighbridges" },
+    ],
   },
   { key: "m-accountant", label: "Accountant", group: "Module Settings", prefs: "accountant" },
 ];
@@ -857,18 +861,19 @@ function LockPeriodModal({
 /** The screens a module owns beyond preferences and custom fields. */
 const MODULE_EXTRAS: Record<string, () => ReactElement> = {
   deductions: DeductionRulesSection,
+  sites: ProcurementSitesSection,
 };
 
 function ModuleSettings({ def }: { def: SectionDef }) {
   // The module's own screen leads, because it is what somebody came here for;
   // preferences and custom fields are the standard tail every module carries.
   const tabs: string[] = [
-    ...(def.extra ? [def.extra.key] : []),
+    ...(def.extras ?? []).map((e) => e.key),
     ...(def.prefs ? ["preferences"] : []),
     ...(def.entity ? ["fields"] : []),
   ];
   const [tab, setTab] = useState<string>(tabs[0] ?? "fields");
-  const Extra = def.extra ? MODULE_EXTRAS[def.extra.key] : null;
+  const Extra = MODULE_EXTRAS[tab] ?? null;
 
   const PREFS = {
     transactions: TransactionPrefsSection,
@@ -894,14 +899,14 @@ function ModuleSettings({ def }: { def: SectionDef }) {
                   : "border-transparent text-gray-500 hover:text-gray-800"
               }`}
             >
-              {t === def.extra?.key ? def.extra.label : t}
+              {def.extras?.find((e) => e.key === t)?.label ?? t}
             </button>
           ))}
         </div>
       )}
       {tabs.length === 1 && <div className="mb-5" />}
 
-      {tab === def.extra?.key && Extra && <Extra />}
+      {Extra && <Extra />}
       {tab === "preferences" && Prefs && <Prefs />}
       {tab === "fields" && def.entity && <CustomFieldsTab entity={def.entity} />}
     </div>
