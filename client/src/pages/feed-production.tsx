@@ -99,6 +99,28 @@ export function FeedProductionPage() {
   const chosen = groups?.find((g) => g.active?.id === formulaId);
   const outputKg = chosen?.active ? Number(chosen.active.batchSizeKg) * (Number(batchCount) || 0) : 0;
 
+  /**
+   * The last three days that saw production, newest first, each with its own
+   * total. Three DATES WITH DATA rather than three calendar days, so a quiet
+   * weekend does not blank the screen.
+   */
+  const byDay = (() => {
+    const days = [...new Set((rows ?? []).map((r) => r.orderDate))].sort().reverse().slice(0, 3);
+    return days.map((day) => {
+      const dayRows = (rows ?? []).filter((r) => r.orderDate === day);
+      const live = dayRows.filter((r) => r.status !== "void");
+      return {
+        day,
+        rows: dayRows,
+        totalKg: live.reduce((s, r) => s + Number(r.outputKg ?? 0), 0),
+        totalValue: live.reduce(
+          (s, r) => s + Number(r.inputValue ?? 0) + Number(r.overheadValue ?? 0),
+          0,
+        ),
+      };
+    });
+  })();
+
   return (
     <div className="flex h-full flex-col">
       <header className="border-b bg-white px-6 py-3">
@@ -176,8 +198,15 @@ export function FeedProductionPage() {
             </p>
           </div>
 
-          <div className="card overflow-hidden">
-            {rows?.map((r) => (
+          {byDay.map(({ day, rows: dayRows, totalKg, totalValue }) => (
+            <div key={day} className="card mb-3 overflow-hidden">
+              <div className="flex items-baseline justify-between border-b bg-gray-50 px-4 py-1.5">
+                <span className="text-[12px] font-semibold text-gray-700">{formatDate(day)}</span>
+                <span className="text-[11px] tabular-nums text-gray-500">
+                  {kg(totalKg)} · {inr(totalValue)}
+                </span>
+              </div>
+              {dayRows.map((r) => (
               <div key={r.id} className="border-b border-gray-100 px-4 py-2 last:border-0">
                 <div className="flex items-baseline justify-between">
                   <div className="min-w-0">
@@ -190,7 +219,7 @@ export function FeedProductionPage() {
                   </div>
                   <div className="flex shrink-0 items-center gap-3 pl-3">
                     <span className="text-[12px] tabular-nums text-gray-500">
-                      {r.costPerKg == null ? "—" : `${inr(Number(r.costPerKg))}/kg`} · {formatDate(r.orderDate)}
+                      {r.costPerKg == null ? "—" : `${inr(Number(r.costPerKg))}/kg`}
                     </span>
                     {r.status === "completed" && (
                       <button
@@ -227,9 +256,12 @@ export function FeedProductionPage() {
                   </div>
                 )}
               </div>
-            ))}
+              ))}
+            </div>
+          ))}
+          <div>
             {rows && !rows.length && (
-              <p className="p-4 text-center text-[13px] text-gray-400">Nothing produced yet.</p>
+              <p className="card p-4 text-center text-[13px] text-gray-400">Nothing produced yet.</p>
             )}
           </div>
         </div>

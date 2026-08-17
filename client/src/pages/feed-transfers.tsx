@@ -87,6 +87,21 @@ export function FeedTransfersPage() {
 
   const over = held != null && qty > held.quantity;
 
+  /** The last three days that saw transfers, newest first, with day totals. */
+  const byDay = (() => {
+    const days = [...new Set((rows ?? []).map((r) => r.transferDate))].sort().reverse().slice(0, 3);
+    return days.map((day) => {
+      const dayRows = (rows ?? []).filter((r) => r.transferDate === day);
+      const live = dayRows.filter((r) => r.status !== "void");
+      return {
+        day,
+        rows: dayRows,
+        totalKg: live.reduce((s, r) => s + Number(r.quantityKg), 0),
+        totalValue: live.reduce((s, r) => s + Number(r.value ?? 0), 0),
+      };
+    });
+  })();
+
   return (
     <div className="flex h-full flex-col">
       <header className="border-b bg-white px-6 py-3">
@@ -182,8 +197,15 @@ export function FeedTransfersPage() {
             </div>
           </div>
 
-          <div className="card overflow-hidden">
-            {rows?.map((r) => (
+          {byDay.map(({ day, rows: dayRows, totalKg, totalValue }) => (
+            <div key={day} className="card mb-3 overflow-hidden">
+              <div className="flex items-baseline justify-between border-b bg-gray-50 px-4 py-1.5">
+                <span className="text-[12px] font-semibold text-gray-700">{formatDate(day)}</span>
+                <span className="text-[11px] tabular-nums text-gray-500">
+                  {kg(totalKg)} · {inr(totalValue)}
+                </span>
+              </div>
+              {dayRows.map((r) => (
               <div key={r.id} className="flex items-baseline justify-between border-b border-gray-100 px-4 py-2 last:border-0">
                 <div className="min-w-0">
                   <span className="font-mono text-[13px] font-semibold">{r.number}</span>
@@ -193,12 +215,15 @@ export function FeedTransfersPage() {
                   {r.status === "void" && <StatusBadge status="void" />}
                 </div>
                 <span className="shrink-0 pl-3 text-[12px] tabular-nums text-gray-500">
-                  {r.value == null ? "—" : inr(Number(r.value))} · {formatDate(r.transferDate)}
+                  {r.value == null ? "—" : inr(Number(r.value))}
                 </span>
               </div>
-            ))}
+              ))}
+            </div>
+          ))}
+          <div>
             {rows && !rows.length && (
-              <p className="p-4 text-center text-[13px] text-gray-400">Nothing transferred yet.</p>
+              <p className="card p-4 text-center text-[13px] text-gray-400">Nothing transferred yet.</p>
             )}
           </div>
         </div>
