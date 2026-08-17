@@ -86,6 +86,14 @@ const lineSchema = z.object({
 const billLineSchema = lineSchema.extend({
   /** Reporting tag options for this line — one option per tag. */
   tagOptionIds: z.array(z.string().uuid()).max(10).optional(),
+  /**
+   * A bill line may be negative, and among purchase documents only a bill line
+   * may. Procurement settles a truck as goods at the vendor's own figure
+   * followed by a negative line per deduction, so editing such a bill has to be
+   * able to send the deduction back unchanged. An order or a credit note has no
+   * business carrying one.
+   */
+  rate: z.string().regex(/^-?\d+(\.\d{1,6})?$/),
 });
 
 

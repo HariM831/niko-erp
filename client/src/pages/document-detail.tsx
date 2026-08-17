@@ -400,6 +400,24 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
   const supply = placeOfSupply(contact?.placeOfSupplyState);
   const terms = termsLabel(doc[config.dateField] as string | undefined, doc.dueDate as string | undefined);
 
+  /**
+   * A negative line is a deduction, not a thing the vendor supplied.
+   *
+   * Procurement settles a truck as one bill: the goods at the vendor's own
+   * figure, then a negative line for each thing we are not paying for. On the
+   * sheet those belong below the subtotal, where a discount goes — listing them
+   * as items would make the goods table disagree with the vendor's invoice,
+   * which is the one thing keeping them on this document buys us.
+   *
+   * The goods subtotal is derived from the stored one rather than by re-summing
+   * lines, so it ties by construction: goods − deductions IS `doc.subTotal`,
+   * whatever line discounts are also in play.
+   */
+  const deductionLines = doc.lines.filter((l) => Number(l.amount) < 0);
+  const goodsLines = doc.lines.filter((l) => Number(l.amount) >= 0);
+  const deductionTotal = deductionLines.reduce((s, l) => s - Number(l.amount), 0);
+  const goodsSubTotal = (Number(doc.subTotal) + deductionTotal).toFixed(2);
+
   const addressLines = (a?: { line1?: string; line2?: string; city?: string; state?: string; pincode?: string }) =>
     a ? [a.line1, a.line2, a.city, [a.pincode, a.state].filter(Boolean).join(" "), "India"].filter(Boolean) as string[] : [];
 
@@ -624,7 +642,7 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
                 </tr>
               </thead>
               <tbody>
-                {doc.lines
+                {goodsLines
                   .filter((l) => !prefs?.hideZeroValueLines || Number(l.amount) !== 0)
                   .map((l, i) => (
                   <tr key={l.id} className="border-b border-[#9e9e9e]">
@@ -686,9 +704,23 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
                     <tr>
                       <td className="py-1.5 pr-2.5 text-right align-middle">Sub Total</td>
                       <td className="w-[110px] py-1.5 pl-1.5 pr-2.5 text-right align-middle tabular-nums">
-                        {formatNum(doc.subTotal)}
+                        {formatNum(goodsSubTotal)}
                       </td>
                     </tr>
+                    {/* A deduction is not something the vendor supplied, so it has
+                        no business in the item table. It comes off after the
+                        subtotal, the same shape as a discount — the goods figure
+                        above still matches their invoice, and the arithmetic down
+                        to Total is visible on the page. The reading and the
+                        working behind each one are in the notes. */}
+                    {deductionLines.map((l) => (
+                      <tr key={l.id}>
+                        <td className="py-1 pr-2.5 text-right align-middle">{l.name}</td>
+                        <td className="py-1 pl-1.5 pr-2.5 text-right align-middle tabular-nums">
+                          (-) {formatNum(Math.abs(Number(l.amount)))}
+                        </td>
+                      </tr>
+                    ))}
                     {Number(doc.discountTotal) > 0 && (
                       <tr>
                         <td className="py-1 pr-2.5 text-right align-middle">Discount</td>

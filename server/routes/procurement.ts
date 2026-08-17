@@ -26,7 +26,6 @@ import {
   procurementReceipts,
   purchaseOrderLines,
   bills,
-  vendorCredits,
   attachments,
 } from "@shared/schema";
 import { db, type Tx } from "../db";
@@ -34,7 +33,7 @@ import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { nextDocumentNumber, resyncDocumentNumber } from "../lib/numbering";
 import { PostingError, assertPeriodOpen } from "../services/posting";
-import { applyVendorCredit, createBill, createVendorCredit, loadVendor } from "../services/purchases";
+import { createBill, loadVendor } from "../services/purchases";
 import {
   ALLOWED_MIME,
   type ImageInput,
@@ -1450,29 +1449,6 @@ procurementRouter.post(
         const billDate = receipt.vendorBillDate ?? new Date().toISOString().slice(0, 10);
         await assertPeriodOpen(tx, billDate, "bill");
 
-        const bill = await createBill(tx, {
-          vendor,
-          billDate,
-          vendorBillNumber: receipt.vendorBillNumber ?? undefined,
-          reference: receipt.number,
-          // Only when the whole truck came from one order; a multi-PO receipt
-          // keeps its links on the receipt lines instead.
-          purchaseOrderId:
-            new Set(ctx.lines.map((l) => l.line.purchaseOrderId).filter(Boolean)).size === 1
-              ? (ctx.lines.find((l) => l.line.purchaseOrderId)?.line.purchaseOrderId ?? undefined)
-              : undefined,
-          lines: ctx.billLines.map((l) => ({
-            itemId: l.itemId ?? undefined,
-            accountId: l.accountId ?? undefined,
-            name: l.name,
-            quantity: l.quantityKg.toFixed(3),
-            unit: "kg",
-            rate: l.ratePerKg.toFixed(6),
-            // No taxId anywhere: tax is folded into the rate above.
-          })),
-          postedBy: req.session.user!.id,
-        });
-
         // What the rules proposed, overlaid with whatever was approved on
         // screen. An edited amount keeps the rule's own basis alongside the
         // new figure, so the record shows both what was computed and what a
@@ -1501,77 +1477,87 @@ procurementRouter.post(
           };
         });
         const charging = body.deductions ? approved : ctx.deductions;
+        const deductionTotal = Number(charging.reduce((s, d) => s + d.amount, 0).toFixed(2));
 
-        let credit = null;
-        if (charging.length) {
-          /**
-           * The credit note has to explain itself.
-           *
-           * A vendor querying ₹11,319 six months on should find the answer on
-           * the document, not have to ask someone to open a goods receipt. So
-           * the notes carry the whole story: which truck, which bill, and for
-           * each deduction the reading that triggered it and the arithmetic
-           * that produced the figure.
-           */
-          const explanation = [
-            `Deductions on goods receipt ${receipt.number}`,
-            `Vehicle ${receipt.vehicleNumber} · vendor bill ${receipt.vendorBillNumber ?? "not given"}` +
-              (receipt.vendorBillDate ? ` dated ${receipt.vendorBillDate}` : ""),
-            `Gross ${receipt.grossWeightKg ?? "—"} kg · tare ${receipt.tareWeightKg ?? "—"} kg · net ${receipt.netWeightKg ?? "—"} kg`,
-            "",
-            ...charging.map((d) => `${d.name}\n    ${d.basis}\n    = ₹${d.amount.toLocaleString("en-IN")}`),
-          ].join("\n");
+        /**
+         * The bill has to explain itself.
+         *
+         * A vendor querying ₹11,319 six months on should find the answer on the
+         * document, not have to ask someone to open a goods receipt. Each
+         * deduction states its own arithmetic on its own line; these notes give
+         * the surrounding facts — which truck, which of their bills, and the
+         * weighbridge figures the shortfall came out of.
+         */
+        const explanation = [
+          `Settled from goods receipt ${receipt.number}`,
+          `Vehicle ${receipt.vehicleNumber} · vendor bill ${receipt.vendorBillNumber ?? "not given"}` +
+            (receipt.vendorBillDate ? ` dated ${receipt.vendorBillDate}` : ""),
+          `Gross ${receipt.grossWeightKg ?? "—"} kg · tare ${receipt.tareWeightKg ?? "—"} kg · net ${receipt.netWeightKg ?? "—"} kg`,
+          ...(charging.length
+            ? [
+                "",
+                "Deducted:",
+                ...charging.map((d) => `  ${d.name}\n    ${d.basis}\n    = ₹${d.amount.toLocaleString("en-IN")}`),
+                "",
+                // Safe to add up: each deduction line is one unit at its own
+                // value, so the lines really do sum to this. The bill's own
+                // rounding sits on the bill total, where it is visible.
+                `Total deducted: ₹${deductionTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`,
+              ]
+            : []),
+        ].join("\n");
 
-          credit = await createVendorCredit(tx, {
-            vendor,
-            creditDate: billDate,
-            billId: bill.id,
-            reference: receipt.number,
-            notes: explanation,
-            // Kept to one line on the journal — the ledger wants a sentence,
-            // not a page — but still naming the arithmetic behind each figure.
-            narration:
-              `Deductions on ${receipt.number} — ${vendor.displayName}` +
-              ` · bill ${receipt.vendorBillNumber ?? "—"}` +
-              ` · ${charging.map((d) => d.basis).join(" · ")}`,
-            lines: charging.map((d) => ({
+        /**
+         * One bill: the goods at the vendor's own figure, then a negative line
+         * for each thing we are not paying for.
+         *
+         * Deliberately not a bill plus a vendor credit. A credit was never
+         * countersigned or returned, so the second document bought nothing a
+         * line on this one does not — and this way the goods line still ties to
+         * the vendor's invoice figure for figure, with the difference explained
+         * one row below it rather than in another document.
+         */
+        const bill = await createBill(tx, {
+          vendor,
+          billDate,
+          vendorBillNumber: receipt.vendorBillNumber ?? undefined,
+          reference: receipt.number,
+          notes: explanation,
+          // Only when the whole truck came from one order; a multi-PO receipt
+          // keeps its links on the receipt lines instead.
+          purchaseOrderId:
+            new Set(ctx.lines.map((l) => l.line.purchaseOrderId).filter(Boolean)).size === 1
+              ? (ctx.lines.find((l) => l.line.purchaseOrderId)?.line.purchaseOrderId ?? undefined)
+              : undefined,
+          lines: [
+            ...ctx.billLines.map((l) => ({
+              itemId: l.itemId ?? undefined,
+              accountId: l.accountId ?? undefined,
+              name: l.name,
+              quantity: l.quantityKg.toFixed(3),
+              unit: "kg",
+              rate: l.ratePerKg.toFixed(6),
+              // No taxId anywhere: tax is folded into the rate above.
+            })),
+            ...charging.map((d) => ({
               itemId: d.itemId ?? undefined,
+              // The same purchase account as the goods it reduces, so the
+              // journal nets to one debit instead of a pair that cancel.
               accountId: d.accountId ?? undefined,
               name: d.name,
-              // One unit at the deduction's own value: a credit line is a sum
-              // of money, not a quantity of goods coming back.
+              // One unit at the deduction's own value: a deduction is a sum of
+              // money, not a quantity of goods going back.
               quantity: "1.000",
-              rate: d.amount.toFixed(6),
+              rate: (-d.amount).toFixed(6),
               description: d.basis,
               // Which rule charged this, and which version of it. Null where a
               // person entered the figure by hand, which is the truth of it.
               ruleId: d.ruleId,
               ruleVersion: d.ruleVersion,
             })),
-            postedBy: req.session.user!.id,
-          });
-          // The total is stated from the document, not from summing the lines.
-          // EGGSY rounds a document to whole rupees and books the difference as
-          // roundOff, so a note that adds the lines up itself would quote a
-          // figure the credit does not actually carry.
-          const roundOff = Number(credit.roundOff ?? 0);
-          await tx
-            .update(vendorCredits)
-            .set({
-              notes:
-                `${explanation}\n\n` +
-                (roundOff !== 0
-                  ? `Rounding: ${roundOff > 0 ? "+" : "−"}₹${Math.abs(roundOff).toLocaleString("en-IN")}\n`
-                  : "") +
-                `Total deducted: ₹${Number(credit.total).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`,
-            })
-            .where(eq(vendorCredits.id, credit.id));
-
-          await applyVendorCredit(tx, {
-            vendorCreditId: credit.id,
-            applications: [{ billId: bill.id, amount: credit.total }],
-          });
-        }
+          ],
+          postedBy: req.session.user!.id,
+        });
 
         // Counters. An unloaded line discharges the order by what the vendor
         // sent, and is billed for the same — QC rejections were counted at
@@ -1602,7 +1588,9 @@ procurementRouter.post(
           .set({
             status: "settled",
             billId: bill.id,
-            vendorCreditId: credit?.id,
+            // Stays null: deductions are lines on the bill now. The column
+            // remains for a credit raised by hand against this receipt.
+            vendorCreditId: null,
             billTotalVarianceReason: body.billTotalVarianceReason,
             settledAt: new Date(),
             settledBy: req.session.user!.id,
@@ -1651,13 +1639,12 @@ procurementRouter.post(
           });
         }
 
-        // Re-read: createBill returned the bill before the credit was applied
-        // against it, so the object it handed back still shows the full balance.
-        const settledBill = await tx.query.bills.findFirst({ where: eq(bills.id, bill.id) });
         return {
           receipt: updated!,
-          bill: settledBill ?? bill,
-          credit,
+          bill,
+          // What came off, and what is left to pay. The bill total IS the net
+          // now, so there is no second document to reconcile it against.
+          deducted: deductionTotal.toFixed(2),
           photosAttached: photos.length,
           summary: ctx,
         };

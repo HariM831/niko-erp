@@ -158,6 +158,23 @@ export const billLines = pgTable("bill_lines", {
   allocatedFreight: money("allocated_freight").notNull().default("0"),
   /** (line amount + allocated freight) / quantity — the true per-unit cost. */
   landedUnitCost: money("landed_unit_cost").notNull().default("0"),
+  /**
+   * Which deduction rule produced this line, where the line is a NEGATIVE
+   * deduction rather than goods.
+   *
+   * Procurement settles a truck as one bill: the goods at what the vendor
+   * invoiced, then a negative line for each thing we are not paying for. The
+   * vendor never countersigns a credit note, so a second document bought
+   * nothing a line on this one does not — and the bill's own goods line still
+   * ties to their invoice figure for figure, with the difference explained one
+   * row below it.
+   *
+   * Not a foreign key: procurement's schema imports this file, so pointing at
+   * deduction_rules would close a cycle. Null on goods and on a figure somebody
+   * typed by hand.
+   */
+  ruleId: uuid("rule_id"),
+  ruleVersion: integer("rule_version"),
 });
 
 export const vendorPayments = pgTable("vendor_payments", {

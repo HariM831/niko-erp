@@ -77,16 +77,29 @@ async function listRules(includeRetired: boolean) {
   /**
    * What each version has actually charged.
    *
-   * Only answerable since credit lines started recording `rule_id`. It is the
-   * figure that makes retiring a version a decision rather than a shrug: a rule
-   * that has taken ₹40,000 off four vendors is not one to change casually.
-   * Void credits are excluded — a reversed deduction charged nobody.
+   * The figure that makes retiring a version a decision rather than a shrug: a
+   * rule that has taken ₹40,000 off four vendors is not one to change casually.
+   *
+   * Both tables, because deductions live on the BILL now — a negative line
+   * against the goods — while vendor credit lines still carry a rule where one
+   * was raised by hand. Void documents are excluded on either side: a reversed
+   * deduction charged nobody. Bill amounts are negated because a deduction is
+   * stored as the negative line it is.
    */
   const charged = await db.execute(sql`
-    SELECT l.rule_id, l.rule_version, count(*)::int AS lines, sum(l.amount)::text AS total
-    FROM vendor_credit_lines l
-    JOIN vendor_credits c ON c.id = l.vendor_credit_id
-    WHERE l.rule_id IS NOT NULL AND c.status <> 'void'
+    SELECT rule_id, rule_version, sum(lines)::int AS lines, sum(total)::text AS total FROM (
+      SELECT l.rule_id, l.rule_version, count(*) AS lines, sum(-l.amount) AS total
+      FROM bill_lines l
+      JOIN bills b ON b.id = l.bill_id
+      WHERE l.rule_id IS NOT NULL AND b.status <> 'void'
+      GROUP BY 1, 2
+      UNION ALL
+      SELECT l.rule_id, l.rule_version, count(*) AS lines, sum(l.amount) AS total
+      FROM vendor_credit_lines l
+      JOIN vendor_credits c ON c.id = l.vendor_credit_id
+      WHERE l.rule_id IS NOT NULL AND c.status <> 'void'
+      GROUP BY 1, 2
+    ) both
     GROUP BY 1, 2
   `);
   const usage = new Map(

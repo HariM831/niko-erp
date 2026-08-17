@@ -267,6 +267,13 @@
       "when": 1786946272992,
       "tag": "0037_qc_spec_param_unit",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1786946332992,
+      "tag": "0038_bill_line_deductions",
+      "breakpoints": true
     }
   ]
 }

@@ -89,7 +89,7 @@ export function SettlementPage() {
 
   const settle = useMutation({
     mutationFn: () =>
-      api<{ bill: { number: string }; credit: { number: string } | null }>(
+      api<{ bill: { number: string; total: string }; deducted: string }>(
         `/api/procurement/receipts/${selected}/settle`,
         {
           method: "POST",
@@ -108,7 +108,11 @@ export function SettlementPage() {
       ),
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ["procurement"] });
-      setDone(r.credit ? `${r.bill.number} raised, ${r.credit.number} applied` : `${r.bill.number} raised`);
+      setDone(
+        Number(r.deducted) > 0
+          ? `${r.bill.number} raised for ${inr(Number(r.bill.total))} — ${inr(Number(r.deducted))} deducted on the bill`
+          : `${r.bill.number} raised for ${inr(Number(r.bill.total))}`,
+      );
       setSelected(null);
       setReason("");
     },
@@ -234,7 +238,7 @@ export function SettlementPage() {
 
               {ctx.deductions.length > 0 && (
                 <div className="mt-3">
-                  <div className="label">Deductions — raised as a vendor credit</div>
+                  <div className="label">Deductions — negative lines on the bill</div>
                   {ctx.deductions.map((d) => {
                     const key = keyOf(d);
                     const off = dropped.has(key);
@@ -284,7 +288,9 @@ export function SettlementPage() {
                   })}
                   <p className="mt-1 text-[11px] text-gray-400">
                     Amounts come from the deduction rules. Change one and the original figure is
-                    kept on the credit note beside it; waive one and it is not charged at all.
+                    kept on the bill line beside it; waive one and it is not charged at all. The
+                    goods lines stay at the vendor's own figures, so their invoice still ties line
+                    for line — only the total differs, and each deduction says why.
                   </p>
                 </div>
               )}

@@ -129,9 +129,16 @@ export function buildBillJeLines(
     const withRound = first ? netP + roundOffP : netP;
     first = false;
     if (withRound !== 0) {
+      // Normally a debit: goods increase an expense. A bill may also carry
+      // NEGATIVE lines — the deductions procurement settles against the goods —
+      // and where those outweigh the goods on one account the account is
+      // credited instead. Posting refuses negative amounts by design, so the
+      // sign has to be expressed by the side it lands on, not by the figure.
       jeLines.push({
         accountId,
-        debit: fromPaise(withRound),
+        ...(withRound > 0
+          ? { debit: fromPaise(withRound) }
+          : { credit: fromPaise(-withRound) }),
         description: `Bill ${billNumber}`,
         tagOptionIds,
       });
@@ -224,6 +231,27 @@ export async function computeBill(
   // they are owed: the expense stays gross and the payable is net.
   const tdsP = toPaise(tdsAmount ?? "0");
   const headerTotals = { ...rest, total: fromPaise(toPaise(rest.total) - tdsP) };
+
+  /**
+   * A bill may carry negative lines — procurement settles deductions against
+   * the goods on one document — but it may not come to less than nothing.
+   *
+   * At that point it is not a bill, it is a credit note, and forcing it through
+   * would post a negative credit to Accounts Payable and leave a payable the
+   * vendor owes US sitting in the payables ledger. Refused here rather than
+   * deeper down, where the message would be about journal amounts instead of
+   * about the document somebody is trying to raise.
+   */
+  if (toPaise(headerTotals.total) < 0) {
+    const negativeP = computedLines
+      .filter((l) => toPaise(l.amount) < 0)
+      .reduce((s, l) => s - toPaise(l.amount), 0);
+    throw new PostingError(
+      `This bill comes to ${fromPaise(toPaise(headerTotals.total))} — deductions of ` +
+        `${fromPaise(negativeP)} exceed the goods on it. Raise a vendor credit for the ` +
+        `difference instead; a bill cannot be owed to us.`,
+    );
+  }
   const freightP = toPaise(freightAmount ?? "0");
   const lineAmountsP = computedLines.map((l) => toPaise(l.amount));
   const allocatedP = allocateFreight(lineAmountsP, freightP);
