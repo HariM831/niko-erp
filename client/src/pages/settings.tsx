@@ -20,6 +20,7 @@ import { ReportingTagsSection } from "./settings-tags";
 import { CustomFieldsTab } from "./settings-fields";
 import { DeductionRulesSection } from "./deduction-rules";
 import { ProcurementSitesSection } from "./procurement-sites";
+import { FeedStandardsSection } from "./feed-standards";
 import {
   AccountantPrefsSection,
   ContactPrefsSection,
@@ -72,6 +73,12 @@ const SECTIONS: SectionDef[] = [
       { key: "deductions", label: "Deduction Rules" },
       { key: "sites", label: "Gates & Weighbridges" },
     ],
+  },
+  {
+    key: "m-feed-mill",
+    label: "Feed Mill",
+    group: "Module Settings",
+    extras: [{ key: "feed-standards", label: "Feed Standards" }],
   },
   { key: "m-accountant", label: "Accountant", group: "Module Settings", prefs: "accountant" },
 ];
@@ -862,6 +869,7 @@ function LockPeriodModal({
 const MODULE_EXTRAS: Record<string, () => ReactElement> = {
   deductions: DeductionRulesSection,
   sites: ProcurementSitesSection,
+  "feed-standards": FeedStandardsSection,
 };
 
 function ModuleSettings({ def }: { def: SectionDef }) {
