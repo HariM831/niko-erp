@@ -10,6 +10,7 @@ import { BudgetDetailPage, BudgetNewPage, BudgetsPage } from "./pages/budgets";
 import { BulkUpdatePage } from "./pages/bulk-update";
 import { QualitySpecsPage } from "./pages/quality-specs";
 import { FeedNutrientsPage } from "./pages/feed-nutrients";
+import { FeedFormulasPage } from "./pages/feed-formulas";
 import {
   CustomersPage,
   ItemsPage,
@@ -148,6 +149,7 @@ export function App() {
         <Route path="/procurement/unloading">{() => <StationPage station="unloading" />}</Route>
         <Route path="/procurement/weigh-out">{() => <StationPage station="weigh-out" />}</Route>
         <Route path="/feed-mill/nutrients" component={FeedNutrientsPage} />
+        <Route path="/feed-mill/formulas" component={FeedFormulasPage} />
         <Route path="/procurement/settlement" component={SettlementPage} />
         <Route path="/procurement/:station">
           {(p) => <ProcurementStationPage key={p.station} stationKey={p.station!} />}

@@ -91,6 +91,7 @@ const NAV: NavItem[] = [
     icon: Wheat,
     children: [
       { label: "Nutrient Profiles", path: "/feed-mill/nutrients" },
+      { label: "Formulas", path: "/feed-mill/formulas" },
     ],
   },
   {
