@@ -15,6 +15,7 @@ import {
   Settings,
   ShoppingCart,
   Truck,
+  Wheat,
 } from "lucide-react";
 import { useAuth } from "../auth";
 import { TopBar } from "./topbar";
@@ -83,6 +84,13 @@ const NAV: NavItem[] = [
       { label: "Weigh Out", path: "/procurement/weigh-out" },
       { label: "Settlement", path: "/procurement/settlement" },
       { label: "Goods Receipts", path: "/procurement/receipts" },
+    ],
+  },
+  {
+    label: "Feed Mill",
+    icon: Wheat,
+    children: [
+      { label: "Nutrient Profiles", path: "/feed-mill/nutrients" },
     ],
   },
   {

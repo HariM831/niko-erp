@@ -41,6 +41,7 @@ const itemSchema = z.object({
   purchaseAccountId: z.string().uuid().optional(),
   purchaseDescription: z.string().optional(),
   preferredVendorId: z.string().uuid().optional(),
+  isFeedIngredient: z.boolean().optional(),
   taxId: z.string().uuid().optional(),
   trackInventory: z.boolean().optional(),
   inventoryAccountId: z.string().uuid().optional(),

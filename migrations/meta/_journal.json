@@ -274,6 +274,20 @@
       "when": 1786946332992,
       "tag": "0038_bill_line_deductions",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1786970044135,
+      "tag": "0039_swift_husk",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1786970104135,
+      "tag": "0040_feed_ingredient_flag",
+      "breakpoints": true
     }
   ]
 }

@@ -13,6 +13,7 @@ export * from "./banking";
 export * from "./sales";
 export * from "./purchases";
 export * from "./procurement";
+export * from "./feedmill";
 export * from "./attachments";
 export * from "./comments";
 export * from "./migration";

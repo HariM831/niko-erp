@@ -35,6 +35,17 @@ export const items = pgTable("items", {
   /** Weight of one bag, for sanity-checking a bag count against a weighbridge. */
   unitBagWeightKg: numeric("unit_bag_weight_kg", { precision: 8, scale: 3 }),
 
+  /**
+   * A raw material the feed mill mixes — maize, DORB, soya, premix.
+   *
+   * The org buys ninety-odd things and mixes a dozen of them; cement has no
+   * crude protein. This flag is what puts a material on the Nutrient Profiles
+   * screen and in the formulator's ingredient list, so the nutritionist's
+   * screens show feed and only feed. Finished feed itself stays false: its
+   * analysis is a consequence of the formula, not an input anybody types.
+   */
+  isFeedIngredient: boolean("is_feed_ingredient").notNull().default(false),
+
   // Sales information
   isSold: boolean("is_sold").notNull().default(true),
   sellingPrice: numeric("selling_price", { precision: 14, scale: 2 }),

@@ -82,6 +82,23 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     ],
   },
   {
+    key: "feed_mill",
+    label: "Feed Mill",
+    description: "Nutrient profiles, feed standards, formulas, production and feed transfers",
+    actions: [
+      { key: "view", label: "View" },
+      // Naming what a material is made of is a nutritionist's job, and a
+      // least-cost mix is only as good as the analysis behind it.
+      { key: "nutrients", label: "Edit nutrient profiles" },
+      { key: "formulate", label: "Run the formulator" },
+      // Writing a recipe is not the same as running one. The floor produces to
+      // a formula; changing the formula is a different authority.
+      { key: "manage_formulas", label: "Write formulas" },
+      { key: "produce", label: "Issue and complete production" },
+      { key: "transfer", label: "Transfer feed to a shed" },
+    ],
+  },
+  {
     key: "reports",
     label: "Reports",
     description: "Profit & loss, balance sheet, cash flow, ageing",
