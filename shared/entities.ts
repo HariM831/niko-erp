@@ -133,6 +133,28 @@ export const ENTITIES: EntityDef[] = [
     numbered: true,
     lookupTarget: false,
   },
+  {
+    key: "procurement_receipt",
+    label: "Goods Receipt",
+    plural: "Goods Receipts",
+    module: "procurement",
+    numbered: true,
+    lookupTarget: false,
+  },
+  {
+    /**
+     * Registered so QC and unloading photos attach to the material they are
+     * about rather than to the truck. Attachments are entity-scoped, so this
+     * costs one entry and no changes anywhere else. Not numbered: a line is
+     * identified by its receipt and its position on the bill.
+     */
+    key: "procurement_receipt_line",
+    label: "Receipt Line",
+    plural: "Receipt Lines",
+    module: "procurement",
+    numbered: false,
+    lookupTarget: false,
+  },
 ];
 
 const BY_KEY = new Map(ENTITIES.map((e) => [e.key, e]));

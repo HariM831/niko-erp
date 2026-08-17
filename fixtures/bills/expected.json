@@ -1,0 +1,201 @@
+{
+  "$comment": [
+    "Ground truth for gate-in extraction. Three photos are taken at the barrier",
+    "— the bill, the vehicle, and the vendor's weigh slip — and each has its own",
+    "endpoint and its own entry below.",
+    "",
+    "The design principle throughout: the model reads, the server decides. Gemini",
+    "is asked only for what is printed or written. Every derived number is",
+    "arithmetic done server-side, where it is testable.",
+    "",
+    "Both documents carry their own internal check, which is what makes that",
+    "possible:",
+    "  bill  — quantityKg / 100 * ratePerQuintal == amount",
+    "  slip  — gross - tare == net",
+    "",
+    "And they check each other: the handwritten weight on the bill IS the net on",
+    "the weigh slip. See crossChecks at the bottom."
+  ],
+
+  "bills": [
+    {
+      "file": "517.jpeg",
+      "source": "Shayan Enterprise, Tilapatty, Kharupetia, Dist. Darrang (Assam)",
+      "note": "The reference bill named in docs/procurement-plan.md.",
+      "expected": {
+        "documentType": "bill_of_supply",
+        "vendor": "SHAYAN ENTERPRISE",
+        "vendorPan": "CNYPB3396R",
+        "vendorGstin": null,
+        "billNumber": "517",
+        "billDate": "2026-08-13",
+        "vehicleNumber": "AS01EC2633",
+        "billTotal": 563178,
+        "billTax": null,
+        "footingOk": true,
+        "lines": [
+          {
+            "lineNo": 1,
+            "materialName": "Maize",
+            "hsnCode": "1005",
+            "quantityKg": 24380,
+            "bagCount": 401,
+            "ratePerKg": 23.1,
+            "rateBasis": "quintal",
+            "amount": 563178,
+            "reconciled": true
+          }
+        ]
+      },
+      "traps": [
+        "The Qnty column reads '401 Pm' — a bag count, not the weight.",
+        "The billed weight is handwritten in the particulars cell: 'wt 24380'.",
+        "The rate's middle digit reads convincingly as 2810; only 2310 closes the arithmetic. A confident misread here overpays by Rs 1,21,900 on one truck.",
+        "'Party Name: Amino Farms' is the BUYER. The vendor is the letterhead."
+      ]
+    },
+
+    {
+      "file": "518.jpeg",
+      "source": "Shayan Enterprise, Tilapatty, Kharupetia, Dist. Darrang (Assam)",
+      "note": "Second bill from the same vendor, and the one with a full photo set — vehicle and weigh slip below are the same truck.",
+      "expected": {
+        "documentType": "bill_of_supply",
+        "vendor": "SHAYAN ENTERPRISE",
+        "vendorPan": "CNYPB3396R",
+        "vendorGstin": null,
+        "billNumber": "518",
+        "billDate": "2026-08-13",
+        "vehicleNumber": "AS26AC1723",
+        "billTotal": 942249,
+        "billTax": null,
+        "footingOk": true,
+        "lines": [
+          {
+            "lineNo": 1,
+            "materialName": "Maize",
+            "hsnCode": "1005",
+            "quantityKg": 40790,
+            "bagCount": 666,
+            "ratePerKg": 23.1,
+            "rateBasis": "quintal",
+            "amount": 942249,
+            "reconciled": true
+          }
+        ]
+      },
+      "arithmetic": "40790 kg = 407.90 qtl x Rs 2310/qtl = Rs 9,42,249 — exact to the rupee.",
+      "traps": [
+        "The Qnty column reads '666 Pkt' — a bag count, not the weight.",
+        "The billed weight is handwritten below the particulars: 'wt 40790'.",
+        "Rate 2310 is per quintal; per-kg is 23.10 and must be derived server-side.",
+        "The truck number's third digit is ambiguous between 2 and 7. It is 1723, confirmed by the number plate and the weigh slip — a plate has no check digit, so only corroboration settles it."
+      ]
+    }
+  ],
+
+  "weighslips": [
+    {
+      "$comment": [
+        "THE IMPORTANT THING ABOUT THESE TWO: they are from different",
+        "weighbridges four kilometres apart and share no layout at all.",
+        "Shanti prints Gross / Tare / Net. Prem prints First Wt / Second Wt /",
+        "Net Wt, where first happens to be the empty weight and second the",
+        "loaded one — but that ordering is not guaranteed, it is just the order",
+        "the truck happened to cross the platform.",
+        "",
+        "So the extractor must NOT hunt for the words 'gross' and 'tare'. It",
+        "reads whatever weights are printed and the server decides: the larger",
+        "is gross, the smaller is tare, and net must equal the difference. Same",
+        "read/decide split as the bill, for the same reason."
+      ],
+      "file": "517-weighslip.jpeg",
+      "source": "Prem Weigh Bridge, Near HP Petrol Pump NH-15, Kharupetia, Darrang, Assam",
+      "note": "Public Weighing Ticket layout — labels the two weighings First/Second rather than tare/gross.",
+      "expected": {
+        "weighbridgeName": "PREM WEIGH BRIDGE",
+        "slipNumber": "702",
+        "vehicleNumber": "AS01EC2633",
+        "grossKg": 31730,
+        "tareKg": 7350,
+        "netKg": 24380,
+        "weighedAt": "2026-08-13T11:45:52",
+        "reconciled": true
+      },
+      "arithmetic": "31730 - 7350 = 24380 — and 24380 is exactly the handwritten weight on bill 517.",
+      "traps": [
+        "'First Wt 7350' is the TARE and 'Second Wt 31730' is the GROSS. Reading them positionally as gross-then-tare inverts the load and yields a negative net.",
+        "Both weighings are seconds apart (11:45:48 and 11:45:51), so the tare was a stored figure rather than a second trip across the platform."
+      ]
+    },
+    {
+      "file": "518-weighslip.jpeg",
+      "source": "Shanti Weigh Bridge, Panbari Road Ward No-7, Kharupetia, PIN-784115",
+      "note": "The vendor's own slip for bill 518. Dot-matrix print, not handwriting — a much easier read than the bill, which is why it can go to the cheaper model.",
+      "expected": {
+        "weighbridgeName": "SHANTI WEIGH BRIDGE",
+        "slipNumber": "4831",
+        "vehicleNumber": "AS26AC1723",
+        "grossKg": 54350,
+        "tareKg": 13560,
+        "netKg": 40790,
+        "weighedAt": "2026-08-13T15:41:00",
+        "chargesRs": 0,
+        "reconciled": true
+      },
+      "arithmetic": "54350 - 13560 = 40790 — the slip closes against itself.",
+      "traps": [
+        "Gross and tare carry their own dates and times; both are 13/08/2026 15:41 here, meaning the vehicle was weighed loaded and the tare was a stored figure rather than a second trip.",
+        "Party name and Item are blank on the form. Absence is not a read failure."
+      ]
+    }
+  ],
+
+  "vehicles": [
+    {
+      "file": "518-vehicle.jpeg",
+      "status": "IMAGE NOT YET IN REPO",
+      "note": "Front-on photo of the same truck at the gate, taken with a stamping camera app that burns GPS and time into the image.",
+      "expected": {
+        "plate": "AS26AC1723"
+      },
+      "overlayPresent": {
+        "capturedAt": "2026-08-14T10:43:51",
+        "place": "Dhekiajuli, North Assam Division, Assam",
+        "altitudeM": 31.0,
+        "speedKmh": 0.2
+      },
+      "traps": [
+        "The photo carries a large burnt-in text overlay with its own date and place. The plate must be read from the number plate itself, never from the overlay.",
+        "The overlay date (14 Aug) is the day AFTER the bill and slip (13 Aug) — the truck was loaded and weighed one day and arrived the next. Arrival date and bill date are different things and neither should be derived from the other."
+      ]
+    }
+  ],
+
+  "crossChecks": {
+    "$comment": [
+      "What the three photos prove about each other. These are server-side checks",
+      "across documents, and they are the strongest signal available at the gate —",
+      "each one turns an unverifiable handwritten field into a corroborated one."
+    ],
+    "checks": [
+      {
+        "name": "plate agrees across all three",
+        "rule": "vehicle.plate == weighslip.vehicleNumber == bill.vehicleNumber",
+        "on518": "AS26AC1723 on all three — this is what settled the ambiguous digit",
+        "onFailure": "flag plate_mismatch, confirm with the guard (V9). Never block."
+      },
+      {
+        "name": "the slip's net IS the bill's weight",
+        "rule": "weighslip.netKg == sum(bill.lines[].quantityKg)",
+        "on518": "40790 == 40790, exact",
+        "why": "The handwritten weight on the bill is copied from this slip. Cross-checking them turns the single most error-prone field on the bill into a verified one, and catches a misread digit that the bill's own arithmetic would happily accept."
+      },
+      {
+        "name": "the slip closes against itself",
+        "rule": "weighslip.grossKg - weighslip.tareKg == weighslip.netKg",
+        "on518": "54350 - 13560 = 40790"
+      }
+    ]
+  }
+}

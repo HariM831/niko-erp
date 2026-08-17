@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
   numeric,
@@ -24,6 +25,15 @@ export const items = pgTable("items", {
   unit: varchar("unit", { length: 20 }).notNull().default("pcs"),
   hsnOrSac: varchar("hsn_or_sac", { length: 10 }),
   description: text("description"),
+
+  /**
+   * What this material is called on a vendor's bill — "DORB", "D.O.R.B.",
+   * "Rice bran DO". Data rather than a hardcoded map, because the people who
+   * know the abbreviations are not the people who deploy.
+   */
+  aliases: text("aliases").array().notNull().default(sql`'{}'::text[]`),
+  /** Weight of one bag, for sanity-checking a bag count against a weighbridge. */
+  unitBagWeightKg: numeric("unit_bag_weight_kg", { precision: 8, scale: 3 }),
 
   // Sales information
   isSold: boolean("is_sold").notNull().default(true),

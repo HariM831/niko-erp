@@ -373,13 +373,15 @@ salesDocumentsRouter.post(
             amountApplied: app.amount,
           });
           const newBalanceP = toPaise(inv.balanceDue) - appP;
+          // A credit note is not a receipt of money. It leaves the invoice SENT
+          // at a smaller balance — the customer has paid nothing, and marking it
+          // partially paid puts the invoice at odds with Payments Received.
+          // An invoice already part-paid in cash keeps that status.
+          const status =
+            newBalanceP === 0 ? "paid" : inv.status === "partially_paid" ? "partially_paid" : "sent";
           await tx
             .update(invoices)
-            .set({
-              balanceDue: fromPaise(newBalanceP),
-              status: newBalanceP === 0 ? "paid" : "partially_paid",
-              updatedAt: new Date(),
-            })
+            .set({ balanceDue: fromPaise(newBalanceP), status, updatedAt: new Date() })
             .where(eq(invoices.id, inv.id));
         }
 

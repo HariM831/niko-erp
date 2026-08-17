@@ -8,6 +8,7 @@ import { ChartOfAccountsPage } from "./pages/chart-of-accounts";
 import { TransactionLockingPage } from "./pages/transaction-locking";
 import { BudgetDetailPage, BudgetNewPage, BudgetsPage } from "./pages/budgets";
 import { BulkUpdatePage } from "./pages/bulk-update";
+import { QualitySpecsPage } from "./pages/quality-specs";
 import {
   CustomersPage,
   ItemsPage,
@@ -55,6 +56,11 @@ import {
   PaymentDetailPage,
 } from "./pages/record-details";
 import { DocumentSplitView } from "./components/split-view";
+import { ProcurementStationPage } from "./pages/procurement";
+import { GoodsReceiptsPage } from "./pages/procurement-receipts";
+import { GateInPage } from "./pages/procurement-gate";
+import { StationPage } from "./pages/procurement-stations";
+import { SettlementPage } from "./pages/procurement-settlement";
 
 const SPLIT: Record<string, { endpoint: string; basePath: string; title: string; newPath: string; dateKey: string }> = {
   invoice: { endpoint: "/api/sales/invoices", basePath: "/sales/invoices", title: "Invoices", newPath: "/sales/invoices/new", dateKey: "invoiceDate" },
@@ -86,6 +92,7 @@ export function App() {
       <Switch>
         <Route path="/" component={HomePage} />
         <Route path="/items/new">{() => <ItemNewPage />}</Route>
+        <Route path="/items/quality-specs" component={QualitySpecsPage} />
         <Route path="/items/:id/edit">{(p) => <ItemNewPage editId={p.id!} />}</Route>
         <Route path="/items/:id">{(p) => <ItemDetailPage id={p.id!} />}</Route>
         <Route path="/items" component={ItemsPage} />
@@ -133,6 +140,16 @@ export function App() {
         <Route path="/purchases/vendor-credits/:id/edit">{(p) => <TransactionNewPage kind="vendor-credit" editId={p.id!} />}</Route>
         <Route path="/purchases/vendor-credits/:id">{(p) => <SplitDetail kind="vendor-credit" id={p.id!} />}</Route>
         <Route path="/purchases/vendor-credits" component={VendorCreditsPage} />
+        <Route path="/procurement/receipts" component={GoodsReceiptsPage} />
+        <Route path="/procurement/gate" component={GateInPage} />
+        <Route path="/procurement/weighbridge">{() => <StationPage station="weighbridge" />}</Route>
+        <Route path="/procurement/qc">{() => <StationPage station="qc" />}</Route>
+        <Route path="/procurement/unloading">{() => <StationPage station="unloading" />}</Route>
+        <Route path="/procurement/weigh-out">{() => <StationPage station="weigh-out" />}</Route>
+        <Route path="/procurement/settlement" component={SettlementPage} />
+        <Route path="/procurement/:station">
+          {(p) => <ProcurementStationPage key={p.station} stationKey={p.station!} />}
+        </Route>
         <Route path="/accountant/journals/new" component={JournalNewPage} />
         <Route path="/accountant/journals/:id">{(p) => <JournalDetailPage id={p.id!} />}</Route>
         <Route path="/accountant/journals" component={JournalsPage} />

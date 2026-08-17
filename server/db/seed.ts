@@ -215,6 +215,7 @@ const SERIES: Array<[string, string]> = [
   ["expense", "EXP-"],
   ["fixed_asset", "FA-"],
   ["inventory_adjustment", "IA-"],
+  ["procurement_receipt", "GR-"],
 ];
 
 const TAXES: Array<[string, string]> = [

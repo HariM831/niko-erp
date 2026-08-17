@@ -1,5 +1,8 @@
 import {
+  type AnyPgColumn,
   boolean,
+  integer,
+  numeric,
   pgTable,
   text,
   timestamp,
@@ -26,6 +29,23 @@ export const locations = pgTable("locations", {
   type: locationType("type").notNull().default("farm"),
   /** Exactly one location is the default for new transactions. */
   isPrimary: boolean("is_primary").notNull().default(false),
+  /**
+   * The place this one sits inside — a godown bay within a feed mill, say.
+   * Null for a top-level site. One list rather than a separate bays table, so
+   * anything that can carry a location can carry the precise one.
+   */
+  parentLocationId: uuid("parent_location_id").references((): AnyPgColumn => locations.id),
+
+  /**
+   * Where this place is. Used to name the spot a field photo was taken —
+   * "Nalbari Feed Mill" rather than whatever a geocoder calls the village.
+   * Gates carry their own finer coordinate; this is the fallback when a fix
+   * lands on the site but not at a particular boom.
+   */
+  latitude: numeric("latitude", { precision: 10, scale: 7 }),
+  longitude: numeric("longitude", { precision: 10, scale: 7 }),
+  /** How far from that point still counts as "here", in metres. */
+  radiusM: integer("radius_m").notNull().default(500),
 
   addressLine1: text("address_line1"),
   addressLine2: text("address_line2"),

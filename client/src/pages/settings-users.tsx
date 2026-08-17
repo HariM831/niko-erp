@@ -3,7 +3,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   PERMISSION_ACTIONS,
   type PermissionModule,
+  actionsFor,
   effectiveActions,
+  hasCustomActions,
   isAdminMap,
 } from "@shared/permissions";
 import { api } from "../api";
@@ -501,7 +503,7 @@ function RoleEditor({
   const toggleModule = (module: string, on: boolean) =>
     setPerms((p) => {
       const next = { ...p };
-      if (on) next[module] = PERMISSION_ACTIONS.map((a) => a.key);
+      if (on) next[module] = actionsFor(module).map((a) => a.key);
       else delete next[module];
       return next;
     });
@@ -596,23 +598,48 @@ function RoleEditor({
           <tbody>
             {modules.map((m) => {
               const actions = perms[m.key] ?? [];
-              const all = PERMISSION_ACTIONS.every((a) => actions.includes(a.key));
+              const own = actionsFor(m.key);
+              const all = own.every((a) => actions.includes(a.key));
+              const custom = hasCustomActions(m.key);
               return (
                 <tr key={m.key} className="border-b border-gray-100">
                   <td className="px-3 py-2">
                     <div>{m.label}</div>
                     <div className="text-[11px] text-gray-400">{m.description}</div>
                   </td>
-                  {PERMISSION_ACTIONS.map((a) => (
-                    <td key={a.key} className="px-2 py-2 text-center">
-                      <input
-                        type="checkbox"
-                        disabled={readOnly}
-                        checked={actions.includes(a.key)}
-                        onChange={() => toggle(m.key, a.key)}
-                      />
+                  {/* A module with verbs of its own gets one cell across the
+                      standard columns — create/edit/delete mean nothing to it. */}
+                  {custom ? (
+                    <td colSpan={PERMISSION_ACTIONS.length} className="px-2 py-2">
+                      <div className="flex flex-wrap justify-center gap-x-3 gap-y-1">
+                        {own.map((a) => (
+                          <label
+                            key={a.key}
+                            className="inline-flex items-center gap-1 text-[12px] text-gray-600"
+                          >
+                            <input
+                              type="checkbox"
+                              disabled={readOnly}
+                              checked={actions.includes(a.key)}
+                              onChange={() => toggle(m.key, a.key)}
+                            />
+                            {a.label}
+                          </label>
+                        ))}
+                      </div>
                     </td>
-                  ))}
+                  ) : (
+                    own.map((a) => (
+                      <td key={a.key} className="px-2 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          disabled={readOnly}
+                          checked={actions.includes(a.key)}
+                          onChange={() => toggle(m.key, a.key)}
+                        />
+                      </td>
+                    ))
+                  )}
                   <td className="px-2 py-2 text-center">
                     <input
                       type="checkbox"

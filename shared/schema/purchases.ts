@@ -91,6 +91,19 @@ export const purchaseOrderLines = pgTable("purchase_order_lines", {
   ...lineColumns,
   /** Quantity already billed against this line (PO→bill conversion tracking). */
   billedQuantity: qty("billed_quantity").notNull().default("0"),
+  /**
+   * Quantity the vendor has actually delivered against this line — whatever we
+   * then did with it.
+   *
+   * The vendor discharges the order by sending the vehicle. Rejecting the load
+   * at QC, or unloading only part of it, is our decision about quality and
+   * about what to pay; it does not revive their obligation to deliver more. So
+   * this rises by the full quantity sent, while billedQuantity rises only by
+   * what reached a bill. The two answer different questions and must never be
+   * conflated: this one says whether the order is finished, that one says how
+   * much we have been invoiced for.
+   */
+  deliveredQuantity: qty("delivered_quantity").notNull().default("0"),
 });
 
 export const bills = pgTable(
@@ -205,6 +218,21 @@ export const vendorCreditLines = pgTable("vendor_credit_lines", {
     .notNull()
     .references(() => vendorCredits.id, { onDelete: "cascade" }),
   ...lineColumns,
+  /**
+   * Which deduction rule charged this line, and which version of it.
+   *
+   * The credit note already explains its own arithmetic in prose, which is what
+   * a vendor querying a figure actually needs. This is the other half: it makes
+   * the link answerable by query rather than by reading, so a rule can be asked
+   * what it has cost and a version can be retired knowing what it charged.
+   *
+   * Deliberately not a foreign key. `shared/schema/procurement.ts` imports this
+   * file, so pointing back at `deduction_rules` would close a cycle — the same
+   * reason `procurement_receipt_lines.qc_spec_id` is a bare uuid. Null on a
+   * deduction somebody typed by hand, which is the honest record of that.
+   */
+  ruleId: uuid("rule_id"),
+  ruleVersion: integer("rule_version"),
 });
 
 export const vendorCreditApplications = pgTable("vendor_credit_applications", {

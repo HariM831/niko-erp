@@ -12,6 +12,7 @@ export * from "./custom-fields";
 export * from "./banking";
 export * from "./sales";
 export * from "./purchases";
+export * from "./procurement";
 export * from "./attachments";
 export * from "./comments";
 export * from "./migration";

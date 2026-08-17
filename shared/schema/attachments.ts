@@ -1,6 +1,7 @@
 import {
   bigint,
   index,
+  numeric,
   pgTable,
   text,
   timestamp,
@@ -8,6 +9,7 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 import { users } from "./auth";
+import { locations } from "./locations";
 
 /** File attachments on any document (invoice, bill, expense, journal...). */
 export const attachments = pgTable(
@@ -30,6 +32,24 @@ export const attachments = pgTable(
       .notNull()
       .references(() => users.id),
     createdAt: timestamp("created_at").notNull().defaultNow(),
+
+    // ── Field capture ────────────────────────────────────────────────────
+    // Set when a photo was taken somewhere rather than uploaded at a desk.
+    // Kept here rather than in a procurement-only table because a QC sample,
+    // a shed inspection and a fixed-asset photo all want the same six facts.
+    /** What this photo is of, e.g. "gate_in_bill", "gate_in_vehicle". */
+    kind: varchar("kind", { length: 30 }),
+    /** Device clock at the moment of capture; may precede createdAt. */
+    capturedAt: timestamp("captured_at"),
+    latitude: numeric("latitude", { precision: 10, scale: 7 }),
+    longitude: numeric("longitude", { precision: 10, scale: 7 }),
+    accuracyM: numeric("accuracy_m", { precision: 8, scale: 2 }),
+    /**
+     * The place the fix resolved to. This is the authoritative record of where
+     * the photo was taken — the band burnt into the image is a copy for whoever
+     * is holding a printout, never the thing the system reasons about.
+     */
+    locationId: uuid("location_id").references(() => locations.id),
   },
   (t) => [index("ix_attachments_entity").on(t.entityType, t.entityId)],
 );

@@ -6,3 +6,7 @@ uploads/
 
 # Zoho migration dump — live business data, never committed
 .zoho-dump/
+
+# Stamped copies written by scripts/check-capture-stamp.ts for eyeballing.
+# Regenerated on every run; the originals beside them are the fixtures.
+fixtures/bills/_stamped/

@@ -9,7 +9,6 @@ import {
   bills,
   contacts,
   expenses,
-  items,
   journalEntryLineTags,
   journalEntryLines,
   paymentMode,
@@ -44,6 +43,22 @@ import {
   toPaise,
   type DocLineInput,
 } from "../services/documents";
+import {
+  applyVendorCredit,
+  billGoodsJeLines,
+  billLineValues,
+  buildVendorCreditJeLines,
+  computeBill,
+  computeDueDate,
+  createBill,
+  createVendorCredit,
+  loadVendor,
+  postFreightJournal,
+  resolveLineAccounts,
+  saveBillLineTags,
+  vendorCreditLineInputs,
+} from "../services/purchases";
+import { describeSpecsForOrder } from "../services/qc";
 
 export const purchasesRouter = Router();
 
@@ -73,57 +88,6 @@ const billLineSchema = lineSchema.extend({
   tagOptionIds: z.array(z.string().uuid()).max(10).optional(),
 });
 
-async function loadVendor(tx: Tx, id: string) {
-  const [vendor] = await tx
-    .select()
-    .from(contacts)
-    .where(and(eq(contacts.id, id), inArray(contacts.type, ["vendor", "both"])))
-    .limit(1);
-  if (!vendor) throw new PostingError("Vendor not found");
-  if (!vendor.isActive) throw new PostingError("Vendor is inactive");
-  return vendor;
-}
-
-/**
- * Resolve the debit account for each purchase line: explicit accountId wins,
- * else the item's purchase account. Throws if neither exists.
- */
-async function resolveLineAccounts<T extends { itemId?: string; accountId?: string; name: string }>(
-  tx: Tx,
-  lines: T[],
-): Promise<(T & { accountId: string })[]> {
-  const out: (T & { accountId: string })[] = [];
-  for (const line of lines) {
-    let accountId = line.accountId;
-    if (!accountId && line.itemId) {
-      const [item] = await tx
-        .select({ purchaseAccountId: items.purchaseAccountId })
-        .from(items)
-        .where(eq(items.id, line.itemId))
-        .limit(1);
-      accountId = item?.purchaseAccountId ?? undefined;
-    }
-    if (!accountId) {
-      throw new PostingError(
-        `Line "${line.name}" needs an expense account (set one on the line or the item)`,
-      );
-    }
-    const [acct] = await tx
-      .select({ id: accounts.id, isActive: accounts.isActive })
-      .from(accounts)
-      .where(eq(accounts.id, accountId))
-      .limit(1);
-    if (!acct?.isActive) throw new PostingError(`Account for line "${line.name}" is missing or inactive`);
-    out.push({ ...line, accountId });
-  }
-  return out;
-}
-
-function computeDueDate(billDate: string, termsDays: number): string {
-  const d = new Date(`${billDate}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + termsDays);
-  return d.toISOString().slice(0, 10);
-}
 
 function handlePostingError(err: unknown, res: { status: (n: number) => { json: (b: unknown) => unknown } }) {
   if (err instanceof PostingError) {
@@ -133,62 +97,6 @@ function handlePostingError(err: unknown, res: { status: (n: number) => { json: 
   return false;
 }
 
-/**
- * Bill journal: DR each line's account (net of discount), DR input GST,
- * CR Accounts Payable for the grand total. Round-off folds into the
- * first line's account group.
- */
-function buildBillJeLines(
-  grouped: Map<string, { accountId: string; netP: number; tagOptionIds?: string[] }>,
-  taxTotalP: number,
-  roundOffP: number,
-  totalP: number,
-  billNumber: string,
-  adjustment?: { paise: number; accountId: string | null },
-  tdsP = 0,
-) {
-  const jeLines: Array<{
-    accountId?: string;
-    systemKey?: string;
-    debit?: string;
-    credit?: string;
-    description?: string;
-    tagOptionIds?: string[];
-  }> = [];
-  let first = true;
-  for (const { accountId, netP, tagOptionIds } of grouped.values()) {
-    const withRound = first ? netP + roundOffP : netP;
-    first = false;
-    if (withRound !== 0) {
-      jeLines.push({
-        accountId,
-        debit: fromPaise(withRound),
-        description: `Bill ${billNumber}`,
-        tagOptionIds,
-      });
-    }
-  }
-  if (taxTotalP > 0) jeLines.push({ systemKey: "input_gst", debit: fromPaise(taxTotalP) });
-
-  // The adjustment is inside the payable, so its own account takes the other
-  // side — debited when it increases what is owed, credited when it reduces it.
-  if (adjustment && adjustment.paise !== 0) {
-    if (!adjustment.accountId) {
-      throw new PostingError(`Bill ${billNumber} has an adjustment but no account to post it to`);
-    }
-    jeLines.push(
-      adjustment.paise > 0
-        ? { accountId: adjustment.accountId, debit: fromPaise(adjustment.paise) }
-        : { accountId: adjustment.accountId, credit: fromPaise(-adjustment.paise) },
-    );
-  }
-
-  // Withheld tax is owed to the government rather than the vendor, so it
-  // splits off the payable rather than reducing the cost.
-  if (tdsP > 0) jeLines.push({ systemKey: "tds_payable", credit: fromPaise(tdsP) });
-  jeLines.push({ systemKey: "ap", credit: fromPaise(totalP) });
-  return jeLines;
-}
 
 // ============================ Purchase Orders ============================
 
@@ -319,6 +227,13 @@ purchasesRouter.post(
         );
         const number = await nextDocumentNumber(tx, "purchase_order", body.seriesId);
         const { lines: computedLines, ...headerTotals } = totals;
+
+        // Stamped at creation only. Editing the order later leaves whatever
+        // notes the user then types — an agreed standard is agreed on the day,
+        // and quietly rewriting it to today's spec would defeat recording it.
+        const specNote = await describeSpecsForOrder(tx, computedLines);
+        const notes = [body.notes?.trim(), specNote].filter(Boolean).join("\n\n") || undefined;
+
         const [po] = await tx
           .insert(purchaseOrders)
           .values({
@@ -328,7 +243,7 @@ purchasesRouter.post(
             expectedDeliveryDate: body.expectedDeliveryDate,
             reference: body.reference,
             ...headerTotals,
-            notes: body.notes,
+            notes,
             termsAndConditions: body.termsAndConditions,
             createdBy: req.session.user!.id,
           })
@@ -477,300 +392,6 @@ const billSchema = z.object({
   lines: z.array(billLineSchema).min(1).max(200),
 });
 
-interface CreateBillArgs {
-  vendor: typeof contacts.$inferSelect;
-  /** Draw the bill number from this series; omitted means the default. */
-  seriesId?: string;
-  billDate: string;
-  dueDate?: string;
-  vendorBillNumber?: string;
-  reference?: string;
-  freightAmount?: string;
-  freightVendorId?: string;
-  freightAccountId?: string;
-  notes?: string;
-  purchaseOrderId?: string;
-  adjustment?: { amount: string; accountId: string; description?: string };
-  tdsAmount?: string;
-  tdsSection?: string;
-  lines: Array<z.infer<typeof lineSchema>>;
-  postedBy: string;
-}
-
-/**
- * Split freight across lines in proportion to line value, in integer paise.
- * The rounding remainder lands on the largest line so the parts always sum
- * back to the freight total exactly. Costing only — see createBill.
- */
-function allocateFreight(lineAmountsP: number[], freightP: number): number[] {
-  const allocated = lineAmountsP.map(() => 0);
-  if (freightP <= 0) return allocated;
-  const totalP = lineAmountsP.reduce((s, a) => s + a, 0);
-  if (totalP <= 0) return allocated;
-
-  let assigned = 0;
-  for (let i = 0; i < lineAmountsP.length; i++) {
-    allocated[i] = Math.floor((lineAmountsP[i]! * freightP) / totalP);
-    assigned += allocated[i]!;
-  }
-  const remainder = freightP - assigned;
-  if (remainder !== 0) {
-    let largest = 0;
-    for (let i = 1; i < lineAmountsP.length; i++) {
-      if (lineAmountsP[i]! > lineAmountsP[largest]!) largest = i;
-    }
-    allocated[largest] = allocated[largest]! + remainder;
-  }
-  return allocated;
-}
-
-/** Shared by direct bill creation and PO conversion. Posts the JE immediately (status "open"). */
-interface BillComputation {
-  resolvedLines: Awaited<ReturnType<typeof resolveLineAccounts>>;
-  totals: Awaited<ReturnType<typeof computeDocumentTotals>>;
-  computedLines: Awaited<ReturnType<typeof computeDocumentTotals>>["lines"];
-  headerTotals: Omit<Awaited<ReturnType<typeof computeDocumentTotals>>, "lines">;
-  freightP: number;
-  allocatedP: number[];
-  lineAmountsP: number[];
-  /** Tax withheld at source, in paise. Reduces what the vendor is paid. */
-  tdsP: number;
-}
-
-/**
- * Totals + freight allocation for a bill's lines. Freight is COSTING data only:
- * the third-party transporter is paid separately, so it never touches this
- * vendor's payable — it just tells us what the goods really cost per unit.
- * Shared by create and edit so the two can't drift apart.
- */
-async function computeBill(
-  tx: Tx,
-  vendor: typeof contacts.$inferSelect,
-  lines: Array<z.infer<typeof lineSchema>>,
-  freightAmount?: string,
-  adjustment?: { amount: string; accountId?: string | null; description?: string | null },
-  tdsAmount?: string,
-): Promise<BillComputation> {
-  const resolvedLines = await resolveLineAccounts(tx, lines);
-  const totals = await computeDocumentTotals(
-    tx,
-    resolvedLines as DocLineInput[],
-    vendor.placeOfSupplyState,
-    adjustment,
-  );
-  const { lines: computedLines, ...rest } = totals;
-  // Tax deducted at source is withheld from the vendor, so it comes off what
-  // they are owed: the expense stays gross and the payable is net.
-  const tdsP = toPaise(tdsAmount ?? "0");
-  const headerTotals = { ...rest, total: fromPaise(toPaise(rest.total) - tdsP) };
-  const freightP = toPaise(freightAmount ?? "0");
-  const lineAmountsP = computedLines.map((l) => toPaise(l.amount));
-  const allocatedP = allocateFreight(lineAmountsP, freightP);
-  return {
-    resolvedLines,
-    totals: { ...totals, total: headerTotals.total },
-    computedLines,
-    headerTotals,
-    freightP,
-    allocatedP,
-    lineAmountsP,
-    tdsP,
-  };
-}
-
-/** Bill line rows with their costing columns filled in. */
-function billLineValues(c: BillComputation, billId: string) {
-  return c.computedLines.map((l, i) => {
-    const landedP = c.lineAmountsP[i]! + c.allocatedP[i]!;
-    const qtyNum = Number(l.quantity);
-    // tagOptionIds rides along on the computed line but is not a bill_lines
-    // column — it belongs to bill_line_tags, inserted once the line has an id.
-    const { tagOptionIds: _tags, ...columns } = l;
-    return {
-      ...columns,
-      accountId: c.resolvedLines[i]!.accountId,
-      billId,
-      allocatedFreight: fromPaise(c.allocatedP[i]!),
-      landedUnitCost: qtyNum > 0 ? fromPaise(Math.round(landedP / qtyNum)) : "0",
-    };
-  });
-}
-
-/** Stable key for a set of tags, so two lines tagged alike group together. */
-const tagKey = (ids: string[] | undefined) => [...(ids ?? [])].sort().join(",");
-
-/**
- * Persist each bill line's tags. Runs after the lines exist because the join
- * needs their ids. The unique index on (line, tag) is the backstop; this
- * refuses the same case with a message naming the problem.
- */
-async function saveBillLineTags(
-  tx: Tx,
-  c: BillComputation,
-  insertedIds: Array<{ id: string; lineOrder: number }>,
-): Promise<void> {
-  const optionIds = [...new Set(c.computedLines.flatMap((l) => l.tagOptionIds ?? []))];
-  if (!optionIds.length) return;
-
-  const options = await tx
-    .select({
-      id: reportingTagOptions.id,
-      tagId: reportingTagOptions.tagId,
-      name: reportingTagOptions.name,
-      isActive: reportingTagOptions.isActive,
-    })
-    .from(reportingTagOptions)
-    .where(inArray(reportingTagOptions.id, optionIds));
-  const byId = new Map(options.map((o) => [o.id, o]));
-  const idByOrder = new Map(insertedIds.map((r) => [r.lineOrder, r.id]));
-
-  const rows: Array<{ billLineId: string; tagId: string; optionId: string }> = [];
-  c.computedLines.forEach((l, i) => {
-    const billLineId = idByOrder.get(l.lineOrder ?? i);
-    if (!billLineId) return;
-    const seen = new Set<string>();
-    for (const optionId of l.tagOptionIds ?? []) {
-      const option = byId.get(optionId);
-      if (!option) throw new PostingError("Unknown reporting tag option");
-      if (!option.isActive) {
-        throw new PostingError(`Tag option "${option.name}" is no longer in use`);
-      }
-      if (seen.has(option.tagId)) {
-        throw new PostingError("A line can only carry one option per tag");
-      }
-      seen.add(option.tagId);
-      rows.push({ billLineId, tagId: option.tagId, optionId });
-    }
-  });
-  if (rows.length) await tx.insert(billLineTags).values(rows);
-}
-
-/**
- * The goods entry: line accounts debited, AP credited. Freight is excluded by design.
- *
- * Lines are grouped by account AND by their tags. Grouping on the account alone
- * would merge diesel for one vehicle with diesel for another into a single
- * ledger line, and the second vehicle's tag would have nowhere to go.
- */
-function billGoodsJeLines(c: BillComputation, number: string) {
-  const grouped = new Map<string, { accountId: string; netP: number; tagOptionIds?: string[] }>();
-  c.computedLines.forEach((l, i) => {
-    const accountId = c.resolvedLines[i]!.accountId;
-    const key = `${accountId}|${tagKey(l.tagOptionIds)}`;
-    const existing = grouped.get(key);
-    if (existing) existing.netP += toPaise(l.amount);
-    else grouped.set(key, { accountId, netP: toPaise(l.amount), tagOptionIds: l.tagOptionIds });
-  });
-  const taxTotalP = toPaise(c.totals.cgst) + toPaise(c.totals.sgst) + toPaise(c.totals.igst);
-  return buildBillJeLines(
-    grouped,
-    taxTotalP,
-    toPaise(c.totals.roundOff),
-    toPaise(c.totals.total),
-    number,
-    { paise: toPaise(c.totals.adjustment), accountId: c.totals.adjustmentAccountId },
-    c.tdsP,
-  );
-}
-
-/**
- * The transporter's charge is its own expense: DR freight expense, CR what we owe
- * them. Deliberately a separate entry so the goods vendor's payable stays clean.
- */
-async function postFreightJournal(
-  tx: Tx,
-  args: {
-    freightP: number;
-    freightAccountId?: string;
-    freightVendorId?: string;
-    billNumber: string;
-    entryDate: string;
-    postedBy: string;
-  },
-): Promise<string | null> {
-  if (args.freightP <= 0) return null;
-  if (!args.freightAccountId) {
-    throw new PostingError("Freight needs an expense account to charge it to");
-  }
-  const carrier = args.freightVendorId
-    ? await tx.query.contacts.findFirst({ where: eq(contacts.id, args.freightVendorId) })
-    : null;
-  return postJournal(tx, {
-    entryDate: args.entryDate,
-    narration: `Freight on ${args.billNumber}${carrier ? ` — ${carrier.displayName}` : ""}`,
-    sourceType: "bill",
-    postedBy: args.postedBy,
-    lines: [
-      {
-        accountId: args.freightAccountId,
-        debit: fromPaise(args.freightP),
-        description: `Freight on ${args.billNumber}`,
-      },
-      { systemKey: "ap", credit: fromPaise(args.freightP) },
-    ],
-  });
-}
-
-async function createBill(tx: Tx, args: CreateBillArgs) {
-  const vendor = args.vendor;
-  const c = await computeBill(tx, vendor, args.lines, args.freightAmount, args.adjustment, args.tdsAmount);
-  const { computedLines, headerTotals, freightP, allocatedP, lineAmountsP, resolvedLines } = c;
-  const number = await nextDocumentNumber(tx, "bill", args.seriesId);
-  const dueDate = args.dueDate ?? computeDueDate(args.billDate, args.vendor.paymentTermsDays);
-
-  const [bill] = await tx
-    .insert(bills)
-    .values({
-      number,
-      vendorBillNumber: args.vendorBillNumber,
-      vendorId: args.vendor.id,
-      status: "open",
-      billDate: args.billDate,
-      dueDate,
-      reference: args.reference,
-      purchaseOrderId: args.purchaseOrderId,
-      ...headerTotals,
-      freightAmount: fromPaise(freightP),
-      freightVendorId: args.freightVendorId,
-      freightAccountId: args.freightAccountId,
-      tdsAmount: fromPaise(c.tdsP),
-      tdsSection: args.tdsSection,
-      balanceDue: headerTotals.total,
-      notes: args.notes,
-      createdBy: args.postedBy,
-    })
-    .returning();
-
-  const insertedLines = await tx
-    .insert(billLines)
-    .values(billLineValues(c, bill!.id))
-    .returning({ id: billLines.id, lineOrder: billLines.lineOrder });
-  await saveBillLineTags(tx, c, insertedLines);
-
-  const jeId = await postJournal(tx, {
-    entryDate: args.billDate,
-    narration: `Bill ${number} — ${args.vendor.displayName}`,
-    sourceType: "bill",
-    sourceId: bill!.id,
-    postedBy: args.postedBy,
-    lines: billGoodsJeLines(c, number),
-  });
-  const freightJeId = await postFreightJournal(tx, {
-    freightP,
-    freightAccountId: args.freightAccountId,
-    freightVendorId: args.freightVendorId,
-    billNumber: number,
-    entryDate: args.billDate,
-    postedBy: args.postedBy,
-  });
-
-  const [updated] = await tx
-    .update(bills)
-    .set({ journalEntryId: jeId, freightJournalEntryId: freightJeId ?? undefined })
-    .where(eq(bills.id, bill!.id))
-    .returning();
-  return updated!;
-}
 
 /** Zoho's "Payment Summary" banner on the Bills list. */
 purchasesRouter.get("/bills/summary", requirePermission("purchases", "view"), async (_req, res) => {
@@ -838,6 +459,22 @@ purchasesRouter.get("/bills/:id", requirePermission("purchases", "view"), async 
       .innerJoin(vendorPayments, eq(vendorPayments.id, vendorPaymentApplications.paymentId))
       .where(eq(vendorPaymentApplications.billId, bill.id)),
   ]);
+
+  // Credits applied to this bill, with their journal, so a deduction can be
+  // read from the bill it reduced rather than hunted for under Vendor Credits.
+  // The balance moved for a reason and the reason belongs here.
+  const credits = await db
+    .select({
+      id: vendorCredits.id,
+      number: vendorCredits.number,
+      creditDate: vendorCredits.creditDate,
+      notes: vendorCredits.notes,
+      journalEntryId: vendorCredits.journalEntryId,
+      amountApplied: vendorCreditApplications.amountApplied,
+    })
+    .from(vendorCreditApplications)
+    .innerJoin(vendorCredits, eq(vendorCredits.id, vendorCreditApplications.vendorCreditId))
+    .where(eq(vendorCreditApplications.billId, bill.id));
   const carrier = bill.freightVendorId
     ? await db.query.contacts.findFirst({ where: eq(contacts.id, bill.freightVendorId) })
     : null;
@@ -873,6 +510,7 @@ purchasesRouter.get("/bills/:id", requirePermission("purchases", "view"), async 
       tagOptionIds: lineTags.filter((t) => t.billLineId === l.id).map((t) => t.optionId),
     })),
     payments: applications,
+    credits,
     freightVendorName: carrier?.displayName ?? null,
   });
 });
@@ -1458,32 +1096,6 @@ purchasesRouter.get(
   },
 );
 
-/** Reverse of a bill's posting: DR AP, CR the line accounts + input GST. */
-function buildVendorCreditJeLines(
-  computedLines: Awaited<ReturnType<typeof computeDocumentTotals>>["lines"],
-  resolvedLines: Awaited<ReturnType<typeof resolveLineAccounts>>,
-  totals: Awaited<ReturnType<typeof computeDocumentTotals>>,
-  number: string,
-) {
-  const grouped = new Map<string, number>();
-  computedLines.forEach((l, i) => {
-    const acct = resolvedLines[i]!.accountId;
-    grouped.set(acct, (grouped.get(acct) ?? 0) + toPaise(l.amount));
-  });
-  const taxTotalP = toPaise(totals.cgst) + toPaise(totals.sgst) + toPaise(totals.igst);
-
-  const jeLines: Array<{ accountId?: string; systemKey?: string; debit?: string; credit?: string; description?: string }> = [
-    { systemKey: "ap", debit: totals.total, description: `Vendor credit ${number}` },
-  ];
-  let first = true;
-  for (const [accountId, netP] of grouped) {
-    const withRound = first ? netP + toPaise(totals.roundOff) : netP;
-    first = false;
-    if (withRound !== 0) jeLines.push({ accountId, credit: fromPaise(withRound) });
-  }
-  if (taxTotalP > 0) jeLines.push({ systemKey: "input_gst", credit: fromPaise(taxTotalP) });
-  return jeLines;
-}
 
 /**
  * Editing re-states the credit: the original journal is reversed and a fresh one
@@ -1509,28 +1121,7 @@ purchasesRouter.patch(
         const vendor = await loadVendor(tx, body.vendorId ?? vc.vendorId);
         const creditDate = body.creditDate ?? vc.creditDate;
 
-        let inputLines: Array<z.infer<typeof lineSchema>>;
-        if (body.lines) {
-          inputLines = body.lines;
-        } else {
-          const existing = await tx
-            .select()
-            .from(vendorCreditLines)
-            .where(eq(vendorCreditLines.vendorCreditId, vc.id))
-            .orderBy(asc(vendorCreditLines.lineOrder));
-          inputLines = existing.map((l) => ({
-            itemId: l.itemId ?? undefined,
-            accountId: l.accountId ?? undefined,
-            name: l.name,
-            description: l.description ?? undefined,
-            hsnOrSac: l.hsnOrSac ?? undefined,
-            quantity: l.quantity,
-            unit: l.unit ?? undefined,
-            rate: l.rate,
-            discountPercent: l.discountPercent,
-            taxId: l.taxId ?? undefined,
-          }));
-        }
+        const inputLines = body.lines ?? (await vendorCreditLineInputs(tx, vc.id));
 
         if (vc.journalEntryId) {
           await reverseJournal(tx, vc.journalEntryId, creditDate, req.session.user!.id);
@@ -1591,57 +1182,18 @@ purchasesRouter.post(
   async (req, res) => {
     const body = req.body as z.infer<typeof vendorCreditSchema>;
     try {
-      const result = await db.transaction(async (tx) => {
-        const vendor = await loadVendor(tx, body.vendorId);
-        const resolvedLines = await resolveLineAccounts(tx, body.lines);
-        const totals = await computeDocumentTotals(
-          tx,
-          resolvedLines as DocLineInput[],
-          vendor.placeOfSupplyState,
-        );
-        const number = await nextDocumentNumber(tx, "vendor_credit", body.seriesId);
-        const { lines: computedLines, ...headerTotals } = totals;
-
-        const [vc] = await tx
-          .insert(vendorCredits)
-          .values({
-            number,
-            vendorId: vendor.id,
-            status: "open",
-            creditDate: body.creditDate,
-            reference: body.reference,
-            billId: body.billId,
-            ...headerTotals,
-            balance: headerTotals.total,
-            notes: body.notes,
-            createdBy: req.session.user!.id,
-          })
-          .returning();
-        await tx.insert(vendorCreditLines).values(
-          computedLines.map((l, i) => ({
-            ...l,
-            accountId: resolvedLines[i]!.accountId,
-            vendorCreditId: vc!.id,
-          })),
-        );
-
-        const jeLines = buildVendorCreditJeLines(computedLines, resolvedLines, totals, number);
-
-        const jeId = await postJournal(tx, {
-          entryDate: body.creditDate,
-          narration: `Vendor credit ${number} — ${vendor.displayName}`,
-          sourceType: "vendor_credit",
-          sourceId: vc!.id,
+      const result = await db.transaction(async (tx) =>
+        createVendorCredit(tx, {
+          vendor: await loadVendor(tx, body.vendorId),
+          seriesId: body.seriesId,
+          creditDate: body.creditDate,
+          reference: body.reference,
+          billId: body.billId,
+          notes: body.notes,
+          lines: body.lines,
           postedBy: req.session.user!.id,
-          lines: jeLines,
-        });
-        const [updated] = await tx
-          .update(vendorCredits)
-          .set({ journalEntryId: jeId })
-          .where(eq(vendorCredits.id, vc!.id))
-          .returning();
-        return updated!;
-      });
+        }),
+      );
       res.status(201).json(result);
     } catch (err) {
       if (!handlePostingError(err, res)) throw err;
@@ -1663,60 +1215,12 @@ purchasesRouter.post(
   async (req, res) => {
     const body = req.body as { applications: Array<{ billId: string; amount: string }> };
     try {
-      const result = await db.transaction(async (tx) => {
-        const vc = await tx.query.vendorCredits.findFirst({
-          where: eq(vendorCredits.id, req.params.id!),
-        });
-        if (!vc) throw new PostingError("Vendor credit not found");
-        if (vc.status !== "open") throw new PostingError("Vendor credit is not open");
-
-        let appliedP = 0;
-        for (const app of body.applications) {
-          const bill = await tx.query.bills.findFirst({ where: eq(bills.id, app.billId) });
-          if (!bill) throw new PostingError(`Bill not found: ${app.billId}`);
-          if (bill.vendorId !== vc.vendorId) {
-            throw new PostingError(`Bill ${bill.number} belongs to a different vendor`);
-          }
-          if (bill.status !== "open" && bill.status !== "partially_paid") {
-            throw new PostingError(`Bill ${bill.number} is not open`);
-          }
-          const appP = toPaise(app.amount);
-          if (appP <= 0) throw new PostingError("Application amounts must be positive");
-          if (appP > toPaise(bill.balanceDue)) {
-            throw new PostingError(`Amount exceeds balance due on ${bill.number}`);
-          }
-          appliedP += appP;
-
-          await tx.insert(vendorCreditApplications).values({
-            vendorCreditId: vc.id,
-            billId: bill.id,
-            amountApplied: app.amount,
-          });
-          const newBalanceP = toPaise(bill.balanceDue) - appP;
-          await tx
-            .update(bills)
-            .set({
-              balanceDue: fromPaise(newBalanceP),
-              status: newBalanceP === 0 ? "paid" : "partially_paid",
-              updatedAt: new Date(),
-            })
-            .where(eq(bills.id, bill.id));
-        }
-
-        if (appliedP > toPaise(vc.balance)) {
-          throw new PostingError("Applied total exceeds the vendor credit balance");
-        }
-        const newBalanceP = toPaise(vc.balance) - appliedP;
-        const [updated] = await tx
-          .update(vendorCredits)
-          .set({
-            balance: fromPaise(newBalanceP),
-            status: newBalanceP === 0 ? "closed" : "open",
-          })
-          .where(eq(vendorCredits.id, vc.id))
-          .returning();
-        return updated!;
-      });
+      const result = await db.transaction(async (tx) =>
+        applyVendorCredit(tx, {
+          vendorCreditId: req.params.id!,
+          applications: body.applications,
+        }),
+      );
       res.json(result);
     } catch (err) {
       if (!handlePostingError(err, res)) throw err;

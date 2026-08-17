@@ -8,6 +8,16 @@ import { CommentsButton } from "../components/comments";
 import { JournalSection } from "../components/journal-section";
 import { CustomFieldsDisplay } from "../components/custom-fields";
 
+/** A vendor credit applied to the bill being viewed. */
+interface AppliedCredit {
+  id: string;
+  number: string;
+  notes: string | null;
+  journalEntryId: string | null;
+  amountApplied: string;
+}
+
+
 /** Route kind → journal_entries.source_type; kinds that never post a journal are omitted. */
 const JOURNAL_SOURCE_TYPE: Record<string, string> = {
   invoice: "invoice",
@@ -832,6 +842,18 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
                 }
               />
             )}
+
+            {/* Credits applied to this bill. Shown here because a deduction is
+                part of this document's story — the balance moved for a reason,
+                and the reason should not live one screen away. */}
+            {((doc.credits as AppliedCredit[] | undefined) ?? []).map((c) => (
+              <JournalSection
+                key={c.id}
+                entryId={c.journalEntryId ?? undefined}
+                heading={`Vendor credit ${c.number}`}
+                note={c.notes ?? `${formatMoney(c.amountApplied)} applied to this bill.`}
+              />
+            ))}
 
             {doc.freightJournalEntryId ? (
               <JournalSection

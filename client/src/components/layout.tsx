@@ -14,6 +14,7 @@ import {
   ScrollText,
   Settings,
   ShoppingCart,
+  Truck,
 } from "lucide-react";
 import { useAuth } from "../auth";
 import { TopBar } from "./topbar";
@@ -32,7 +33,14 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { label: "Home", icon: Home, path: "/" },
-  { label: "Items", icon: Package, path: "/items" },
+  {
+    label: "Items",
+    icon: Package,
+    children: [
+      { label: "All Items", path: "/items" },
+      { label: "Quality Specs", path: "/items/quality-specs" },
+    ],
+  },
   {
     label: "Inventory",
     icon: Boxes,
@@ -65,6 +73,19 @@ const NAV: NavItem[] = [
     ],
   },
   {
+    label: "Procurement",
+    icon: Truck,
+    children: [
+      { label: "Gate In", path: "/procurement/gate" },
+      { label: "Weigh In", path: "/procurement/weighbridge" },
+      { label: "Quality Control", path: "/procurement/qc" },
+      { label: "Unloading", path: "/procurement/unloading" },
+      { label: "Weigh Out", path: "/procurement/weigh-out" },
+      { label: "Settlement", path: "/procurement/settlement" },
+      { label: "Goods Receipts", path: "/procurement/receipts" },
+    ],
+  },
+  {
     label: "Accountant",
     icon: BookOpen,
     children: [
@@ -83,6 +104,15 @@ const NAV: NavItem[] = [
 const ADMIN_NAV: NavItem[] = [
   { label: "Activity Log", icon: ScrollText, path: "/activity-log" },
 ];
+
+/** The most specific child of a group that the current URL sits under. */
+function deepestChild(item: NavItem, location: string): string | null {
+  return (item.children ?? []).reduce<string | null>(
+    (best, c) =>
+      location.startsWith(c.path) && (best == null || c.path.length > best.length) ? c.path : best,
+    null,
+  );
+}
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const [location] = useLocation();
@@ -139,7 +169,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
                   {open && (
                     <div className="mb-1 mt-0.5 space-y-0.5">
                       {item.children.map((c) => {
-                        const active = location.startsWith(c.path);
+                        // Longest match wins, so a child whose path is a prefix
+                        // of a sibling's — "/items" beside "/items/quality-specs" —
+                        // does not light up alongside it.
+                        const active = c.path === deepestChild(item, location);
                         return (
                           <Link
                             key={c.path}

@@ -27,6 +27,16 @@ const STATUS_TEXT: Record<string, string> = {
   matched: "text-green-600",
   unmatched: "text-blue-600",
   excluded: "text-gray-400",
+  // Goods receipt — a truck's progress through the six stations. Blue while it
+  // is moving, green once it has produced a bill, red for the two exits.
+  gate_in: "text-blue-600",
+  weighed_in: "text-blue-600",
+  qc_passed: "text-blue-600",
+  unloading: "text-amber-600",
+  unloading_complete: "text-amber-600",
+  gate_out: "text-amber-600",
+  settled: "text-green-600",
+  turned_away: "text-red-600",
 };
 
 export function StatusBadge({ status, dueDate }: { status: string; dueDate?: string }) {
