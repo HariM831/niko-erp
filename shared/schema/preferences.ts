@@ -72,5 +72,20 @@ export const preferences = pgTable("preferences", {
   /** Account code is required on a new GL account. Codes are always unique. */
   requireAccountCode: boolean("require_account_code").notNull().default(true),
 
+  // ---- Feed mill ----
+  /**
+   * Output weighs this share of raw input after milling — moisture bakes off.
+   * Amino hardcoded 0.99 in two files with comments begging them to match;
+   * both the formulator's reported cost and a production completion read this
+   * one row instead.
+   */
+  millMoistureRetention: numeric("mill_moisture_retention", { precision: 5, scale: 4 })
+    .notNull()
+    .default("0.99"),
+  /** Flat milling overhead added per finished kg — Amino's ₹750/ton. */
+  millOverheadPerKg: numeric("mill_overhead_per_kg", { precision: 8, scale: 4 })
+    .notNull()
+    .default("0.75"),
+
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

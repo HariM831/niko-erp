@@ -288,6 +288,13 @@
       "when": 1786970104135,
       "tag": "0040_feed_ingredient_flag",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1786970164135,
+      "tag": "0041_mill_cost_preferences",
+      "breakpoints": true
     }
   ]
 }

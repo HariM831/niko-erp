@@ -23,6 +23,7 @@
     "drizzle-zod": "^0.7.0",
     "express": "^4.21.2",
     "express-session": "^1.18.1",
+    "javascript-lp-solver": "^1.0.3",
     "lucide-react": "^1.30.0",
     "multer": "^2.2.0",
     "pg": "^8.13.1",

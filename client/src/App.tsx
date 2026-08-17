@@ -11,6 +11,7 @@ import { BulkUpdatePage } from "./pages/bulk-update";
 import { QualitySpecsPage } from "./pages/quality-specs";
 import { FeedNutrientsPage } from "./pages/feed-nutrients";
 import { FeedFormulasPage } from "./pages/feed-formulas";
+import { FeedFormulatorPage } from "./pages/feed-formulator";
 import {
   CustomersPage,
   ItemsPage,
@@ -150,6 +151,7 @@ export function App() {
         <Route path="/procurement/weigh-out">{() => <StationPage station="weigh-out" />}</Route>
         <Route path="/feed-mill/nutrients" component={FeedNutrientsPage} />
         <Route path="/feed-mill/formulas" component={FeedFormulasPage} />
+        <Route path="/feed-mill/formulator" component={FeedFormulatorPage} />
         <Route path="/procurement/settlement" component={SettlementPage} />
         <Route path="/procurement/:station">
           {(p) => <ProcurementStationPage key={p.station} stationKey={p.station!} />}

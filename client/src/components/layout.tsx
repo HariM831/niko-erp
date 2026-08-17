@@ -92,6 +92,7 @@ const NAV: NavItem[] = [
     children: [
       { label: "Nutrient Profiles", path: "/feed-mill/nutrients" },
       { label: "Formulas", path: "/feed-mill/formulas" },
+      { label: "Formulator", path: "/feed-mill/formulator" },
     ],
   },
   {

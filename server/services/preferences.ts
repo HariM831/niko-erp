@@ -25,6 +25,8 @@ export const DEFAULT_PREFERENCES: Omit<Preferences, "id" | "updatedAt"> = {
   defaultInvoiceTerms: null,
   defaultInvoiceNotes: null,
   requireAccountCode: true,
+  millMoistureRetention: "0.99",
+  millOverheadPerKg: "0.75",
 };
 
 /**
