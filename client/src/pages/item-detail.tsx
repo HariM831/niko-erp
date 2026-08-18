@@ -13,6 +13,7 @@ interface Item {
   id: string;
   type: string;
   category: ItemCategory | null;
+  aliases: string[];
   name: string;
   sku?: string;
   unit: string;
@@ -80,6 +81,9 @@ export function ItemDetailPage({ id }: { id: string }) {
   const qc = useQueryClient();
   const [tab, setTab] = useState<"overview" | "transactions">("overview");
   const [moreOpen, setMoreOpen] = useState(false);
+  const [merging, setMerging] = useState(false);
+  const [mergeTarget, setMergeTarget] = useState("");
+  const [mergeError, setMergeError] = useState<string | null>(null);
   const moreRef = useRef<HTMLDivElement>(null);
 
   const { data: item, isLoading } = useQuery({
@@ -98,6 +102,11 @@ export function ItemDetailPage({ id }: { id: string }) {
     queryKey: ["taxes"],
     queryFn: () => api<Array<{ id: string; name: string }>>("/api/taxes"),
   });
+  const { data: mergeCandidates } = useQuery({
+    queryKey: ["merge-candidates", id],
+    queryFn: () => api<Array<{ id: string; name: string }>>("/api/items?isActive=true&limit=500"),
+    enabled: merging,
+  });
   const { data: txns } = useQuery({
     queryKey: ["item-transactions", id],
     queryFn: () => api<Transactions>(`/api/items/${id}/transactions`),
@@ -111,6 +120,25 @@ export function ItemDetailPage({ id }: { id: string }) {
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, []);
+
+  const merge = async () => {
+    setMergeError(null);
+    try {
+      const summary = await api<{ formulaLinesMoved: number; nutrientsCopied: number; aliasesCarried: number }>(
+        `/api/items/${id}/merge`,
+        { method: "POST", body: { targetId: mergeTarget } },
+      );
+      // The survivor is now the item of record; land the user on it.
+      alert(
+        `Merged. ${summary.aliasesCarried} name(s) carried as aliases, ` +
+          `${summary.formulaLinesMoved} formula line(s) repointed, ` +
+          `${summary.nutrientsCopied} nutrient(s) copied.`,
+      );
+      navigate(`/items/${mergeTarget}`);
+    } catch (e) {
+      setMergeError(e instanceof Error ? e.message : "Merge refused");
+    }
+  };
 
   const toggleActive = async () => {
     if (!item) return;
@@ -163,6 +191,15 @@ export function ItemDetailPage({ id }: { id: string }) {
                   >
                     {item.isActive ? "Mark as Inactive" : "Mark as Active"}
                   </button>
+                  <button
+                    onClick={() => {
+                      setMerging(true);
+                      setMoreOpen(false);
+                    }}
+                    className="block w-full px-3 py-1.5 text-left text-[13px] hover:bg-gray-50"
+                  >
+                    Merge into another item…
+                  </button>
                 </div>
               )}
             </div>
@@ -184,6 +221,42 @@ export function ItemDetailPage({ id }: { id: string }) {
           ))}
         </nav>
       </header>
+
+      {merging && (
+        <div className="border-b bg-amber-50 px-6 py-3">
+          <div className="mb-1 text-[13px] font-medium text-amber-900">
+            Merge “{item.name}” into another item
+          </div>
+          <p className="mb-2 max-w-2xl text-[12px] text-amber-800">
+            Recipes are repointed, missing analysis copied, and every name this item answers to —
+            including “{item.name}” itself — becomes an alias of the survivor, so future bills land
+            there. Posted bills and receipts stay exactly where they are. This item is then retired.
+          </p>
+          {mergeError && <p className="mb-2 text-[12px] font-medium text-red-700">{mergeError}</p>}
+          <div className="flex items-center gap-2">
+            <select
+              value={mergeTarget}
+              onChange={(e) => setMergeTarget(e.target.value)}
+              className="input h-8 w-80 text-[13px]"
+            >
+              <option value="">Choose the surviving item…</option>
+              {mergeCandidates
+                ?.filter((c) => c.id !== id)
+                .map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+            </select>
+            <button onClick={() => void merge()} disabled={!mergeTarget} className="btn-primary h-8">
+              Merge
+            </button>
+            <button onClick={() => setMerging(false)} className="btn-secondary h-8">
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {tab === "overview" ? (
         <div className="flex-1 overflow-y-auto bg-surface p-6">
@@ -217,6 +290,20 @@ export function ItemDetailPage({ id }: { id: string }) {
             </div>
 
             <div className="min-w-0 flex-1">
+              {item.aliases?.length > 0 && (
+                <div className="mb-4">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                    Also known as
+                  </div>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {item.aliases.map((a) => (
+                      <span key={a} className="rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[11px] text-gray-600">
+                        {a}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="mb-5 grid grid-cols-2 gap-x-6 gap-y-4">
                 <Field label="SKU" value={item.sku ?? "—"} />
                 <Field label="Usage Unit" value={item.unit} />

@@ -49,6 +49,7 @@ import { type LineToMatch, matchPurchaseOrderLines } from "../services/po-match"
 import { resolveVendor } from "../services/vendor-match";
 import { normalisePlate } from "../services/ocr";
 import { computeDeductions, judgeLine, loadDeductionRules, loadSpecs } from "../services/qc";
+import { learnAlias } from "../services/item-names";
 
 export const procurementRouter = Router();
 
@@ -546,6 +547,13 @@ procurementRouter.post(
             exitBy: turnedAway ? req.session.user!.id : undefined,
           })
           .returning();
+
+        // The gate is where the vendor's vocabulary meets ours. A wording that
+        // resolved to an item but is not yet its name or alias is LEARNED here,
+        // so the next bill from this vendor matches with nobody retyping it.
+        for (const l of body.lines) {
+          if (l.itemId && l.itemName) await learnAlias(tx, l.itemId, l.itemName);
+        }
 
         await tx.insert(procurementReceiptLines).values(
           body.lines.map((l, i) => ({
@@ -1794,6 +1802,9 @@ procurementRouter.patch(
 
         const written: Array<{ qcVerdict: string | null; allocatedNetKg: string | null }> = [];
         for (const [i, l] of body.lines.entries()) {
+          // An edit is often exactly the moment a person fixes the pairing —
+          // the bill said one thing, the right item is another. Learn it.
+          if (l.itemId && l.itemName) await learnAlias(tx, l.itemId, l.itemName);
           const status = l.qcVerdict === "rejected" ? "qc_rejected" : l.allocatedNetKg != null ? "unloaded" : l.qcVerdict ? "qc_accepted" : "pending";
           const values = {
             receiptId: receipt.id,

@@ -3,6 +3,8 @@ export class ApiError extends Error {
     public status: number,
     message: string,
     public issues?: Array<{ path: string; message: string }>,
+    /** The full error body, for responses that carry more than a message. */
+    public data?: Record<string, unknown>,
   ) {
     super(message);
   }
@@ -21,14 +23,15 @@ export async function api<T = unknown>(
   if (!res.ok) {
     let message = res.statusText;
     let issues;
+    let data;
     try {
-      const data = await res.json();
+      data = await res.json();
       message = data.error ?? message;
       issues = data.issues;
     } catch {
       /* non-JSON error body */
     }
-    throw new ApiError(res.status, message, issues);
+    throw new ApiError(res.status, message, issues, data);
   }
   return res.json() as Promise<T>;
 }

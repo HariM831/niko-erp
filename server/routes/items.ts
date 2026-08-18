@@ -20,6 +20,8 @@ import { requirePermission } from "../lib/rbac";
 import { contains } from "../services/document-search";
 import { validateBody } from "../lib/validate";
 import { getPreferences } from "../services/preferences";
+import { findNameHolder, mergeItems } from "../services/item-names";
+import { PostingError } from "../services/posting";
 
 export const itemsRouter = Router();
 
@@ -44,6 +46,15 @@ const itemSchema = z.object({
   preferredVendorId: z.string().uuid().optional(),
   isFeedIngredient: z.boolean().optional(),
   category: z.enum(itemCategory.enumValues).nullish(),
+  /**
+   * What this material is called elsewhere — on a vendor's bill, in the mill's
+   * old system. Procurement's bill matching and the feed-mill import both
+   * resolve names through these, so "GN De-Oiled-Cake 50%" on an invoice can
+   * land on DOGN without a person retyping it.
+   */
+  aliases: z.array(z.string().min(1).max(80)).max(12).optional(),
+  /** "Yes, this near-name is genuinely a different material." */
+  confirmNotDuplicate: z.boolean().optional(),
   taxId: z.string().uuid().optional(),
   trackInventory: z.boolean().optional(),
   inventoryAccountId: z.string().uuid().optional(),
@@ -157,15 +168,32 @@ itemsRouter.post(
   validateBody(itemSchema),
   async (req, res) => {
     // Uniqueness is enforced here rather than by an index, because whether
-    // duplicates are allowed is an org preference.
+    // duplicates are allowed is an org preference. The check reads names AND
+    // aliases, normalised — "De-oiled rice bran" against an item whose alias
+    // is "DORB" is how the master grew twins in the first place.
     const prefs = await getPreferences(db);
     if (!prefs.allowDuplicateItemNames) {
-      const clash = await db.query.items.findFirst({ where: eq(items.name, req.body.name) });
-      if (clash) {
-        return res.status(422).json({ error: `An item named "${req.body.name}" already exists` });
+      const holder = await findNameHolder(db, req.body.name);
+      if (holder && holder.match === "exact") {
+        return res.status(422).json({
+          error: holder.viaAlias
+            ? `"${req.body.name}" is already an alias of "${holder.name}" — bill lines with this wording land there`
+            : `An item named "${holder.name}" already exists`,
+        });
+      }
+      // A near-name can be a twin or a genuinely different material — only a
+      // person knows which, so the refusal is overridable with intent.
+      if (holder && holder.match === "contains" && !req.body.confirmNotDuplicate) {
+        return res.status(422).json({
+          error: `"${req.body.name}" looks like "${holder.name}" — if it is the same material, use that item or add this wording as its alias. If it is genuinely different, confirm and create.`,
+          similarTo: { id: holder.id, name: holder.name },
+          requiresConfirmation: true,
+        });
       }
     }
     const body = req.body as z.infer<typeof itemSchema>;
+    // Not a column — consumed by the guard above, kept out of the insert.
+    delete (body as Record<string, unknown>).confirmNotDuplicate;
     // Only Produce is sold — eggs, birds, manure. Everything else the org buys
     // to use, so a selling price on cement is a typo waiting to be invoiced.
     if (body.category !== "produce") {
@@ -208,6 +236,28 @@ itemsRouter.patch(
       .returning();
     if (!row) return res.status(404).json({ error: "Item not found" });
     res.json(row);
+  },
+);
+
+/**
+ * Fold a duplicate into its survivor: recipes repointed, missing analysis
+ * copied, every name kept as an alias, the duplicate retired. Posted documents
+ * stay where they were posted — only the future consolidates. Refusals (both
+ * items in one formula, source is a formula's output, source still holds
+ * stock) come back 422 with the reason.
+ */
+itemsRouter.post(
+  "/:id/merge",
+  requirePermission("items", "delete"),
+  validateBody(z.object({ targetId: z.string().uuid() })),
+  async (req, res) => {
+    try {
+      const summary = await db.transaction((tx) => mergeItems(tx, req.params.id!, req.body.targetId));
+      res.json(summary);
+    } catch (e) {
+      if (e instanceof PostingError) return res.status(422).json({ error: e.message });
+      throw e;
+    }
   },
 );
 

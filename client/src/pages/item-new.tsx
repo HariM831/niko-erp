@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "../api";
+import { ApiError, api } from "../api";
 import { ITEM_CATEGORIES, ITEM_CATEGORY_LABELS } from "@shared/item-categories";
 import { uploadPending } from "../components/pending-attachments";
 import { ImagePlus, Search, X } from "lucide-react";
@@ -31,6 +31,7 @@ export function ItemNewPage({ editId }: { editId?: string }) {
     name: "",
     sku: "",
     category: "",
+    aliases: "",
     unit: "pcs",
     hsnOrSac: "",
     taxId: "",
@@ -49,6 +50,8 @@ export function ItemNewPage({ editId }: { editId?: string }) {
     reorderLevel: "",
   });
   const [error, setError] = useState<string | null>(null);
+  /** Set when the server said "looks like X" — resubmitting confirms intent. */
+  const [nearDuplicateOf, setNearDuplicateOf] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [image, setImage] = useState<File | null>(null);
   const [existingImageId, setExistingImageId] = useState<string | null>(null);
@@ -67,6 +70,7 @@ export function ItemNewPage({ editId }: { editId?: string }) {
       sku: (existing.sku as string) ?? "",
       unit: (existing.unit as string) ?? "pcs",
       category: (existing.category as string) ?? "",
+      aliases: ((existing.aliases as string[]) ?? []).join("\n"),
       hsnOrSac: (existing.hsnOrSac as string) ?? "",
       taxId: (existing.taxId as string) ?? "",
       isSold: existing.isSold !== false,
@@ -128,6 +132,11 @@ export function ItemNewPage({ editId }: { editId?: string }) {
           sku: form.sku || undefined,
           unit: form.unit || undefined,
           category: form.category || null,
+          confirmNotDuplicate: nearDuplicateOf != null || undefined,
+          aliases: form.aliases
+            .split(/[\n,]/)
+            .map((a) => a.trim())
+            .filter(Boolean),
           hsnOrSac: form.hsnOrSac || undefined,
           taxId: form.taxId || undefined,
           isSold: form.isSold,
@@ -153,6 +162,12 @@ export function ItemNewPage({ editId }: { editId?: string }) {
       await qc.invalidateQueries();
       navigate(editId ? `/items/${editId}` : "/items");
     } catch (err) {
+      // A near-name refusal carries requiresConfirmation; saving again then
+      // resubmits with the confirmation set, and intent is on the record.
+      const data = err instanceof ApiError ? err.data : undefined;
+      if (data?.requiresConfirmation) {
+        setNearDuplicateOf((data.similarTo as { name: string } | undefined)?.name ?? "an existing item");
+      }
       setError(err instanceof Error ? err.message : "Save failed");
     } finally {
       setBusy(false);
@@ -230,6 +245,19 @@ export function ItemNewPage({ editId }: { editId?: string }) {
             </div>
 
             <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <label className={label}>Also known as</label>
+                <textarea
+                  value={form.aliases}
+                  onChange={(e) => setForm((f) => ({ ...f, aliases: e.target.value }))}
+                  rows={2}
+                  placeholder={"One per line — the names vendors' bills use, e.g.\nGN De-Oiled-Cake 50%"}
+                  className={`${inputCls} h-auto py-1.5 text-[12px]`}
+                />
+                <p className="mt-0.5 text-[11px] text-gray-400">
+                  Bill matching at the procurement gate resolves these names to this item.
+                </p>
+              </div>
               <div>
                 <label className={label}>HSN / SAC Code</label>
                 <div className="relative">
@@ -436,8 +464,13 @@ export function ItemNewPage({ editId }: { editId?: string }) {
           disabled={busy || !canSave}
           className="btn-primary"
         >
-          Save
+          {nearDuplicateOf ? "Create anyway — it is a different material" : "Save"}
         </button>
+        {nearDuplicateOf && (
+          <span className="text-[12px] text-amber-700">
+            Looks like “{nearDuplicateOf}”. If it is the same material, use that item instead.
+          </span>
+        )}
         <button onClick={() => navigate(editId ? `/items/${editId}` : "/items")} className="ml-2 text-[13px] text-gray-500 hover:underline">
           Cancel
         </button>
