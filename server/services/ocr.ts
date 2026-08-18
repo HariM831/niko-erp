@@ -14,7 +14,14 @@
  * bills carry a bag count — 401, 666 — where a naive reader expects the weight,
  * which is wrong by a factor of sixty.
  *
- * See fixtures/bills/ for the two bills these rules were derived from.
+ * The third trap is the unit. A quantity column holds 24380 on one bill and
+ * 43.330 on the next, and only the column header says the second is tonnes.
+ * Read as kilograms it implies ₹50,300/kg, closes against nothing, and the
+ * truck reaches the gate showing zero kilograms billed.
+ *
+ * See fixtures/bills/ for the bills these rules were derived from, and
+ * scripts/check-line-reconcile.ts for the arithmetic, which is checked without
+ * spending an API call.
  */
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
@@ -45,11 +52,37 @@ export const ALLOWED_MIME = ["image/jpeg", "image/png", "image/webp"] as const;
 
 /** Feed materials sit well inside this. Outside it, a number is not a rate. */
 const PLAUSIBLE_RATE_PER_KG = { min: 1, max: 500 };
+/**
+ * Where feed raw material actually trades. Deliberately NOT used to reject a
+ * reading — only to break a tie between two inferred units, because quintal and
+ * tonne readings differ by exactly 10× and the rate column corroborates both or
+ * neither. A tie it cannot break is refused, not guessed.
+ */
+const TYPICAL_RATE_PER_KG = { min: 5, max: 150 };
 /** Line closes if quantity × rate lands within this much of the printed amount. */
 const RECONCILE_TOLERANCE = 0.005; // 0.5%
 
 export type RateBasis = "kg" | "quintal" | "mt";
 const BASIS_DIVISOR: Record<RateBasis, number> = { kg: 1, quintal: 100, mt: 1000 };
+
+/**
+ * A quantity cell is not always in kilograms. G K Extractions bills in metric
+ * tonnes — "43.330" against ₹50,300 — and reading that as 43 kg makes the rate
+ * ₹50,300/kg, which closes against nothing and lands the line at zero.
+ *
+ * Ordered smallest leap first: where two bases would both close, quintal is the
+ * likelier reading and the ambiguity is warned about rather than guessed at.
+ */
+const SCALED_BASES: RateBasis[] = ["quintal", "mt"];
+
+/** The unit written in the cell itself, when the vendor bothered: "43.330 MT". */
+function statedBasis(raw: string | null): RateBasis | null {
+  if (!raw) return null;
+  if (/\b(m\.?\s?t\.?|tonnes?|tons?)\b/i.test(raw)) return "mt";
+  if (/\b(q(?:tl|ntl|uintals?))\b/i.test(raw)) return "quintal";
+  if (/\b(k\.?\s?gs?\.?|kilos?|kilograms?)\b/i.test(raw)) return "kg";
+  return null;
+}
 
 export interface RawLine {
   lineNo: number;
@@ -57,6 +90,10 @@ export interface RawLine {
   hsnCode: string | null;
   /** The Qnty cell verbatim, e.g. "401 Pm" — often a bag count, not a weight. */
   quantityCellRaw: string | null;
+  /** The unit named in that column's header, e.g. "MT" from "Quantity (MT)". */
+  quantityUnitRaw: string | null;
+  /** A separate bag/package count column, when the bill has one, e.g. "760". */
+  bagCountRaw: string | null;
   /** Any handwritten weight elsewhere in the row, e.g. "wt 24380". */
   handwrittenWeightRaw: string | null;
   ratePrinted: number | null;
@@ -136,6 +173,8 @@ Return ONLY a JSON object, no markdown fence, matching exactly:
     "description": string|null,
     "hsnCode": string|null,
     "quantityCellRaw": string|null,
+    "quantityUnitRaw": string|null,
+    "bagCountRaw": string|null,
     "handwrittenWeightRaw": string|null,
     "ratePrinted": number|null,
     "amount": number|null
@@ -147,20 +186,27 @@ Rules:
    a row for a subtotal, a tax line or freight — those belong to the header.
 2. "quantityCellRaw": copy the Qnty cell EXACTLY as written, including any unit
    or suffix, e.g. "401 Pm", "666 Pkt". Do not convert it. Do not clean it up.
-3. "handwrittenWeightRaw": if a weight is handwritten anywhere in or under the
+3. "quantityUnitRaw": the unit named in that column's HEADER, e.g. "MT" from a
+   header reading "Quantity (MT)", or "Kgs", "Qtl". Null if the header names no
+   unit. This matters: the same column holds 43.330 on one bill and 24380 on
+   another, and only the header says which is tonnes.
+4. "bagCountRaw": if the row has a SEPARATE column counting bags, packages or
+   pieces (a header like "Bags", "Pkgs", "No. of Bags"), copy that cell here.
+   Null if there is no such column. Never duplicate the Qnty cell into it.
+5. "handwrittenWeightRaw": if a weight is handwritten anywhere in or under the
    row (often like "wt 24380" or "24380 kg"), copy it verbatim here. Otherwise
    null. This is separate from the Qnty cell and both may be present.
-4. "ratePrinted": the number in the Rate cell as printed, with no unit applied.
+6. "ratePrinted": the number in the Rate cell as printed, with no unit applied.
    If a digit is genuinely ambiguous, give your single best reading — the
    arithmetic downstream will resolve it.
-5. "amount" and "grandTotal": strip Indian digit grouping, so "5,63,178"
+7. "amount" and "grandTotal": strip Indian digit grouping, so "5,63,178"
    becomes 563178.
-6. "taxTotal": only if GST/CGST/SGST/IGST is actually printed. A BILL OF SUPPLY
+8. "taxTotal": only if GST/CGST/SGST/IGST is actually printed. A BILL OF SUPPLY
    charges no tax — use null, not 0.
-7. The buyer is NOT the vendor. A "Party Name" field names the buyer. The
+9. The buyer is NOT the vendor. A "Party Name" field names the buyer. The
    vendor is the letterhead at the top. Never return the buyer as vendorName.
-8. "billDateRaw": copy verbatim, e.g. "13/8/26". Do not reformat.
-9. Use null for anything absent or illegible. Never guess a value that is not
+10. "billDateRaw": copy verbatim, e.g. "13/8/26". Do not reformat.
+11. Use null for anything absent or illegible. Never guess a value that is not
    on the paper.`;
 
 /** "401 Pm" → 401. "1,250 bags" → 1250. Anything without digits → null. */
@@ -221,16 +267,34 @@ export function reconcileLine(raw: RawLine): {
   const warnings: string[] = [];
   const cellNumber = firstNumber(raw.quantityCellRaw);
   const handwritten = firstNumber(raw.handwrittenWeightRaw);
+  const printedBags = firstNumber(raw.bagCountRaw);
   const amount = raw.amount;
 
-  const candidates: Array<{ qty: number; from: string }> = [];
-  if (handwritten != null) candidates.push({ qty: handwritten, from: "handwritten weight" });
-  if (cellNumber != null) candidates.push({ qty: cellNumber, from: "quantity column" });
+  const candidates: Array<{ qty: number; from: string; stated: RateBasis | null }> = [];
+  if (handwritten != null) {
+    candidates.push({
+      qty: handwritten,
+      from: "handwritten weight",
+      stated: statedBasis(raw.handwrittenWeightRaw),
+    });
+  }
+  if (cellNumber != null) {
+    candidates.push({
+      qty: cellNumber,
+      from: "quantity column",
+      // The cell may carry its own unit; failing that, the column header does.
+      stated: statedBasis(raw.quantityCellRaw) ?? statedBasis(raw.quantityUnitRaw),
+    });
+  }
+
+  /** The bag count is whichever number was NOT used as the weight. */
+  const bagsBesides = (from: string) =>
+    printedBags ?? (from === "handwritten weight" ? cellNumber : null);
 
   if (!candidates.length || amount == null || amount <= 0) {
     return {
       quantityKg: handwritten ?? cellNumber,
-      bagCount: handwritten != null ? cellNumber : null,
+      bagCount: printedBags ?? (handwritten != null ? cellNumber : null),
       ratePerKg: null,
       rateBasis: null,
       reconciled: false,
@@ -239,38 +303,129 @@ export function reconcileLine(raw: RawLine): {
     };
   }
 
+  /**
+   * One way of reading the line, as kilograms. `qtyBasis` is the unit the
+   * quantity was taken to be in — only "kg" leaves the printed figure alone.
+   */
+  interface Reading {
+    qtyKg: number;
+    printed: number;
+    qtyBasis: RateBasis;
+    from: string;
+    /** True when the paper names the unit; false when it had to be inferred. */
+    stated: boolean;
+  }
+
+  const readings: Reading[] = [];
+  // Strongest first: the cell says what it is in.
   for (const c of candidates) {
-    if (c.qty <= 0) continue;
-    const impliedPerKg = amount / c.qty;
-    if (impliedPerKg < PLAUSIBLE_RATE_PER_KG.min || impliedPerKg > PLAUSIBLE_RATE_PER_KG.max) {
-      continue;
+    if (c.qty > 0 && c.stated) {
+      readings.push({ qtyKg: c.qty * BASIS_DIVISOR[c.stated], printed: c.qty, qtyBasis: c.stated, from: c.from, stated: true });
     }
-    // Which printed basis does the derived rate correspond to?
-    let basisMatch: RateBasis | null = null;
-    if (raw.ratePrinted != null && raw.ratePrinted > 0) {
-      for (const b of ["kg", "quintal", "mt"] as RateBasis[]) {
-        if (close(raw.ratePrinted / BASIS_DIVISOR[b], impliedPerKg)) {
-          basisMatch = b;
-          break;
-        }
+  }
+  // Then the printed figure at face value as kilograms — the common case, and
+  // the reading bill 517 depends on.
+  for (const c of candidates) {
+    if (c.qty > 0 && c.stated == null) {
+      readings.push({ qtyKg: c.qty, printed: c.qty, qtyBasis: "kg", from: c.from, stated: false });
+    }
+  }
+  // Weakest: the unit lives in a column header the transcription never saw, so
+  // it has to be inferred. Admitted below only when the printed rate agrees.
+  for (const c of candidates) {
+    if (c.qty <= 0 || c.stated) continue;
+    for (const b of SCALED_BASES) {
+      readings.push({ qtyKg: c.qty * BASIS_DIVISOR[b], printed: c.qty, qtyBasis: b, from: c.from, stated: false });
+    }
+  }
+
+  /** Which printed basis does a derived per-kg rate correspond to? */
+  const basisOfPrintedRate = (perKg: number): RateBasis | null => {
+    if (raw.ratePrinted == null || raw.ratePrinted <= 0) return null;
+    for (const b of ["kg", "quintal", "mt"] as RateBasis[]) {
+      if (close(raw.ratePrinted / BASIS_DIVISOR[b], perKg)) return b;
+    }
+    return null;
+  };
+
+  const closes = readings.filter((r) => {
+    const perKg = amount / r.qtyKg;
+    if (perKg < PLAUSIBLE_RATE_PER_KG.min || perKg > PLAUSIBLE_RATE_PER_KG.max) return false;
+    // A unit taken off the paper — written in the cell, or the plain kilogram
+    // reading — stands on the plausible rate alone. An INFERRED unit is a
+    // guess, so the rate column has to corroborate it before it is believed.
+    if (r.stated || r.qtyBasis === "kg") return true;
+    return basisOfPrintedRate(perKg) != null;
+  });
+
+  const describe = (r: Reading) =>
+    `${r.printed.toLocaleString("en-IN")} ${r.qtyBasis} = ${r.qtyKg.toLocaleString("en-IN")} kg ` +
+    `at ₹${(amount / r.qtyKg).toFixed(2)}/kg`;
+
+  // A unit read off the paper settles it outright. Only when every closing
+  // reading was INFERRED is there a choice to make.
+  let winner = closes.find((r) => r.stated || r.qtyBasis === "kg");
+  let discarded: Reading | null = null;
+  if (!winner) {
+    const distinct = closes.filter(
+      (r, i) => closes.findIndex((x) => x.qtyKg === r.qtyKg) === i,
+    );
+    if (distinct.length > 1) {
+      const typical = distinct.filter((r) => {
+        const perKg = amount / r.qtyKg;
+        return perKg >= TYPICAL_RATE_PER_KG.min && perKg <= TYPICAL_RATE_PER_KG.max;
+      });
+      if (typical.length === 1) {
+        winner = typical[0];
+        discarded = distinct.find((r) => r !== winner) ?? null;
+      } else {
+        // Genuinely undecidable. A blank field gets typed; a wrong one gets paid.
+        return {
+          quantityKg: null,
+          bagCount: printedBags ?? cellNumber,
+          ratePerKg: null,
+          rateBasis: null,
+          reconciled: false,
+          basis: null,
+          warnings: [
+            ...warnings,
+            `The quantity unit is not printed and both readings close — ` +
+              `${distinct.map(describe).join(" or ")}. Enter the weight by hand`,
+          ],
+        };
       }
-      if (!basisMatch) {
-        warnings.push(
-          `The printed rate ${raw.ratePrinted} does not match ${amount} ÷ ${c.qty} = ` +
-            `${impliedPerKg.toFixed(4)}/kg — a digit may be misread; the amount was trusted`,
-        );
-      }
+    } else {
+      winner = distinct[0];
+    }
+  }
+
+  if (winner) {
+    const impliedPerKg = amount / winner.qtyKg;
+    const basisMatch = basisOfPrintedRate(impliedPerKg);
+    if (raw.ratePrinted != null && raw.ratePrinted > 0 && !basisMatch) {
+      warnings.push(
+        `The printed rate ${raw.ratePrinted} does not match ${amount} ÷ ${winner.qtyKg} = ` +
+          `${impliedPerKg.toFixed(4)}/kg — a digit may be misread; the amount was trusted`,
+      );
+    }
+    if (discarded) {
+      warnings.push(
+        `The unit was inferred: read as ${describe(winner)}, not ${describe(discarded)} — confirm it`,
+      );
     }
     const perKg = Number(impliedPerKg.toFixed(6));
+    const converted =
+      winner.qtyBasis === "kg"
+        ? ""
+        : `${winner.printed.toLocaleString("en-IN")} ${winner.qtyBasis} → `;
     return {
-      quantityKg: c.qty,
-      // The other candidate is a bag count whenever the weight came from elsewhere.
-      bagCount: c.from === "handwritten weight" ? cellNumber : null,
+      quantityKg: winner.qtyKg,
+      bagCount: bagsBesides(winner.from),
       ratePerKg: perKg,
       rateBasis: basisMatch,
       reconciled: true,
       basis:
-        `${c.qty.toLocaleString("en-IN")} kg (${c.from}) × ₹${perKg}/kg = ` +
+        `${converted}${winner.qtyKg.toLocaleString("en-IN")} kg (${winner.from}) × ₹${perKg}/kg = ` +
         `₹${amount.toLocaleString("en-IN")}` +
         (basisMatch && basisMatch !== "kg" ? ` — rate printed per ${basisMatch}` : ""),
       warnings,
@@ -285,7 +440,7 @@ export function reconcileLine(raw: RawLine): {
   );
   return {
     quantityKg: null,
-    bagCount: cellNumber,
+    bagCount: printedBags ?? cellNumber,
     ratePerKg: null,
     rateBasis: null,
     reconciled: false,
