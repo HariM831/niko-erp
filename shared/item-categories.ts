@@ -12,6 +12,7 @@ export const ITEM_CATEGORIES = [
   "vaccines",
   "medicines",
   "construction",
+  "produce",
   "miscellaneous",
 ] as const;
 
@@ -22,6 +23,8 @@ export const ITEM_CATEGORY_LABELS: Record<ItemCategory, string> = {
   vaccines: "Vaccines",
   medicines: "Medicines",
   construction: "Construction",
+  /** The farm's own output — eggs, birds, manure. Sold, never store stock. */
+  produce: "Produce",
   miscellaneous: "Miscellaneous",
 };
 
