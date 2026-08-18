@@ -214,6 +214,18 @@ export function GateInPage() {
   const [vehicleNumber, setVehicleNumber] = useState("");
   const [billNumber, setBillNumber] = useState("");
   const [billDate, setBillDate] = useState(new Date().toISOString().slice(0, 10));
+  /**
+   * What the vendor printed at the foot of their bill.
+   *
+   * Captured here because it is the only moment the paper is in front of
+   * somebody. The tax is not a bookkeeping detail we can recover later: with no
+   * GST input to claim it is part of what the material cost, so settlement
+   * spreads it across the lines and bills the all-in figure. Read as zero, a
+   * ₹1.09 lakh liability simply never appears.
+   */
+  const [billTotal, setBillTotal] = useState("");
+  const [billTax, setBillTax] = useState("");
+  const [billDocType, setBillDocType] = useState("");
   const [lines, setLines] = useState<LineDraft[]>([emptyLine()]);
   const [turnAway, setTurnAway] = useState(false);
   const [exitReason, setExitReason] = useState("");
@@ -262,6 +274,11 @@ export function GateInPage() {
         const b = bill as Record<string, any>;
         if (b.billNumber) setBillNumber(String(b.billNumber));
         if (b.billDate) setBillDate(String(b.billDate));
+        if (b.billTotal != null) setBillTotal(String(b.billTotal));
+        // A bill of supply charges none, and null means "not printed" rather
+        // than "zero" — either way an untouched field bills the goods alone.
+        if (b.billTax != null) setBillTax(String(b.billTax));
+        if (b.documentType) setBillDocType(String(b.documentType));
         if (b.vehicleNumber) setVehicleNumber(String(b.vehicleNumber));
         if (b.vendorMatch?.vendorId) setVendorId(String(b.vendorMatch.vendorId));
         setVendorHint(
@@ -381,6 +398,9 @@ export function GateInPage() {
           exitReason: turnAway ? exitReason : undefined,
           vendorBillNumber: billNumber || undefined,
           vendorBillDate: billDate || undefined,
+          billDocumentType: billDocType || undefined,
+          billTotalAmount: billTotal.trim() ? Number(billTotal).toFixed(2) : undefined,
+          billTaxAmount: billTax.trim() ? Number(billTax).toFixed(2) : undefined,
           deviceCapturedAt: new Date().toISOString(),
           // The same fix the photos are stamped with, so the receipt itself can
           // say which gate it was raised at and how far off it was. Absent when
@@ -431,6 +451,9 @@ export function GateInPage() {
       setVendorId("");
       setVehicleNumber("");
       setBillNumber("");
+      setBillTotal("");
+      setBillTax("");
+      setBillDocType("");
       setLines([emptyLine()]);
       setTurnAway(false);
       setExitReason("");
@@ -573,7 +596,31 @@ export function GateInPage() {
               className="input"
             />
           </div>
+          <div>
+            <label className="label">GST on their bill</label>
+            <input
+              value={billTax}
+              onChange={(e) => setBillTax(e.target.value)}
+              inputMode="decimal"
+              placeholder="0.00"
+              className="input text-right"
+            />
+          </div>
+          <div>
+            <label className="label">Their bill total</label>
+            <input
+              value={billTotal}
+              onChange={(e) => setBillTotal(e.target.value)}
+              inputMode="decimal"
+              placeholder="0.00"
+              className="input text-right"
+            />
+          </div>
         </div>
+        <p className="mt-1 text-[11px] text-gray-500">
+          The tax is payable, so it is billed with the goods rather than split out — we claim no
+          input credit on it. Leave GST blank on a bill of supply, which charges none.
+        </p>
       </div>
 
       <div className="card mb-4 overflow-hidden">

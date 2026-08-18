@@ -12,6 +12,7 @@ import {
   journalEntryLineTags,
   journalEntryLines,
   paymentMode,
+  procurementReceipts,
   reportingTagOptions,
   reportingTags,
   purchaseOrderLines,
@@ -722,7 +723,32 @@ purchasesRouter.post(
         const ids = [...new Set(voidedItems.map((l) => l.itemId).filter((v): v is string => !!v))];
         if (ids.length) await syncPurchaseRates(tx, ids);
 
-        return updated!;
+        /**
+         * A goods receipt is settled by its bill, so voiding the bill unsettles
+         * it — the truck is back at "gated out, unpaid" and can be settled
+         * again.
+         *
+         * "Settled" is otherwise terminal, and it should be: nobody re-bills a
+         * truck on a whim. But the freeze belongs to the BILL, not to a flag on
+         * the receipt. Without this the only way to correct a wrong settlement
+         * is to key a bill by hand and leave the receipt pointing at a void
+         * document, which is how a goods receipt and the ledger stop agreeing.
+         */
+        const reopened = await tx
+          .update(procurementReceipts)
+          .set({
+            status: "gate_out",
+            billId: null,
+            settledAt: null,
+            settledBy: null,
+            updatedAt: new Date(),
+          })
+          .where(
+            and(eq(procurementReceipts.billId, bill.id), eq(procurementReceipts.status, "settled")),
+          )
+          .returning({ number: procurementReceipts.number });
+
+        return { ...updated!, reopenedReceipts: reopened.map((r) => r.number) };
       });
       res.json(result);
     } catch (err) {
