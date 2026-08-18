@@ -64,6 +64,13 @@ import { syncPurchaseRates } from "../services/purchases";
 export const purchasesRouter = Router();
 
 const money = z.string().regex(/^\d+(\.\d{1,2})?$/);
+/**
+ * A rate is not an amount. Money lands in the ledger at two decimals, but a
+ * per-unit rate is stored at six and needs them: feed comes in at ₹52.815/kg,
+ * and rounding that to ₹52.82 moves a 43-tonne truck by ₹216. Validating a
+ * rate with the money rule refused the real figure outright.
+ */
+const rate = z.string().regex(/^\d+(\.\d{1,6})?$/);
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 const lineSchema = z.object({
@@ -74,7 +81,7 @@ const lineSchema = z.object({
   hsnOrSac: z.string().max(10).optional(),
   quantity: z.string().regex(/^\d+(\.\d{1,3})?$/),
   unit: z.string().max(20).optional(),
-  rate: money,
+  rate,
   discountPercent: z.string().regex(/^\d+(\.\d{1,3})?$/).optional(),
   taxId: z.string().uuid().optional(),
 });

@@ -12,6 +12,7 @@ const configs: Record<string, TransactionFormConfig> = {
     dateLabel: "Invoice Date",
     withAccountColumn: true,
     withSend: true,
+    withTax: true,
   },
   "credit-note": {
     title: "New Credit Note",
@@ -23,6 +24,7 @@ const configs: Record<string, TransactionFormConfig> = {
     dateField: "creditNoteDate",
     dateLabel: "Credit Note Date",
     withAccountColumn: true,
+    withTax: true,
   },
   bill: {
     title: "New Bill",
@@ -49,6 +51,8 @@ const configs: Record<string, TransactionFormConfig> = {
     dateLabel: "Order Date",
     withAccountColumn: true,
     withDeliveryDate: true,
+    /** The vendor charges GST and this document is theirs — see withTax. */
+    withTax: true,
   },
   "vendor-credit": {
     title: "New Vendor Credit",

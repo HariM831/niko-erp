@@ -31,11 +31,6 @@ interface ReportingTag {
   options: TagOption[];
 }
 
-interface Tax {
-  id: string;
-  name: string;
-}
-
 export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
   const [, navigate] = useLocation();
   const search = useSearch();
@@ -69,10 +64,6 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
   const { data: vendors } = useQuery({
     queryKey: ["contacts", "vendor"],
     queryFn: () => api<Contact[]>("/api/contacts?type=vendor&isActive=true"),
-  });
-  const { data: taxes } = useQuery({
-    queryKey: ["taxes"],
-    queryFn: () => api<Tax[]>("/api/taxes"),
   });
   const { data: allTags } = useQuery({
     queryKey: ["reporting-tags"],
@@ -206,15 +197,9 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
               ))}
             </select>
           </div>
-          <div>
-            <label className={label}>Tax</label>
-            <select value={form.taxId} onChange={set("taxId")} className={inputCls}>
-              <option value="">No tax</option>
-              {taxes?.map((t) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
-          </div>
+          {/* No tax field: with no GST input to claim, an expense is recorded
+              at what was actually paid, tax included. Splitting it out here
+              would understate the cost and imply a credit we cannot take. */}
           <div>
             <label className={label}>Reference</label>
             <input value={form.reference} onChange={set("reference")} className={inputCls} />

@@ -83,6 +83,18 @@ export interface TransactionFormConfig {
   withFreight?: boolean;
   /** Expected delivery date (purchase orders). */
   withDeliveryDate?: boolean;
+  /**
+   * Show the tax column and tax the totals.
+   *
+   * On the purchase side this is TRUE ONLY FOR ORDERS. A purchase order is a
+   * document that goes to the vendor, who charges GST, so it has to be able to
+   * say ₹50.30 plus 5% rather than a rate with the tax already buried in it.
+   * A bill or an expense is our own record, and with no GST input to claim the
+   * tax is simply part of what the material cost — so those carry the rate
+   * inclusive of tax and no tax line at all. Offering a tax column there would
+   * invite a double count.
+   */
+  withTax?: boolean;
   extraBody?: Record<string, unknown>;
 }
 
@@ -268,7 +280,9 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
         (config.contactType === "customer" ? item.sellingPrice : item.costPrice) ??
         item.sellingPrice ??
         "0",
-      taxId: item.taxId,
+      // Where the document carries no tax, the item's rate is already inclusive
+      // of it; attaching the item's tax would charge it a second time.
+      taxId: config.withTax ? item.taxId : undefined,
     });
   };
 
@@ -292,7 +306,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
             unit: l.unit || undefined,
             rate: l.rate,
             discountPercent: l.discountPercent || undefined,
-            taxId: l.taxId || undefined,
+            taxId: (config.withTax && l.taxId) || undefined,
             ...(config.withTags
               ? { tagOptionIds: Object.values(l.tags ?? {}).filter(Boolean) }
               : {}),
@@ -501,7 +515,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
               <th className="w-20 border border-[#ebeaf2] px-2 py-2">Qty</th>
               <th className="w-28 border border-[#ebeaf2] px-2 py-2">Rate</th>
               <th className="w-20 border border-[#ebeaf2] px-2 py-2">Disc %</th>
-              <th className="w-32 border border-[#ebeaf2] px-2 py-2">Tax</th>
+              {config.withTax && <th className="w-32 border border-[#ebeaf2] px-2 py-2">Tax</th>}
               {tags.map((t) => (
                 <th key={t.id} className="w-40 border border-[#ebeaf2] px-2 py-2 whitespace-nowrap">
                   {t.name}
@@ -564,16 +578,18 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                       className={inputCls}
                     />
                   </td>
-                  <td className="border border-[#ebeaf2] px-1 py-1">
-                    <select value={l.taxId ?? ""} onChange={(e) => updateLine(i, { taxId: e.target.value || undefined })} className={inputCls}>
-                      <option value="">No tax</option>
-                      {taxes?.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
+                  {config.withTax && (
+                    <td className="border border-[#ebeaf2] px-1 py-1">
+                      <select value={l.taxId ?? ""} onChange={(e) => updateLine(i, { taxId: e.target.value || undefined })} className={inputCls}>
+                        <option value="">No tax</option>
+                        {taxes?.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                  )}
                   {tags.map((t) => (
                     <td key={t.id} className="border border-[#ebeaf2] px-1 py-1">
                       <select
@@ -640,10 +656,12 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                 <span className="tabular-nums">− {formatMoney(totals.disc)}</span>
               </div>
             )}
-            <div className="mb-1.5 flex justify-between">
-              <span>Tax</span>
-              <span className="tabular-nums">{formatMoney(totals.tax)}</span>
-            </div>
+            {config.withTax && (
+              <div className="mb-1.5 flex justify-between">
+                <span>Tax</span>
+                <span className="tabular-nums">{formatMoney(totals.tax)}</span>
+              </div>
+            )}
             {/* Zoho puts the adjustment here, between tax and the total, with
                 an editable label. It needs an account of its own — it is a real
                 posting, not a rounding artefact. */}

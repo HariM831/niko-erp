@@ -42,6 +42,14 @@ export const salesRouter = Router();
 
 const money = z.string().regex(/^\d+(\.\d{1,2})?$/);
 
+/**
+ * A rate is not an amount. Money lands in the ledger at two decimals, but a
+ * per-unit rate is stored at six and needs them — a price per egg or per
+ * kilogram routinely runs past two. Validating a rate with the money rule
+ * refuses the real figure outright.
+ */
+const rate = z.string().regex(/^\d+(\.\d{1,6})?$/);
+
 const lineSchema = z.object({
   itemId: z.string().uuid().optional(),
   accountId: z.string().uuid().optional(),
@@ -50,7 +58,7 @@ const lineSchema = z.object({
   hsnOrSac: z.string().max(10).optional(),
   quantity: z.string().regex(/^\d+(\.\d{1,3})?$/),
   unit: z.string().max(20).optional(),
-  rate: money,
+  rate,
   discountPercent: z.string().regex(/^\d+(\.\d{1,3})?$/).optional(),
   taxId: z.string().uuid().optional(),
 });

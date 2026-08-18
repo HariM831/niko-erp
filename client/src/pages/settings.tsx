@@ -249,7 +249,7 @@ function TaxesSection() {
     <div>
       <SettingsHeader
         title="Taxes"
-        description="Rates available on invoice and bill lines. Deactivate a rate rather than editing it once documents have used it, so those documents keep the rate they were raised at."
+        description="Rates available on invoice and purchase order lines. Bills and expenses carry no tax line — with no GST input to claim, their rates already include it. Deactivate a rate rather than editing it once documents have used it, so those documents keep the rate they were raised at."
         actions={
           <button onClick={() => setAdding(true)} className="btn-primary">
             + New Tax
