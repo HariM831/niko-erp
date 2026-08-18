@@ -22,6 +22,7 @@ import {
   items,
   locations,
   numberSeries,
+  orgProfile,
   procurementReceiptLines,
   procurementReceipts,
   purchaseOrderLines,
@@ -1338,21 +1339,69 @@ async function settlementContext(tx: Tx | typeof db, receiptId: string) {
   /** Everything the vendor adds to the goods: their tax and their rounding. */
   const extras = billTax + vendorRoundOff;
 
-  const billLines = unloaded.map((l) => {
+  /**
+   * Their invoice, line for line.
+   *
+   * The goods sit at the vendor's own rate so our line equals the Amount
+   * column on their paper to the paisa — fold the tax into a per-kilo rate
+   * instead and 43,330 kg × six decimal places cannot reproduce their total
+   * exactly, which leaves every bill a paisa adrift of the invoice it pays.
+   *
+   * Their tax and their rounding then follow as lines of their own, matching
+   * the foot of their bill. Both are cost, not tax: they carry the goods'
+   * purchase account, so the journal is still one debit and no input credit is
+   * claimed anywhere. Neither carries an itemId — a positive line against an
+   * item is read back as its purchase price, and ₹1,08,974.95 is not what a
+   * kilo of de-oiled cake costs.
+   */
+  const [org] = await tx.select({ stateCode: orgProfile.stateCode }).from(orgProfile).limit(1);
+  const [vendorRow] = receipt.vendorId
+    ? await tx
+        .select({ gstin: contacts.gstin })
+        .from(contacts)
+        .where(eq(contacts.id, receipt.vendorId))
+        .limit(1)
+    : [undefined];
+  // A GSTIN opens with the state code, which is what decides the split their
+  // bill prints: 27 Maharashtra selling to 29 Karnataka is IGST.
+  const vendorState = vendorRow?.gstin?.slice(0, 2) ?? null;
+  const interState = !!vendorState && !!org?.stateCode && vendorState !== org.stateCode;
+  const taxLabel = interState ? "IGST on their bill" : "CGST + SGST on their bill";
+
+  const goodsLines = unloaded.map((l) => {
     const qty = Number(l.line.billQuantityKg);
     const goods = Number(l.line.billAmount ?? qty * Number(l.line.agreedRatePerKg ?? 0));
-    const share = goodsTotal > 0 ? (extras * goods) / goodsTotal : 0;
     return {
       lineId: l.line.id,
       itemId: l.line.itemId,
       name: l.line.itemName ?? "Material",
       accountId: l.purchaseAccountId,
       quantityKg: qty,
-      // All-in: the bill total equals the vendor's printed grand total.
-      ratePerKg: qty > 0 ? (goods + share) / qty : 0,
-      amount: goods + share,
+      ratePerKg: qty > 0 ? goods / qty : 0,
+      amount: goods,
+      kind: "goods" as const,
     };
   });
+
+  /** Charged to the biggest line's account — the one that bore most of the tax. */
+  const anchor = [...goodsLines].sort((a, b) => b.amount - a.amount)[0];
+  const extraLine = (name: string, amount: number) => ({
+    lineId: anchor?.lineId ?? "",
+    itemId: null as string | null,
+    name,
+    accountId: anchor?.accountId ?? null,
+    quantityKg: 1,
+    ratePerKg: amount,
+    amount,
+    // Not goods: it may legitimately be negative, and it is not priced per kilo.
+    kind: "extra" as const,
+  });
+
+  const billLines = [
+    ...goodsLines,
+    ...(billTax > 0 ? [extraLine(taxLabel, Number(billTax.toFixed(2)))] : []),
+    ...(vendorRoundOff !== 0 ? [extraLine("Round off on their bill", vendorRoundOff)] : []),
+  ];
 
   /**
    * Deductions come off at the ALL-IN rate, the same one the goods are billed
@@ -1363,7 +1412,14 @@ async function settlementContext(tx: Tx | typeof db, receiptId: string) {
    * paying the GST on them — a small amount on one truck, and a standing
    * overpayment on every truck that ever runs short.
    */
-  const allInRate = new Map(billLines.map((l) => [l.lineId, l.ratePerKg]));
+  const allInRate = new Map(
+    goodsLines.map((l) => [
+      l.lineId,
+      // The goods line is now pre-tax, so the all-in rate is derived rather
+      // than read off it: a kilo that never arrived carried its tax too.
+      l.quantityKg > 0 ? (l.amount + (goodsTotal > 0 ? (extras * l.amount) / goodsTotal : 0)) / l.quantityKg : 0,
+    ]),
+  );
   const rateOf = (l: (typeof unloaded)[number]) =>
     allInRate.get(l.line.id) ?? Number(l.line.agreedRatePerKg ?? 0);
 
@@ -1567,7 +1623,9 @@ procurementRouter.post(
         if (!ctx.billLines.length) throw new PostingError("Nothing was unloaded — there is nothing to bill");
         // A line with no rate would post a bill for nothing at all, quietly.
         // Better to refuse than to raise a payable a vendor will dispute.
-        const unpriced = ctx.billLines.filter((l) => !(l.amount > 0));
+        // Only the goods have to be priced. The vendor's rounding line is
+        // allowed to be negative, and is not a material anybody can quote.
+        const unpriced = ctx.billLines.filter((l) => l.kind === "goods" && !(l.amount > 0));
         if (unpriced.length) {
           throw new PostingError(
             `${unpriced.map((l) => l.name).join(", ")} has no rate — a bill cannot be raised for nothing`,
@@ -1673,9 +1731,12 @@ procurementRouter.post(
               accountId: l.accountId ?? undefined,
               name: l.name,
               quantity: l.quantityKg.toFixed(3),
-              unit: "kg",
+              // Only the goods are weighed. The vendor's tax and rounding are
+              // sums of money, and "1.00 kg of IGST" is not a thing.
+              unit: l.kind === "goods" ? "kg" : undefined,
               rate: l.ratePerKg.toFixed(6),
-              // No taxId anywhere: tax is folded into the rate above.
+              // No taxId anywhere: their tax is a cost line, not a tax line,
+              // because there is no input credit to claim against it.
             })),
             ...charging.map((d) => ({
               itemId: d.itemId ?? undefined,
