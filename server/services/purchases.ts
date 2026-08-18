@@ -431,7 +431,16 @@ export interface CreateBillArgs {
  * lines are ignored. Pass no ids to resync the whole master.
  */
 export async function syncPurchaseRates(tx: Tx | Db, itemIds?: string[]): Promise<number> {
-  const scope = itemIds?.length ? sql`AND i.id = ANY(${itemIds}::uuid[])` : sql``;
+  // One bound parameter per id. A JS array interpolated into a sql`` template
+  // is flattened by drizzle into its elements, so `ANY(${ids}::uuid[])` casts a
+  // bare uuid to uuid[] and Postgres answers "malformed array literal" — which
+  // took down every bill that carried an item.
+  const scope = itemIds?.length
+    ? sql`AND i.id IN (${sql.join(
+        itemIds.map((id) => sql`${id}::uuid`),
+        sql`, `,
+      )})`
+    : sql``;
   const result = await tx.execute(sql`
     UPDATE items i
     SET cost_price = latest.rate::numeric(14,2)

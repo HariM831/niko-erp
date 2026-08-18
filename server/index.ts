@@ -34,6 +34,7 @@ import { attachmentsRouter } from "./routes/attachments";
 import { commentsRouter } from "./routes/comments";
 import { activityRouter } from "./routes/activity";
 import { activityLogger } from "./lib/activity";
+import { forwardAsyncErrors } from "./lib/async-errors";
 import { requireAuth } from "./lib/rbac";
 
 const SESSION_SECRET = process.env.SESSION_SECRET;
@@ -43,6 +44,10 @@ const app = express();
 const isProd = process.env.NODE_ENV === "production";
 
 app.set("trust proxy", 1);
+// Before anything is mounted: patches Layer, so every route registered below
+// has its rejections forwarded to the error handler instead of hanging.
+forwardAsyncErrors();
+
 app.use(express.json({ limit: "2mb" }));
 
 const PgStore = connectPgSimple(session);
@@ -124,11 +129,11 @@ app.use(
   },
 );
 
-// Express 4 doesn't forward errors thrown in async handlers, so an unexpected
-// rejection would otherwise reach Node's default handler and kill the process.
-// Log it loudly and keep serving; the offending request simply gets no reply.
+// A rejection from a route handler now reaches the error handler above and is
+// answered with a 500 — see lib/async-errors. This stays as the backstop for a
+// rejection with no request behind it: a timer, a listener, a stray void call.
 process.on("unhandledRejection", (reason) => {
-  console.error("Unhandled rejection — request abandoned, server still up:", reason);
+  console.error("Unhandled rejection outside a request — server still up:", reason);
 });
 
 const port = Number(process.env.PORT ?? 3000);
