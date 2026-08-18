@@ -350,6 +350,8 @@ feedProductionRouter.get(
       db
         .select({ id: locations.id, name: locations.name, type: locations.type, isPrimary: locations.isPrimary })
         .from(locations)
+        // Deactivated places stay on old documents but out of new dropdowns.
+        .where(eq(locations.isActive, true))
         .orderBy(asc(locations.name)),
     ]);
     const byItem = new Map(levels.map((l) => [l.itemId, l]));

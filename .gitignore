@@ -10,3 +10,7 @@ uploads/
 # Stamped copies written by scripts/check-capture-stamp.ts for eyeballing.
 # Regenerated on every run; the originals beside them are the fixtures.
 fixtures/bills/_stamped/
+
+# Amino feed-mill export — real prices and recipes, brought in for the import
+# script and never committed. Same rule as .zoho-dump.
+feed-mill-export.json
