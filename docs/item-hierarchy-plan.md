@@ -1,5 +1,13 @@
 # Head items and sub-types: compound feed and eggs
 
+> **SUPERSEDED (18 Aug 2026).** Decided against the hierarchy: flat items with
+> the category enum cover the rollups (finished feed is already isolated on
+> 1073 by design), the egg family groups by category and a normalised naming
+> style, and the generic items ("Poultry Feed", "Chick Feed", the Layer Birds
+> duplicate) were retired instead of guarded. The items list groups by
+> category. The one piece that survives is the GRADING DOCUMENT (§3), which
+> never depended on hierarchy and lands with Farms.
+
 The ask: compound feeds (the formula outputs — Chick, Grower, Layer 1,
 Prelayer) should sit under a head item **Poultry Feed**; eggs are **purchased
 ungraded** and **sold graded** (Jumbo, Large, Medium, Small, Extra Large), and

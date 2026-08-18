@@ -43,6 +43,14 @@ interface ListPageProps<T> {
    * and only the quick search shows.
    */
   searchFields?: SearchField[];
+  /**
+   * Render the table in sections. Rows are bucketed by the returned label and
+   * each bucket gets a full-width header row; `groupOrder` fixes the sequence
+   * (unlisted labels follow, alphabetically). Within a bucket the server's
+   * ordering is preserved.
+   */
+  groupBy?: (row: T) => string;
+  groupOrder?: string[];
 }
 
 /**
@@ -54,6 +62,8 @@ export function ListPage<T>({
   endpoint,
   columns,
   views,
+  groupBy,
+  groupOrder,
   newLabel,
   newPath,
   onNew,
@@ -231,9 +241,37 @@ export function ListPage<T>({
               </tr>
             </thead>
             <tbody>
-              {data.map((row) => {
+              {(groupBy
+                ? [...data].sort((a, b) => {
+                    const ga = groupBy(a);
+                    const gb = groupBy(b);
+                    if (ga === gb) return 0;
+                    const ia = groupOrder?.indexOf(ga) ?? -1;
+                    const ib = groupOrder?.indexOf(gb) ?? -1;
+                    if (ia !== -1 || ib !== -1) {
+                      return (ia === -1 ? 1e9 : ia) - (ib === -1 ? 1e9 : ib);
+                    }
+                    return ga.localeCompare(gb);
+                  })
+                : data
+              ).flatMap((row, i, arr) => {
+                const header =
+                  groupBy && (i === 0 || groupBy(arr[i - 1]!) !== groupBy(row)) ? (
+                    <tr key={`g:${groupBy(row)}`}>
+                      <td
+                        colSpan={columns.length + 1}
+                        className="border-b border-[#ebeaf2] bg-gray-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500"
+                      >
+                        {groupBy(row)}
+                        <span className="ml-2 font-normal normal-case text-gray-400">
+                          {arr.filter((r) => groupBy(r) === groupBy(row)).length}
+                        </span>
+                      </td>
+                    </tr>
+                  ) : null;
                 const k = rowKey(row);
-                return (
+                return [
+                  header,
                   <tr
                     key={k}
                     onClick={() => handleRow?.(row)}
@@ -260,8 +298,8 @@ export function ListPage<T>({
                         {c.render(row)}
                       </td>
                     ))}
-                  </tr>
-                );
+                  </tr>,
+                ];
               })}
             </tbody>
           </table>

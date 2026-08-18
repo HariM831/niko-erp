@@ -106,6 +106,8 @@ export const ItemsPage = () => (
     endpoint="/api/items"
     rowKey={(r) => r.id}
     views={itemViews}
+    groupBy={(r) => (r.category ? ITEM_CATEGORY_LABELS[r.category] : "Uncategorised")}
+    groupOrder={[...ITEM_CATEGORIES.map((c) => ITEM_CATEGORY_LABELS[c]), "Uncategorised"]}
     newLabel="New Item"
     newPath="/items/new"
     rowPath={(r) => `/items/${r.id}`}
