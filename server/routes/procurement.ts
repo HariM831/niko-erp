@@ -642,7 +642,9 @@ const QUEUE_STATUSES: Record<string, ReceiptStatus[]> = {
   gross: ["gate_in"],
   qc: ["weighed_in"],
   unloading: ["qc_passed", "unloading"],
-  tare: ["unloading_complete"],
+  // Unloading is not a station of its own: bags are counted at the weighbridge
+  // as the truck empties, so a QC-passed truck queues here directly.
+  tare: ["qc_passed", "unloading", "unloading_complete"],
   settlement: ["gate_out"],
 };
 
@@ -1119,6 +1121,20 @@ procurementRouter.patch(
     z.object({
       tareWeightKg: qtyStr,
       weighbridgeId: z.string().uuid().optional(),
+      /**
+       * Bags counted off the truck, per line. Recorded here because unloading
+       * and weighing out are one act at the platform — the bags come off and
+       * the empty vehicle goes on the weighbridge.
+       */
+      bags: z
+        .array(
+          z.object({
+            lineId: z.string().uuid(),
+            bagCountActual: z.number().int().nonnegative().nullable().optional(),
+          }),
+        )
+        .max(50)
+        .optional(),
       allocationMethod: z.enum(["pro_rata", "manual"]).default("pro_rata"),
       manualAllocation: z.array(z.object({ lineId: z.string().uuid(), allocatedNetKg: qtyStr })).optional(),
       shortageReason: z.string().optional(),
@@ -1128,29 +1144,80 @@ procurementRouter.patch(
     const body = req.body as {
       tareWeightKg: string;
       weighbridgeId?: string;
+      bags?: Array<{ lineId: string; bagCountActual?: number | null }>;
       allocationMethod: "pro_rata" | "manual";
       manualAllocation?: Array<{ lineId: string; allocatedNetKg: string }>;
       shortageReason?: string;
     };
     try {
       const out = await db.transaction(async (tx) => {
-        const receipt = await forTransition(tx, req.params.id!, "gate_out");
-        const gross = Number(receipt.grossWeightKg ?? 0);
+        const loaded = await tx.query.procurementReceipts.findFirst({
+          where: eq(procurementReceipts.id, req.params.id!),
+        });
+        if (!loaded) throw new PostingError("Goods receipt not found");
+        const gross = Number(loaded.grossWeightKg ?? 0);
         const tare = Number(body.tareWeightKg);
         if (!(gross > 0)) throw new PostingError("This truck has no gross weight recorded");
         if (tare >= gross) throw new PostingError("Tare cannot be heavier than gross");
 
-        const lines = await tx
+        let lines = await tx
           .select()
           .from(procurementReceiptLines)
-          .where(eq(procurementReceiptLines.receiptId, receipt.id))
+          .where(eq(procurementReceiptLines.receiptId, loaded.id))
           .orderBy(asc(procurementReceiptLines.lineNo));
+
+        /**
+         * Take the goods off the truck, here.
+         *
+         * Unloading stopped being a station of its own: the bags are counted at
+         * the platform as they come off, and the empty vehicle then goes on the
+         * weighbridge — one operator, one act. The receipt still walks every
+         * status it always did (qc_passed → unloading → unloading_complete →
+         * gate_out), so nothing downstream sees a record that skipped a step;
+         * it just walks them inside this one transaction.
+         */
+        if (loaded.status === "qc_passed" || loaded.status === "unloading") {
+          const bagOf = new Map((body.bags ?? []).map((b) => [b.lineId, b.bagCountActual]));
+          const now = new Date();
+          for (const l of lines) {
+            // QC refused it, so it never came off — it goes back with the truck.
+            if (l.status === "qc_rejected" || l.status === "unloaded") continue;
+            await tx
+              .update(procurementReceiptLines)
+              .set({
+                status: "unloaded",
+                bagCountActual: bagOf.has(l.id) ? (bagOf.get(l.id) ?? null) : l.bagCountActual,
+                unloadingStartedAt: l.unloadingStartedAt ?? now,
+                unloadingCompletedAt: now,
+                unloadingBy: req.session.user!.id,
+              })
+              .where(eq(procurementReceiptLines.id, l.id));
+          }
+          assertTransition(loaded.status, "unloading");
+          await tx
+            .update(procurementReceipts)
+            .set({
+              status: "unloading_complete",
+              unloadingStartedAt: loaded.unloadingStartedAt ?? now,
+              unloadingCompletedAt: now,
+            })
+            .where(eq(procurementReceipts.id, loaded.id));
+          lines = await tx
+            .select()
+            .from(procurementReceiptLines)
+            .where(eq(procurementReceiptLines.receiptId, loaded.id))
+            .orderBy(asc(procurementReceiptLines.lineNo));
+        }
+
+        const receipt = await forTransition(tx, req.params.id!, "gate_out");
 
         const stillOn = lines.filter((l) => l.status === "unloading");
         if (stillOn.length) throw new PostingError("A line is still being unloaded");
 
         const unloaded = lines.filter((l) => l.status === "unloaded");
-        if (!unloaded.length) throw new PostingError("Nothing was unloaded from this truck");
+        if (!unloaded.length) {
+          throw new PostingError("Every line was rejected at QC — nothing came off this truck");
+        }
 
         const netKg = Number((gross - tare).toFixed(3));
         const allocations = new Map<string, number>();

@@ -80,6 +80,10 @@ async function listRules(includeRetired: boolean) {
    * The figure that makes retiring a version a decision rather than a shrug: a
    * rule that has taken ₹40,000 off four vendors is not one to change casually.
    *
+   * The subquery alias is rule_usage, not the obvious "both": BOTH is a
+   * reserved word in Postgres (TRIM(BOTH ...)) and an unquoted alias of that
+   * name is a syntax error, which took this whole endpoint out with a 500.
+   *
    * Both tables, because deductions live on the BILL now — a negative line
    * against the goods — while vendor credit lines still carry a rule where one
    * was raised by hand. Void documents are excluded on either side: a reversed
@@ -99,7 +103,7 @@ async function listRules(includeRetired: boolean) {
       JOIN vendor_credits c ON c.id = l.vendor_credit_id
       WHERE l.rule_id IS NOT NULL AND c.status <> 'void'
       GROUP BY 1, 2
-    ) both
+    ) AS rule_usage
     GROUP BY 1, 2
   `);
   const usage = new Map(

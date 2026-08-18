@@ -122,7 +122,33 @@ export function SettlementPage() {
   // A gap against the vendor's printed total is expected whenever QC refused a
   // line; it needs a reason on the record either way.
   // Null means the vendor total was never captured — nothing to reconcile against.
-  const charging = (ctx?.deductions ?? [])
+  /**
+   * A quality deduction is a judgement, not a formula.
+   *
+   * A rule can price a shortage — the weighbridge says how many kilos are
+   * missing. It cannot price the state of the goods: that is somebody at the
+   * bench deciding what this load is worth, and there is no reading to compute
+   * it from. So the row is always offered and always blank, and because a
+   * deduction of zero is not charged, leaving it alone costs the vendor
+   * nothing. A rule that guessed would have to be corrected on every truck,
+   * and the one truck nobody corrected is the one that gets paid wrong.
+   */
+  const manual = (ctx?.lines ?? [])
+    .filter((l) => l.status !== "qc_rejected")
+    .map((l) => ({
+      lineId: l.id,
+      name:
+        (ctx?.lines.filter((x) => x.status !== "qc_rejected").length ?? 0) > 1
+          ? `Quality deductions — ${l.itemName ?? "line"}`
+          : "Quality deductions",
+      amount: 0,
+      basis: "Entered by hand — nothing is charged unless a figure is put here",
+      ruleId: null as string | null,
+      ruleVersion: null as number | null,
+    }));
+  const offered = [...(ctx?.deductions ?? []), ...manual];
+
+  const charging = offered
     .filter((d) => !dropped.has(keyOf(d)))
     .map((d) => ({ ...d, amount: Number(edited[keyOf(d)] ?? d.amount) }))
     .filter((d) => Number.isFinite(d.amount) && d.amount > 0);
@@ -236,14 +262,16 @@ export function SettlementPage() {
                 <span className="tabular-nums font-medium">{inr(ctx.goodsValue)}</span>
               </div>
 
-              {ctx.deductions.length > 0 && (
+              {offered.length > 0 && (
                 <div className="mt-3">
                   <div className="label">Deductions — negative lines on the bill</div>
-                  {ctx.deductions.map((d) => {
+                  {offered.map((d) => {
                     const key = keyOf(d);
                     const off = dropped.has(key);
-                    const value = edited[key] ?? d.amount.toFixed(2);
-                    const changed = !off && Math.abs(Number(value) - d.amount) > 0.005;
+                    const value = edited[key] ?? (d.ruleId == null ? "" : d.amount.toFixed(2));
+                    // A hand-entered figure has nothing to be adjusted from.
+                    const proposed = d.ruleId != null;
+                    const changed = proposed && !off && Math.abs(Number(value) - d.amount) > 0.005;
                     return (
                       <div key={key} className={`border-b border-gray-100 py-1.5 ${off ? "opacity-45" : ""}`}>
                         <div className="flex items-center justify-between gap-2">
@@ -287,7 +315,8 @@ export function SettlementPage() {
                     );
                   })}
                   <p className="mt-1 text-[11px] text-gray-400">
-                    Amounts come from the deduction rules. Change one and the original figure is
+                    Priced amounts come from the deduction rules; quality is entered by hand and
+                    charges nothing if left blank. Change a computed one and the original figure is
                     kept on the bill line beside it; waive one and it is not charged at all. The
                     goods lines stay at the vendor's own figures, so their invoice still ties line
                     for line — only the total differs, and each deduction says why.

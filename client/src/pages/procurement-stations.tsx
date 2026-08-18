@@ -23,10 +23,16 @@ import { ApiError, api } from "../api";
 import { useAuth } from "../auth";
 import { StatusBadge } from "../components/status-badge";
 
-export type Station = "weighbridge" | "qc" | "unloading" | "weigh-out";
+export type Station = "weighbridge" | "qc" | "weigh-out";
 
-/** Tab order is the order a truck meets them. */
-export const STATION_ORDER: Station[] = ["weighbridge", "qc", "unloading", "weigh-out"];
+/**
+ * Tab order is the order a truck meets them.
+ *
+ * Unloading is not among them: the bags are counted at the platform as they
+ * come off and the empty vehicle goes straight on the weighbridge, so it is
+ * one act by one operator and it belongs to Weigh Out.
+ */
+export const STATION_ORDER: Station[] = ["weighbridge", "qc", "weigh-out"];
 
 export const isStation = (v: string): v is Station =>
   (STATION_ORDER as string[]).includes(v);
@@ -36,7 +42,6 @@ export const stationPath = (s: Station) => `/procurement/unloading/${s}`;
 const QUEUE_OF: Record<Station, string> = {
   weighbridge: "gross",
   qc: "qc",
-  unloading: "unloading",
   "weigh-out": "tare",
 };
 
@@ -47,10 +52,9 @@ const TITLE: Record<Station, { title: string; sub: string; empty: string }> = {
     empty: "No trucks waiting at the platform.",
   },
   qc: { title: "Quality Control", sub: "Weighed, awaiting NIR", empty: "Nothing to sample." },
-  unloading: { title: "Unloading", sub: "Cleared by QC", empty: "Nothing cleared for unloading." },
   "weigh-out": {
     title: "Weigh Out",
-    sub: "Unloaded, awaiting weigh-out",
+    sub: "Cleared by QC — count the bags off and weigh the empty truck",
     empty: "No trucks waiting to weigh out.",
   },
 };
@@ -462,100 +466,17 @@ function QcPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
 
 
 /** Station 4. Per line: where it went, how much came off, what was damaged. */
-function UnloadingPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
-  const [error, setError] = useState<string | null>(null);
-  const [bags, setBags] = useState<Record<string, string>>({});
-  const [damage, setDamage] = useState<Record<string, string>>({});
-
-  const complete = useMutation({
-    mutationFn: (lineId: string) =>
-      api(`/api/procurement/receipts/${receipt.id}/lines/${lineId}/unloading`, {
-        method: "PATCH",
-        body: {
-          bagCountActual: bags[lineId] ? Number(bags[lineId]) : undefined,
-          damagePercent: damage[lineId] ? Number(damage[lineId]) : undefined,
-          complete: true,
-        },
-      }),
-    onSuccess: done,
-    onError: (e) => setError(e instanceof ApiError ? e.message : "Could not save"),
-  });
-
-  return (
-    <>
-      {error && <Err msg={error} />}
-      <div className="space-y-3">
-        {receipt.lines.map((l) => {
-          const rejected = l.status === "qc_rejected";
-          const off = l.status === "unloaded";
-          return (
-            <div
-              key={l.id}
-              className={`rounded-lg border p-3 ${rejected ? "border-gray-200 bg-gray-50 opacity-70" : "border-gray-200"}`}
-            >
-              <div className="mb-2 flex items-baseline justify-between">
-                <span className="text-[13px] font-medium text-gray-900">{l.itemName}</span>
-                <StatusBadge status={l.status} />
-              </div>
-              {rejected ? (
-                <p className="text-[12px] text-gray-500">
-                  Rejected at QC — stays on the truck. Do not unload.
-                </p>
-              ) : off ? (
-                <p className="text-[12px] text-green-700">
-                  Unloaded · {l.bagCountActual ?? "—"} bags
-                </p>
-              ) : (
-                <>
-                  <div className="mb-2 flex gap-2">
-                    <input
-                      value={bags[l.id] ?? String(l.billBagCount ?? "")}
-                      onChange={(e) => setBags((b) => ({ ...b, [l.id]: e.target.value }))}
-                      placeholder="Bags"
-                      inputMode="numeric"
-                      className="input w-24 text-right"
-                    />
-                    <input
-                      value={damage[l.id] ?? ""}
-                      onChange={(e) => setDamage((d) => ({ ...d, [l.id]: e.target.value }))}
-                      placeholder="Damage %"
-                      inputMode="decimal"
-                      className="input w-28 text-right"
-                    />
-                    <button
-                      className="btn-primary flex-1"
-                      disabled={complete.isPending}
-                      onClick={() => {
-                        setError(null);
-                        complete.mutate(l.id);
-                      }}
-                    >
-                      Complete line
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-gray-400">
-                    Bags are pre-filled from the bill. Correct it if the physical count differs —
-                    the gap is recorded, the expected count is not overwritten.
-                  </p>
-                </>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </>
-  );
-}
-
-/** Station 5. Tare, then split the net across whatever came off. */
 function TarePanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
   const [tare, setTare] = useState("");
   const [reason, setReason] = useState("");
+  const [bags, setBags] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
   const gross = Number(receipt.grossWeightKg ?? 0);
   const net = tare ? gross - Number(tare) : null;
-  const unloaded = receipt.lines.filter((l) => l.status === "unloaded");
+  // Whatever QC did not refuse comes off here. Once weighed out these are the
+  // lines already marked unloaded, so the same list serves before and after.
+  const unloaded = receipt.lines.filter((l) => l.status !== "qc_rejected");
   const totalBilled = unloaded.reduce((s, l) => s + Number(l.billQuantityKg), 0);
 
   // Mirrors the server's pro-rata split so the operator sees the same numbers
@@ -570,7 +491,15 @@ function TarePanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
     mutationFn: () =>
       api(`/api/procurement/receipts/${receipt.id}/tare-weight`, {
         method: "PATCH",
-        body: { tareWeightKg: tare, allocationMethod: "pro_rata", shortageReason: reason || undefined },
+        body: {
+          tareWeightKg: tare,
+          allocationMethod: "pro_rata",
+          shortageReason: reason || undefined,
+          bags: unloaded.map((l) => ({
+            lineId: l.id,
+            bagCountActual: bags[l.id]?.trim() ? Number(bags[l.id]) : null,
+          })),
+        },
       }),
     onSuccess: done,
     onError: (e) => setError(e instanceof ApiError ? e.message : "Could not record the tare"),
@@ -579,6 +508,44 @@ function TarePanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
   return (
     <>
       {error && <Err msg={error} />}
+
+      <div className="mb-3">
+        <div className="label">Bags off the truck</div>
+        {receipt.lines.map((l) => {
+          const rejected = l.status === "qc_rejected";
+          return (
+            <div
+              key={l.id}
+              className={`flex items-center justify-between gap-2 border-b border-gray-100 py-1.5 ${
+                rejected ? "opacity-50" : ""
+              }`}
+            >
+              <div className="min-w-0">
+                <div className="truncate text-[13px] font-medium text-gray-900">{l.itemName}</div>
+                <div className="text-[11px] text-gray-500">
+                  {rejected
+                    ? "Rejected at QC — stays on the truck"
+                    : `${kg(l.billQuantityKg)} billed${l.billBagCount ? ` · ${l.billBagCount} bags on the bill` : ""}`}
+                </div>
+              </div>
+              {!rejected && (
+                <input
+                  value={bags[l.id] ?? String(l.bagCountActual ?? l.billBagCount ?? "")}
+                  onChange={(e) => setBags((b) => ({ ...b, [l.id]: e.target.value }))}
+                  placeholder="Bags"
+                  inputMode="numeric"
+                  className="input h-8 w-24 shrink-0 text-right text-[13px]"
+                />
+              )}
+            </div>
+          );
+        })}
+        <p className="mt-1 text-[11px] text-gray-400">
+          Counted off as the truck empties. The bill's own count is offered where it gave one —
+          change it to what actually came off.
+        </p>
+      </div>
+
       <Field label="Tare weight from our platform (kg)">
         <input
           value={tare}
@@ -678,7 +645,6 @@ export function StationPage({ station }: { station: Station }) {
   const queues: Record<Station, ReturnType<typeof useQueue>> = {
     weighbridge: useQueue("weighbridge"),
     qc: useQueue("qc"),
-    unloading: useQueue("unloading"),
     "weigh-out": useQueue("weigh-out"),
   };
   const { data: queue, isLoading } = queues[station];
@@ -792,7 +758,6 @@ export function StationPage({ station }: { station: Station }) {
               </div>
               {station === "weighbridge" && <GrossPanel receipt={receipt} done={done} />}
               {station === "qc" && <QcPanel receipt={receipt} done={done} />}
-              {station === "unloading" && <UnloadingPanel receipt={receipt} done={done} />}
               {station === "weigh-out" && <TarePanel receipt={receipt} done={done} />}
             </>
           )}
