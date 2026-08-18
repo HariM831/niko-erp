@@ -16,6 +16,7 @@
 import { Router } from "express";
 import { and, asc, desc, eq, getTableColumns, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
+import { QC_PARAMETER_KEYS } from "@shared/feed";
 import {
   contacts,
   deductionRules,
@@ -42,10 +43,14 @@ const decimal = z.string().regex(/^-?\d+(\.\d{1,4})?$/, "Enter a number");
 const optDecimal = decimal.nullish();
 
 const paramSchema = z.object({
-  /** Machine name. Matched against a QC reading and against a rule's parameter. */
-  parameter: z
-    .string()
-    .regex(/^[a-z][a-z0-9_]{0,29}$/, "Use lowercase letters, digits and underscores"),
+  /**
+   * Machine name, from the closed QC vocabulary. Matched against a lab reading
+   * and against a deduction rule's parameter — which only works if both sides
+   * spell it the same way, so it is chosen, never typed.
+   */
+  parameter: z.enum(QC_PARAMETER_KEYS as [string, ...string[]], {
+    errorMap: () => ({ message: "Choose a quality parameter from the list" }),
+  }),
   label: z.string().max(60).nullish(),
   /** "%", "ppb", "mg/kg" — how the reading is expressed, printed on the PO. */
   unit: z.string().max(12).nullish(),
@@ -201,6 +206,13 @@ qualitySpecsRouter.post(
 
     const item = await db.query.items.findFirst({ where: eq(items.id, itemId) });
     if (!item) return res.status(404).json({ error: "Item not found" });
+    // A quality spec judges a raw material at the bench. Nothing else arrives
+    // by the tonne with a moisture reading, so nothing else gets one.
+    if (item.category !== "feed") {
+      return res
+        .status(422)
+        .json({ error: `${item.name} is not a feed material — quality specs are for feed items` });
+    }
 
     const seen = new Set<string>();
     for (const p of body.params) {
@@ -284,7 +296,7 @@ qualitySpecsRouter.delete("/:id", requirePermission("items", "edit"), async (req
   res.json(await specPayload(req.params.id!));
 });
 
-/** The Quality Specs list — every purchasable material, with or without a spec. */
+/** The Quality Specs list — every purchasable FEED material, with or without a spec. */
 qualitySpecsRouter.get("/", requirePermission("items", "view"), async (_req, res) => {
   const rows = await db
     .select({
@@ -298,7 +310,8 @@ qualitySpecsRouter.get("/", requirePermission("items", "view"), async (_req, res
     })
     .from(items)
     .leftJoin(qcSpecs, and(eq(qcSpecs.itemId, items.id), eq(qcSpecs.isActive, true)))
-    .where(and(eq(items.isActive, true), eq(items.isPurchased, true)))
+    // Feed only: a vaccine or a length of pipe is not sampled on a weighbridge.
+    .where(and(eq(items.isActive, true), eq(items.isPurchased, true), eq(items.category, "feed")))
     // Specced materials first. The org buys ninety-odd things and inspects a
     // handful of them; the handful is what this screen is for.
     .orderBy(sql`${qcSpecs.id} is null`, asc(items.name));

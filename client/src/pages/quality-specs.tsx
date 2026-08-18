@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
+import { QC_PARAMETERS, qcParameterDef } from "@shared/feed";
 
 interface IndexRow {
   id: string;
@@ -86,15 +87,6 @@ const num = (v: string | null | undefined) => {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 };
-
-/** The machine name a lab reading is matched on. Derived, then frozen on save. */
-const slug = (s: string) =>
-  s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .replace(/^([0-9])/, "p$1")
-    .slice(0, 30);
 
 /** These four have their own columns on a receipt line; the rest go to JSON. */
 const FIRST_CLASS = new Set(["moisture", "protein", "fiber", "fat"]);
@@ -467,17 +459,43 @@ export function QualitySpecsPage() {
                           and below that the name takes its own line instead of
                           shrinking to a letter and a half. */}
                       <div className="mb-1 flex flex-wrap items-center gap-2">
-                        <input
-                          value={d.label}
-                          placeholder="Moisture"
-                          onChange={(e) =>
-                            patch(i, {
-                              label: e.target.value,
-                              ...(d.isNew ? { key: slug(e.target.value) } : {}),
-                            })
-                          }
-                          className="input h-8 min-w-[140px] flex-1 text-[13px] font-medium"
-                        />
+                        {d.isNew ? (
+                          <div className="min-w-[140px] flex-1">
+                            <select
+                              value={d.key}
+                              onChange={(e) => {
+                                const def = qcParameterDef(e.target.value);
+                                patch(i, {
+                                  key: e.target.value,
+                                  label: def?.label ?? "",
+                                  // The unit and the sensible sense of the test
+                                  // come with the parameter; both stay editable.
+                                  unit: def?.unit ?? d.unit,
+                                  direction: def?.direction ?? d.direction,
+                                });
+                              }}
+                              className="input h-8 w-full text-[13px] font-medium"
+                            >
+                              <option value="">Choose a parameter…</option>
+                              {QC_PARAMETERS.filter(
+                                (o) => o.key === d.key || !drafts.some((x) => x.key === o.key),
+                              ).map((o) => (
+                                <option key={o.key} value={o.key}>
+                                  {o.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        ) : (
+                          /* Frozen once saved: the key is what a lab reading and
+                             a deduction rule are matched on. */
+                          <div
+                            className="min-w-[140px] flex-1 text-[13px] font-medium text-gray-900"
+                            title={qcParameterDef(d.key)?.hint}
+                          >
+                            {d.label || d.key}
+                          </div>
+                        )}
                         {/* Printed on the purchase order beside the limit, so a
                             vendor reads "Max 14%" and not a bare 14. */}
                         <div className="w-14 shrink-0">
@@ -561,14 +579,33 @@ export function QualitySpecsPage() {
                 <div className="mt-3 flex items-center justify-between">
                   <button
                     onClick={() =>
-                      setDrafts((ds) => [
-                        ...ds,
-                        // "%" is offered because everything measured today is one, and it sits
-        // in a box the author can see and clear — not assumed behind their back.
-        { key: "", label: "", unit: "%", direction: "max", target: "", warnAt: "", rejectAt: "", isNew: true },
-                      ])
+                      setDrafts((ds) => {
+                        // Open on the next parameter nobody has used, so the
+                        // common path is add-and-type-numbers rather than
+                        // add-then-pick-then-type.
+                        const next = QC_PARAMETERS.find((o) => !ds.some((x) => x.key === o.key));
+                        return [
+                          ...ds,
+                          {
+                            key: next?.key ?? "",
+                            label: next?.label ?? "",
+                            unit: next?.unit ?? "%",
+                            direction: next?.direction ?? "max",
+                            target: "",
+                            warnAt: "",
+                            rejectAt: "",
+                            isNew: true,
+                          },
+                        ];
+                      })
                     }
-                    className="flex shrink-0 items-center gap-1 text-[13px] text-brand-600 hover:underline"
+                    disabled={drafts.length >= QC_PARAMETERS.length}
+                    className="flex shrink-0 items-center gap-1 text-[13px] text-brand-600 hover:underline disabled:cursor-not-allowed disabled:text-gray-300 disabled:no-underline"
+                    title={
+                      drafts.length >= QC_PARAMETERS.length
+                        ? "Every quality parameter is already on this spec"
+                        : undefined
+                    }
                   >
                     <Plus size={14} /> Add parameter
                   </button>

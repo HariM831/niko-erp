@@ -110,3 +110,42 @@ export const NUTRIENT_SOURCE_LABELS: Record<NutrientSource, string> = {
   supplier: "Supplier datasheet",
   book: "Book value",
 };
+
+/**
+ * What a lab actually measures on an incoming raw material.
+ *
+ * A closed list, not free text. A spec whose parameter is typed by hand cannot
+ * be compared across materials, cannot be printed on a purchase order in words
+ * a vendor recognises, and — the expensive one — cannot be matched to a lab
+ * reading, because "Moist." and "Moisture" are different columns to a machine.
+ *
+ * These are quality parameters, deliberately NOT the same vocabulary as
+ * NUTRIENTS above. They overlap (protein, fat, fibre are both) but each list
+ * has entries the other has no use for: a formulator needs digestible lysine
+ * and never asks about sand, while a receiving bench asks about sand on every
+ * truck and has no reading for lysine.
+ *
+ * `direction` is only the sensible default when the parameter is added — the
+ * spec author can flip it, because the same figure cuts both ways depending on
+ * the material.
+ */
+export interface QcParameterDef {
+  key: string;
+  label: string;
+  unit: string;
+  /** "max" fails above the limit, "min" fails below it. */
+  direction: "max" | "min";
+  hint: string;
+}
+
+export const QC_PARAMETERS: QcParameterDef[] = [
+  { key: "moisture", label: "Moisture", unit: "%", direction: "max", hint: "Water bought at the price of material, and what spoils a stack in storage" },
+  { key: "protein", label: "Protein", unit: "%", direction: "min", hint: "What the material is bought for — short protein is short value" },
+  { key: "fat", label: "Fat", unit: "%", direction: "min", hint: "Energy. On a de-oiled cake a high reading means it was not fully extracted" },
+  { key: "fiber", label: "Fiber", unit: "%", direction: "max", hint: "Bulk the bird cannot use; high fibre dilutes the ration" },
+  { key: "sand_silica", label: "Sand Silica", unit: "%", direction: "max", hint: "Adulteration — weight that is neither feed nor accident" },
+];
+
+export const QC_PARAMETER_KEYS = QC_PARAMETERS.map((p) => p.key);
+const QC_BY_KEY = new Map(QC_PARAMETERS.map((p) => [p.key, p]));
+export const qcParameterDef = (key: string): QcParameterDef | undefined => QC_BY_KEY.get(key);
