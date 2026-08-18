@@ -79,6 +79,8 @@ export function ListPage<T>({
   const [, navigate] = useLocation();
   const [activeView, setActiveView] = useState(0);
   const [viewsOpen, setViewsOpen] = useState(false);
+  /** Group labels folded shut. Session state only — reopens on reload. */
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // The term is owned by the top bar's search box, which is where it is typed.
   const { register, term: search } = useSearchContext();
   const [criteria, setCriteria] = useState<Criteria>({});
@@ -255,20 +257,34 @@ export function ListPage<T>({
                   })
                 : data
               ).flatMap((row, i, arr) => {
+                const group = groupBy?.(row);
+                const isCollapsed = group != null && collapsed.has(group);
                 const header =
-                  groupBy && (i === 0 || groupBy(arr[i - 1]!) !== groupBy(row)) ? (
-                    <tr key={`g:${groupBy(row)}`}>
+                  groupBy && (i === 0 || groupBy(arr[i - 1]!) !== group) ? (
+                    <tr key={`g:${group}`}>
                       <td
                         colSpan={columns.length + 1}
-                        className="border-b border-[#ebeaf2] bg-gray-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500"
+                        onClick={() =>
+                          setCollapsed((c) => {
+                            const next = new Set(c);
+                            if (next.has(group!)) next.delete(group!);
+                            else next.add(group!);
+                            return next;
+                          })
+                        }
+                        className="cursor-pointer select-none border-b border-[#ebeaf2] bg-gray-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 hover:bg-gray-100"
                       >
-                        {groupBy(row)}
+                        <span className="mr-1.5 inline-block w-3 text-gray-400">
+                          {isCollapsed ? "▸" : "▾"}
+                        </span>
+                        {group}
                         <span className="ml-2 font-normal normal-case text-gray-400">
-                          {arr.filter((r) => groupBy(r) === groupBy(row)).length}
+                          {arr.filter((r) => groupBy(r) === group).length}
                         </span>
                       </td>
                     </tr>
                   ) : null;
+                if (isCollapsed) return header ? [header] : [];
                 const k = rowKey(row);
                 return [
                   header,

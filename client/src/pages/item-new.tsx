@@ -286,18 +286,24 @@ export function ItemNewPage({ editId }: { editId?: string }) {
           </div>
         </div>
 
-        {/* Sales Information */}
+        {/* Sales Information — only Produce is sold; the server clamps too. */}
         <div className="mt-6 max-w-3xl border-t pt-5">
           <label className="flex cursor-pointer items-center gap-2.5">
             <input
               type="checkbox"
-              checked={form.isSold}
+              disabled={form.category !== "produce"}
+              checked={form.category === "produce" && form.isSold}
               onChange={(e) => setForm((f) => ({ ...f, isSold: e.target.checked }))}
               className="h-4 w-4 accent-brand-500"
             />
             <span className="text-[13px] font-bold">Sales Information</span>
           </label>
-          {form.isSold && (
+          {form.category !== "produce" && (
+            <p className="mb-2 text-[11px] text-gray-400">
+              Only Produce items are sold. Set the category to Produce to price a sale.
+            </p>
+          )}
+          {form.category === "produce" && form.isSold && (
             <div className="mt-3 grid grid-cols-2 gap-4">
               <div>
                 <label className="label-required">Selling Price *</label>

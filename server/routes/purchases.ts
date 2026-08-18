@@ -59,6 +59,7 @@ import {
   vendorCreditLineInputs,
 } from "../services/purchases";
 import { describeSpecsForOrder } from "../services/qc";
+import { syncPurchaseRates } from "../services/purchases";
 
 export const purchasesRouter = Router();
 
@@ -704,6 +705,16 @@ purchasesRouter.post(
           .set({ status: "void", balanceDue: "0.00", updatedAt: new Date() })
           .where(eq(bills.id, bill.id))
           .returning();
+
+        // The item master's purchase rate follows the latest LIVE bill, so a
+        // void walks it back to the one before.
+        const voidedItems = await tx
+          .select({ itemId: billLines.itemId })
+          .from(billLines)
+          .where(eq(billLines.billId, bill.id));
+        const ids = [...new Set(voidedItems.map((l) => l.itemId).filter((v): v is string => !!v))];
+        if (ids.length) await syncPurchaseRates(tx, ids);
+
         return updated!;
       });
       res.json(result);

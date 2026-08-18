@@ -9,7 +9,7 @@
  * Everything takes a transaction handle: a document and its journal entry
  * commit together or not at all.
  */
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import {
   accounts,
   billLineTags,
@@ -22,7 +22,7 @@ import {
   vendorCreditLines,
   vendorCredits,
 } from "@shared/schema";
-import type { Tx } from "../db";
+import type { Db, Tx } from "../db";
 import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, postJournal } from "./posting";
 import { computeDocumentTotals, fromPaise, toPaise, type DocLineInput } from "./documents";
@@ -421,6 +421,34 @@ export interface CreateBillArgs {
 }
 
 /** Shared by direct bill creation and PO conversion. Posts the JE immediately (status "open"). */
+/**
+ * Keep each item's purchase rate at what the latest bill actually paid.
+ *
+ * The rate is read back from the ledger — the most recent non-void bill line
+ * for the item, by bill date — rather than trusting the document in hand, so a
+ * backdated bill cannot overwrite a newer price and voiding a bill walks the
+ * rate back to the one before it. Deduction lines (negative) and unpriced
+ * lines are ignored. Pass no ids to resync the whole master.
+ */
+export async function syncPurchaseRates(tx: Tx | Db, itemIds?: string[]): Promise<number> {
+  const scope = itemIds?.length ? sql`AND i.id = ANY(${itemIds}::uuid[])` : sql``;
+  const result = await tx.execute(sql`
+    UPDATE items i
+    SET cost_price = latest.rate::numeric(14,2)
+    FROM (
+      SELECT DISTINCT ON (bl.item_id) bl.item_id, bl.rate
+      FROM bill_lines bl
+      JOIN bills b ON b.id = bl.bill_id
+      WHERE b.status <> 'void' AND bl.item_id IS NOT NULL AND bl.rate::numeric > 0 AND bl.amount::numeric > 0
+      ORDER BY bl.item_id, b.bill_date DESC, b.created_at DESC
+    ) latest
+    WHERE i.id = latest.item_id
+      AND i.cost_price IS DISTINCT FROM latest.rate::numeric(14,2)
+      ${scope}
+  `);
+  return result.rowCount ?? 0;
+}
+
 export async function createBill(tx: Tx, args: CreateBillArgs) {
   const vendor = args.vendor;
   const c = await computeBill(
@@ -463,6 +491,10 @@ export async function createBill(tx: Tx, args: CreateBillArgs) {
     .values(billLineValues(c, bill!.id))
     .returning({ id: billLines.id, lineOrder: billLines.lineOrder });
   await saveBillLineTags(tx, c, insertedLines);
+
+  // The item master's purchase rate follows the latest bill.
+  const billedItemIds = [...new Set(c.computedLines.map((l) => l.itemId).filter((v): v is string => !!v))];
+  if (billedItemIds.length) await syncPurchaseRates(tx, billedItemIds);
 
   const jeId = await postJournal(tx, {
     entryDate: args.billDate,

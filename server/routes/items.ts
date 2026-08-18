@@ -166,6 +166,14 @@ itemsRouter.post(
       }
     }
     const body = req.body as z.infer<typeof itemSchema>;
+    // Only Produce is sold — eggs, birds, manure. Everything else the org buys
+    // to use, so a selling price on cement is a typo waiting to be invoiced.
+    if (body.category !== "produce") {
+      body.isSold = false;
+      body.sellingPrice = undefined;
+      body.salesAccountId = undefined;
+      body.salesDescription = undefined;
+    }
     if (body.trackInventory && !body.inventoryAccountId) {
       return res
         .status(422)
@@ -181,9 +189,21 @@ itemsRouter.patch(
   requirePermission("items", "edit"),
   validateBody(itemSchema.partial().extend({ isActive: z.boolean().optional() })),
   async (req, res) => {
+    const patch = { ...req.body } as Record<string, unknown>;
+    // The clamp reads the category the item will END UP with, so recategorising
+    // away from Produce strips its sale terms in the same edit.
+    const current = await db.query.items.findFirst({ where: eq(items.id, req.params.id!) });
+    if (!current) return res.status(404).json({ error: "Item not found" });
+    const finalCategory = "category" in patch ? patch.category : current.category;
+    if (finalCategory !== "produce") {
+      patch.isSold = false;
+      patch.sellingPrice = null;
+      patch.salesAccountId = null;
+      patch.salesDescription = null;
+    }
     const [row] = await db
       .update(items)
-      .set({ ...req.body, updatedAt: new Date() })
+      .set({ ...patch, updatedAt: new Date() })
       .where(eq(items.id, req.params.id!))
       .returning();
     if (!row) return res.status(404).json({ error: "Item not found" });
