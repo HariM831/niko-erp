@@ -7,10 +7,12 @@ import { AttachmentsButton } from "../components/attachments";
 import { CommentsButton } from "../components/comments";
 import { StatusBadge } from "../components/list-page";
 import { shortDate } from "./documents";
+import { ITEM_CATEGORY_LABELS, type ItemCategory } from "@shared/item-categories";
 
 interface Item {
   id: string;
   type: string;
+  category: ItemCategory | null;
   name: string;
   sku?: string;
   unit: string;
@@ -138,6 +140,11 @@ export function ItemDetailPage({ id }: { id: string }) {
             <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-gray-500">
               {item.type}
             </span>
+            {item.category && (
+              <span className="rounded bg-brand-50 px-1.5 py-0.5 text-[11px] font-medium text-brand-700">
+                {ITEM_CATEGORY_LABELS[item.category]}
+              </span>
+            )}
             {!item.isActive && <StatusBadge status="void" />}
           </div>
           <div className="flex items-center gap-1">

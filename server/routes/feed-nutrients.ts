@@ -92,11 +92,19 @@ feedNutrientsRouter.get(
   "/candidates",
   requirePermission("feed_mill", "view"),
   async (_req, res) => {
+    // Only Feed and Medicines may enter a formulation — the category is the
+    // gate, the feed-ingredient mark is the choice within it. An uncategorised
+    // item does not appear: say what it is first.
     const rows = await db
-      .select({ id: items.id, name: items.name, unit: items.unit })
+      .select({ id: items.id, name: items.name, unit: items.unit, category: items.category })
       .from(items)
       .where(
-        and(eq(items.isActive, true), eq(items.isPurchased, true), eq(items.isFeedIngredient, false)),
+        and(
+          eq(items.isActive, true),
+          eq(items.isPurchased, true),
+          eq(items.isFeedIngredient, false),
+          inArray(items.category, ["feed", "medicines"]),
+        ),
       )
       .orderBy(asc(items.name));
     res.json(rows);

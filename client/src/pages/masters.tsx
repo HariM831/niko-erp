@@ -2,6 +2,7 @@ import { ListPage, StatusBadge, type ListView } from "../components/list-page";
 import { AttachmentsButton } from "../components/attachments";
 import { Package } from "lucide-react";
 import { formatDate, formatMoney } from "../api";
+import { ITEM_CATEGORIES, ITEM_CATEGORY_LABELS, type ItemCategory } from "@shared/item-categories";
 
 const activeViews: ListView[] = [
   { label: "All", params: {} },
@@ -75,6 +76,7 @@ export const VendorsPage = () => (
 
 interface ItemRow {
   id: string;
+  category: ItemCategory | null;
   name: string;
   sku?: string;
   unit: string;
@@ -91,12 +93,19 @@ interface ItemRow {
 }
 
 /** Matches Zoho Books' Items list column set exactly. */
+/** All/Active/Inactive, then one view per category — the grouping the field is for. */
+const itemViews: ListView[] = [
+  ...activeViews,
+  ...ITEM_CATEGORIES.map((c) => ({ label: ITEM_CATEGORY_LABELS[c], params: { category: c } })),
+  { label: "Uncategorised", params: { category: "none" } },
+];
+
 export const ItemsPage = () => (
   <ListPage<ItemRow>
     title="Items"
     endpoint="/api/items"
     rowKey={(r) => r.id}
-    views={activeViews}
+    views={itemViews}
     newLabel="New Item"
     newPath="/items/new"
     rowPath={(r) => `/items/${r.id}`}
@@ -120,6 +129,18 @@ export const ItemsPage = () => (
             <span className="font-medium text-brand-600">{r.name}</span>
           </div>
         ),
+      },
+      {
+        key: "category",
+        header: "Category",
+        render: (r) =>
+          r.category ? (
+            <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600">
+              {ITEM_CATEGORY_LABELS[r.category]}
+            </span>
+          ) : (
+            <span className="text-gray-300">—</span>
+          ),
       },
       {
         key: "purchaseDescription",

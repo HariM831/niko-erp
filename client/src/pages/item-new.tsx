@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
+import { ITEM_CATEGORIES, ITEM_CATEGORY_LABELS } from "@shared/item-categories";
 import { uploadPending } from "../components/pending-attachments";
 import { ImagePlus, Search, X } from "lucide-react";
 
@@ -29,6 +30,7 @@ export function ItemNewPage({ editId }: { editId?: string }) {
     type: "goods",
     name: "",
     sku: "",
+    category: "",
     unit: "pcs",
     hsnOrSac: "",
     taxId: "",
@@ -64,6 +66,7 @@ export function ItemNewPage({ editId }: { editId?: string }) {
       name: (existing.name as string) ?? "",
       sku: (existing.sku as string) ?? "",
       unit: (existing.unit as string) ?? "pcs",
+      category: (existing.category as string) ?? "",
       hsnOrSac: (existing.hsnOrSac as string) ?? "",
       taxId: (existing.taxId as string) ?? "",
       isSold: existing.isSold !== false,
@@ -124,6 +127,7 @@ export function ItemNewPage({ editId }: { editId?: string }) {
           name: form.name,
           sku: form.sku || undefined,
           unit: form.unit || undefined,
+          category: form.category || null,
           hsnOrSac: form.hsnOrSac || undefined,
           taxId: form.taxId || undefined,
           isSold: form.isSold,
@@ -200,6 +204,17 @@ export function ItemNewPage({ editId }: { editId?: string }) {
               <div>
                 <label className={label}>SKU</label>
                 <input value={form.sku} onChange={set("sku")} className={inputCls} />
+              </div>
+              <div>
+                {/* Fixed options, not a custom field: the formulator and the
+                    Farm Store gate on these values. */}
+                <label className={label}>Category</label>
+                <select value={form.category} onChange={set("category")} className={inputCls}>
+                  <option value="">—</option>
+                  {ITEM_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>{ITEM_CATEGORY_LABELS[c]}</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <label className={label}>Unit</label>

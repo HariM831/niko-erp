@@ -1,8 +1,9 @@
 import { Router } from "express";
-import { and, asc, desc, eq, getTableColumns, ilike, or } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, ilike, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 import {
   attachments,
+  itemCategory,
   billLines,
   bills,
   contacts,
@@ -42,6 +43,7 @@ const itemSchema = z.object({
   purchaseDescription: z.string().optional(),
   preferredVendorId: z.string().uuid().optional(),
   isFeedIngredient: z.boolean().optional(),
+  category: z.enum(itemCategory.enumValues).nullish(),
   taxId: z.string().uuid().optional(),
   trackInventory: z.boolean().optional(),
   inventoryAccountId: z.string().uuid().optional(),
@@ -51,9 +53,13 @@ const itemSchema = z.object({
 });
 
 itemsRouter.get("/", requirePermission("items", "view"), async (req, res) => {
-  const { search, isActive } = req.query as Record<string, string | undefined>;
+  const { search, isActive, category } = req.query as Record<string, string | undefined>;
   const conditions = [];
   if (isActive !== undefined) conditions.push(eq(items.isActive, isActive === "true"));
+  if (category === "none") conditions.push(isNull(items.category));
+  else if (category && (itemCategory.enumValues as readonly string[]).includes(category)) {
+    conditions.push(eq(items.category, category as (typeof itemCategory.enumValues)[number]));
+  }
   if (search) {
     // Escaped, so "50%" searches for that text instead of matching everything.
     const term = contains(search);

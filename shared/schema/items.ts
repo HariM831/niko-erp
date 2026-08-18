@@ -9,9 +9,22 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 import { itemType } from "./enums";
+import { pgEnum } from "drizzle-orm/pg-core";
 import { accounts } from "./accounting";
 import { taxes } from "./core";
 import { contacts } from "./contacts";
+
+/**
+ * Mirrors ITEM_CATEGORIES in shared/item-categories.ts — behaviour hangs off
+ * these values (formulator picker, Farm Store intake), so they are code.
+ */
+export const itemCategory = pgEnum("item_category", [
+  "feed",
+  "vaccines",
+  "medicines",
+  "construction",
+  "miscellaneous",
+]);
 
 export const items = pgTable("items", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -45,6 +58,13 @@ export const items = pgTable("items", {
    * analysis is a consequence of the formula, not an input anybody types.
    */
   isFeedIngredient: boolean("is_feed_ingredient").notNull().default(false),
+
+  /**
+   * What kind of thing this is, for segregation and the module gates. Null
+   * means nobody has said yet — honest for a ninety-item master imported from
+   * Zoho, and a null is excluded from every category-gated picker.
+   */
+  category: itemCategory("category"),
 
   // Sales information
   isSold: boolean("is_sold").notNull().default(true),
