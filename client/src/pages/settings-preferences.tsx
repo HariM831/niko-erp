@@ -4,7 +4,7 @@ import { api } from "../api";
 import { Banner } from "../components/settings-ui";
 
 /** One page per module, the way Zoho splits its Module Settings. */
-type Module = "transactions" | "contacts" | "items" | "invoices" | "accountant";
+type Module = "transactions" | "contacts" | "items" | "invoices" | "accountant" | "procurement";
 
 const TITLES: Record<Module, { description: string }> = {
   transactions: {
@@ -21,6 +21,9 @@ const TITLES: Record<Module, { description: string }> = {
   },
   accountant: {
     description: "Chart of accounts rules.",
+  },
+  procurement: {
+    description: "How strictly a delivery at the gate has to agree with the order behind it.",
   },
 };
 
@@ -42,6 +45,7 @@ interface Preferences {
   enableCreditLimit: boolean;
   allowEditingSentInvoice: boolean;
   hideZeroValueLines: boolean;
+  poOverDeliveryPct: string;
   defaultInvoiceTerms: string | null;
   defaultInvoiceNotes: string | null;
   requireAccountCode: boolean;
@@ -364,6 +368,29 @@ function PreferencesShell({ only }: { only: Module }) {
           </>
         )}
 
+        {only === "procurement" && (
+          <Group title="Receiving at the gate">
+            <label className="label">Over-delivery allowance</label>
+            <div className="flex items-center gap-2">
+              <div className="w-24">
+                <input
+                  value={form.poOverDeliveryPct}
+                  onChange={(e) => set({ poOverDeliveryPct: e.target.value })}
+                  className="input"
+                />
+              </div>
+              <span className="text-[13px] text-gray-600">% over what the order still has due</span>
+            </div>
+            <p className="max-w-2xl text-[12px] text-gray-500">
+              An order is raised for a round tonnage before anything is weighed, so a truck almost
+              never arrives at exactly the ordered figure. Within this band the delivery still
+              matches its order and comes in; past it the gate holds the truck and somebody has to
+              say why. At zero, 43,330&nbsp;kg against a 43,300&nbsp;kg order is turned away over
+              30&nbsp;kg.
+            </p>
+          </Group>
+        )}
+
         {only === "accountant" && (
           <Group title="Chart of accounts">
             <Check
@@ -391,3 +418,4 @@ export const ContactPrefsSection = () => <PreferencesShell only="contacts" />;
 export const ItemPrefsSection = () => <PreferencesShell only="items" />;
 export const InvoicePrefsSection = () => <PreferencesShell only="invoices" />;
 export const AccountantPrefsSection = () => <PreferencesShell only="accountant" />;
+export const ProcurementPrefsSection = () => <PreferencesShell only="procurement" />;

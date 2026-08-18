@@ -14,6 +14,7 @@
  */
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { items, purchaseOrderLines, purchaseOrders } from "@shared/schema";
+import { getPreferences } from "./preferences";
 import type { Db, Tx } from "../db";
 import type { LineMatch, MatchReason, PoCandidate } from "@shared/po-match-types";
 
@@ -29,8 +30,12 @@ export const OPEN_PO_STATUSES = ["issued", "partially_billed"] as const;
  */
 export const RATE_TOLERANCE = 0.01;
 
-/** How much over the outstanding quantity a delivery may run. Nothing. */
-export const QUANTITY_TOLERANCE_PCT = 0;
+/**
+ * How much over the outstanding quantity a delivery may run, in percent, when
+ * the org has expressed no preference. Read from preferences.poOverDeliveryPct
+ * in practice — see that column for why this cannot be zero.
+ */
+export const DEFAULT_QUANTITY_TOLERANCE_PCT = 1;
 
 /** How far either side of the expected delivery date still counts as on time. */
 export const DATE_WINDOW_DAYS = 14;
@@ -60,18 +65,23 @@ function checkRate(billRate: number | null, poRate: number): MatchReason {
   };
 }
 
-function checkQuantity(qty: number | null, remaining: number): MatchReason {
+function checkQuantity(qty: number | null, remaining: number, tolerancePct: number): MatchReason {
   if (qty == null) {
     return { factor: "quantity", passed: false, detail: "No quantity on the bill" };
   }
-  const ceiling = remaining * (1 + QUANTITY_TOLERANCE_PCT / 100);
+  const ceiling = remaining * (1 + tolerancePct / 100);
   const passed = qty <= ceiling;
+  const over = qty - remaining;
   return {
     factor: "quantity",
     passed,
     detail: passed
-      ? `${kg(qty)} is within the ${kg(remaining)} still due`
-      : `${kg(qty)} is more than the ${kg(remaining)} still due`,
+      ? over > 0
+        ? `${kg(qty)} is ${kg(Number(over.toFixed(3)))} over the ${kg(remaining)} still due, ` +
+          `within the ${tolerancePct}% allowed`
+        : `${kg(qty)} is within the ${kg(remaining)} still due`
+      : `${kg(qty)} is more than the ${kg(remaining)} still due, ` +
+        `beyond the ${tolerancePct}% allowed`,
   };
 }
 
@@ -120,6 +130,10 @@ export async function matchPurchaseOrderLines(
     }));
 
   if (!vendorId) return none("Identify the vendor before an order can be matched");
+
+  // Read here rather than taking it as an argument, so every caller of the
+  // matcher honours the same setting and none can be given a different one.
+  const tolerancePct = Number((await getPreferences(db)).poOverDeliveryPct);
 
   const open = await db
     .select({
@@ -182,7 +196,7 @@ export async function matchPurchaseOrderLines(
           detail: sameItem ? `${po.name} is on this order` : `"${line.itemName}" is a known name for ${po.name}`,
         },
         checkRate(line.ratePerKg ?? null, n(po.rate)),
-        checkQuantity(line.quantityKg ?? null, remaining),
+        checkQuantity(line.quantityKg ?? null, remaining, tolerancePct),
         checkDate(billDate, po.expectedDeliveryDate),
       ];
 

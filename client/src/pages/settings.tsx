@@ -26,6 +26,7 @@ import {
   ContactPrefsSection,
   InvoicePrefsSection,
   ItemPrefsSection,
+  ProcurementPrefsSection,
   TransactionPrefsSection,
 } from "./settings-preferences";
 
@@ -42,7 +43,7 @@ interface SectionDef {
   /** Entity key from shared/entities.ts, when the module carries custom fields. */
   entity?: string;
   /** Which preferences block belongs to this module, if any. */
-  prefs?: "transactions" | "contacts" | "items" | "invoices" | "accountant";
+  prefs?: "transactions" | "contacts" | "items" | "invoices" | "accountant" | "procurement";
   /** Screens a module owns beyond preferences and custom fields. */
   extras?: Array<{ key: string; label: string }>;
 }
@@ -69,6 +70,7 @@ const SECTIONS: SectionDef[] = [
     label: "Procurement",
     group: "Module Settings",
     entity: "procurement_receipt",
+    prefs: "procurement",
     extras: [
       { key: "deductions", label: "Deduction Rules" },
       { key: "sites", label: "Gates & Weighbridges" },
@@ -889,6 +891,7 @@ function ModuleSettings({ def }: { def: SectionDef }) {
     items: ItemPrefsSection,
     invoices: InvoicePrefsSection,
     accountant: AccountantPrefsSection,
+    procurement: ProcurementPrefsSection,
   } as const;
   const Prefs = def.prefs ? PREFS[def.prefs] : null;
 

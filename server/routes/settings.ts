@@ -286,6 +286,15 @@ const preferencesSchema = z.object({
   hideZeroValueLines: z.boolean().optional(),
   defaultInvoiceTerms: z.string().max(2000).nullable().optional(),
   defaultInvoiceNotes: z.string().max(2000).nullable().optional(),
+  /**
+   * Capped at 10%: past that the figure stops being weighbridge slack and
+   * becomes an order nobody is really controlling.
+   */
+  poOverDeliveryPct: z
+    .string()
+    .regex(/^\d+(\.\d{1,3})?$/)
+    .refine((v) => Number(v) <= 10, "An over-delivery allowance above 10% is not a control")
+    .optional(),
 });
 
 settingsRouter.patch(

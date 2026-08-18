@@ -72,6 +72,22 @@ export const preferences = pgTable("preferences", {
   /** Account code is required on a new GL account. Codes are always unique. */
   requireAccountCode: boolean("require_account_code").notNull().default(true),
 
+  // ---- Procurement ----
+  /**
+   * How far a delivery may run over what an order still has due, in percent,
+   * and still match it at the gate.
+   *
+   * It cannot sensibly be zero. An order is raised for a round tonnage before
+   * anything is weighed, and the vendor loads what the vendor loads — 43.300 MT
+   * ordered against 43.330 MT delivered is the normal case, not an exception,
+   * and blocking it leaves a loaded truck at the boom over 0.07%. The band
+   * absorbs weighbridge reality; anything past it is a real over-supply and
+   * still stops at the gate.
+   */
+  poOverDeliveryPct: numeric("po_over_delivery_pct", { precision: 6, scale: 3 })
+    .notNull()
+    .default("1.000"),
+
   // ---- Feed mill ----
   /**
    * Output weighs this share of raw input after milling — moisture bakes off.
