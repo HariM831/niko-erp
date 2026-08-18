@@ -5,17 +5,33 @@
  * same everywhere: a list of trucks waiting on you, pick one, make the single
  * decision this station owns. Only the panel on the right changes.
  *
+ * The four live on ONE page as tabs rather than four sidebar entries. A truck
+ * walks Weigh In → QC → Unloading → Weigh Out in a single visit, so the person
+ * following it was navigating away and back four times to watch one vehicle
+ * move. The tabs carry a live count each, which is the thing a yard actually
+ * wants on screen: where the trucks are piling up, without clicking to find
+ * out.
+ *
  * Each screen is single-column and stacks on a phone. They are used one-handed
  * in a weighbridge cabin and at an NIR bench, but they are the same components
  * as the rest of EGGSY — no second design system.
  */
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api } from "../api";
 import { useAuth } from "../auth";
 import { StatusBadge } from "../components/status-badge";
 
-type Station = "weighbridge" | "qc" | "unloading" | "weigh-out";
+export type Station = "weighbridge" | "qc" | "unloading" | "weigh-out";
+
+/** Tab order is the order a truck meets them. */
+export const STATION_ORDER: Station[] = ["weighbridge", "qc", "unloading", "weigh-out"];
+
+export const isStation = (v: string): v is Station =>
+  (STATION_ORDER as string[]).includes(v);
+
+export const stationPath = (s: Station) => `/procurement/unloading/${s}`;
 
 const QUEUE_OF: Record<Station, string> = {
   weighbridge: "gross",
@@ -643,16 +659,30 @@ function Err({ msg }: { msg: string }) {
   );
 }
 
-export function StationPage({ station }: { station: Station }) {
-  const qc = useQueryClient();
-  const [selected, setSelected] = useState<string | null>(null);
-  const meta = TITLE[station];
-
-  const { data: queue, isLoading } = useQuery<QueueRow[]>({
+/** One station's queue. Called once per tab so every tab can show its count. */
+function useQueue(station: Station) {
+  return useQuery<QueueRow[]>({
     queryKey: ["procurement", "queue", station],
     queryFn: () => api(`/api/procurement/queue/${QUEUE_OF[station]}`),
     refetchInterval: 30_000,
   });
+}
+
+export function StationPage({ station }: { station: Station }) {
+  const qc = useQueryClient();
+  const [, navigate] = useLocation();
+  const [selected, setSelected] = useState<string | null>(null);
+  const meta = TITLE[station];
+
+  // Every queue, every tab — the counts are the point of putting them together.
+  const queues: Record<Station, ReturnType<typeof useQueue>> = {
+    weighbridge: useQueue("weighbridge"),
+    qc: useQueue("qc"),
+    unloading: useQueue("unloading"),
+    "weigh-out": useQueue("weigh-out"),
+  };
+  const { data: queue, isLoading } = queues[station];
+
   const { data: receipt } = useQuery<Receipt>({
     queryKey: ["procurement", "receipt", selected],
     queryFn: () => api(`/api/procurement/receipts/${selected}`),
@@ -664,13 +694,52 @@ export function StationPage({ station }: { station: Station }) {
     setSelected(null);
   };
 
+  const go = (s: Station) => {
+    // A truck picked at one station is not the truck waiting at the next.
+    setSelected(null);
+    navigate(stationPath(s));
+  };
+
   return (
     <div className="mx-auto max-w-4xl p-6">
-      <div className="mb-4 flex items-baseline justify-between">
-        <div>
-          <h1 className="text-[19px] font-semibold text-gray-900">{meta.title}</h1>
-          <p className="text-[13px] text-gray-500">{meta.sub}</p>
-        </div>
+      <h1 className="text-[19px] font-semibold text-gray-900">Unloading</h1>
+      <p className="mb-3 text-[13px] text-gray-500">
+        Everything between the gate and settlement, in the order a truck meets it.
+      </p>
+
+      <div className="mb-4 flex gap-1 border-b border-gray-200" role="tablist">
+        {STATION_ORDER.map((s) => {
+          const count = queues[s].data?.length ?? 0;
+          const active = s === station;
+          return (
+            <button
+              key={s}
+              role="tab"
+              aria-selected={active}
+              onClick={() => go(s)}
+              className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-[13px] transition-colors ${
+                active
+                  ? "border-brand-500 font-semibold text-brand-700"
+                  : "border-transparent text-gray-500 hover:text-gray-800"
+              }`}
+            >
+              {TITLE[s].title}
+              {count > 0 && (
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums ${
+                    active ? "bg-brand-100 text-brand-700" : "bg-gray-100 text-gray-600"
+                  }`}
+                >
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mb-3 flex items-baseline justify-between">
+        <p className="text-[13px] text-gray-500">{meta.sub}</p>
         <span className="text-[13px] text-gray-400">{queue?.length ?? 0} waiting</span>
       </div>
 

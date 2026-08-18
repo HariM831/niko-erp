@@ -1,4 +1,4 @@
-import { Route, Switch } from "wouter";
+import { Redirect, Route, Switch } from "wouter";
 import { useAuth } from "./auth";
 import { AppLayout } from "./components/layout";
 import { LoginPage } from "./pages/login";
@@ -64,7 +64,7 @@ import { DocumentSplitView } from "./components/split-view";
 import { ProcurementStationPage } from "./pages/procurement";
 import { GoodsReceiptsPage } from "./pages/procurement-receipts";
 import { GateInPage } from "./pages/procurement-gate";
-import { StationPage } from "./pages/procurement-stations";
+import { StationPage, isStation, stationPath } from "./pages/procurement-stations";
 import { SettlementPage } from "./pages/procurement-settlement";
 
 const SPLIT: Record<string, { endpoint: string; basePath: string; title: string; newPath: string; dateKey: string }> = {
@@ -147,10 +147,23 @@ export function App() {
         <Route path="/purchases/vendor-credits" component={VendorCreditsPage} />
         <Route path="/procurement/receipts" component={GoodsReceiptsPage} />
         <Route path="/procurement/gate" component={GateInPage} />
-        <Route path="/procurement/weighbridge">{() => <StationPage station="weighbridge" />}</Route>
-        <Route path="/procurement/qc">{() => <StationPage station="qc" />}</Route>
-        <Route path="/procurement/unloading">{() => <StationPage station="unloading" />}</Route>
-        <Route path="/procurement/weigh-out">{() => <StationPage station="weigh-out" />}</Route>
+        {/* Weigh In, QC, Unloading and Weigh Out are one page with four tabs.
+            The tab lives in the URL so a refresh and a shared link both land
+            where they were, and the four old paths still work. */}
+        <Route path="/procurement/unloading/:station">
+          {(p) =>
+            isStation(p.station!) ? (
+              <StationPage key={p.station} station={p.station} />
+            ) : (
+              <Redirect to={stationPath("weighbridge")} />
+            )
+          }
+        </Route>
+        <Route path="/procurement/unloading">{() => <StationPage station="weighbridge" />}</Route>
+        {/* The stations had a sidebar entry each before they became tabs. */}
+        <Route path="/procurement/weighbridge">{() => <Redirect to={stationPath("weighbridge")} />}</Route>
+        <Route path="/procurement/qc">{() => <Redirect to={stationPath("qc")} />}</Route>
+        <Route path="/procurement/weigh-out">{() => <Redirect to={stationPath("weigh-out")} />}</Route>
         <Route path="/feed-mill/nutrients" component={FeedNutrientsPage} />
         <Route path="/feed-mill/formulas" component={FeedFormulasPage} />
         <Route path="/feed-mill/formulator" component={FeedFormulatorPage} />
