@@ -72,6 +72,7 @@ interface Receipt {
   vendorBillNumber: string | null;
   vendorBillDate: string | null;
   billTotalAmount: string | null;
+  billTaxAmount: string | null;
   vendorSlipGrossKg: string | null;
   grossWeightKg: string | null;
   tareWeightKg: string | null;
@@ -149,6 +150,7 @@ function ReceiptEditor({
   const [billNumber, setBillNumber] = useState("");
   const [billDate, setBillDate] = useState(new Date().toISOString().slice(0, 10));
   const [billTotal, setBillTotal] = useState("");
+  const [billTax, setBillTax] = useState("");
   const [decision, setDecision] = useState<"allow" | "turn_away">("allow");
   const [exitReason, setExitReason] = useState("");
   const [slipGross, setSlipGross] = useState("");
@@ -168,6 +170,7 @@ function ReceiptEditor({
     setBillNumber(existing.vendorBillNumber ?? "");
     setBillDate(existing.vendorBillDate ?? new Date().toISOString().slice(0, 10));
     setBillTotal(existing.billTotalAmount ?? "");
+    setBillTax(existing.billTaxAmount ?? "");
     setSlipGross(existing.vendorSlipGrossKg ?? "");
     setGross(existing.grossWeightKg ?? "");
     setTare(existing.tareWeightKg ?? "");
@@ -278,6 +281,7 @@ function ReceiptEditor({
               vendorBillNumber: billNumber || null,
               vendorBillDate: billDate || null,
               billTotalAmount: billTotal || null,
+              billTaxAmount: billTax || null,
               vendorSlipGrossKg: slipGross || null,
               grossWeightKg: gross || null,
               tareWeightKg: tare || null,
@@ -296,6 +300,7 @@ function ReceiptEditor({
               vendorBillNumber: billNumber || undefined,
               vendorBillDate: billDate || undefined,
               billTotalAmount: billTotal || undefined,
+              billTaxAmount: billTax || undefined,
               deviceCapturedAt: new Date().toISOString(),
               lines: usable.map((l, i) => ({
                 purchaseOrderId: matches[i]?.chosen?.purchaseOrderId ?? undefined,
@@ -420,6 +425,19 @@ function ReceiptEditor({
         <div>
           <label className="label">Bill date</label>
           <input type="date" value={billDate} onChange={(e) => setBillDate(e.target.value)} className="input" />
+        </div>
+        <div>
+          {/* Settlement spreads this across the lines and bills the all-in
+              rate: we claim no input credit, so the vendor's tax is part of
+              what the material cost. Blank on a bill of supply. */}
+          <label className="label">GST on their bill</label>
+          <input
+            value={billTax}
+            onChange={(e) => setBillTax(e.target.value)}
+            inputMode="decimal"
+            placeholder="0.00"
+            className="input text-right"
+          />
         </div>
         <div>
           <label className="label">Bill grand total</label>

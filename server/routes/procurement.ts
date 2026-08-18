@@ -1316,10 +1316,32 @@ async function settlementContext(tx: Tx | typeof db, receiptId: string) {
     0,
   );
 
+  /**
+   * The vendor's own rounding, carried rather than recomputed.
+   *
+   * G K bill ₹21,79,499 + ₹1,08,974.95 IGST and then print ₹22,88,474.00 —
+   * five paise of roundoff at the foot of the page. Arriving at our own
+   * ₹22,88,473.95 leaves the payable permanently a few paise off the invoice
+   * it is meant to pay, which is exactly the mismatch that makes a vendor
+   * ledger impossible to agree at the year end.
+   *
+   * Only a rounding artefact is absorbed this way. Anything past a rupee is a
+   * real disagreement about the figures, and billTotalVariance below asks a
+   * person to explain it rather than quietly adopting the vendor's number.
+   */
+  const printedTotal = receipt.billTotalAmount == null ? null : Number(receipt.billTotalAmount);
+  const rawTotal = goodsTotal + billTax;
+  const vendorRoundOff =
+    printedTotal != null && Math.abs(printedTotal - rawTotal) <= 1
+      ? Number((printedTotal - rawTotal).toFixed(2))
+      : 0;
+  /** Everything the vendor adds to the goods: their tax and their rounding. */
+  const extras = billTax + vendorRoundOff;
+
   const billLines = unloaded.map((l) => {
     const qty = Number(l.line.billQuantityKg);
     const goods = Number(l.line.billAmount ?? qty * Number(l.line.agreedRatePerKg ?? 0));
-    const taxShare = goodsTotal > 0 ? (billTax * goods) / goodsTotal : 0;
+    const share = goodsTotal > 0 ? (extras * goods) / goodsTotal : 0;
     return {
       lineId: l.line.id,
       itemId: l.line.itemId,
@@ -1327,10 +1349,23 @@ async function settlementContext(tx: Tx | typeof db, receiptId: string) {
       accountId: l.purchaseAccountId,
       quantityKg: qty,
       // All-in: the bill total equals the vendor's printed grand total.
-      ratePerKg: qty > 0 ? (goods + taxShare) / qty : 0,
-      amount: goods + taxShare,
+      ratePerKg: qty > 0 ? (goods + share) / qty : 0,
+      amount: goods + share,
     };
   });
+
+  /**
+   * Deductions come off at the ALL-IN rate, the same one the goods are billed
+   * at.
+   *
+   * The vendor charged tax on the whole consignment including the 200 kg that
+   * never arrived. Deducting those kilos at the pre-tax rate would leave us
+   * paying the GST on them — a small amount on one truck, and a standing
+   * overpayment on every truck that ever runs short.
+   */
+  const allInRate = new Map(billLines.map((l) => [l.lineId, l.ratePerKg]));
+  const rateOf = (l: (typeof unloaded)[number]) =>
+    allInRate.get(l.line.id) ?? Number(l.line.agreedRatePerKg ?? 0);
 
   // What comes off, per line, from the rules in force. Everything a rule
   // might read is gathered here: the QC readings, the damage recorded at
@@ -1373,7 +1408,7 @@ async function settlementContext(tx: Tx | typeof db, receiptId: string) {
       const lineShort = shortByLine.get(l.line.id) ?? 0;
       if (lineShort <= 0) return [];
       const shareKg = Number(((lineShort / totalShortKg) * chargeableKg).toFixed(3));
-      const rate = Number(l.line.agreedRatePerKg ?? 0);
+      const rate = rateOf(l);
       const amount = Number((shareKg * rate).toFixed(2));
       if (amount <= 0) return [];
       const kgs = (v: number) => v.toLocaleString("en-IN", { maximumFractionDigits: 3 });
@@ -1392,7 +1427,7 @@ async function settlementContext(tx: Tx | typeof db, receiptId: string) {
           basis:
             `${kgs(shareKg)} kg of the ${kgs(chargeableKg)} kg chargeable` +
             ` (${kgs(totalShortKg)} kg short across the vehicle, less a ${kgs(allowanceKg)} kg allowance)` +
-            ` × ₹${rate}/kg`,
+            ` × ₹${rate.toFixed(3)}/kg`,
         },
       ];
     });
@@ -1401,7 +1436,7 @@ async function settlementContext(tx: Tx | typeof db, receiptId: string) {
   const deductions = unloaded.flatMap((l) => {
     const billed = Number(l.line.billQuantityKg);
     const net = Number(l.line.allocatedNetKg ?? 0);
-    const rate = Number(l.line.agreedRatePerKg ?? 0);
+    const rate = rateOf(l);
     const readings: Record<string, number | null> = {
       ...((l.line.qcOtherParams ?? {}) as Record<string, number>),
       moisture: l.line.qcMoisturePct == null ? null : Number(l.line.qcMoisturePct),

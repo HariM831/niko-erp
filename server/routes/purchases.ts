@@ -12,6 +12,7 @@ import {
   journalEntryLineTags,
   journalEntryLines,
   paymentMode,
+  procurementReceiptLines,
   procurementReceipts,
   reportingTagOptions,
   reportingTags,
@@ -734,6 +735,57 @@ purchasesRouter.post(
          * is to key a bill by hand and leave the receipt pointing at a void
          * document, which is how a goods receipt and the ledger stop agreeing.
          */
+        const toReopen = await tx
+          .select({ id: procurementReceipts.id, number: procurementReceipts.number })
+          .from(procurementReceipts)
+          .where(
+            and(eq(procurementReceipts.billId, bill.id), eq(procurementReceipts.status, "settled")),
+          );
+
+        for (const r of toReopen) {
+          /**
+           * Give the order back what settling took.
+           *
+           * Settling discharges the purchase order by what the vendor sent.
+           * Leave that behind on a void and the order reads as fully delivered
+           * against a bill that no longer exists — the receipt can never be
+           * matched to it again, and re-settling the same truck would discharge
+           * it a second time.
+           */
+          const settledLines = await tx
+            .select({
+              poLineId: procurementReceiptLines.poLineId,
+              qty: procurementReceiptLines.billQuantityKg,
+            })
+            .from(procurementReceiptLines)
+            .where(
+              and(
+                eq(procurementReceiptLines.receiptId, r.id),
+                eq(procurementReceiptLines.status, "settled"),
+              ),
+            );
+          for (const l of settledLines) {
+            if (!l.poLineId) continue;
+            await tx
+              .update(purchaseOrderLines)
+              .set({
+                deliveredQuantity: sql`GREATEST(0, ${purchaseOrderLines.deliveredQuantity} - ${l.qty})`,
+                billedQuantity: sql`GREATEST(0, ${purchaseOrderLines.billedQuantity} - ${l.qty})`,
+              })
+              .where(eq(purchaseOrderLines.id, l.poLineId));
+          }
+          // The lines go back to unloaded — off the truck, not yet billed.
+          await tx
+            .update(procurementReceiptLines)
+            .set({ status: "unloaded" })
+            .where(
+              and(
+                eq(procurementReceiptLines.receiptId, r.id),
+                eq(procurementReceiptLines.status, "settled"),
+              ),
+            );
+        }
+
         const reopened = await tx
           .update(procurementReceipts)
           .set({
