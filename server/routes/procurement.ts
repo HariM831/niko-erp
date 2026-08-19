@@ -1480,9 +1480,15 @@ async function settlementContext(tx: Tx | typeof db, receiptId: string) {
           quantityKg: 1,
           ratePerKg: amount,
           amount,
+          // Short, allowed, charged — the order the argument runs in when a
+          // vendor queries it. The "of the" clause appears only on a truck
+          // carrying more than one material, where this line takes a share of
+          // the shortfall rather than all of it.
           basis:
-            `${kgs(shareKg)} kg of the ${kgs(chargeableKg)} kg chargeable` +
-            ` (${kgs(totalShortKg)} kg short across the vehicle, less a ${kgs(allowanceKg)} kg allowance)` +
+            `${kgs(totalShortKg)} kg short, ${kgs(allowanceKg)} kg allowed, ` +
+            (shareKg === chargeableKg
+              ? `${kgs(shareKg)} kg`
+              : `${kgs(shareKg)} kg of the ${kgs(chargeableKg)} kg`) +
             ` × ₹${rate.toFixed(3)}/kg`,
         },
       ];
@@ -1675,30 +1681,37 @@ procurementRouter.post(
         const charging = body.deductions ? approved : ctx.deductions;
         const deductionTotal = Number(charging.reduce((s, d) => s + d.amount, 0).toFixed(2));
 
+        const rupees = (v: number) =>
+          `₹${v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+        /** 2026-08-18 → 18-08-2026, the way the date reads on their paper. */
+        const asDate = (d: string) => d.split("-").reverse().join("-");
         /**
-         * The bill has to explain itself.
+         * The note explains the DIFFERENCE, and nothing else.
          *
-         * A vendor querying ₹11,319 six months on should find the answer on the
-         * document, not have to ask someone to open a goods receipt. Each
-         * deduction states its own arithmetic on its own line; these notes give
-         * the surrounding facts — which truck, which of their bills, and the
-         * weighbridge figures the shortfall came out of.
+         * A vendor querying this bill six months on wants one thing: why it is
+         * not their figure. So the note names the truck and their bill, then
+         * each deduction with its own arithmetic — short, allowed, charged.
+         *
+         * Gross, tare and net are deliberately absent. They are on the goods
+         * receipt for anyone who needs them, and printing three weights nobody
+         * asked about only buries the one sentence that answers the question.
          */
         const explanation = [
-          `Settled from goods receipt ${receipt.number}`,
-          `Vehicle ${receipt.vehicleNumber} · vendor bill ${receipt.vendorBillNumber ?? "not given"}` +
-            (receipt.vendorBillDate ? ` dated ${receipt.vendorBillDate}` : ""),
-          `Gross ${receipt.grossWeightKg ?? "—"} kg · tare ${receipt.tareWeightKg ?? "—"} kg · net ${receipt.netWeightKg ?? "—"} kg`,
+          [
+            receipt.number,
+            receipt.vehicleNumber,
+            receipt.vendorBillNumber ? `their bill ${receipt.vendorBillNumber}` : null,
+            receipt.vendorBillDate ? `dated ${asDate(receipt.vendorBillDate)}` : null,
+          ]
+            .filter(Boolean)
+            .join(" · "),
           ...(charging.length
             ? [
                 "",
-                "Deducted:",
-                ...charging.map((d) => `  ${d.name}\n    ${d.basis}\n    = ₹${d.amount.toLocaleString("en-IN")}`),
-                "",
-                // Safe to add up: each deduction line is one unit at its own
-                // value, so the lines really do sum to this. The bill's own
-                // rounding sits on the bill total, where it is visible.
-                `Total deducted: ₹${deductionTotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`,
+                "Deducted",
+                ...charging.map((d) => `  ${d.name}  ${rupees(d.amount)}\n  ${d.basis}`),
+                // Only worth adding up when there is more than one.
+                ...(charging.length > 1 ? [`  Total ${rupees(deductionTotal)}`] : []),
               ]
             : []),
         ].join("\n");
