@@ -32,6 +32,45 @@ const solveSchema = z.object({
     .optional(),
 });
 
+/**
+ * What a life stage asks for, before anything is solved.
+ *
+ * The screen fills its requirements panel the moment a stage is picked, so a
+ * person can see what they are aiming at — and, just as usefully, see that a
+ * stage has no standard at all rather than discovering it when Solve refuses.
+ */
+feedFormulatorRouter.get(
+  "/standard/:stage",
+  requirePermission("feed_mill", "view"),
+  async (req, res) => {
+    const stage = req.params.stage as (typeof lifeStage.enumValues)[number];
+    if (!lifeStage.enumValues.includes(stage)) {
+      return res.status(404).json({ error: "No such life stage" });
+    }
+    const [standard] = await db
+      .select({ id: feedStandards.id, version: feedStandards.version })
+      .from(feedStandards)
+      .where(and(eq(feedStandards.stage, stage), eq(feedStandards.isActive, true)));
+    if (!standard) return res.json({ stage, version: null, params: [] });
+
+    const params = await db
+      .select()
+      .from(feedStandardParams)
+      .where(eq(feedStandardParams.standardId, standard.id))
+      .orderBy(asc(feedStandardParams.sortOrder));
+
+    res.json({
+      stage,
+      version: standard.version,
+      params: params.map((p) => ({
+        nutrient: p.nutrient,
+        minValue: p.minValue == null ? null : Number(p.minValue),
+        maxValue: p.maxValue == null ? null : Number(p.maxValue),
+      })),
+    });
+  },
+);
+
 feedFormulatorRouter.post(
   "/solve",
   requirePermission("feed_mill", "formulate"),
@@ -113,6 +152,18 @@ feedFormulatorRouter.post(
     res.json({
       ...result,
       standardVersion: standard.version,
+      /**
+       * The bounds the solve was held to, returned with it.
+       *
+       * The screen shows asked-against-got side by side, and reading the
+       * "asked" from anywhere other than the solve that produced the "got"
+       * is how the two quietly stop describing the same thing.
+       */
+      standard: params.map((p) => ({
+        nutrient: p.nutrient,
+        minValue: p.minValue == null ? null : Number(p.minValue),
+        maxValue: p.maxValue == null ? null : Number(p.maxValue),
+      })),
       prices: Object.fromEntries(materialRows.map((m) => [m.id, priceOf(m)])),
       unpriced: materialRows.filter((m) => priceOf(m) == null).map((m) => m.name),
     });

@@ -324,14 +324,24 @@ export function solveLeastCost(opts: SolveOptions): SolveResult {
     // rest; the delta is what that swap costs at today's prices.
     const deltaPer100 = test.result - out.result;
     const breakEven = round(ing.costPerKg! - deltaPer100, 2);
+    /**
+     * A break-even at or below zero is not a price.
+     *
+     * It means forcing this material in costs more than it is worth even free:
+     * it displaces something the mix needs and the rest has to be rebalanced
+     * around it. Printing "buy under ₹-2.72" invites somebody to go looking for
+     * a quote that cannot exist, so it is reported as what it is.
+     */
+    const worthless = breakEven <= 0;
     shadowPrices.push({
       ingredientId: ing.id,
       ingredientName: ing.name,
       currentPrice: ing.costPerKg!,
-      breakEvenPrice: breakEven,
-      wouldEnter: breakEven >= ing.costPerKg!,
-      insight:
-        breakEven >= ing.costPerKg!
+      breakEvenPrice: worthless ? null : breakEven,
+      wouldEnter: !worthless && breakEven >= ing.costPerKg!,
+      insight: worthless
+        ? `No price would bring it in — it displaces something the mix needs.`
+        : breakEven >= ing.costPerKg!
           ? `Degenerate tie at today's prices — the solver had an equally cheap mix without it.`
           : `Enters the mix below ₹${breakEven}/kg — today it is ₹${round(ing.costPerKg! - breakEven, 2)} too dear.`,
     });
