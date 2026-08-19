@@ -8,7 +8,7 @@
  *     normalised comparison. A match is marked `isFeedIngredient`, given the
  *     export's price where EGGSY has none, and its nutrient profile written
  *     (source "book"). An Amino material with no EGGSY item is REPORTED, never
- *     invented — the item master is procurement's, and a half-created item
+ *     invented — the item master is office's, and a half-created item
  *     with no account is worse than a line in a report.
  *
  *   HOUSES — sheds become locations (type farm) where no location of that
@@ -102,7 +102,7 @@ async function main() {
         .set({
           isFeedIngredient: true,
           // The export's price fills a blank; a price EGGSY already has wins,
-          // because EGGSY's came through procurement and is newer.
+          // because EGGSY's came through office and is newer.
           ...(m.costPerKg && !Number(item.costPrice) ? { costPrice: String(m.costPerKg) } : {}),
           ...(m.bagWeightKg && item.unitBagWeightKg == null
             ? { unitBagWeightKg: String(m.bagWeightKg) }

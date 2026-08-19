@@ -405,7 +405,7 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
   /**
    * A negative line is a deduction, not a thing the vendor supplied.
    *
-   * Procurement settles a truck as one bill: the goods at the vendor's own
+   * Office settles a truck as one bill: the goods at the vendor's own
    * figure, then a negative line for each thing we are not paying for. On the
    * sheet those belong below the subtotal, where a discount goes — listing them
    * as items would make the goods table disagree with the vendor's invoice,

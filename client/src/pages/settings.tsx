@@ -19,14 +19,14 @@ import { LocationsSection } from "./settings-locations";
 import { ReportingTagsSection } from "./settings-tags";
 import { CustomFieldsTab } from "./settings-fields";
 import { DeductionRulesSection } from "./deduction-rules";
-import { ProcurementSitesSection } from "./procurement-sites";
+import { OfficeSitesSection } from "./office-sites";
 import { FeedStandardsSection } from "./feed-standards";
 import {
   AccountantPrefsSection,
   ContactPrefsSection,
   InvoicePrefsSection,
   ItemPrefsSection,
-  ProcurementPrefsSection,
+  OfficePrefsSection,
   TransactionPrefsSection,
 } from "./settings-preferences";
 
@@ -43,7 +43,7 @@ interface SectionDef {
   /** Entity key from shared/entities.ts, when the module carries custom fields. */
   entity?: string;
   /** Which preferences block belongs to this module, if any. */
-  prefs?: "transactions" | "contacts" | "items" | "invoices" | "accountant" | "procurement";
+  prefs?: "transactions" | "contacts" | "items" | "invoices" | "accountant" | "office";
   /** Screens a module owns beyond preferences and custom fields. */
   extras?: Array<{ key: string; label: string }>;
 }
@@ -66,11 +66,11 @@ const SECTIONS: SectionDef[] = [
   { key: "m-bills", label: "Bills", group: "Module Settings", entity: "bill" },
   { key: "m-expenses", label: "Expenses", group: "Module Settings", entity: "expense" },
   {
-    key: "m-procurement",
-    label: "Gate",
+    key: "m-office",
+    label: "Office",
     group: "Module Settings",
-    entity: "procurement_receipt",
-    prefs: "procurement",
+    entity: "office_receipt",
+    prefs: "office",
     extras: [
       { key: "deductions", label: "Deduction Rules" },
       { key: "sites", label: "Gates & Weighbridges" },
@@ -870,7 +870,7 @@ function LockPeriodModal({
 /** The screens a module owns beyond preferences and custom fields. */
 const MODULE_EXTRAS: Record<string, () => ReactElement> = {
   deductions: DeductionRulesSection,
-  sites: ProcurementSitesSection,
+  sites: OfficeSitesSection,
   "feed-standards": FeedStandardsSection,
 };
 
@@ -891,7 +891,7 @@ function ModuleSettings({ def }: { def: SectionDef }) {
     items: ItemPrefsSection,
     invoices: InvoicePrefsSection,
     accountant: AccountantPrefsSection,
-    procurement: ProcurementPrefsSection,
+    office: OfficePrefsSection,
   } as const;
   const Prefs = def.prefs ? PREFS[def.prefs] : null;
 

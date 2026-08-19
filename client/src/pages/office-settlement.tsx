@@ -77,20 +77,20 @@ export function SettlementPage() {
   const [done, setDone] = useState<string | null>(null);
 
   const { data: queue } = useQuery<QueueRow[]>({
-    queryKey: ["procurement", "queue", "settlement"],
-    queryFn: () => api("/api/procurement/queue/settlement"),
+    queryKey: ["office", "queue", "settlement"],
+    queryFn: () => api("/api/office/queue/settlement"),
     refetchInterval: 30_000,
   });
   const { data: ctx } = useQuery<Context>({
-    queryKey: ["procurement", "settlement", selected],
-    queryFn: () => api(`/api/procurement/receipts/${selected}/settlement-context`),
+    queryKey: ["office", "settlement", selected],
+    queryFn: () => api(`/api/office/receipts/${selected}/settlement-context`),
     enabled: !!selected,
   });
 
   const settle = useMutation({
     mutationFn: () =>
       api<{ bill: { number: string; total: string }; deducted: string }>(
-        `/api/procurement/receipts/${selected}/settle`,
+        `/api/office/receipts/${selected}/settle`,
         {
           method: "POST",
           body: {
@@ -107,7 +107,7 @@ export function SettlementPage() {
         },
       ),
     onSuccess: (r) => {
-      void qc.invalidateQueries({ queryKey: ["procurement"] });
+      void qc.invalidateQueries({ queryKey: ["office"] });
       setDone(
         Number(r.deducted) > 0
           ? `${r.bill.number} raised for ${inr(Number(r.bill.total))} — ${inr(Number(r.deducted))} deducted on the bill`

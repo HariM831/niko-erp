@@ -4,7 +4,7 @@ import { api } from "../api";
 import { Banner } from "../components/settings-ui";
 
 /** One page per module, the way Zoho splits its Module Settings. */
-type Module = "transactions" | "contacts" | "items" | "invoices" | "accountant" | "procurement";
+type Module = "transactions" | "contacts" | "items" | "invoices" | "accountant" | "office";
 
 const TITLES: Record<Module, { description: string }> = {
   transactions: {
@@ -22,7 +22,7 @@ const TITLES: Record<Module, { description: string }> = {
   accountant: {
     description: "Chart of accounts rules.",
   },
-  procurement: {
+  office: {
     description: "How strictly a delivery at the gate has to agree with the order behind it.",
   },
 };
@@ -368,7 +368,7 @@ function PreferencesShell({ only }: { only: Module }) {
           </>
         )}
 
-        {only === "procurement" && (
+        {only === "office" && (
           <Group title="Receiving at the gate">
             <label className="label">Over-delivery allowance</label>
             <div className="flex items-center gap-2">
@@ -418,4 +418,4 @@ export const ContactPrefsSection = () => <PreferencesShell only="contacts" />;
 export const ItemPrefsSection = () => <PreferencesShell only="items" />;
 export const InvoicePrefsSection = () => <PreferencesShell only="invoices" />;
 export const AccountantPrefsSection = () => <PreferencesShell only="accountant" />;
-export const ProcurementPrefsSection = () => <PreferencesShell only="procurement" />;
+export const OfficePrefsSection = () => <PreferencesShell only="office" />;

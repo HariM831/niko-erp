@@ -9,7 +9,7 @@
  * the policy that was live last March is part of explaining last March's
  * payments. A version is never rewritten.
  *
- * Gated on `procurement.manage_rules`, which is deliberately not `settle`.
+ * Gated on `office.manage_rules`, which is deliberately not `settle`.
  * Settling applies the rules to one truck; this writes the rules that apply to
  * every truck.
  */
@@ -139,7 +139,7 @@ async function listRules(includeRetired: boolean) {
   }));
 }
 
-deductionRulesRouter.get("/", requirePermission("procurement", "view"), async (req, res) => {
+deductionRulesRouter.get("/", requirePermission("office", "view"), async (req, res) => {
   res.json(await listRules(req.query.includeRetired === "true"));
 });
 
@@ -152,7 +152,7 @@ deductionRulesRouter.get("/", requirePermission("procurement", "view"), async (r
  */
 deductionRulesRouter.post(
   "/preview",
-  requirePermission("procurement", "view"),
+  requirePermission("office", "view"),
   validateBody(
     ruleSchema.partial({ name: true, effectiveFrom: true }).extend({
       reading: z.number(),
@@ -202,7 +202,7 @@ deductionRulesRouter.post(
 
 deductionRulesRouter.post(
   "/",
-  requirePermission("procurement", "manage_rules"),
+  requirePermission("office", "manage_rules"),
   validateBody(ruleSchema),
   async (req, res) => {
     const body = req.body as RuleBody;
@@ -240,7 +240,7 @@ function clash(body: RuleBody): string {
  */
 deductionRulesRouter.post(
   "/:id",
-  requirePermission("procurement", "manage_rules"),
+  requirePermission("office", "manage_rules"),
   validateBody(ruleSchema),
   async (req, res) => {
     const body = req.body as RuleBody;
@@ -285,7 +285,7 @@ deductionRulesRouter.post(
  */
 deductionRulesRouter.delete(
   "/:id",
-  requirePermission("procurement", "manage_rules"),
+  requirePermission("office", "manage_rules"),
   async (req, res) => {
     const [row] = await db
       .update(deductionRules)
@@ -305,7 +305,7 @@ deductionRulesRouter.delete(
  */
 deductionRulesRouter.get(
   "/parameters",
-  requirePermission("procurement", "view"),
+  requirePermission("office", "view"),
   async (_req, res) => {
     const rows = await db.execute(sql`
       SELECT DISTINCT p.parameter, coalesce(p.label, p.parameter) AS label
@@ -326,7 +326,7 @@ deductionRulesRouter.get(
 );
 
 /** Materials and vendors a rule can be narrowed to. */
-deductionRulesRouter.get("/targets", requirePermission("procurement", "view"), async (_req, res) => {
+deductionRulesRouter.get("/targets", requirePermission("office", "view"), async (_req, res) => {
   const [materials, vendors] = await Promise.all([
     db
       .select({ id: items.id, name: items.name })

@@ -45,15 +45,15 @@ interface Sites {
 
 const orNull = (v: string) => (v.trim() === "" ? null : v.trim());
 
-export function ProcurementSitesSection() {
+export function OfficeSitesSection() {
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [adding, setAdding] = useState<"gate" | "weighbridge" | null>(null);
 
   const { data } = useQuery<Sites>({
-    queryKey: ["procurement-sites"],
-    queryFn: () => api("/api/procurement-sites"),
+    queryKey: ["office-sites"],
+    queryFn: () => api("/api/office-sites"),
   });
   const { data: locations } = useQuery<Array<{ id: string; name: string }>>({
     queryKey: ["locations-for-sites"],
@@ -64,13 +64,13 @@ export function ProcurementSitesSection() {
     setSaved(msg);
     setError(null);
     setAdding(null);
-    void qc.invalidateQueries({ queryKey: ["procurement-sites"] });
+    void qc.invalidateQueries({ queryKey: ["office-sites"] });
   };
   const onError = (e: unknown) => setError(e instanceof ApiError ? e.message : "Could not save");
 
   const toggle = useMutation({
     mutationFn: (v: { kind: "gates" | "weighbridges"; id: string; isActive: boolean }) =>
-      api(`/api/procurement-sites/${v.kind}/${v.id}`, { method: "PATCH", body: { isActive: v.isActive } }),
+      api(`/api/office-sites/${v.kind}/${v.id}`, { method: "PATCH", body: { isActive: v.isActive } }),
     onSuccess: (_r, v) => after(v.isActive ? "Back in service" : "Taken out of service"),
     onError,
   });
@@ -239,7 +239,7 @@ function GateForm({ locations, onDone, onError, onCancel }: FormProps) {
 
   const create = useMutation({
     mutationFn: () =>
-      api("/api/procurement-sites/gates", {
+      api("/api/office-sites/gates", {
         method: "POST",
         body: {
           name: f.name.trim(),
@@ -320,7 +320,7 @@ function WeighbridgeForm({ locations, onDone, onError, onCancel }: FormProps) {
 
   const create = useMutation({
     mutationFn: () =>
-      api("/api/procurement-sites/weighbridges", {
+      api("/api/office-sites/weighbridges", {
         method: "POST",
         body: { name: f.name.trim(), locationId: f.locationId, capacityKg: orNull(f.capacityKg) },
       }),

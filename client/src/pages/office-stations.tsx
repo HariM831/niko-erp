@@ -46,7 +46,7 @@ const QUEUELESS: Station[] = ["transfer"];
 export const isStation = (v: string): v is Station =>
   (STATION_ORDER as string[]).includes(v);
 
-export const stationPath = (s: Station) => `/procurement/unloading/${s}`;
+export const stationPath = (s: Station) => `/office/unloading/${s}`;
 
 const QUEUE_OF: Record<Station, string> = {
   weighbridge: "gross",
@@ -132,7 +132,7 @@ function GrossPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
 
   const save = useMutation({
     mutationFn: () =>
-      api(`/api/procurement/receipts/${receipt.id}/gross-weight`, {
+      api(`/api/office/receipts/${receipt.id}/gross-weight`, {
         method: "PATCH",
         body: { grossWeightKg: weight, varianceReason: reason || undefined },
       }),
@@ -260,15 +260,15 @@ function bandOf(p: QcParam): string {
  */
 function QcPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
   const { can } = useAuth();
-  const mayOverride = can("procurement", "override");
+  const mayOverride = can("office", "override");
   const [readings, setReadings] = useState<Record<string, Record<string, string>>>({});
   const [overrides, setOverrides] = useState<Record<string, { verdict: "accept" | "reject"; reason: string }>>({});
   const [manual, setManual] = useState<Record<string, "accept" | "reject">>({});
   const [error, setError] = useState<string | null>(null);
 
   const { data: ctx } = useQuery<{ lines: QcLine[] }>({
-    queryKey: ["procurement", "qc-context", receipt.id],
-    queryFn: () => api(`/api/procurement/receipts/${receipt.id}/qc-context`),
+    queryKey: ["office", "qc-context", receipt.id],
+    queryFn: () => api(`/api/office/receipts/${receipt.id}/qc-context`),
   });
 
   const set = (lineId: string, param: string, value: string) =>
@@ -327,7 +327,7 @@ function QcPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
 
   const save = useMutation({
     mutationFn: () =>
-      api(`/api/procurement/receipts/${receipt.id}/qc`, {
+      api(`/api/office/receipts/${receipt.id}/qc`, {
         method: "PATCH",
         body: {
           lines: lines.map((l) => ({
@@ -504,7 +504,7 @@ function TarePanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
 
   const save = useMutation({
     mutationFn: () =>
-      api(`/api/procurement/receipts/${receipt.id}/tare-weight`, {
+      api(`/api/office/receipts/${receipt.id}/tare-weight`, {
         method: "PATCH",
         body: {
           tareWeightKg: tare,
@@ -644,8 +644,8 @@ function Err({ msg }: { msg: string }) {
 /** One station's queue. Called once per tab so every tab can show its count. */
 function useQueue(station: Station) {
   return useQuery<QueueRow[]>({
-    queryKey: ["procurement", "queue", station],
-    queryFn: () => api(`/api/procurement/queue/${QUEUE_OF[station]}`),
+    queryKey: ["office", "queue", station],
+    queryFn: () => api(`/api/office/queue/${QUEUE_OF[station]}`),
     refetchInterval: 30_000,
   });
 }
@@ -665,13 +665,13 @@ export function StationPage({ station }: { station: Station }) {
   const { data: queue, isLoading } = queues[station] ?? { data: undefined, isLoading: false };
 
   const { data: receipt } = useQuery<Receipt>({
-    queryKey: ["procurement", "receipt", selected],
-    queryFn: () => api(`/api/procurement/receipts/${selected}`),
+    queryKey: ["office", "receipt", selected],
+    queryFn: () => api(`/api/office/receipts/${selected}`),
     enabled: !!selected,
   });
 
   const done = () => {
-    void qc.invalidateQueries({ queryKey: ["procurement"] });
+    void qc.invalidateQueries({ queryKey: ["office"] });
     setSelected(null);
   };
 

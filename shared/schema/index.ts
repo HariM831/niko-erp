@@ -12,7 +12,7 @@ export * from "./custom-fields";
 export * from "./banking";
 export * from "./sales";
 export * from "./purchases";
-export * from "./procurement";
+export * from "./office";
 export * from "./feedmill";
 export * from "./attachments";
 export * from "./comments";

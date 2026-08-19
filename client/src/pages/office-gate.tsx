@@ -191,14 +191,14 @@ export function GateInPage() {
   const qc = useQueryClient();
   const [, navigate] = useLocation();
   const { data: ctx } = useQuery<Context>({
-    queryKey: ["procurement", "context"],
-    queryFn: () => api("/api/procurement/context"),
+    queryKey: ["office", "context"],
+    queryFn: () => api("/api/office/context"),
   });
   const { data: numbering } = useQuery<
     Array<{ prefix: string; nextNumber: number; padding: number; seriesName: string; isDefault: boolean }>
   >({
-    queryKey: ["procurement", "numbering"],
-    queryFn: () => api("/api/procurement/numbering"),
+    queryKey: ["office", "numbering"],
+    queryFn: () => api("/api/office/numbering"),
   });
 
   const [photos, setPhotos] = useState<Partial<Record<PhotoKind, File>>>({});
@@ -267,7 +267,7 @@ export function GateInPage() {
       let bill: unknown = null;
       if (photos.gate_in_bill) {
         const image = await asDataUrl(photos.gate_in_bill, "gate_in_bill");
-        bill = await api<Record<string, any>>("/api/procurement/extract-bill", {
+        bill = await api<Record<string, any>>("/api/office/extract-bill", {
           method: "POST",
           body: { images: [image] },
         });
@@ -312,7 +312,7 @@ export function GateInPage() {
         const r = await api<{
           plate: { plate: string | null };
           checks: Array<{ name: string; ok: boolean; detail: string }>;
-        }>("/api/procurement/extract-gate-docs", { method: "POST", body: payload });
+        }>("/api/office/extract-gate-docs", { method: "POST", body: payload });
         if (r.plate?.plate && !vehicleNumber) setVehicleNumber(r.plate.plate);
         setChecks(r.checks ?? []);
       }
@@ -339,7 +339,7 @@ export function GateInPage() {
     }
     const timer = setTimeout(() => {
       setMatching(true);
-      api<{ matches: LineMatch[]; allMatched: boolean }>("/api/procurement/match-po-lines", {
+      api<{ matches: LineMatch[]; allMatched: boolean }>("/api/office/match-po-lines", {
         method: "POST",
         body: {
           vendorId,
@@ -388,7 +388,7 @@ export function GateInPage() {
 
   const submit = useMutation({
     mutationFn: () =>
-      api<{ id: string; number: string }>("/api/procurement/receipts", {
+      api<{ id: string; number: string }>("/api/office/receipts", {
         method: "POST",
         body: {
           locationId: site,
@@ -421,7 +421,7 @@ export function GateInPage() {
         },
       }),
     onSuccess: (r) => {
-      void qc.invalidateQueries({ queryKey: ["procurement"] });
+      void qc.invalidateQueries({ queryKey: ["office"] });
       // Photos follow the receipt: they need its id and its number for the band.
       void (async () => {
         for (const [kind, file] of Object.entries(photos) as Array<[PhotoKind, File]>) {
@@ -434,7 +434,7 @@ export function GateInPage() {
             body.append("longitude", String(fix.longitude));
             body.append("accuracyM", String(fix.accuracy));
           }
-          await fetch(`/api/procurement/receipts/${r.id}/photos`, {
+          await fetch(`/api/office/receipts/${r.id}/photos`, {
             method: "POST",
             body,
             credentials: "same-origin",
@@ -442,7 +442,7 @@ export function GateInPage() {
             /* the receipt is already recorded; a failed photo must not undo it */
           });
         }
-        void qc.invalidateQueries({ queryKey: ["procurement"] });
+        void qc.invalidateQueries({ queryKey: ["office"] });
       })();
 
       setDone(r.number);
@@ -489,7 +489,7 @@ export function GateInPage() {
             Recorded <span className="font-mono font-semibold">{done}</span>. The truck can proceed
             to the weighbridge.
           </span>
-          <button className="btn-ghost" onClick={() => navigate("/procurement/receipts")}>
+          <button className="btn-ghost" onClick={() => navigate("/office/receipts")}>
             View receipts →
           </button>
         </div>

@@ -72,7 +72,7 @@ export const preferences = pgTable("preferences", {
   /** Account code is required on a new GL account. Codes are always unique. */
   requireAccountCode: boolean("require_account_code").notNull().default(true),
 
-  // ---- Procurement ----
+  // ---- Office ----
   /**
    * How far a delivery may run over what an order still has due, in percent,
    * and still match it at the gate.

@@ -59,11 +59,11 @@ import {
   PaymentDetailPage,
 } from "./pages/record-details";
 import { DocumentSplitView } from "./components/split-view";
-import { ProcurementStationPage } from "./pages/procurement";
-import { GoodsReceiptsPage } from "./pages/procurement-receipts";
-import { GateInPage } from "./pages/procurement-gate";
-import { StationPage, isStation, stationPath } from "./pages/procurement-stations";
-import { SettlementPage } from "./pages/procurement-settlement";
+import { OfficeStationPage } from "./pages/office";
+import { GoodsReceiptsPage } from "./pages/office-receipts";
+import { GateInPage } from "./pages/office-gate";
+import { StationPage, isStation, stationPath } from "./pages/office-stations";
+import { SettlementPage } from "./pages/office-settlement";
 
 const SPLIT: Record<string, { endpoint: string; basePath: string; title: string; newPath: string; dateKey: string }> = {
   invoice: { endpoint: "/api/sales/invoices", basePath: "/sales/invoices", title: "Invoices", newPath: "/sales/invoices/new", dateKey: "invoiceDate" },
@@ -143,12 +143,12 @@ export function App() {
         <Route path="/purchases/vendor-credits/:id/edit">{(p) => <TransactionNewPage kind="vendor-credit" editId={p.id!} />}</Route>
         <Route path="/purchases/vendor-credits/:id">{(p) => <SplitDetail kind="vendor-credit" id={p.id!} />}</Route>
         <Route path="/purchases/vendor-credits" component={VendorCreditsPage} />
-        <Route path="/procurement/receipts" component={GoodsReceiptsPage} />
-        <Route path="/procurement/gate" component={GateInPage} />
+        <Route path="/office/receipts" component={GoodsReceiptsPage} />
+        <Route path="/office/gate" component={GateInPage} />
         {/* Weigh In, QC, Unloading and Weigh Out are one page with four tabs.
             The tab lives in the URL so a refresh and a shared link both land
             where they were, and the four old paths still work. */}
-        <Route path="/procurement/unloading/:station">
+        <Route path="/office/unloading/:station">
           {(p) =>
             isStation(p.station!) ? (
               <StationPage key={p.station} station={p.station} />
@@ -157,11 +157,11 @@ export function App() {
             )
           }
         </Route>
-        <Route path="/procurement/unloading">{() => <StationPage station="weighbridge" />}</Route>
+        <Route path="/office/unloading">{() => <StationPage station="weighbridge" />}</Route>
         {/* The stations had a sidebar entry each before they became tabs. */}
-        <Route path="/procurement/weighbridge">{() => <Redirect to={stationPath("weighbridge")} />}</Route>
-        <Route path="/procurement/qc">{() => <Redirect to={stationPath("qc")} />}</Route>
-        <Route path="/procurement/weigh-out">{() => <Redirect to={stationPath("weigh-out")} />}</Route>
+        <Route path="/office/weighbridge">{() => <Redirect to={stationPath("weighbridge")} />}</Route>
+        <Route path="/office/qc">{() => <Redirect to={stationPath("qc")} />}</Route>
+        <Route path="/office/weigh-out">{() => <Redirect to={stationPath("weigh-out")} />}</Route>
         <Route path="/feed-mill/nutrients" component={FeedNutrientsPage} />
         <Route path="/feed-mill/formulas" component={FeedFormulasPage} />
         {/* The formulator is no longer a screen of its own: it IS the
@@ -173,9 +173,9 @@ export function App() {
         <Route path="/feed-mill/transfers">
           {() => <Redirect to={stationPath("transfer")} />}
         </Route>
-        <Route path="/procurement/settlement" component={SettlementPage} />
-        <Route path="/procurement/:station">
-          {(p) => <ProcurementStationPage key={p.station} stationKey={p.station!} />}
+        <Route path="/office/settlement" component={SettlementPage} />
+        <Route path="/office/:station">
+          {(p) => <OfficeStationPage key={p.station} stationKey={p.station!} />}
         </Route>
         <Route path="/accountant/journals/new" component={JournalNewPage} />
         <Route path="/accountant/journals/:id">{(p) => <JournalDetailPage id={p.id!} />}</Route>

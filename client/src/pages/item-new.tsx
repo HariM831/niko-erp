@@ -255,7 +255,7 @@ export function ItemNewPage({ editId }: { editId?: string }) {
                   className={`${inputCls} h-auto py-1.5 text-[12px]`}
                 />
                 <p className="mt-0.5 text-[11px] text-gray-400">
-                  Bill matching at the procurement gate resolves these names to this item.
+                  Bill matching at the office gate resolves these names to this item.
                 </p>
               </div>
               <div>

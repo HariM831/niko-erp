@@ -48,7 +48,7 @@ export async function nextDocumentNumber(
  * thing that must never be caller-controlled.
  */
 const NUMBER_SOURCES: Record<string, { table: string; column: string }> = {
-  procurement_receipt: { table: "procurement_receipts", column: "number" },
+  office_receipt: { table: "office_receipts", column: "number" },
 };
 
 /**

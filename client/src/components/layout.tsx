@@ -74,15 +74,15 @@ const NAV: NavItem[] = [
     ],
   },
   {
-    label: "Gate",
+    label: "Office",
     icon: Truck,
     children: [
-      { label: "Gate In", path: "/procurement/gate" },
+      { label: "Gate In", path: "/office/gate" },
       /* Weigh In, QC, Unloading and Weigh Out — four tabs on one page, because
          a truck walks all four in a single visit. */
-      { label: "Weighment", path: "/procurement/unloading" },
-      { label: "Settlement", path: "/procurement/settlement" },
-      { label: "Goods Receipts", path: "/procurement/receipts" },
+      { label: "Weighment", path: "/office/unloading" },
+      { label: "Settlement", path: "/office/settlement" },
+      { label: "Goods Receipts", path: "/office/receipts" },
     ],
   },
   {

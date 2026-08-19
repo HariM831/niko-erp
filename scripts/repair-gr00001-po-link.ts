@@ -15,7 +15,7 @@
  * Run: npx tsx scripts/repair-gr00001-po-link.ts
  */
 import { and, eq, sql } from "drizzle-orm";
-import { procurementReceiptLines, purchaseOrderLines } from "@shared/schema";
+import { officeReceiptLines, purchaseOrderLines } from "@shared/schema";
 import { db } from "../server/db";
 
 const RECEIPT = "10151e11-5dba-47c2-a7ca-bfdd4232a6eb";
@@ -33,12 +33,12 @@ const show = async (label: string) => {
     .where(eq(purchaseOrderLines.id, PO_LINE));
   const rl = await db
     .select({
-      status: procurementReceiptLines.status,
-      poLineId: procurementReceiptLines.poLineId,
-      poId: procurementReceiptLines.purchaseOrderId,
+      status: officeReceiptLines.status,
+      poLineId: officeReceiptLines.poLineId,
+      poId: officeReceiptLines.purchaseOrderId,
     })
-    .from(procurementReceiptLines)
-    .where(eq(procurementReceiptLines.receiptId, RECEIPT));
+    .from(officeReceiptLines)
+    .where(eq(officeReceiptLines.receiptId, RECEIPT));
   console.log(`\n  ${label}`);
   console.log("    PO line   ", JSON.stringify(po[0]));
   console.log("    Receipt   ", JSON.stringify(rl[0]));
@@ -61,9 +61,9 @@ await db.transaction(async (tx) => {
 
   // Put the line back against the order it actually came in on.
   await tx
-    .update(procurementReceiptLines)
+    .update(officeReceiptLines)
     .set({ purchaseOrderId: PO, poLineId: PO_LINE })
-    .where(and(eq(procurementReceiptLines.receiptId, RECEIPT), eq(procurementReceiptLines.lineNo, 1)));
+    .where(and(eq(officeReceiptLines.receiptId, RECEIPT), eq(officeReceiptLines.lineNo, 1)));
 });
 
 const after = await show("AFTER");

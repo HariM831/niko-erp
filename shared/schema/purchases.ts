@@ -171,14 +171,14 @@ export const billLines = pgTable("bill_lines", {
    * Which deduction rule produced this line, where the line is a NEGATIVE
    * deduction rather than goods.
    *
-   * Procurement settles a truck as one bill: the goods at what the vendor
+   * Office settles a truck as one bill: the goods at what the vendor
    * invoiced, then a negative line for each thing we are not paying for. The
    * vendor never countersigns a credit note, so a second document bought
    * nothing a line on this one does not — and the bill's own goods line still
    * ties to their invoice figure for figure, with the difference explained one
    * row below it.
    *
-   * Not a foreign key: procurement's schema imports this file, so pointing at
+   * Not a foreign key: office's schema imports this file, so pointing at
    * deduction_rules would close a cycle. Null on goods and on a figure somebody
    * typed by hand.
    */
@@ -252,9 +252,9 @@ export const vendorCreditLines = pgTable("vendor_credit_lines", {
    * the link answerable by query rather than by reading, so a rule can be asked
    * what it has cost and a version can be retired knowing what it charged.
    *
-   * Deliberately not a foreign key. `shared/schema/procurement.ts` imports this
+   * Deliberately not a foreign key. `shared/schema/office.ts` imports this
    * file, so pointing back at `deduction_rules` would close a cycle — the same
-   * reason `procurement_receipt_lines.qc_spec_id` is a bare uuid. Null on a
+   * reason `office_receipt_lines.qc_spec_id` is a bare uuid. Null on a
    * deduction somebody typed by hand, which is the honest record of that.
    */
   ruleId: uuid("rule_id"),

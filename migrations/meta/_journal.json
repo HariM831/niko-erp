@@ -330,6 +330,20 @@
       "when": 1786970464135,
       "tag": "0046_bill_vendor_total",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1786970524135,
+      "tag": "0047_procurement_becomes_office",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1786970584135,
+      "tag": "0048_rename_receipt_indexes",
+      "breakpoints": true
     }
   ]
 }

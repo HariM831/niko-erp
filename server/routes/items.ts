@@ -48,7 +48,7 @@ const itemSchema = z.object({
   category: z.enum(itemCategory.enumValues).nullish(),
   /**
    * What this material is called elsewhere — on a vendor's bill, in the mill's
-   * old system. Procurement's bill matching and the feed-mill import both
+   * old system. Office's bill matching and the feed-mill import both
    * resolve names through these, so "GN De-Oiled-Cake 50%" on an invoice can
    * land on DOGN without a person retyping it.
    */

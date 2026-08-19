@@ -20,7 +20,7 @@
  * Run: npx tsx scripts/check-settlement-tax.ts
  */
 import { eq, sql } from "drizzle-orm";
-import { bills, contacts, items, procurementReceipts } from "@shared/schema";
+import { bills, contacts, items, officeReceipts } from "@shared/schema";
 import { db } from "../server/db";
 import { createBill, loadVendor } from "../server/services/purchases";
 
@@ -97,7 +97,7 @@ try {
     check("the bill posts at the all-in figure", Math.abs(Number(bill.total) - WITH_TAX) < 1, inr(Number(bill.total)));
 
     const [receipt] = await tx
-      .insert(procurementReceipts)
+      .insert(officeReceipts)
       .values({
         number: "TEST-GR-TAX",
         locationId: loc!.id,
@@ -116,13 +116,13 @@ try {
     // What the void handler does, in the same order.
     await tx.update(bills).set({ status: "void", balanceDue: "0.00" }).where(eq(bills.id, bill.id));
     const reopened = await tx
-      .update(procurementReceipts)
+      .update(officeReceipts)
       .set({ status: "gate_out", billId: null, settledAt: null, settledBy: null })
-      .where(eq(procurementReceipts.billId, bill.id))
+      .where(eq(officeReceipts.billId, bill.id))
       .returning();
 
     check("voiding reopens exactly this truck", reopened.length === 1, reopened[0]?.number ?? "—");
-    const [after] = await tx.select().from(procurementReceipts).where(eq(procurementReceipts.id, receipt!.id));
+    const [after] = await tx.select().from(officeReceipts).where(eq(officeReceipts.id, receipt!.id));
     check("it is gated out and unpaid again", after!.status === "gate_out");
     check("it no longer points at the void bill", after!.billId === null);
     check("and carries no settlement stamp", after!.settledAt === null && after!.settledBy === null);
@@ -134,9 +134,9 @@ try {
 }
 
 const strays = await db
-  .select({ id: procurementReceipts.id })
-  .from(procurementReceipts)
-  .where(eq(procurementReceipts.number, "TEST-GR-TAX"));
+  .select({ id: officeReceipts.id })
+  .from(officeReceipts)
+  .where(eq(officeReceipts.number, "TEST-GR-TAX"));
 check("nothing survives the run", strays.length === 0);
 
 console.log(failed === 0 ? "\n  All settlement-tax checks passed.\n" : `\n  ${failed} FAILED.\n`);

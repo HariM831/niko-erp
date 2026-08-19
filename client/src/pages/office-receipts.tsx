@@ -139,8 +139,8 @@ function ReceiptEditor({
   const editing = !!receiptId;
 
   const { data: existing } = useQuery<Receipt>({
-    queryKey: ["procurement", "receipt", receiptId],
-    queryFn: () => api(`/api/procurement/receipts/${receiptId}`),
+    queryKey: ["office", "receipt", receiptId],
+    queryFn: () => api(`/api/office/receipts/${receiptId}`),
     enabled: editing,
   });
 
@@ -232,7 +232,7 @@ function ReceiptEditor({
       return;
     }
     const timer = setTimeout(() => {
-      api<{ matches: LineMatch[] }>("/api/procurement/match-po-lines", {
+      api<{ matches: LineMatch[] }>("/api/office/match-po-lines", {
         method: "POST",
         body: {
           vendorId,
@@ -273,7 +273,7 @@ function ReceiptEditor({
   const save = useMutation({
     mutationFn: () =>
       editing
-        ? api(`/api/procurement/receipts/${receiptId}`, {
+        ? api(`/api/office/receipts/${receiptId}`, {
             method: "PATCH",
             body: {
               vendorId: vendorId || null,
@@ -289,7 +289,7 @@ function ReceiptEditor({
               lines: linePayload(),
             },
           })
-        : api("/api/procurement/receipts", {
+        : api("/api/office/receipts", {
             method: "POST",
             body: {
               locationId,
@@ -320,7 +320,7 @@ function ReceiptEditor({
       const id = (created as { id?: string })?.id;
       const hasStationData = gross || tare || lines.some((l) => l.qcVerdict);
       if (!editing && id && decision === "allow" && hasStationData) {
-        await api(`/api/procurement/receipts/${id}`, {
+        await api(`/api/office/receipts/${id}`, {
           method: "PATCH",
           body: {
             vendorSlipGrossKg: slipGross || null,
@@ -333,7 +333,7 @@ function ReceiptEditor({
           /* the receipt exists; the stations can still be filled in by hand */
         });
       }
-      void qc.invalidateQueries({ queryKey: ["procurement"] });
+      void qc.invalidateQueries({ queryKey: ["office"] });
       onClose();
     },
     onError: (e) => setError(e instanceof ApiError ? e.message : "Could not save"),
@@ -727,16 +727,16 @@ export function GoodsReceiptsPage() {
   const [error, setError] = useState<string | null>(null);
 
   const { data: rows, isLoading } = useQuery<ReceiptRow[]>({
-    queryKey: ["procurement", "receipts"],
-    queryFn: () => api("/api/procurement/receipts"),
+    queryKey: ["office", "receipts"],
+    queryFn: () => api("/api/office/receipts"),
   });
   const { data: ctx } = useQuery<Context>({
-    queryKey: ["procurement", "context"],
-    queryFn: () => api("/api/procurement/context"),
+    queryKey: ["office", "context"],
+    queryFn: () => api("/api/office/context"),
   });
   const { data: numbering } = useQuery<Array<{ prefix: string; nextNumber: number; padding: number; seriesName: string; isDefault: boolean }>>({
-    queryKey: ["procurement", "numbering"],
-    queryFn: () => api("/api/procurement/numbering"),
+    queryKey: ["office", "numbering"],
+    queryFn: () => api("/api/office/numbering"),
   });
 
   const next = numbering?.find((n) => n.isDefault) ?? numbering?.[0];

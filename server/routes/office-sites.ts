@@ -1,5 +1,5 @@
 /**
- * Gates and weighbridges — the physical places procurement happens at.
+ * Gates and weighbridges — the physical places office happens at.
  *
  * Reference data, not documents: no numbering, no journal, no lifecycle. Both
  * are scoped to a location because a gate belongs to a site, and knowing which
@@ -10,7 +10,7 @@
  * "where did this arrive". `isActive` keeps it out of tomorrow's dropdown while
  * leaving yesterday's records readable.
  *
- * Gated on `procurement.manage_rules` to write — the same authority that sets
+ * Gated on `office.manage_rules` to write — the same authority that sets
  * what a deduction costs. Both are configuration somebody signs off, not
  * something a shift changes.
  */
@@ -22,7 +22,7 @@ import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 
-export const procurementSitesRouter = Router();
+export const officeSitesRouter = Router();
 
 /**
  * A coordinate, or nothing at all.
@@ -84,7 +84,7 @@ async function sites() {
         // Receipts that came in here. Deactivating one that has admitted
         // trucks is a different decision from deactivating one that never has.
         receipts: sql<number>`(
-          SELECT count(*)::int FROM procurement_receipts r WHERE r.gate_id = ${gates.id}
+          SELECT count(*)::int FROM office_receipts r WHERE r.gate_id = ${gates.id}
         )`,
       })
       .from(gates)
@@ -99,7 +99,7 @@ async function sites() {
         capacityKg: weighbridges.capacityKg,
         isActive: weighbridges.isActive,
         weighings: sql<number>`(
-          SELECT count(*)::int FROM procurement_receipts r
+          SELECT count(*)::int FROM office_receipts r
           WHERE r.gross_weighbridge_id = ${weighbridges.id}
              OR r.tare_weighbridge_id = ${weighbridges.id}
         )`,
@@ -111,15 +111,15 @@ async function sites() {
   return { gates: gateRows, weighbridges: bridgeRows };
 }
 
-procurementSitesRouter.get("/", requirePermission("procurement", "view"), async (_req, res) => {
+officeSitesRouter.get("/", requirePermission("office", "view"), async (_req, res) => {
   res.json(await sites());
 });
 
 // ───────────────────────────────── Gates ─────────────────────────────────
 
-procurementSitesRouter.post(
+officeSitesRouter.post(
   "/gates",
-  requirePermission("procurement", "manage_rules"),
+  requirePermission("office", "manage_rules"),
   validateBody(gateSchema),
   async (req, res) => {
     const body = req.body as z.infer<typeof gateSchema>;
@@ -137,9 +137,9 @@ procurementSitesRouter.post(
   },
 );
 
-procurementSitesRouter.patch(
+officeSitesRouter.patch(
   "/gates/:id",
-  requirePermission("procurement", "manage_rules"),
+  requirePermission("office", "manage_rules"),
   validateBody(gateSchema.partial().extend({ isActive: z.boolean().optional() })),
   async (req, res) => {
     const body = req.body as Partial<z.infer<typeof gateSchema>> & { isActive?: boolean };
@@ -163,9 +163,9 @@ procurementSitesRouter.patch(
 
 // ───────────────────────────── Weighbridges ──────────────────────────────
 
-procurementSitesRouter.post(
+officeSitesRouter.post(
   "/weighbridges",
-  requirePermission("procurement", "manage_rules"),
+  requirePermission("office", "manage_rules"),
   validateBody(weighbridgeSchema),
   async (req, res) => {
     const body = req.body as z.infer<typeof weighbridgeSchema>;
@@ -185,9 +185,9 @@ procurementSitesRouter.post(
   },
 );
 
-procurementSitesRouter.patch(
+officeSitesRouter.patch(
   "/weighbridges/:id",
-  requirePermission("procurement", "manage_rules"),
+  requirePermission("office", "manage_rules"),
   validateBody(weighbridgeSchema.partial().extend({ isActive: z.boolean().optional() })),
   async (req, res) => {
     const [row] = await db

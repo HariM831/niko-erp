@@ -2,7 +2,7 @@
  * Creating a bill, a vendor credit, and applying one to the other.
  *
  * These live here rather than in the route file because more than one module
- * raises a payable. Procurement settles a truck into a Bill and, when anything
+ * raises a payable. Office settles a truck into a Bill and, when anything
  * is deducted, a Vendor Credit applied to it — the same documents a person
  * would key by hand, produced by the same code, so the two paths cannot drift.
  *
@@ -31,7 +31,7 @@ import { computeDocumentTotals, fromPaise, toPaise, type DocLineInput } from "./
  * A line as the routes and other modules supply it.
  *
  * Structural rather than derived from a Zod schema, so a caller that builds
- * lines in code (procurement settlement) is on the same footing as one that
+ * lines in code (office settlement) is on the same footing as one that
  * parsed them from a request body.
  */
 export interface PurchaseLineInput {
@@ -130,7 +130,7 @@ export function buildBillJeLines(
     first = false;
     if (withRound !== 0) {
       // Normally a debit: goods increase an expense. A bill may also carry
-      // NEGATIVE lines — the deductions procurement settles against the goods —
+      // NEGATIVE lines — the deductions office settles against the goods —
       // and where those outweigh the goods on one account the account is
       // credited instead. Posting refuses negative amounts by design, so the
       // sign has to be expressed by the side it lands on, not by the figure.
@@ -233,7 +233,7 @@ export async function computeBill(
   const headerTotals = { ...rest, total: fromPaise(toPaise(rest.total) - tdsP) };
 
   /**
-   * A bill may carry negative lines — procurement settles deductions against
+   * A bill may carry negative lines — office settles deductions against
    * the goods on one document — but it may not come to less than nothing.
    *
    * At that point it is not a bill, it is a credit note, and forcing it through

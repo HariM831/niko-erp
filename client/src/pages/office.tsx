@@ -1,12 +1,12 @@
 /**
- * Procurement — the six stations a truck passes through.
+ * Office — the six stations a truck passes through.
  *
  * Stations 1–5 are used one-handed at a boom barrier and in a weighbridge
  * cabin, so they stay single-column and stack on a phone. They use the same
  * tokens and components as the rest of EGGSY: no second design system.
  *
  * P0 ships the shells. The receipt record, the queues and settlement land in
- * P2 onwards — see docs/procurement-plan.md.
+ * P2 onwards — see docs/office-plan.md.
  */
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
@@ -18,7 +18,7 @@ export interface StationDef {
   title: string;
   /** What the operator is looking at when they open this. */
   subtitle: string;
-  /** The procurement action a role needs to work here. */
+  /** The office action a role needs to work here. */
   action: string;
   /** The one decision made here, or none. */
   decision: string;
@@ -79,8 +79,8 @@ interface SeriesPreview {
 
 function NumberingCard() {
   const { data } = useQuery<SeriesPreview[]>({
-    queryKey: ["procurement", "numbering"],
-    queryFn: () => api("/api/procurement/numbering"),
+    queryKey: ["office", "numbering"],
+    queryFn: () => api("/api/office/numbering"),
   });
   if (!data?.length) return null;
   return (
@@ -104,11 +104,11 @@ function NumberingCard() {
   );
 }
 
-export function ProcurementStationPage({ stationKey }: { stationKey: string }) {
+export function OfficeStationPage({ stationKey }: { stationKey: string }) {
   const { user } = useAuth();
   const station = STATIONS.find((s) => s.key === stationKey);
   const permissions = (user?.permissions ?? {}) as Record<string, string[]>;
-  const held = effectiveActions(permissions, "procurement");
+  const held = effectiveActions(permissions, "office");
   const admin = isAdminMap(permissions);
   const allowed = admin || (station ? held.includes(station.action) : false);
 
@@ -132,7 +132,7 @@ export function ProcurementStationPage({ stationKey }: { stationKey: string }) {
         <div className="label">Decision made here</div>
         <div className="text-[13px] text-gray-900">{station.decision}</div>
         <div className="label mt-3">Permission</div>
-        <code className="text-[12px] text-gray-600">procurement.{station.action}</code>
+        <code className="text-[12px] text-gray-600">office.{station.action}</code>
       </div>
 
       {station.key === "gate" && <NumberingCard />}

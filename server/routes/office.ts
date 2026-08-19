@@ -1,9 +1,9 @@
 /**
- * Procurement — goods receiving.
+ * Office — goods receiving.
  *
  * P0 exposes only what the station shells need. The receipt lifecycle, the
  * station queues and settlement arrive in P2 onwards; see
- * docs/procurement-plan.md for the full API surface.
+ * docs/office-plan.md for the full API surface.
  */
 import { Router } from "express";
 import { randomBytes } from "node:crypto";
@@ -23,8 +23,8 @@ import {
   locations,
   numberSeries,
   orgProfile,
-  procurementReceiptLines,
-  procurementReceipts,
+  officeReceiptLines,
+  officeReceipts,
   purchaseOrderLines,
   bills,
   attachments,
@@ -52,7 +52,7 @@ import { normalisePlate } from "../services/ocr";
 import { computeDeductions, judgeLine, loadDeductionRules, loadSpecs } from "../services/qc";
 import { learnAlias } from "../services/item-names";
 
-export const procurementRouter = Router();
+export const officeRouter = Router();
 
 const qtyStr = z.string().regex(/^\d+(\.\d{1,3})?$/);
 const moneyStr = z.string().regex(/^\d+(\.\d{1,2})?$/);
@@ -72,13 +72,13 @@ function constraintMessage(err: unknown): string | null {
   const e = err as { code?: string; constraint?: string };
   if (e?.code !== "23505") return null;
   switch (e.constraint) {
-    case "uq_pr_active_vehicle":
+    case "uq_or_active_vehicle":
       return "That vehicle already has a receipt open — finish or close it first";
-    case "uq_pr_vendor_bill":
+    case "uq_or_vendor_bill":
       return "This vendor's bill number has already been received";
-    case "uq_prl_po_line":
+    case "uq_orl_po_line":
       return "Two lines cannot claim the same purchase order line";
-    case "procurement_receipts_number_unique":
+    case "office_receipts_number_unique":
       return "That receipt number is already taken — try again";
     default:
       return null;
@@ -113,7 +113,7 @@ export class TransitionError extends Error {}
  * glance that numbering is configured — and, once receipts can be deleted, that
  * the counter rolled back with them.
  */
-procurementRouter.get("/numbering", requirePermission("procurement", "view"), async (_req, res) => {
+officeRouter.get("/numbering", requirePermission("office", "view"), async (_req, res) => {
   const rows = await db
     .select({
       entity: documentSeries.entity,
@@ -125,7 +125,7 @@ procurementRouter.get("/numbering", requirePermission("procurement", "view"), as
     })
     .from(documentSeries)
     .innerJoin(numberSeries, eq(numberSeries.id, documentSeries.seriesId))
-    .where(eq(documentSeries.entity, "procurement_receipt"))
+    .where(eq(documentSeries.entity, "office_receipt"))
     .orderBy(asc(numberSeries.name));
 
   // Default series first: it is the one a receipt draws from when the capture
@@ -182,9 +182,9 @@ function overOcrLimit(userId: string): boolean {
   return recent.length > OCR_MAX_PER_WINDOW;
 }
 
-procurementRouter.post(
+officeRouter.post(
   "/extract-bill",
-  requirePermission("procurement", "gate_in"),
+  requirePermission("office", "gate_in"),
   validateBody(extractBillSchema),
   async (req, res) => {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -246,9 +246,9 @@ const gateDocsSchema = z.object({
  * about the bill. One call rather than two: both are trivial reads next to a
  * handwritten bill.
  */
-procurementRouter.post(
+officeRouter.post(
   "/extract-gate-docs",
-  requirePermission("procurement", "gate_in"),
+  requirePermission("office", "gate_in"),
   validateBody(gateDocsSchema),
   async (req, res) => {
     const apiKey = process.env.GEMINI_API_KEY;
@@ -292,9 +292,9 @@ procurementRouter.post(
  * Asked at the gate, before the boom lifts, because the answer decides whether
  * the truck comes in at all.
  */
-procurementRouter.post(
+officeRouter.post(
   "/match-po-lines",
-  requirePermission("procurement", "gate_in"),
+  requirePermission("office", "gate_in"),
   validateBody(
     z.object({
       vendorId: z.string().uuid().nullable().optional(),
@@ -364,9 +364,9 @@ const CAPTURE_KINDS: Record<string, CaptureKind> = {
  * the place name comes from our own gates table and not from whatever the phone
  * happened to believe.
  */
-procurementRouter.post(
+officeRouter.post(
   "/receipts/:id/photos",
-  requirePermission("procurement", "gate_in"),
+  requirePermission("office", "gate_in"),
   photoUpload.single("file"),
   async (req, res) => {
     const file = (req as unknown as { file?: Express.Multer.File }).file;
@@ -376,8 +376,8 @@ procurementRouter.post(
     const kind = CAPTURE_KINDS[kindKey];
     if (!kind) return res.status(400).json({ error: `Unknown photo kind: ${kindKey}` });
 
-    const receipt = await db.query.procurementReceipts.findFirst({
-      where: eq(procurementReceipts.id, req.params.id!),
+    const receipt = await db.query.officeReceipts.findFirst({
+      where: eq(officeReceipts.id, req.params.id!),
     });
     if (!receipt) return res.status(404).json({ error: "Goods receipt not found" });
 
@@ -405,7 +405,7 @@ procurementRouter.post(
     const [row] = await db
       .insert(attachments)
       .values({
-        entityType: "procurement_receipt",
+        entityType: "office_receipt",
         entityId: receipt.id,
         fileName: file.originalname || `${kindKey}.jpg`,
         storedName,
@@ -427,7 +427,7 @@ procurementRouter.post(
 
 // ─────────────────────────── Reference data ───────────────────────────
 
-procurementRouter.get("/context", requirePermission("procurement", "view"), async (_req, res) => {
+officeRouter.get("/context", requirePermission("office", "view"), async (_req, res) => {
   const [locs, vendors, purchasable] = await Promise.all([
     db
       .select({ id: locations.id, name: locations.name, code: locations.code })
@@ -494,9 +494,9 @@ const createReceiptSchema = z.object({
   lines: z.array(receiptLineSchema).min(1).max(50),
 });
 
-procurementRouter.post(
+officeRouter.post(
   "/receipts",
-  requirePermission("procurement", "gate_in"),
+  requirePermission("office", "gate_in"),
   validateBody(createReceiptSchema),
   async (req, res) => {
     const body = req.body as z.infer<typeof createReceiptSchema>;
@@ -505,7 +505,7 @@ procurementRouter.post(
     }
     try {
       const result = await db.transaction(async (tx) => {
-        const number = await nextDocumentNumber(tx, "procurement_receipt", body.seriesId);
+        const number = await nextDocumentNumber(tx, "office_receipt", body.seriesId);
         const turnedAway = body.decision === "turn_away";
 
         // Resolved against the live gates, so the receipt records where it was
@@ -518,7 +518,7 @@ procurementRouter.post(
         const place = await resolvePlace(tx, fix);
 
         const [receipt] = await tx
-          .insert(procurementReceipts)
+          .insert(officeReceipts)
           .values({
             number,
             status: turnedAway ? "turned_away" : "gate_in",
@@ -556,7 +556,7 @@ procurementRouter.post(
           if (l.itemId && l.itemName) await learnAlias(tx, l.itemId, l.itemName);
         }
 
-        await tx.insert(procurementReceiptLines).values(
+        await tx.insert(officeReceiptLines).values(
           body.lines.map((l, i) => ({
             receiptId: receipt!.id,
             lineNo: i + 1,
@@ -588,51 +588,51 @@ procurementRouter.post(
   },
 );
 
-procurementRouter.get("/receipts", requirePermission("procurement", "view"), async (req, res) => {
+officeRouter.get("/receipts", requirePermission("office", "view"), async (req, res) => {
   const { status, vendorId, locationId } = req.query as Record<string, string | undefined>;
   const where = [];
-  if (status) where.push(eq(procurementReceipts.status, status as ReceiptStatus));
-  if (vendorId) where.push(eq(procurementReceipts.vendorId, vendorId));
-  if (locationId) where.push(eq(procurementReceipts.locationId, locationId));
+  if (status) where.push(eq(officeReceipts.status, status as ReceiptStatus));
+  if (vendorId) where.push(eq(officeReceipts.vendorId, vendorId));
+  if (locationId) where.push(eq(officeReceipts.locationId, locationId));
 
   const rows = await db
     .select({
-      id: procurementReceipts.id,
-      number: procurementReceipts.number,
-      status: procurementReceipts.status,
-      vehicleNumber: procurementReceipts.vehicleNumber,
+      id: officeReceipts.id,
+      number: officeReceipts.number,
+      status: officeReceipts.status,
+      vehicleNumber: officeReceipts.vehicleNumber,
       vendorName: contacts.displayName,
-      vendorBillNumber: procurementReceipts.vendorBillNumber,
-      arrivalAt: procurementReceipts.arrivalAt,
+      vendorBillNumber: officeReceipts.vendorBillNumber,
+      arrivalAt: officeReceipts.arrivalAt,
       locationName: locations.name,
       lineCount: sql<number>`(
-        SELECT COUNT(*)::int FROM procurement_receipt_lines l
-        WHERE l.receipt_id = ${procurementReceipts.id}
+        SELECT COUNT(*)::int FROM office_receipt_lines l
+        WHERE l.receipt_id = ${officeReceipts.id}
       )`,
       billQuantityKg: sql<string>`(
-        SELECT COALESCE(SUM(l.bill_quantity_kg), 0)::numeric(14,3) FROM procurement_receipt_lines l
-        WHERE l.receipt_id = ${procurementReceipts.id}
+        SELECT COALESCE(SUM(l.bill_quantity_kg), 0)::numeric(14,3) FROM office_receipt_lines l
+        WHERE l.receipt_id = ${officeReceipts.id}
       )`,
     })
-    .from(procurementReceipts)
-    .leftJoin(contacts, eq(contacts.id, procurementReceipts.vendorId))
-    .leftJoin(locations, eq(locations.id, procurementReceipts.locationId))
+    .from(officeReceipts)
+    .leftJoin(contacts, eq(contacts.id, officeReceipts.vendorId))
+    .leftJoin(locations, eq(locations.id, officeReceipts.locationId))
     .where(where.length ? and(...where) : undefined)
-    .orderBy(desc(procurementReceipts.arrivalAt))
+    .orderBy(desc(officeReceipts.arrivalAt))
     .limit(200);
   res.json(rows);
 });
 
-procurementRouter.get("/receipts/:id", requirePermission("procurement", "view"), async (req, res) => {
-  const receipt = await db.query.procurementReceipts.findFirst({
-    where: eq(procurementReceipts.id, req.params.id!),
+officeRouter.get("/receipts/:id", requirePermission("office", "view"), async (req, res) => {
+  const receipt = await db.query.officeReceipts.findFirst({
+    where: eq(officeReceipts.id, req.params.id!),
   });
   if (!receipt) return res.status(404).json({ error: "Goods receipt not found" });
   const lines = await db
     .select()
-    .from(procurementReceiptLines)
-    .where(eq(procurementReceiptLines.receiptId, receipt.id))
-    .orderBy(asc(procurementReceiptLines.lineNo));
+    .from(officeReceiptLines)
+    .where(eq(officeReceiptLines.receiptId, receipt.id))
+    .orderBy(asc(officeReceiptLines.lineNo));
   res.json({ ...receipt, lines });
 });
 
@@ -649,37 +649,37 @@ const QUEUE_STATUSES: Record<string, ReceiptStatus[]> = {
   settlement: ["gate_out"],
 };
 
-procurementRouter.get(
+officeRouter.get(
   "/queue/:station",
-  requirePermission("procurement", "view"),
+  requirePermission("office", "view"),
   async (req, res) => {
     const statuses = QUEUE_STATUSES[req.params.station!];
     if (!statuses) return res.status(404).json({ error: "No such station" });
 
     const rows = await db
       .select({
-        id: procurementReceipts.id,
-        number: procurementReceipts.number,
-        status: procurementReceipts.status,
-        vehicleNumber: procurementReceipts.vehicleNumber,
+        id: officeReceipts.id,
+        number: officeReceipts.number,
+        status: officeReceipts.status,
+        vehicleNumber: officeReceipts.vehicleNumber,
         vendorName: contacts.displayName,
-        arrivalAt: procurementReceipts.arrivalAt,
-        grossWeightKg: procurementReceipts.grossWeightKg,
-        netWeightKg: procurementReceipts.netWeightKg,
-        vendorSlipGrossKg: procurementReceipts.vendorSlipGrossKg,
-        lineCount: sql<number>`(SELECT COUNT(*)::int FROM procurement_receipt_lines l WHERE l.receipt_id = ${procurementReceipts.id})`,
-        lineSummary: sql<string>`(SELECT string_agg(l.item_name, ', ' ORDER BY l.line_no) FROM procurement_receipt_lines l WHERE l.receipt_id = ${procurementReceipts.id})`,
-        linesRejected: sql<number>`(SELECT COUNT(*)::int FROM procurement_receipt_lines l WHERE l.receipt_id = ${procurementReceipts.id} AND l.status = 'qc_rejected')`,
-        billQuantityKg: sql<string>`(SELECT COALESCE(SUM(l.bill_quantity_kg),0)::numeric(14,3) FROM procurement_receipt_lines l WHERE l.receipt_id = ${procurementReceipts.id})`,
+        arrivalAt: officeReceipts.arrivalAt,
+        grossWeightKg: officeReceipts.grossWeightKg,
+        netWeightKg: officeReceipts.netWeightKg,
+        vendorSlipGrossKg: officeReceipts.vendorSlipGrossKg,
+        lineCount: sql<number>`(SELECT COUNT(*)::int FROM office_receipt_lines l WHERE l.receipt_id = ${officeReceipts.id})`,
+        lineSummary: sql<string>`(SELECT string_agg(l.item_name, ', ' ORDER BY l.line_no) FROM office_receipt_lines l WHERE l.receipt_id = ${officeReceipts.id})`,
+        linesRejected: sql<number>`(SELECT COUNT(*)::int FROM office_receipt_lines l WHERE l.receipt_id = ${officeReceipts.id} AND l.status = 'qc_rejected')`,
+        billQuantityKg: sql<string>`(SELECT COALESCE(SUM(l.bill_quantity_kg),0)::numeric(14,3) FROM office_receipt_lines l WHERE l.receipt_id = ${officeReceipts.id})`,
         // Computed in SQL, not from the JSON timestamp. arrival_at is a naive
         // `timestamp`, so a client that parses it as UTC reads a truck as having
         // arrived hours in the future and shows a negative wait.
-        ageMinutes: sql<number>`GREATEST(0, EXTRACT(EPOCH FROM (NOW() - ${procurementReceipts.arrivalAt})) / 60)::int`,
+        ageMinutes: sql<number>`GREATEST(0, EXTRACT(EPOCH FROM (NOW() - ${officeReceipts.arrivalAt})) / 60)::int`,
       })
-      .from(procurementReceipts)
-      .leftJoin(contacts, eq(contacts.id, procurementReceipts.vendorId))
-      .where(inArray(procurementReceipts.status, statuses))
-      .orderBy(asc(procurementReceipts.arrivalAt));
+      .from(officeReceipts)
+      .leftJoin(contacts, eq(contacts.id, officeReceipts.vendorId))
+      .where(inArray(officeReceipts.status, statuses))
+      .orderBy(asc(officeReceipts.arrivalAt));
 
     res.json(rows);
   },
@@ -687,8 +687,8 @@ procurementRouter.get(
 
 /** Load a receipt and refuse the move up front, before anything is written. */
 async function forTransition(tx: Tx, id: string, to: ReceiptStatus) {
-  const receipt = await tx.query.procurementReceipts.findFirst({
-    where: eq(procurementReceipts.id, id),
+  const receipt = await tx.query.officeReceipts.findFirst({
+    where: eq(officeReceipts.id, id),
   });
   if (!receipt) throw new PostingError("Goods receipt not found");
   assertTransition(receipt.status, to);
@@ -696,9 +696,9 @@ async function forTransition(tx: Tx, id: string, to: ReceiptStatus) {
 }
 
 /** Station 2 — the platform records a fact. It judges nothing. */
-procurementRouter.patch(
+officeRouter.patch(
   "/receipts/:id/gross-weight",
-  requirePermission("procurement", "weighbridge"),
+  requirePermission("office", "weighbridge"),
   validateBody(
     z.object({
       grossWeightKg: qtyStr,
@@ -727,7 +727,7 @@ procurementRouter.patch(
         }
 
         const [updated] = await tx
-          .update(procurementReceipts)
+          .update(officeReceipts)
           .set({
             grossWeightKg: body.grossWeightKg,
             grossWeighedAt: new Date(),
@@ -738,7 +738,7 @@ procurementRouter.patch(
             status: "weighed_in",
             updatedAt: new Date(),
           })
-          .where(eq(procurementReceipts.id, receipt.id))
+          .where(eq(officeReceipts.id, receipt.id))
           .returning();
         return updated!;
       });
@@ -754,20 +754,20 @@ procurementRouter.patch(
  * What the bench needs in front of it: the bands for each material, and how
  * whatever has been typed so far reads against them.
  */
-procurementRouter.get(
+officeRouter.get(
   "/receipts/:id/qc-context",
-  requirePermission("procurement", "quality_control"),
+  requirePermission("office", "quality_control"),
   async (req, res) => {
-    const receipt = await db.query.procurementReceipts.findFirst({
-      where: eq(procurementReceipts.id, req.params.id!),
+    const receipt = await db.query.officeReceipts.findFirst({
+      where: eq(officeReceipts.id, req.params.id!),
     });
     if (!receipt) return res.status(404).json({ error: "Goods receipt not found" });
 
     const lines = await db
       .select()
-      .from(procurementReceiptLines)
-      .where(eq(procurementReceiptLines.receiptId, receipt.id))
-      .orderBy(asc(procurementReceiptLines.lineNo));
+      .from(officeReceiptLines)
+      .where(eq(officeReceiptLines.receiptId, receipt.id))
+      .orderBy(asc(officeReceiptLines.lineNo));
 
     const specs = await loadSpecs(db, lines.map((l) => l.itemId).filter(Boolean) as string[]);
 
@@ -802,7 +802,7 @@ procurementRouter.get(
 );
 
 /** The QC readings held on a line, keyed the way a spec names them. */
-function readingsOf(l: typeof procurementReceiptLines.$inferSelect): Record<string, number | null> {
+function readingsOf(l: typeof officeReceiptLines.$inferSelect): Record<string, number | null> {
   const other = (l.qcOtherParams ?? {}) as Record<string, number>;
   return {
     ...other,
@@ -828,9 +828,9 @@ function readingsOf(l: typeof procurementReceiptLines.$inferSelect): Record<stri
  * All verdicts commit together so the truck's status changes at once rather
  * than drifting through half-tested states while someone works down the trailer.
  */
-procurementRouter.patch(
+officeRouter.patch(
   "/receipts/:id/qc",
-  requirePermission("procurement", "quality_control"),
+  requirePermission("office", "quality_control"),
   validateBody(
     z.object({
       lines: z
@@ -868,20 +868,20 @@ procurementRouter.patch(
     };
     const mayOverride =
       req.session.user!.permissions["*"]?.includes("*") ||
-      req.session.user!.permissions.procurement?.includes("*") ||
-      req.session.user!.permissions.procurement?.includes("override");
+      req.session.user!.permissions.office?.includes("*") ||
+      req.session.user!.permissions.office?.includes("override");
 
     try {
       const out = await db.transaction(async (tx) => {
-        const receipt = await tx.query.procurementReceipts.findFirst({
-          where: eq(procurementReceipts.id, req.params.id!),
+        const receipt = await tx.query.officeReceipts.findFirst({
+          where: eq(officeReceipts.id, req.params.id!),
         });
         if (!receipt) throw new PostingError("Goods receipt not found");
 
         const lines = await tx
           .select()
-          .from(procurementReceiptLines)
-          .where(eq(procurementReceiptLines.receiptId, receipt.id));
+          .from(officeReceiptLines)
+          .where(eq(officeReceiptLines.receiptId, receipt.id));
 
         // Every line gets a verdict or none do: a truck cannot leave QC with a
         // material nobody looked at.
@@ -932,7 +932,7 @@ procurementRouter.patch(
               if (wanted !== accepted) {
                 if (!mayOverride) {
                   throw new PostingError(
-                    "Overriding a quality verdict needs the procurement override permission",
+                    "Overriding a quality verdict needs the office override permission",
                   );
                 }
                 accepted = wanted;
@@ -955,7 +955,7 @@ procurementRouter.patch(
           for (const k of ["moisture", "protein", "fiber", "fat"]) delete other[k];
 
           await tx
-            .update(procurementReceiptLines)
+            .update(officeReceiptLines)
             .set({
               status: accepted ? "qc_accepted" : "qc_rejected",
               qcSpecId: judged.specId,
@@ -970,7 +970,7 @@ procurementRouter.patch(
               qcOverrideBy: overrideReason ? req.session.user!.id : null,
               qcRejectionReason: rejectionReason,
             })
-            .where(eq(procurementReceiptLines.id, line.id));
+            .where(eq(officeReceiptLines.id, line.id));
 
           // A rejected line still consumed its slot on the order: the vendor
           // discharged their obligation by sending it. Written now rather than
@@ -993,7 +993,7 @@ procurementRouter.patch(
         const rejected = decided.filter((d) => !d.accepted).length;
 
         const [updated] = await tx
-          .update(procurementReceipts)
+          .update(officeReceipts)
           .set({
             status: next,
             qcAt: new Date(),
@@ -1006,7 +1006,7 @@ procurementRouter.patch(
             exitBy: anyAccepted ? undefined : req.session.user!.id,
             updatedAt: new Date(),
           })
-          .where(eq(procurementReceipts.id, receipt.id))
+          .where(eq(officeReceipts.id, receipt.id))
           .returning();
         return updated!;
       });
@@ -1021,9 +1021,9 @@ procurementRouter.patch(
 const num = (v: number | null | undefined) => (v == null ? null : String(v));
 
 /** Station 4 — unloading, one line at a time. The header follows the lines. */
-procurementRouter.patch(
+officeRouter.patch(
   "/receipts/:id/lines/:lineId/unloading",
-  requirePermission("procurement", "unloading"),
+  requirePermission("office", "unloading"),
   validateBody(
     z.object({
       warehouseLocationId: z.string().uuid().optional(),
@@ -1045,16 +1045,16 @@ procurementRouter.patch(
     };
     try {
       const out = await db.transaction(async (tx) => {
-        const receipt = await tx.query.procurementReceipts.findFirst({
-          where: eq(procurementReceipts.id, req.params.id!),
+        const receipt = await tx.query.officeReceipts.findFirst({
+          where: eq(officeReceipts.id, req.params.id!),
         });
         if (!receipt) throw new PostingError("Goods receipt not found");
         if (receipt.status !== "qc_passed" && receipt.status !== "unloading") {
           throw new TransitionError(`Nothing can be unloaded while the receipt is ${receipt.status}`);
         }
 
-        const line = await tx.query.procurementReceiptLines.findFirst({
-          where: eq(procurementReceiptLines.id, req.params.lineId!),
+        const line = await tx.query.officeReceiptLines.findFirst({
+          where: eq(officeReceiptLines.id, req.params.lineId!),
         });
         if (!line || line.receiptId !== receipt.id) {
           throw new PostingError("That line does not belong to this receipt");
@@ -1066,7 +1066,7 @@ procurementRouter.patch(
         }
 
         await tx
-          .update(procurementReceiptLines)
+          .update(officeReceiptLines)
           .set({
             status: body.complete ? "unloaded" : "unloading",
             warehouseLocationId: body.warehouseLocationId,
@@ -1078,25 +1078,25 @@ procurementRouter.patch(
             unloadingCompletedAt: body.complete ? new Date() : null,
             unloadingBy: req.session.user!.id,
           })
-          .where(eq(procurementReceiptLines.id, line.id));
+          .where(eq(officeReceiptLines.id, line.id));
 
         // The header moves on only when every accepted line is off.
         const siblings = await tx
-          .select({ status: procurementReceiptLines.status })
-          .from(procurementReceiptLines)
-          .where(eq(procurementReceiptLines.receiptId, receipt.id));
+          .select({ status: officeReceiptLines.status })
+          .from(officeReceiptLines)
+          .where(eq(officeReceiptLines.receiptId, receipt.id));
         const accepted = siblings.filter((s) => s.status !== "qc_rejected");
         const allOff = accepted.every((s) => s.status === "unloaded");
 
         const [updated] = await tx
-          .update(procurementReceipts)
+          .update(officeReceipts)
           .set({
             status: allOff ? "unloading_complete" : "unloading",
             unloadingStartedAt: receipt.unloadingStartedAt ?? new Date(),
             unloadingCompletedAt: allOff ? new Date() : null,
             updatedAt: new Date(),
           })
-          .where(eq(procurementReceipts.id, receipt.id))
+          .where(eq(officeReceipts.id, receipt.id))
           .returning();
         return updated!;
       });
@@ -1115,9 +1115,9 @@ procurementRouter.patch(
  * materials. Splitting it is the only genuinely new problem multi-line
  * introduces, and it happens here.
  */
-procurementRouter.patch(
+officeRouter.patch(
   "/receipts/:id/tare-weight",
-  requirePermission("procurement", "weighbridge"),
+  requirePermission("office", "weighbridge"),
   validateBody(
     z.object({
       tareWeightKg: qtyStr,
@@ -1152,8 +1152,8 @@ procurementRouter.patch(
     };
     try {
       const out = await db.transaction(async (tx) => {
-        const loaded = await tx.query.procurementReceipts.findFirst({
-          where: eq(procurementReceipts.id, req.params.id!),
+        const loaded = await tx.query.officeReceipts.findFirst({
+          where: eq(officeReceipts.id, req.params.id!),
         });
         if (!loaded) throw new PostingError("Goods receipt not found");
         const gross = Number(loaded.grossWeightKg ?? 0);
@@ -1163,9 +1163,9 @@ procurementRouter.patch(
 
         let lines = await tx
           .select()
-          .from(procurementReceiptLines)
-          .where(eq(procurementReceiptLines.receiptId, loaded.id))
-          .orderBy(asc(procurementReceiptLines.lineNo));
+          .from(officeReceiptLines)
+          .where(eq(officeReceiptLines.receiptId, loaded.id))
+          .orderBy(asc(officeReceiptLines.lineNo));
 
         /**
          * Take the goods off the truck, here.
@@ -1184,7 +1184,7 @@ procurementRouter.patch(
             // QC refused it, so it never came off — it goes back with the truck.
             if (l.status === "qc_rejected" || l.status === "unloaded") continue;
             await tx
-              .update(procurementReceiptLines)
+              .update(officeReceiptLines)
               .set({
                 status: "unloaded",
                 bagCountActual: bagOf.has(l.id) ? (bagOf.get(l.id) ?? null) : l.bagCountActual,
@@ -1192,22 +1192,22 @@ procurementRouter.patch(
                 unloadingCompletedAt: now,
                 unloadingBy: req.session.user!.id,
               })
-              .where(eq(procurementReceiptLines.id, l.id));
+              .where(eq(officeReceiptLines.id, l.id));
           }
           assertTransition(loaded.status, "unloading");
           await tx
-            .update(procurementReceipts)
+            .update(officeReceipts)
             .set({
               status: "unloading_complete",
               unloadingStartedAt: loaded.unloadingStartedAt ?? now,
               unloadingCompletedAt: now,
             })
-            .where(eq(procurementReceipts.id, loaded.id));
+            .where(eq(officeReceipts.id, loaded.id));
           lines = await tx
             .select()
-            .from(procurementReceiptLines)
-            .where(eq(procurementReceiptLines.receiptId, loaded.id))
-            .orderBy(asc(procurementReceiptLines.lineNo));
+            .from(officeReceiptLines)
+            .where(eq(officeReceiptLines.receiptId, loaded.id))
+            .orderBy(asc(officeReceiptLines.lineNo));
         }
 
         const receipt = await forTransition(tx, req.params.id!, "gate_out");
@@ -1253,13 +1253,13 @@ procurementRouter.patch(
           // weight is still sitting inside the tare.
           const share = l.status === "unloaded" ? (allocations.get(l.id) ?? 0) : 0;
           await tx
-            .update(procurementReceiptLines)
+            .update(officeReceiptLines)
             .set({ allocatedNetKg: String(share) })
-            .where(eq(procurementReceiptLines.id, l.id));
+            .where(eq(officeReceiptLines.id, l.id));
         }
 
         const [updated] = await tx
-          .update(procurementReceipts)
+          .update(officeReceipts)
           .set({
             tareWeightKg: body.tareWeightKg,
             tareWeighedAt: new Date(),
@@ -1272,7 +1272,7 @@ procurementRouter.patch(
             status: "gate_out",
             updatedAt: new Date(),
           })
-          .where(eq(procurementReceipts.id, receipt.id))
+          .where(eq(officeReceipts.id, receipt.id))
           .returning();
         return updated!;
       });
@@ -1293,20 +1293,20 @@ procurementRouter.patch(
  * figure an operator approves is the figure that is posted.
  */
 async function settlementContext(tx: Tx | typeof db, receiptId: string) {
-  const receipt = await tx.query.procurementReceipts.findFirst({
-    where: eq(procurementReceipts.id, receiptId),
+  const receipt = await tx.query.officeReceipts.findFirst({
+    where: eq(officeReceipts.id, receiptId),
   });
   if (!receipt) throw new PostingError("Goods receipt not found");
 
   const lines = await tx
     .select({
-      line: procurementReceiptLines,
+      line: officeReceiptLines,
       purchaseAccountId: items.purchaseAccountId,
     })
-    .from(procurementReceiptLines)
-    .leftJoin(items, eq(items.id, procurementReceiptLines.itemId))
-    .where(eq(procurementReceiptLines.receiptId, receiptId))
-    .orderBy(asc(procurementReceiptLines.lineNo));
+    .from(officeReceiptLines)
+    .leftJoin(items, eq(items.id, officeReceiptLines.itemId))
+    .where(eq(officeReceiptLines.receiptId, receiptId))
+    .orderBy(asc(officeReceiptLines.lineNo));
 
   // The vendor's printed tax, spread across the lines by value. Never posted to
   // a tax account — eggs are exempt, so it is part of what the goods cost.
@@ -1555,9 +1555,9 @@ async function settlementContext(tx: Tx | typeof db, receiptId: string) {
   };
 }
 
-procurementRouter.get(
+officeRouter.get(
   "/receipts/:id/settlement-context",
-  requirePermission("procurement", "settle"),
+  requirePermission("office", "settle"),
   async (req, res) => {
     try {
       const ctx = await settlementContext(db, req.params.id!);
@@ -1582,9 +1582,9 @@ procurementRouter.get(
  * Lines rejected at QC never reach the bill at all: we did not take the goods,
  * so there is nothing to owe and nothing to credit back.
  */
-procurementRouter.post(
+officeRouter.post(
   "/receipts/:id/settle",
-  requirePermission("procurement", "settle"),
+  requirePermission("office", "settle"),
   validateBody(
     z.object({
       billTotalVarianceReason: z.string().optional(),
@@ -1788,17 +1788,17 @@ procurementRouter.post(
         }
 
         await tx
-          .update(procurementReceiptLines)
+          .update(officeReceiptLines)
           .set({ status: "settled" })
           .where(
             and(
-              eq(procurementReceiptLines.receiptId, receipt.id),
-              eq(procurementReceiptLines.status, "unloaded"),
+              eq(officeReceiptLines.receiptId, receipt.id),
+              eq(officeReceiptLines.status, "unloaded"),
             ),
           );
 
         const [updated] = await tx
-          .update(procurementReceipts)
+          .update(officeReceipts)
           .set({
             status: "settled",
             billId: bill.id,
@@ -1810,7 +1810,7 @@ procurementRouter.post(
             settledBy: req.session.user!.id,
             updatedAt: new Date(),
           })
-          .where(eq(procurementReceipts.id, receipt.id))
+          .where(eq(officeReceipts.id, receipt.id))
           .returning();
 
         // Carry the gate photos onto the bill.
@@ -1825,7 +1825,7 @@ procurementRouter.post(
           .from(attachments)
           .where(
             and(
-              eq(attachments.entityType, "procurement_receipt"),
+              eq(attachments.entityType, "office_receipt"),
               eq(attachments.entityId, receipt.id),
             ),
           );
@@ -1940,16 +1940,16 @@ function deriveStatus(
   return "gate_in";
 }
 
-procurementRouter.patch(
+officeRouter.patch(
   "/receipts/:id",
-  requirePermission("procurement", "gate_in"),
+  requirePermission("office", "gate_in"),
   validateBody(editReceiptSchema),
   async (req, res) => {
     const body = req.body as z.infer<typeof editReceiptSchema>;
     try {
       const out = await db.transaction(async (tx) => {
-        const receipt = await tx.query.procurementReceipts.findFirst({
-          where: eq(procurementReceipts.id, req.params.id!),
+        const receipt = await tx.query.officeReceipts.findFirst({
+          where: eq(officeReceipts.id, req.params.id!),
         });
         if (!receipt) throw new PostingError("Goods receipt not found");
         // Once a payable exists the receipt is what it was billed against.
@@ -1965,14 +1965,14 @@ procurementRouter.patch(
 
         const existing = await tx
           .select()
-          .from(procurementReceiptLines)
-          .where(eq(procurementReceiptLines.receiptId, receipt.id));
+          .from(officeReceiptLines)
+          .where(eq(officeReceiptLines.receiptId, receipt.id));
         const keep = new Set(body.lines.map((l) => l.id).filter(Boolean));
         const dropped = existing.filter((l) => !keep.has(l.id));
         if (dropped.length) {
-          await tx.delete(procurementReceiptLines).where(
+          await tx.delete(officeReceiptLines).where(
             inArray(
-              procurementReceiptLines.id,
+              officeReceiptLines.id,
               dropped.map((l) => l.id),
             ),
           );
@@ -1987,7 +1987,7 @@ procurementRouter.patch(
           const values = {
             receiptId: receipt.id,
             lineNo: i + 1,
-            status: status as (typeof procurementReceiptLines.$inferInsert)["status"],
+            status: status as (typeof officeReceiptLines.$inferInsert)["status"],
             itemId: l.itemId ?? null,
             itemName: l.itemName,
             billQuantityKg: l.billQuantityKg,
@@ -1998,7 +1998,7 @@ procurementRouter.patch(
             bagCountExpected: l.billBagCount ?? null,
             purchaseOrderId: l.purchaseOrderId ?? null,
             poLineId: l.poLineId ?? null,
-            qcVerdict: (l.qcVerdict ?? null) as (typeof procurementReceiptLines.$inferInsert)["qcVerdict"],
+            qcVerdict: (l.qcVerdict ?? null) as (typeof officeReceiptLines.$inferInsert)["qcVerdict"],
             qcMoisturePct: l.qcMoisturePct != null ? String(l.qcMoisturePct) : null,
             qcProteinPct: l.qcProteinPct != null ? String(l.qcProteinPct) : null,
             qcRejectionReason: l.qcRejectionReason ?? null,
@@ -2010,9 +2010,9 @@ procurementRouter.patch(
             allocatedNetKg: l.qcVerdict === "rejected" ? null : (l.allocatedNetKg ?? null),
           };
           if (l.id && existing.some((e) => e.id === l.id)) {
-            await tx.update(procurementReceiptLines).set(values).where(eq(procurementReceiptLines.id, l.id));
+            await tx.update(officeReceiptLines).set(values).where(eq(officeReceiptLines.id, l.id));
           } else {
-            await tx.insert(procurementReceiptLines).values(values);
+            await tx.insert(officeReceiptLines).values(values);
           }
           written.push({ qcVerdict: values.qcVerdict ?? null, allocatedNetKg: values.allocatedNetKg });
         }
@@ -2024,7 +2024,7 @@ procurementRouter.patch(
         }
 
         const [updated] = await tx
-          .update(procurementReceipts)
+          .update(officeReceipts)
           .set({
             vendorId: body.vendorId !== undefined ? body.vendorId : receipt.vendorId,
             vehicleNumber: body.vehicleNumber
@@ -2045,7 +2045,7 @@ procurementRouter.patch(
             status: deriveStatus({ grossWeightKg: gross, tareWeightKg: tare }, written),
             updatedAt: new Date(),
           })
-          .where(eq(procurementReceipts.id, receipt.id))
+          .where(eq(officeReceipts.id, receipt.id))
           .returning();
         return updated!;
       });
@@ -2064,14 +2064,14 @@ procurementRouter.patch(
  * Only ever a pre-settlement record: once a receipt has produced a bill it is
  * an accounting document, and deleting it would orphan a posted journal.
  */
-procurementRouter.delete(
+officeRouter.delete(
   "/receipts/:id",
-  requirePermission("procurement", "override"),
+  requirePermission("office", "override"),
   async (req, res) => {
     try {
       const done = await db.transaction(async (tx) => {
-        const receipt = await tx.query.procurementReceipts.findFirst({
-          where: eq(procurementReceipts.id, req.params.id!),
+        const receipt = await tx.query.officeReceipts.findFirst({
+          where: eq(officeReceipts.id, req.params.id!),
         });
         if (!receipt) return null;
         if (receipt.status === "settled" || receipt.billId) {
@@ -2087,7 +2087,7 @@ procurementRouter.delete(
           .from(attachments)
           .where(
             and(
-              eq(attachments.entityType, "procurement_receipt"),
+              eq(attachments.entityType, "office_receipt"),
               eq(attachments.entityId, receipt.id),
             ),
           );
@@ -2106,8 +2106,8 @@ procurementRouter.delete(
         }
 
         // Lines cascade on the foreign key.
-        await tx.delete(procurementReceipts).where(eq(procurementReceipts.id, receipt.id));
-        await resyncDocumentNumber(tx, "procurement_receipt");
+        await tx.delete(officeReceipts).where(eq(officeReceipts.id, receipt.id));
+        await resyncDocumentNumber(tx, "office_receipt");
         return receipt.number;
       });
       if (!done) return res.status(404).json({ error: "Goods receipt not found" });

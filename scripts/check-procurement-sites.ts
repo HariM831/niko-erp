@@ -16,7 +16,7 @@
  *
  * Rolled back, so no gate, weighbridge or receipt survives.
  *
- * Run: npx tsx scripts/check-procurement-sites.ts
+ * Run: npx tsx scripts/check-office-sites.ts
  */
 import { eq } from "drizzle-orm";
 import { gates, locations, weighbridges } from "@shared/schema";

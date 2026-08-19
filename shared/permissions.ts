@@ -3,7 +3,7 @@
  * validation. A role's `permissions` is a { module: actions[] } map; "*" as
  * either a module or an action grants everything.
  *
- * Adding an operational module (farms, feed mill, procurement, payroll) is a
+ * Adding an operational module (farms, feed mill, office, payroll) is a
  * one-line edit here — the role editor renders whatever this lists, so no UI
  * change is needed.
  */
@@ -21,7 +21,7 @@ export interface PermissionModule {
    * Actions this module supports, defaulting to the standard four.
    *
    * An operational module often has nothing to do with create/edit/delete. The
-   * six procurement stations are each a separate job done by a separate person,
+   * six office stations are each a separate job done by a separate person,
    * and a weighbridge operator must not be able to settle a bill — so the
    * module names its own verbs and the role editor renders those instead.
    */
@@ -62,11 +62,8 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     description: "Chart of accounts, manual journals, fixed assets, budgets, locking",
   },
   {
-    // The KEY stays "procurement": it is written into every role's stored
-    // permissions and into entities.ts. Only the label is the user's word for
-    // it, and renaming the key would silently strip everyone's access.
-    key: "procurement",
-    label: "Gate",
+    key: "office",
+    label: "Office",
     description: "Goods receipts: gate in, weighment, QC, settlement",
     actions: [
       { key: "view", label: "View" },

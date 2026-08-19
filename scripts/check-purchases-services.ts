@@ -50,7 +50,7 @@ async function main() {
     await db.transaction(async (tx) => {
       const v = await loadVendor(tx, vendor.id);
 
-      // A two-line bill, no tax — the shape procurement settlement will produce.
+      // A two-line bill, no tax — the shape office settlement will produce.
       const bill = await createBill(tx, {
         vendor: v,
         billDate: "2026-08-15",

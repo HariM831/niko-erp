@@ -12,8 +12,8 @@ import {
   journalEntryLineTags,
   journalEntryLines,
   paymentMode,
-  procurementReceiptLines,
-  procurementReceipts,
+  officeReceiptLines,
+  officeReceipts,
   reportingTagOptions,
   reportingTags,
   purchaseOrderLines,
@@ -98,7 +98,7 @@ const billLineSchema = lineSchema.extend({
   tagOptionIds: z.array(z.string().uuid()).max(10).optional(),
   /**
    * A bill line may be negative, and among purchase documents only a bill line
-   * may. Procurement settles a truck as goods at the vendor's own figure
+   * may. Office settles a truck as goods at the vendor's own figure
    * followed by a negative line per deduction, so editing such a bill has to be
    * able to send the deduction back unchanged. An order or a credit note has no
    * business carrying one.
@@ -736,10 +736,10 @@ purchasesRouter.post(
          * document, which is how a goods receipt and the ledger stop agreeing.
          */
         const toReopen = await tx
-          .select({ id: procurementReceipts.id, number: procurementReceipts.number })
-          .from(procurementReceipts)
+          .select({ id: officeReceipts.id, number: officeReceipts.number })
+          .from(officeReceipts)
           .where(
-            and(eq(procurementReceipts.billId, bill.id), eq(procurementReceipts.status, "settled")),
+            and(eq(officeReceipts.billId, bill.id), eq(officeReceipts.status, "settled")),
           );
 
         for (const r of toReopen) {
@@ -754,14 +754,14 @@ purchasesRouter.post(
            */
           const settledLines = await tx
             .select({
-              poLineId: procurementReceiptLines.poLineId,
-              qty: procurementReceiptLines.billQuantityKg,
+              poLineId: officeReceiptLines.poLineId,
+              qty: officeReceiptLines.billQuantityKg,
             })
-            .from(procurementReceiptLines)
+            .from(officeReceiptLines)
             .where(
               and(
-                eq(procurementReceiptLines.receiptId, r.id),
-                eq(procurementReceiptLines.status, "settled"),
+                eq(officeReceiptLines.receiptId, r.id),
+                eq(officeReceiptLines.status, "settled"),
               ),
             );
           for (const l of settledLines) {
@@ -776,18 +776,18 @@ purchasesRouter.post(
           }
           // The lines go back to unloaded — off the truck, not yet billed.
           await tx
-            .update(procurementReceiptLines)
+            .update(officeReceiptLines)
             .set({ status: "unloaded" })
             .where(
               and(
-                eq(procurementReceiptLines.receiptId, r.id),
-                eq(procurementReceiptLines.status, "settled"),
+                eq(officeReceiptLines.receiptId, r.id),
+                eq(officeReceiptLines.status, "settled"),
               ),
             );
         }
 
         const reopened = await tx
-          .update(procurementReceipts)
+          .update(officeReceipts)
           .set({
             status: "gate_out",
             billId: null,
@@ -796,9 +796,9 @@ purchasesRouter.post(
             updatedAt: new Date(),
           })
           .where(
-            and(eq(procurementReceipts.billId, bill.id), eq(procurementReceipts.status, "settled")),
+            and(eq(officeReceipts.billId, bill.id), eq(officeReceipts.status, "settled")),
           )
-          .returning({ number: procurementReceipts.number });
+          .returning({ number: officeReceipts.number });
 
         return { ...updated!, reopenedReceipts: reopened.map((r) => r.number) };
       });

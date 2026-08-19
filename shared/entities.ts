@@ -134,10 +134,10 @@ export const ENTITIES: EntityDef[] = [
     lookupTarget: false,
   },
   {
-    key: "procurement_receipt",
+    key: "office_receipt",
     label: "Goods Receipt",
     plural: "Goods Receipts",
-    module: "procurement",
+    module: "office",
     numbered: true,
     lookupTarget: false,
   },
@@ -148,10 +148,10 @@ export const ENTITIES: EntityDef[] = [
      * costs one entry and no changes anywhere else. Not numbered: a line is
      * identified by its receipt and its position on the bill.
      */
-    key: "procurement_receipt_line",
+    key: "office_receipt_line",
     label: "Receipt Line",
     plural: "Receipt Lines",
-    module: "procurement",
+    module: "office",
     numbered: false,
     lookupTarget: false,
   },

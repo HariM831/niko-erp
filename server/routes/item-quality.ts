@@ -21,7 +21,7 @@ import {
   contacts,
   deductionRules,
   items,
-  procurementReceiptLines,
+  officeReceiptLines,
   qcSpecParams,
   qcSpecs,
   specDirection,
@@ -125,10 +125,10 @@ async function specPayload(itemId: string) {
     // free; retiring one that judged forty loads is a decision.
     specIds.length
       ? db
-          .select({ specId: procurementReceiptLines.qcSpecId, lines: sql<number>`count(*)::int` })
-          .from(procurementReceiptLines)
-          .where(inArray(procurementReceiptLines.qcSpecId, specIds))
-          .groupBy(procurementReceiptLines.qcSpecId)
+          .select({ specId: officeReceiptLines.qcSpecId, lines: sql<number>`count(*)::int` })
+          .from(officeReceiptLines)
+          .where(inArray(officeReceiptLines.qcSpecId, specIds))
+          .groupBy(officeReceiptLines.qcSpecId)
       : [],
     db
       .select({ ...getTableColumns(deductionRules), vendorName: contacts.displayName })

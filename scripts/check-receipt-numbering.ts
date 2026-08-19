@@ -11,7 +11,7 @@
  * Run: npx tsx scripts/check-receipt-numbering.ts
  */
 import { and, eq, inArray } from "drizzle-orm";
-import { documentSeries, locations, numberSeries, procurementReceipts } from "@shared/schema";
+import { documentSeries, locations, numberSeries, officeReceipts } from "@shared/schema";
 import { db } from "../server/db";
 import { nextDocumentNumber, resyncDocumentNumber } from "../server/lib/numbering";
 
@@ -21,7 +21,7 @@ const check = (name: string, pass: boolean, actual = "") => {
   if (!pass) failed++;
 };
 
-const ENTITY = "procurement_receipt";
+const ENTITY = "office_receipt";
 
 async function nextNumberOf(): Promise<number> {
   const [defaultSeries] = await db
@@ -49,9 +49,9 @@ async function main() {
     const row = await db.transaction(async (tx) => {
       const number = await nextDocumentNumber(tx, ENTITY);
       const [r] = await tx
-        .insert(procurementReceipts)
+        .insert(officeReceipts)
         .values({ number, locationId: site.id, vehicleNumber: `SELFTEST${i}` })
-        .returning({ id: procurementReceipts.id, number: procurementReceipts.number });
+        .returning({ id: officeReceipts.id, number: officeReceipts.number });
       return r!;
     });
     created.push(row);
@@ -61,7 +61,7 @@ async function main() {
 
   // Deleting the middle one must NOT move the counter — the highest still exists.
   await db.transaction(async (tx) => {
-    await tx.delete(procurementReceipts).where(eq(procurementReceipts.id, created[1]!.id));
+    await tx.delete(officeReceipts).where(eq(officeReceipts.id, created[1]!.id));
     await resyncDocumentNumber(tx, ENTITY);
   });
   check("a hole in the middle leaves the counter alone", (await nextNumberOf()) === startedAt + 3,
@@ -70,7 +70,7 @@ async function main() {
   // Deleting the newest now collapses the counter past the hole as well: only
   // the first receipt is left, so the next number is the one after it.
   await db.transaction(async (tx) => {
-    await tx.delete(procurementReceipts).where(eq(procurementReceipts.id, created[2]!.id));
+    await tx.delete(officeReceipts).where(eq(officeReceipts.id, created[2]!.id));
     await resyncDocumentNumber(tx, ENTITY);
   });
   check("deleting the newest reclaims it and the hole below it",
@@ -83,17 +83,17 @@ async function main() {
   // Delete the rest in one go — the counter must land all the way back.
   await db.transaction(async (tx) => {
     await tx
-      .delete(procurementReceipts)
-      .where(inArray(procurementReceipts.id, created.map((c) => c.id)));
+      .delete(officeReceipts)
+      .where(inArray(officeReceipts.id, created.map((c) => c.id)));
     await resyncDocumentNumber(tx, ENTITY);
   });
   check("a bulk delete winds the counter fully back", (await nextNumberOf()) === startedAt,
     `next=${await nextNumberOf()}`);
 
   const left = await db
-    .select({ id: procurementReceipts.id })
-    .from(procurementReceipts)
-    .where(inArray(procurementReceipts.id, created.map((c) => c.id)));
+    .select({ id: officeReceipts.id })
+    .from(officeReceipts)
+    .where(inArray(officeReceipts.id, created.map((c) => c.id)));
   check("no test receipts survive", left.length === 0, `${left.length} left`);
 
   console.log(failed === 0 ? "\nAll checks passed." : `\n${failed} check(s) FAILED.`);

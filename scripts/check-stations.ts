@@ -17,8 +17,8 @@ import {
   contacts,
   items,
   locations,
-  procurementReceiptLines,
-  procurementReceipts,
+  officeReceiptLines,
+  officeReceipts,
   purchaseOrderLines,
 } from "@shared/schema";
 import { db, type Tx } from "../server/db";
@@ -60,7 +60,7 @@ async function main() {
     await db.transaction(async (tx: Tx) => {
       // ── A two-line truck: maize accepted, rice bran refused ──
       const [receipt] = await tx
-        .insert(procurementReceipts)
+        .insert(officeReceipts)
         .values({
           number: "GR-SELFTEST",
           locationId: site.id,
@@ -71,12 +71,12 @@ async function main() {
         .returning();
 
       const inserted = await tx
-        .insert(procurementReceiptLines)
+        .insert(officeReceiptLines)
         .values([
           { receiptId: receipt!.id, lineNo: 1, itemId: maize.id, itemName: "Maize", billQuantityKg: "24380.000" },
           { receiptId: receipt!.id, lineNo: 2, itemId: dorb.id, itemName: "DORB", billQuantityKg: "6000.000" },
         ])
-        .returning({ id: procurementReceiptLines.id, lineNo: procurementReceiptLines.lineNo });
+        .returning({ id: officeReceiptLines.id, lineNo: officeReceiptLines.lineNo });
       const maizeLine = inserted.find((l) => l.lineNo === 1)!;
       const dorbLine = inserted.find((l) => l.lineNo === 2)!;
 
@@ -88,34 +88,34 @@ async function main() {
       const variance = ((gross - slip) / slip) * 100;
       check("gross vs vendor slip is within tolerance", Math.abs(variance) <= 0.5, `${variance.toFixed(3)}%`);
       await tx
-        .update(procurementReceipts)
+        .update(officeReceipts)
         .set({ grossWeightKg: String(gross), status: "weighed_in" })
-        .where(eq(procurementReceipts.id, receipt!.id));
+        .where(eq(officeReceipts.id, receipt!.id));
 
       // Station 3 — QC rejects the rice bran, which consumes its PO slot now.
       await tx
-        .update(procurementReceiptLines)
+        .update(officeReceiptLines)
         .set({ status: "qc_accepted", qcVerdict: "pass" })
-        .where(eq(procurementReceiptLines.id, maizeLine.id));
+        .where(eq(officeReceiptLines.id, maizeLine.id));
       await tx
-        .update(procurementReceiptLines)
+        .update(officeReceiptLines)
         .set({ status: "qc_rejected", qcVerdict: "rejected", qcRejectionReason: "Moisture well above spec" })
-        .where(eq(procurementReceiptLines.id, dorbLine.id));
+        .where(eq(officeReceiptLines.id, dorbLine.id));
       await tx
-        .update(procurementReceipts)
+        .update(officeReceipts)
         .set({ status: "qc_passed", qcRollupVerdict: "partial" })
-        .where(eq(procurementReceipts.id, receipt!.id));
+        .where(eq(officeReceipts.id, receipt!.id));
       check("a partly rejected truck still goes to unloading", true, "status qc_passed");
 
       // Station 4 — only the accepted line comes off.
       await tx
-        .update(procurementReceiptLines)
+        .update(officeReceiptLines)
         .set({ status: "unloaded", bagCountActual: 401 })
-        .where(eq(procurementReceiptLines.id, maizeLine.id));
+        .where(eq(officeReceiptLines.id, maizeLine.id));
       const after = await tx
-        .select({ id: procurementReceiptLines.id, status: procurementReceiptLines.status })
-        .from(procurementReceiptLines)
-        .where(eq(procurementReceiptLines.receiptId, receipt!.id));
+        .select({ id: officeReceiptLines.id, status: officeReceiptLines.status })
+        .from(officeReceiptLines)
+        .where(eq(officeReceiptLines.receiptId, receipt!.id));
       const accepted = after.filter((l) => l.status !== "qc_rejected");
       check("every accepted line is off the truck", accepted.every((l) => l.status === "unloaded"), `${accepted.length} line(s)`);
 
@@ -125,22 +125,22 @@ async function main() {
       check("net off the truck", net === 24290, `${gross} − ${tare} = ${net} kg`);
 
       await tx
-        .update(procurementReceiptLines)
+        .update(officeReceiptLines)
         .set({ allocatedNetKg: String(net) })
-        .where(eq(procurementReceiptLines.id, maizeLine.id));
+        .where(eq(officeReceiptLines.id, maizeLine.id));
       await tx
-        .update(procurementReceiptLines)
+        .update(officeReceiptLines)
         .set({ allocatedNetKg: "0" })
-        .where(eq(procurementReceiptLines.id, dorbLine.id));
+        .where(eq(officeReceiptLines.id, dorbLine.id));
       await tx
-        .update(procurementReceipts)
+        .update(officeReceipts)
         .set({ tareWeightKg: String(tare), status: "gate_out" })
-        .where(eq(procurementReceipts.id, receipt!.id));
+        .where(eq(officeReceipts.id, receipt!.id));
 
       const finalLines = await tx
         .select()
-        .from(procurementReceiptLines)
-        .where(eq(procurementReceiptLines.receiptId, receipt!.id));
+        .from(officeReceiptLines)
+        .where(eq(officeReceiptLines.receiptId, receipt!.id));
       const m = finalLines.find((l) => l.id === maizeLine.id)!;
       const d = finalLines.find((l) => l.id === dorbLine.id)!;
 
@@ -149,9 +149,9 @@ async function main() {
 
       // Generated columns: the database computes these, not the application.
       const [hdr] = await tx
-        .select({ net: procurementReceipts.netWeightKg })
-        .from(procurementReceipts)
-        .where(eq(procurementReceipts.id, receipt!.id));
+        .select({ net: officeReceipts.netWeightKg })
+        .from(officeReceipts)
+        .where(eq(officeReceipts.id, receipt!.id));
       check("net_weight_kg is generated from gross − tare", Number(hdr!.net) === 24290, `${hdr!.net} kg`);
       check("shortage is generated on the accepted line", Number(m.shortageKg) === 90, `${m.shortageKg} kg short of 24,380`);
       check("a rejected line reports its full billed weight short", Number(d.shortageKg) === 6000, `${d.shortageKg} kg`);
@@ -160,9 +160,9 @@ async function main() {
       let blocked = false;
       try {
         await tx
-          .update(procurementReceiptLines)
+          .update(officeReceiptLines)
           .set({ allocatedNetKg: "500" })
-          .where(eq(procurementReceiptLines.id, dorbLine.id));
+          .where(eq(officeReceiptLines.id, dorbLine.id));
       } catch {
         blocked = true;
       }
@@ -175,9 +175,9 @@ async function main() {
   }
 
   const left = await db
-    .select({ id: procurementReceipts.id })
-    .from(procurementReceipts)
-    .where(eq(procurementReceipts.number, "GR-SELFTEST"));
+    .select({ id: officeReceipts.id })
+    .from(officeReceipts)
+    .where(eq(officeReceipts.number, "GR-SELFTEST"));
   check("nothing survives the run", left.length === 0, `${left.length} left`);
 
   console.log(failed === 0 ? "\n  All station checks passed.\n" : `\n  ${failed} check(s) FAILED.\n`);

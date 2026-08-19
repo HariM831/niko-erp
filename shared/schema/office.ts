@@ -1,5 +1,5 @@
 /**
- * Procurement — the physical record of a truck arriving with raw material.
+ * Office — the physical record of a truck arriving with raw material.
  *
  * This module owns what happened at the gate, on the weighbridge, at the NIR
  * bench and in the godown. It does not own stock and it does not own the
@@ -7,7 +7,7 @@
  * Credit applied to it) through the existing purchases path, and stops there.
  *
  * There is no tax anywhere in here. Eggs are exempt, so any GST a registered
- * vendor charges is part of what the goods cost — see docs/procurement-plan.md.
+ * vendor charges is part of what the goods cost — see docs/office-plan.md.
  */
 import { sql } from "drizzle-orm";
 import {
@@ -119,8 +119,8 @@ export const vendorMatchMethod = pgEnum("vendor_match_method", [
 
 export const allocationMethod = pgEnum("allocation_method", ["pro_rata", "manual"]);
 
-export const procurementReceipts = pgTable(
-  "procurement_receipts",
+export const officeReceipts = pgTable(
+  "office_receipts",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     number: varchar("number", { length: 30 }).notNull().unique(),
@@ -234,18 +234,18 @@ export const procurementReceipts = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (t) => [
-    index("ix_pr_queue").on(t.status, t.locationId, t.arrivalAt),
-    index("ix_pr_vendor").on(t.vendorId),
+    index("ix_or_queue").on(t.status, t.locationId, t.arrivalAt),
+    index("ix_or_vendor").on(t.vendorId),
   ],
 );
 
-export const procurementReceiptLines = pgTable(
-  "procurement_receipt_lines",
+export const officeReceiptLines = pgTable(
+  "office_receipt_lines",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     receiptId: uuid("receipt_id")
       .notNull()
-      .references(() => procurementReceipts.id, { onDelete: "cascade" }),
+      .references(() => officeReceipts.id, { onDelete: "cascade" }),
     /** 1-based, as printed on the bill. */
     lineNo: integer("line_no").notNull(),
     status: receiptLineStatus("status").notNull().default("pending"),
@@ -320,14 +320,14 @@ export const procurementReceiptLines = pgTable(
     billLineId: uuid("bill_line_id").references(() => billLines.id),
   },
   (t) => [
-    index("ix_prl_receipt").on(t.receiptId, t.lineNo),
-    index("ix_prl_po_line").on(t.poLineId),
-    index("ix_prl_item").on(t.itemId),
+    index("ix_orl_receipt").on(t.receiptId, t.lineNo),
+    index("ix_orl_po_line").on(t.poLineId),
+    index("ix_orl_item").on(t.itemId),
   ],
 );
 
-export type ProcurementReceipt = typeof procurementReceipts.$inferSelect;
-export type ProcurementReceiptLine = typeof procurementReceiptLines.$inferSelect;
+export type OfficeReceipt = typeof officeReceipts.$inferSelect;
+export type OfficeReceiptLine = typeof officeReceiptLines.$inferSelect;
 export type ReceiptStatus = (typeof receiptStatus.enumValues)[number];
 export type ReceiptLineStatus = (typeof receiptLineStatus.enumValues)[number];
 

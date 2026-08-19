@@ -35,7 +35,7 @@ export const attachments = pgTable(
 
     // ── Field capture ────────────────────────────────────────────────────
     // Set when a photo was taken somewhere rather than uploaded at a desk.
-    // Kept here rather than in a procurement-only table because a QC sample,
+    // Kept here rather than in a office-only table because a QC sample,
     // a shed inspection and a fixed-asset photo all want the same six facts.
     /** What this photo is of, e.g. "gate_in_bill", "gate_in_vehicle". */
     kind: varchar("kind", { length: 30 }),

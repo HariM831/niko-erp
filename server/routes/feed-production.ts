@@ -15,12 +15,12 @@
  * The books, all periodic, all pivoting on the account the bills landed in
  * (5007 Feed & Additives):
  *
- *   purchases    Dr 5007                       (procurement settlement)
+ *   purchases    Dr 5007                       (office settlement)
  *   produce      Dr 1073 Feed Stock, Cr 5007   (batch cost capitalised)
  *   transfer     Dr 5007, Cr 1073              (consumed at the house)
  *
  * Net: 5007 carries the cost of feed actually fed, Feed Stock the unfed
- * remainder, and raw materials stay periodic — procurement moves no stock.
+ * remainder, and raw materials stay periodic — office moves no stock.
  */
 import { Router } from "express";
 import { asc, desc, eq } from "drizzle-orm";
