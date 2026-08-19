@@ -57,7 +57,7 @@ export const houses = pgTable(
       .references(() => stockLocations.id),
     code: text("code").notNull(),
     name: text("name"),
-    /** "rear" | "lay" */
+    /** "layer" | "pullet" */
     purpose: text("purpose").notNull(),
     /**
      * How many birds the building holds. Not a setting: it is a fact about the
@@ -85,13 +85,13 @@ export const houses = pgTable(
 );
 
 /**
- * Two kinds of shed, because that is how a farm is built. There is no "either":
+ * Two kinds of shed, named the way the farm names them. There is no "either":
  * a house that could be used for both is a house nobody has decided about, and
  * storing the indecision only pushes the question onto whoever reads it later.
  */
-export const HOUSE_PURPOSES = ["rear", "lay"] as const;
+export const HOUSE_PURPOSES = ["layer", "pullet"] as const;
 export type HousePurpose = (typeof HOUSE_PURPOSES)[number];
 export const HOUSE_PURPOSE_LABELS: Record<HousePurpose, string> = {
-  rear: "Rearing",
-  lay: "Laying",
+  layer: "Layer",
+  pullet: "Pullet",
 };

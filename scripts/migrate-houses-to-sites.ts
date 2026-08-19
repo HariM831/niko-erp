@@ -42,8 +42,8 @@ const COMPANY_LOCATIONS = ["Nandamuri", "Luit Valley", "Amino"];
 const OWNER_OF: Record<string, string | null> = {
   L2: "Nandamuri Poultries LLP",
   L3: "Nandamuri Poultries LLP",
-  L4: "Luit Valley Farm Pvt ltd",
-  L5: "Luit Valley Farm Pvt ltd",
+  L4: "Luit Valley Farms LLP",
+  L5: "Luit Valley Farms LLP",
   P1: null,
   P2: null,
 };
@@ -133,6 +133,28 @@ await db.transaction(async (tx) => {
       await tx.update(locations).set({ isActive: false }).where(eq(locations.id, c.id));
       console.log(`  location ${c.name.padEnd(16)} retired — a company is not a place`);
     }
+  }
+
+  // ── Undo a promotion this script made on an earlier, wrong guess ──────────
+  // "Luit Valley" is two contacts — a customer we invoiced feed to and a vendor
+  // we bought eggs from. An earlier run picked the customer as the shed owner
+  // and promoted it to "both". The LLP is the owner, so put the other one back
+  // where it was, but only if nothing has since been billed against it.
+  const promoted = await tx
+    .select({ id: contacts.id, name: contacts.displayName, type: contacts.type })
+    .from(contacts)
+    .where(eq(contacts.displayName, "Luit Valley Farm Pvt ltd"));
+  for (const c of promoted) {
+    if (c.type !== "both" || ownerIdOf.get(c.name)) continue;
+    const [{ n } = { n: 0 }] = (
+      await tx.execute(sql`SELECT count(*)::int AS n FROM bills WHERE vendor_id = ${c.id}`)
+    ).rows as Array<{ n: number }>;
+    if (n > 0) {
+      console.log(`  owner    ${c.name.padEnd(28)} left as both — it has ${n} bill(s)`);
+      continue;
+    }
+    await tx.update(contacts).set({ type: "customer" }).where(eq(contacts.id, c.id));
+    console.log(`  owner    ${c.name.padEnd(28)} both → customer (not a shed owner)`);
   }
 
   console.log(`\n  ${moved} house(s) moved.`);

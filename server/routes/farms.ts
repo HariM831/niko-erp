@@ -29,7 +29,7 @@ const houseSchema = z.object({
   ownerId: z.string().uuid().nullish(),
   code: z.string().min(1).max(20),
   name: z.string().max(120).nullish(),
-  purpose: z.enum(["rear", "lay"]),
+  purpose: z.enum(["layer", "pullet"]),
   displayOrder: z.number().int().min(0).max(999).optional(),
   bhDeviceId: z.string().max(60).nullish(),
 });

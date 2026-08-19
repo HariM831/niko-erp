@@ -15,8 +15,8 @@ const [{ d } = { d: null }] = (
 ).rows as Array<{ d: string | null }>;
 
 console.log(`\n  purpose CHECK  ${d ?? "MISSING"}`);
-if (!d?.includes("'rear'") || !d.includes("'lay'") || d.includes("'both'")) {
-  console.log("  ✗ expected exactly rear and lay");
+if (!d?.includes("'layer'") || !d.includes("'pullet'") || d.includes("'both'")) {
+  console.log("  ✗ expected exactly layer and pullet");
   process.exit(1);
 }
 console.log("  ✓ two types only");

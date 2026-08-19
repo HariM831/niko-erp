@@ -51,8 +51,8 @@ if (!sheds.length) {
  * every shed in the real export carried one of the two.
  */
 const purposeOf = (name: string, t: string | null) => {
-  if (t === "layer") return "lay";
-  if (t === "pullet") return "rear";
+  if (t === "layer") return "layer";
+  if (t === "pullet") return "pullet";
   throw new Error(`Shed ${name} has type ${t ?? "(none)"} — set it to layer or pullet first.`);
 };
 

@@ -48,7 +48,7 @@ export function FarmHousesSection() {
     locationId: "",
     ownerId: "",
     code: "",
-    purpose: "lay" as HousePurpose,
+    purpose: "layer" as HousePurpose,
     bhDeviceId: "",
   });
 
@@ -81,7 +81,7 @@ export function FarmHousesSection() {
       }),
     onSuccess: () => {
       setAdding(false);
-      setForm({ locationId: "", ownerId: "", code: "", purpose: "lay", bhDeviceId: "" });
+      setForm({ locationId: "", ownerId: "", code: "", purpose: "layer", bhDeviceId: "" });
       setError(null);
       refresh();
     },
