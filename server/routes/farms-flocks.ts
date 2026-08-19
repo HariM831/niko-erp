@@ -11,9 +11,11 @@ import { z } from "zod";
 import {
   birdValuationRates,
   breeds,
+  flockHatches,
   flockMovements,
   flockPlacements,
   flocks,
+  hatchProfile,
   houses,
   locations,
   mortalityCauses,
@@ -32,6 +34,7 @@ import {
   depleteFlock,
   placementCounts,
   recordMovement,
+  setFlockHatches,
   startLay,
   transferBirds,
 } from "../services/flocks";
@@ -301,7 +304,6 @@ farmsFlockRouter.get("/flocks", view, async (req, res) => {
       status: flocks.status,
       hatchDate: flocks.hatchDate,
       placedCount: flocks.placedCount,
-      origin: flocks.origin,
       layStartDate: flocks.layStartDate,
       depletedOn: flocks.depletedOn,
       breedName: breeds.name,
@@ -332,13 +334,12 @@ const newFlockSchema = z.object({
   code: z.string().min(1).max(40),
   locationId: z.string().uuid(),
   breedId: z.string().uuid(),
-  standardSetId: z.string().uuid(),
   houseId: z.string().uuid(),
-  hatchDate: isoDate,
-  fromDate: isoDate,
-  origin: z.enum(["doc", "purchased_pullet", "opening"]),
-  originRef: z.string().max(120).nullish(),
-  placedCount: z.number().int().positive(),
+  /** One line per hatch. The flock's age is their bird-weighted average. */
+  hatches: z
+    .array(z.object({ hatchDate: isoDate, qty: z.number().int().positive() }))
+    .min(1)
+    .max(50),
   note: z.string().max(2000).nullish(),
 });
 
@@ -363,8 +364,6 @@ farmsFlockRouter.get("/flocks/:id", view, async (req, res) => {
         code: flocks.code,
         status: flocks.status,
         hatchDate: flocks.hatchDate,
-        origin: flocks.origin,
-        originRef: flocks.originRef,
         placedCount: flocks.placedCount,
         layStartDate: flocks.layStartDate,
         depletedOn: flocks.depletedOn,
@@ -380,9 +379,20 @@ farmsFlockRouter.get("/flocks/:id", view, async (req, res) => {
       .from(flocks)
       .innerJoin(breeds, eq(breeds.id, flocks.breedId))
       .innerJoin(locations, eq(locations.id, flocks.locationId))
-      .innerJoin(standardSets, eq(standardSets.id, flocks.standardSetId))
+      // Left: a flock placed before its breed had a curve has no set pinned.
+      .leftJoin(standardSets, eq(standardSets.id, flocks.standardSetId))
       .where(eq(flocks.id, req.params.id!));
     if (!flock) return null;
+
+    const hatches = await tx
+      .select({
+        id: flockHatches.id,
+        hatchDate: flockHatches.hatchDate,
+        qty: flockHatches.qty,
+      })
+      .from(flockHatches)
+      .where(eq(flockHatches.flockId, flock.id))
+      .orderBy(asc(flockHatches.hatchDate));
 
     const placements = await tx
       .select({
@@ -437,6 +447,11 @@ farmsFlockRouter.get("/flocks/:id", view, async (req, res) => {
       birds,
       /** Against what was placed, so a split flock still reads correctly. */
       cumMortalityPct: flock.placedCount ? (lost / flock.placedCount) * 100 : 0,
+      hatches,
+      /** Null only for a flock with no hatch rows, which cannot be created. */
+      hatchSpread: hatchProfile(hatches),
+      // Age runs off the weighted average, so a batch spread over a week is the
+      // age most of its birds actually are.
       age: ageOn(flock.hatchDate, new Date().toISOString().slice(0, 10)),
       placements: placements.map((p) => ({ ...p, birds: counts.get(p.id) ?? 0 })),
       movements,
@@ -445,6 +460,36 @@ farmsFlockRouter.get("/flocks/:id", view, async (req, res) => {
   if (!out) return res.status(404).json({ error: "Flock not found" });
   res.json(out);
 });
+
+/**
+ * Correct a flock's hatches.
+ *
+ * A batch is opened when the first chicks land and keeps filling for another
+ * week, so this is an ordinary operation rather than an error path. Changing it
+ * moves the flock's age, because age is the weighted average of these lines.
+ */
+farmsFlockRouter.put(
+  "/flocks/:id/hatches",
+  manage,
+  validateBody(
+    z.object({
+      hatches: z
+        .array(z.object({ hatchDate: isoDate, qty: z.number().int().positive() }))
+        .min(1)
+        .max(50),
+    }),
+  ),
+  async (req, res) => {
+    try {
+      const profile = await db.transaction((tx) =>
+        setFlockHatches(tx, req.params.id!, req.body.hatches, req.session.user!.id),
+      );
+      res.json(profile);
+    } catch (err) {
+      if (!fail(err, res)) throw err;
+    }
+  },
+);
 
 farmsFlockRouter.post(
   "/flocks/:id/transfer",

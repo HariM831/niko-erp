@@ -14,11 +14,14 @@
 import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import {
   CAUSE_REQUIRED,
+  flockHatches,
   flockMovements,
   flockPlacements,
   flocks,
+  hatchProfile,
   houses,
   movementDelta,
+  standardSets,
 } from "@shared/schema";
 import type { db as Db } from "../db";
 import { PostingError } from "./posting";
@@ -89,11 +92,37 @@ async function liveHouse(tx: Tx, houseId: string) {
 }
 
 /**
+ * The one writer of `flocks.hatch_date` and `flocks.placed_count`.
+ *
+ * Both are derived from `flock_hatches`. Keeping the derivation in a single
+ * function is what stops them disagreeing with the rows they come from — the
+ * same reason bird counts are not stored at all.
+ */
+export async function recomputeHatchProfile(tx: Tx, flockId: string) {
+  const lines = await tx
+    .select({ hatchDate: flockHatches.hatchDate, qty: flockHatches.qty })
+    .from(flockHatches)
+    .where(eq(flockHatches.flockId, flockId));
+  const profile = hatchProfile(lines);
+  if (!profile) throw new PostingError("A flock needs at least one hatch");
+  await tx
+    .update(flocks)
+    .set({ hatchDate: profile.hatchDate, placedCount: profile.placedCount })
+    .where(eq(flocks.id, flockId));
+  return profile;
+}
+
+/**
  * Place a new flock into its first house.
  *
- * The flock, the placement and the opening `place` movement are one
- * transaction: a flock with no placement is a cohort nobody can find, and a
- * placement with no opening movement is a house holding zero birds.
+ * Everything lands in one transaction: a flock with no placement is a cohort
+ * nobody can find, and a placement with no opening movement is a house holding
+ * zero birds.
+ *
+ * One `place` movement PER HATCH, dated on that hatch — because that is what
+ * happened. Three thousand birds arriving on Monday and four on Wednesday is
+ * two events, and lumping them into one dated row would make the house's count
+ * wrong for two days.
  */
 export async function createFlock(
   tx: Tx,
@@ -101,25 +130,32 @@ export async function createFlock(
     code: string;
     locationId: string;
     breedId: string;
-    standardSetId: string;
     houseId: string;
-    hatchDate: string;
-    fromDate: string;
-    origin: string;
-    originRef?: string | null;
-    placedCount: number;
+    hatches: Array<{ hatchDate: string; qty: number }>;
     note?: string | null;
     userId: string;
   },
 ) {
-  if (args.placedCount <= 0) throw new PostingError("Place at least one bird");
-  if (args.fromDate < args.hatchDate) {
-    throw new PostingError("A flock cannot be placed before it hatched");
+  if (!args.hatches.length) throw new PostingError("Add at least one hatch");
+  if (args.hatches.some((h) => h.qty <= 0)) throw new PostingError("Every hatch needs birds");
+  const dates = new Set(args.hatches.map((h) => h.hatchDate));
+  if (dates.size !== args.hatches.length) {
+    throw new PostingError("The same hatch date appears twice — combine them into one line");
   }
+  const profile = hatchProfile(args.hatches)!;
+
   const house = await liveHouse(tx, args.houseId);
   if (house.locationId !== args.locationId) {
     throw new PostingError(`${house.code} is not at the site you chose`);
   }
+
+  // The breed's default curve, pinned now and never repointed. Null if the
+  // breed has none yet — that is a missing benchmark, not a reason to refuse to
+  // record ten thousand real birds.
+  const [defaultSet] = await tx
+    .select({ id: standardSets.id })
+    .from(standardSets)
+    .where(and(eq(standardSets.breedId, args.breedId), eq(standardSets.isDefault, true)));
 
   const [flock] = await tx
     .insert(flocks)
@@ -127,32 +163,180 @@ export async function createFlock(
       code: args.code.trim(),
       locationId: args.locationId,
       breedId: args.breedId,
-      standardSetId: args.standardSetId,
-      hatchDate: args.hatchDate,
-      origin: args.origin,
-      originRef: args.originRef ?? null,
-      placedCount: args.placedCount,
-      // Purchased pullets can arrive already laying, but that is a decision for
-      // whoever places them — the default is the honest one.
+      standardSetId: defaultSet?.id ?? null,
+      hatchDate: profile.hatchDate,
+      placedCount: profile.placedCount,
       status: "rearing",
-      note: args.note ?? null,
+      note: args.note?.trim() || null,
     })
     .returning();
 
+  await tx
+    .insert(flockHatches)
+    .values(args.hatches.map((h) => ({ flockId: flock!.id, ...h })));
+
+  // The placement opens on the first hatch: the house is holding birds from the
+  // moment the earliest of them arrives.
   const [placement] = await tx
     .insert(flockPlacements)
-    .values({ flockId: flock!.id, houseId: args.houseId, fromDate: args.fromDate })
+    .values({ flockId: flock!.id, houseId: args.houseId, fromDate: profile.firstHatch })
     .returning();
 
-  await tx.insert(flockMovements).values({
-    placementId: placement!.id,
-    eventDate: args.fromDate,
-    kind: "place",
-    qty: args.placedCount,
-    recordedBy: args.userId,
-  });
+  await tx.insert(flockMovements).values(
+    args.hatches.map((h) => ({
+      placementId: placement!.id,
+      eventDate: h.hatchDate,
+      kind: "place",
+      qty: h.qty,
+      recordedBy: args.userId,
+    })),
+  );
 
-  return { flock: flock!, placement: placement! };
+  return { flock: flock!, placement: placement!, profile };
+}
+
+/**
+ * Would this set of arrivals leave the house holding fewer than zero birds on
+ * any day?
+ *
+ * Asked BEFORE anything is written. Writing first and validating after only
+ * works if every caller wraps this in its own transaction and never catches the
+ * error — which is a rule living in other people's code, and the kind that gets
+ * broken quietly. Checking first means a refusal changes nothing, whatever the
+ * caller does with it.
+ *
+ * A change that leaves today's count healthy can still leave a fortnight in the
+ * middle where the house held minus 300 birds, so the whole ledger is walked
+ * rather than just the end of it.
+ */
+async function firstNegativeDay(
+  tx: Tx,
+  placementId: string,
+  proposedHatches: Array<{ hatchDate: string; qty: number }>,
+) {
+  const existing = await tx
+    .select({
+      eventDate: flockMovements.eventDate,
+      kind: flockMovements.kind,
+      qty: flockMovements.qty,
+      sign: flockMovements.adjustmentSign,
+    })
+    .from(flockMovements)
+    .where(eq(flockMovements.placementId, placementId));
+
+  const ledger = [
+    // The proposed arrivals replace every existing `place` row wholesale.
+    ...proposedHatches.map((h) => ({ eventDate: h.hatchDate, delta: h.qty, arrival: true })),
+    ...existing
+      .filter((m) => m.kind !== "place")
+      .map((m) => ({
+        eventDate: m.eventDate,
+        delta: movementDelta(m.kind, m.qty, m.sign),
+        arrival: false,
+      })),
+  ].sort(
+    (a, b) =>
+      // Same day: birds arrive before anything happens to them.
+      a.eventDate.localeCompare(b.eventDate) || Number(b.arrival) - Number(a.arrival),
+  );
+
+  let running = 0;
+  for (const m of ledger) {
+    running += m.delta;
+    if (running < 0) return { day: m.eventDate, short: running };
+  }
+  return null;
+}
+
+/**
+ * Replace a flock's hatches.
+ *
+ * The reason this exists: a batch is opened on the 10th and chicks keep
+ * arriving until the 19th. Nobody knows the full composition on day one, so the
+ * hatch list has to stay editable — and every edit moves the flock's age, since
+ * age is the weighted average of exactly these lines.
+ *
+ * Whole-set replace rather than add/edit/delete endpoints, for the same reason
+ * the standard curve is replaced whole: the set is one object, and a half-
+ * applied edit is worse than a rejected one. The `place` movements are rewritten
+ * to match — they are the ledger entry FOR a hatch, so they cannot be left
+ * behind describing an arrival that no longer exists.
+ *
+ * Hatches always land in the flock's FIRST placement. Chicks arrive at the
+ * house the flock was placed in; if that placement has already closed before
+ * the hatch date, the birds did not arrive there and this refuses rather than
+ * inventing somewhere to put them.
+ */
+export async function setFlockHatches(
+  tx: Tx,
+  flockId: string,
+  lines: Array<{ hatchDate: string; qty: number }>,
+  userId: string,
+) {
+  if (!lines.length) throw new PostingError("A flock needs at least one hatch");
+  if (lines.some((l) => l.qty <= 0)) throw new PostingError("Every hatch needs birds");
+  if (new Set(lines.map((l) => l.hatchDate)).size !== lines.length) {
+    throw new PostingError("The same hatch date appears twice — combine them into one line");
+  }
+
+  const [flock] = await tx.select().from(flocks).where(eq(flocks.id, flockId));
+  if (!flock) throw new PostingError("No such flock");
+  if (flock.status === "depleted") {
+    throw new PostingError("That flock is depleted — its hatches are history now");
+  }
+
+  const [first] = await tx
+    .select({
+      id: flockPlacements.id,
+      toDate: flockPlacements.toDate,
+      houseCode: houses.code,
+    })
+    .from(flockPlacements)
+    .innerJoin(houses, eq(houses.id, flockPlacements.houseId))
+    .where(eq(flockPlacements.flockId, flockId))
+    .orderBy(asc(flockPlacements.fromDate))
+    .limit(1);
+  if (!first) throw new PostingError("That flock has no placement");
+
+  const profile = hatchProfile(lines)!;
+  if (first.toDate && profile.lastHatch > first.toDate) {
+    throw new PostingError(
+      `The flock left ${first.houseCode} on ${first.toDate}, so chicks could not have arrived there on ${profile.lastHatch}`,
+    );
+  }
+
+  // Everything that could refuse, refuses now — before a single row moves.
+  const negative = await firstNegativeDay(tx, first.id, lines);
+  if (negative) {
+    throw new PostingError(
+      `That would leave ${first.houseCode} holding ${negative.short.toLocaleString("en-IN")} birds on ${negative.day}. Those birds have already died or been moved out.`,
+    );
+  }
+
+  await tx
+    .delete(flockMovements)
+    .where(and(eq(flockMovements.placementId, first.id), eq(flockMovements.kind, "place")));
+  await tx.delete(flockHatches).where(eq(flockHatches.flockId, flockId));
+
+  await tx.insert(flockHatches).values(lines.map((l) => ({ flockId, ...l })));
+  await tx.insert(flockMovements).values(
+    lines.map((l) => ({
+      placementId: first.id,
+      eventDate: l.hatchDate,
+      kind: "place",
+      qty: l.qty,
+      recordedBy: userId,
+    })),
+  );
+
+  // The house holds birds from the first arrival, whichever way that moved.
+  await tx
+    .update(flockPlacements)
+    .set({ fromDate: profile.firstHatch })
+    .where(eq(flockPlacements.id, first.id));
+
+  await recomputeHatchProfile(tx, flockId);
+  return profile;
 }
 
 /**

@@ -37,14 +37,21 @@ export const flocks = pgTable(
     breedId: uuid("breed_id")
       .notNull()
       .references(() => breeds.id),
-    /** Pinned at placement, never repointed when a standard is revised. */
-    standardSetId: uuid("standard_set_id")
-      .notNull()
-      .references(() => standardSets.id),
+    /**
+     * The breed's default curve, resolved once when the flock is placed and
+     * never repointed afterwards. Null when the breed had no curve yet — a real
+     * flock of birds should not be un-recordable because nobody has typed in a
+     * benchmark.
+     */
+    standardSetId: uuid("standard_set_id").references(() => standardSets.id),
+    /**
+     * DERIVED — the bird-weighted average of `flockHatches`. Stored because it
+     * is sorted and filtered on everywhere, and written by exactly one function
+     * (`recomputeHatchProfile`) alongside `placedCount`. Nothing else may write
+     * either, which is what keeps them from disagreeing with the hatch rows.
+     */
     hatchDate: date("hatch_date").notNull(),
-    /** "doc" | "purchased_pullet" | "opening" */
-    origin: text("origin").notNull(),
-    originRef: text("origin_ref"),
+    /** DERIVED — the sum of `flockHatches.qty`. */
     placedCount: integer("placed_count").notNull(),
     /**
      * "rearing" | "laying" | "depleted". Comes from the flock's own age and
@@ -59,13 +66,55 @@ export const flocks = pgTable(
   (t) => [index("ix_flocks_location_status").on(t.locationId, t.status)],
 );
 
-export const FLOCK_ORIGINS = ["doc", "purchased_pullet", "opening"] as const;
-export type FlockOrigin = (typeof FLOCK_ORIGINS)[number];
-export const FLOCK_ORIGIN_LABELS: Record<FlockOrigin, string> = {
-  doc: "Day-old chicks",
-  purchased_pullet: "Purchased pullets",
-  opening: "Opening balance",
-};
+/**
+ * The hatches a batch is made of.
+ *
+ * 10,000 chicks do not arrive on one day; they come as three or four hatches
+ * across a week. Recording a single date makes the age wrong for most of the
+ * birds, and age is what every standard comparison is keyed on — so the hatches
+ * are the record and the flock's hatch date is their bird-weighted average.
+ */
+export const flockHatches = pgTable(
+  "flock_hatches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    flockId: uuid("flock_id")
+      .notNull()
+      .references(() => flocks.id, { onDelete: "cascade" }),
+    hatchDate: date("hatch_date").notNull(),
+    qty: integer("qty").notNull(),
+  },
+  (t) => [
+    uniqueIndex("uq_flock_hatches").on(t.flockId, t.hatchDate),
+    index("ix_flock_hatches_flock").on(t.flockId, t.hatchDate),
+  ],
+);
+
+/** A day number, so dates can be averaged without timezone arithmetic. */
+const epochDay = (iso: string) => Math.floor(Date.parse(`${iso}T00:00:00Z`) / 86_400_000);
+
+/**
+ * The bird-weighted average hatch date, and the total placed.
+ *
+ * Weighted, not the midpoint of the range: a batch of 9,000 hatched on Monday
+ * and 1,000 on Friday is four days old on Friday, not two. Ties round to the
+ * later day — a bird is not older than it is.
+ */
+export function hatchProfile(lines: Array<{ hatchDate: string; qty: number }>) {
+  const total = lines.reduce((n, l) => n + l.qty, 0);
+  if (!total) return null;
+  const weighted = lines.reduce((n, l) => n + l.qty * epochDay(l.hatchDate), 0) / total;
+  const avg = new Date(Math.round(weighted) * 86_400_000).toISOString().slice(0, 10);
+  const dates = lines.map((l) => l.hatchDate).sort();
+  return {
+    placedCount: total,
+    hatchDate: avg,
+    firstHatch: dates[0]!,
+    lastHatch: dates[dates.length - 1]!,
+    /** How many days the batch is spread over. 0 when it is a single hatch. */
+    spreadDays: epochDay(dates[dates.length - 1]!) - epochDay(dates[0]!),
+  };
+}
 
 export const FLOCK_STATUSES = ["rearing", "laying", "depleted"] as const;
 export type FlockStatus = (typeof FLOCK_STATUSES)[number];

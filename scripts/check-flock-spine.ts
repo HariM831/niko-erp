@@ -17,6 +17,7 @@ import {
   flockMovements,
   flockPlacements,
   flocks,
+  hatchProfile,
   houses,
   movementDelta,
   standardSets,
@@ -28,6 +29,7 @@ import {
   depleteFlock,
   placementCount,
   recordMovement,
+  setFlockHatches,
   startLay,
   transferBirds,
 } from "../server/services/flocks";
@@ -78,20 +80,143 @@ try {
       | undefined;
     if (!userId) throw new Error("No users");
 
-    console.log("\n  Placing 10,000 in", pullet.code);
-    const { flock, placement } = await createFlock(tx, {
+    // ── The weighted average, before anything touches the database ──
+    ok(
+      "a single hatch averages to itself",
+      hatchProfile([{ hatchDate: "2026-01-01", qty: 10_000 }])?.hatchDate === "2026-01-01",
+    );
+    // 9,000 on the 1st and 1,000 on the 9th is 0.8 days, not 4 — the batch is
+    // as old as most of its birds, which is the whole reason for weighting.
+    const skew = hatchProfile([
+      { hatchDate: "2026-01-01", qty: 9_000 },
+      { hatchDate: "2026-01-09", qty: 1_000 },
+    ]);
+    ok("a lopsided batch leans to the bigger hatch", skew?.hatchDate === "2026-01-02", skew?.hatchDate);
+    ok("spread is reported in days", skew?.spreadDays === 8);
+    const even = hatchProfile([
+      { hatchDate: "2026-01-01", qty: 5_000 },
+      { hatchDate: "2026-01-05", qty: 5_000 },
+    ]);
+    ok("an even batch lands in the middle", even?.hatchDate === "2026-01-03", even?.hatchDate);
+
+    console.log("\n  Placing 10,000 in", pullet.code, "over three hatches");
+    const { flock, placement, profile } = await createFlock(tx, {
       code: "ZZ-CHECK-1",
       locationId: pullet.locationId,
       breedId: breed!.id,
-      standardSetId: set!.id,
       houseId: pullet.id,
-      hatchDate: "2026-01-01",
-      fromDate: "2026-01-01",
-      origin: "doc",
-      placedCount: 10_000,
+      hatches: [
+        { hatchDate: "2026-01-01", qty: 4_000 },
+        { hatchDate: "2026-01-03", qty: 4_000 },
+        { hatchDate: "2026-01-05", qty: 2_000 },
+      ],
       userId: userId.id,
     });
+    ok("placed count is the sum of the hatches", profile.placedCount === 10_000);
+    ok("hatch date is the weighted average", profile.hatchDate === "2026-01-03", profile.hatchDate);
+    ok("the placement opens on the first hatch", placement.fromDate === "2026-01-01");
+    ok(
+      "one place movement per hatch",
+      (
+        await tx
+          .select()
+          .from(flockMovements)
+          .where(eq(flockMovements.placementId, placement.id))
+      ).length === 3,
+    );
+    // Before the last hatch arrives the house genuinely holds fewer birds.
+    ok("the count on 2 Jan is only what had hatched", (await placementCount(tx, placement.id, "2026-01-02")) === 4_000);
     ok("placed count derived from the ledger", (await placementCount(tx, placement.id)) === 10_000);
+    ok("the breed's default set was pinned", flock.standardSetId === set!.id);
+
+    await refuses("the same hatch date twice", () =>
+      createFlock(tx, {
+        code: "ZZ-CHECK-DUP",
+        locationId: pullet.locationId,
+        breedId: breed!.id,
+        houseId: pullet.id,
+        hatches: [
+          { hatchDate: "2026-01-01", qty: 10 },
+          { hatchDate: "2026-01-01", qty: 20 },
+        ],
+        userId: userId.id,
+      }),
+    );
+
+    // ── Chicks keep arriving after the batch is opened ──
+    console.log("\n  A fourth hatch lands a week later");
+    const grown = await setFlockHatches(
+      tx,
+      flock.id,
+      [
+        { hatchDate: "2026-01-01", qty: 4_000 },
+        { hatchDate: "2026-01-03", qty: 4_000 },
+        { hatchDate: "2026-01-05", qty: 2_000 },
+        { hatchDate: "2026-01-12", qty: 1_000 },
+      ],
+      userId.id,
+    );
+    ok("the extra hatch is counted", grown.placedCount === 11_000);
+    // 4,000 on the 1st, 4,000 on the 3rd, 2,000 on the 5th, 1,000 on the 12th
+    // is 2.45 days past the 1st — the late thousand barely shifts a batch that
+    // is already mostly a week old, which is exactly what weighting is for.
+    ok("and it barely moves the age", grown.hatchDate === "2026-01-03", grown.hatchDate);
+    ok("the house holds them all", (await placementCount(tx, placement.id)) === 11_000);
+    ok(
+      "a place movement exists for the new date",
+      (await placementCount(tx, placement.id, "2026-01-12")) === 11_000,
+    );
+    ok(
+      "and none for the day before it",
+      (await placementCount(tx, placement.id, "2026-01-11")) === 10_000,
+    );
+
+    // Correcting a hatch down, then back — the count follows.
+    await setFlockHatches(
+      tx,
+      flock.id,
+      [
+        { hatchDate: "2026-01-01", qty: 4_000 },
+        { hatchDate: "2026-01-03", qty: 4_000 },
+        { hatchDate: "2026-01-05", qty: 2_000 },
+      ],
+      userId.id,
+    );
+    ok("removing a hatch removes its birds", (await placementCount(tx, placement.id)) === 10_000);
+
+    // Placing the earliest hatch earlier drags the placement's start with it.
+    await setFlockHatches(
+      tx,
+      flock.id,
+      [
+        { hatchDate: "2025-12-28", qty: 500 },
+        { hatchDate: "2026-01-01", qty: 4_000 },
+        { hatchDate: "2026-01-03", qty: 4_000 },
+        { hatchDate: "2026-01-05", qty: 2_000 },
+      ],
+      userId.id,
+    );
+    const [moved] = await tx
+      .select()
+      .from(flockPlacements)
+      .where(eq(flockPlacements.id, placement.id));
+    ok("an earlier hatch moves the placement start", moved?.fromDate === "2025-12-28");
+
+    // Back to the shape the rest of the checks expect.
+    await setFlockHatches(
+      tx,
+      flock.id,
+      [
+        { hatchDate: "2026-01-01", qty: 4_000 },
+        { hatchDate: "2026-01-03", qty: 4_000 },
+        { hatchDate: "2026-01-05", qty: 2_000 },
+      ],
+      userId.id,
+    );
+
+    await refuses("hatches wiped out entirely", () =>
+      setFlockHatches(tx, flock.id, [], userId.id),
+    );
 
     // ── Refusals ──
     await refuses("mortality with no cause", () =>
@@ -151,6 +276,13 @@ try {
       userId: userId.id,
     });
     ok("count after 200 lost", (await placementCount(tx, placement.id)) === 9_800);
+
+    // The guard that makes editing hatches safe: cutting the batch to 100 birds
+    // would leave the house holding minus 100 the day 150 of them died.
+    await refuses("cutting hatches below what has already died", () =>
+      setFlockHatches(tx, flock.id, [{ hatchDate: "2026-01-01", qty: 100 }], userId.id),
+    );
+    ok("and the refusal left the count alone", (await placementCount(tx, placement.id)) === 9_800);
 
     // ── The split: 80% to L1, remainder to L2 ──
     console.log(`\n  Splitting to ${l1!.code} and ${l2!.code}`);
@@ -238,6 +370,11 @@ try {
     ok("start lay sets status and date", laying?.status === "laying" && laying?.layStartDate === "2026-05-10");
 
     ok("age reads in weeks and days", ageOn("2026-01-01", "2026-04-25").label === "16w 2d");
+    ok(
+      "the flock's own age runs from its weighted average, not its first hatch",
+      ageOn(profile.hatchDate, "2026-04-25").label === "16w 0d",
+      ageOn(profile.hatchDate, "2026-04-25").label,
+    );
 
     const dep = await depleteFlock(tx, flock.id, "2027-01-15", userId.id);
     ok("depletion closes every open placement", dep.placementsClosed === 2);

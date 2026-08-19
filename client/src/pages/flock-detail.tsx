@@ -13,13 +13,12 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRoute, Link } from "wouter";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, X } from "lucide-react";
 import { ApiError, api } from "../api";
 import {
-  FLOCK_ORIGIN_LABELS,
   FLOCK_STATUS_LABELS,
   MOVEMENT_KIND_LABELS,
-  type FlockOrigin,
+  hatchProfile,
   type FlockStatus,
   type MovementKind,
 } from "@shared/schema/flocks";
@@ -33,17 +32,18 @@ interface Flock {
   id: string;
   code: string;
   status: FlockStatus;
+  /** The bird-weighted average of `hatches`, not a date anybody typed. */
   hatchDate: string;
-  origin: FlockOrigin;
-  originRef: string | null;
   placedCount: number;
+  hatches: Array<{ id: string; hatchDate: string; qty: number }>;
+  hatchSpread: { spreadDays: number; firstHatch: string; lastHatch: string } | null;
   layStartDate: string | null;
   depletedOn: string | null;
   note: string | null;
   breedName: string;
   locationName: string;
-  standardSetName: string;
-  standardSetVersion: number;
+  standardSetName: string | null;
+  standardSetVersion: number | null;
   birds: number;
   cumMortalityPct: number;
   age: { label: string; days: number };
@@ -119,13 +119,26 @@ export function FlockDetailPage() {
             </span>
           </div>
           <p className="mt-1 text-[13px] text-gray-600">
-            {f.breedName} · hatched {day(f.hatchDate)} · {f.age.label} ·{" "}
-            {FLOCK_ORIGIN_LABELS[f.origin]}
-            {f.originRef && <span className="text-gray-400"> ({f.originRef})</span>}
+            {f.breedName} · {f.age.label} · hatched {day(f.hatchDate)}
+            {!!f.hatchSpread?.spreadDays && (
+              <span className="text-gray-400">
+                {" "}
+                (weighted average of {f.hatches.length} hatches, {day(f.hatchSpread.firstHatch)} to{" "}
+                {day(f.hatchSpread.lastHatch)})
+              </span>
+            )}
           </p>
           <p className="mt-0.5 text-[12px] text-gray-500">
-            {f.locationName} · measured against {f.standardSetName} v{f.standardSetVersion}
+            {f.locationName} ·{" "}
+            {f.standardSetName ? (
+              <>
+                measured against {f.standardSetName} v{f.standardSetVersion}
+              </>
+            ) : (
+              <span className="text-amber-700">no standard set pinned</span>
+            )}
           </p>
+          {f.note && <p className="mt-0.5 text-[12px] text-gray-500">{f.note}</p>}
         </div>
         {live && (
           <div className="flex flex-wrap gap-2">
@@ -164,6 +177,12 @@ export function FlockDetailPage() {
           value={`${f.placedCount ? ((f.birds / f.placedCount) * 100).toFixed(1) : "0.0"}%`}
         />
       </div>
+
+      {/* Hatches stay editable because a batch is not finished when it is
+          opened: chicks keep arriving for another week, and nobody knows the
+          composition on day one. Every edit moves the flock's age, since age is
+          the weighted average of exactly these lines. */}
+      <HatchPanel flock={f} onSaved={refresh} live={live} />
 
       {/* The timeline. Every house this cohort has stood in, in order — the
           view that has never existed, and the reason placements are a table. */}
@@ -247,6 +266,179 @@ export function FlockDetailPage() {
         <FlockDialog kind={dialog} flock={f} onClose={() => setDialog(null)} onSaved={refresh} />
       )}
     </div>
+  );
+}
+
+/**
+ * The hatches a batch is made of, and the one place they can be corrected.
+ *
+ * Read-only until you press Edit, because this is the input to the flock's age
+ * and every derived comparison behind it — worth a deliberate act rather than a
+ * field you can brush past.
+ */
+function HatchPanel({
+  flock,
+  onSaved,
+  live,
+}: {
+  flock: Flock;
+  onSaved: () => void;
+  live: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [rows, setRows] = useState<Array<{ hatchDate: string; qty: string }>>([]);
+
+  const start = () => {
+    setRows(flock.hatches.map((h) => ({ hatchDate: h.hatchDate, qty: String(h.qty) })));
+    setError(null);
+    setEditing(true);
+  };
+
+  const filled = rows
+    .filter((r) => r.hatchDate && Number(r.qty) > 0)
+    .map((r) => ({ hatchDate: r.hatchDate, qty: Number(r.qty) }));
+  const preview = hatchProfile(filled);
+  const clash = new Set(filled.map((h) => h.hatchDate)).size !== filled.length;
+
+  const save = useMutation({
+    mutationFn: () =>
+      api(`/api/farms/flocks/${flock.id}/hatches`, {
+        method: "PUT",
+        body: { hatches: filled },
+      }),
+    onSuccess: () => {
+      setEditing(false);
+      onSaved();
+    },
+    onError: (e) => setError(e instanceof ApiError ? e.message : "Could not save those hatches"),
+  });
+
+  return (
+    <>
+      <div className="mt-6 mb-2 flex items-baseline justify-between">
+        <h2 className="text-[13px] font-semibold text-gray-700">
+          Hatches
+          <span className="ml-2 font-normal text-gray-400">
+            what arrived, and when — the flock's age is their bird-weighted average
+          </span>
+        </h2>
+        {live && !editing && (
+          <button onClick={start} className="text-[12px] text-blue-600 hover:underline">
+            Edit
+          </button>
+        )}
+      </div>
+
+      {error && (
+        <div className="mb-2 rounded border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700">
+          {error}
+        </div>
+      )}
+
+      <div className="card p-4">
+        {!editing ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {flock.hatches.map((h) => (
+              <span
+                key={h.id}
+                className="rounded border border-gray-200 px-2.5 py-1 text-[12px] text-gray-600"
+              >
+                {day(h.hatchDate)} · <span className="font-medium text-gray-900">{n(h.qty)}</span>
+              </span>
+            ))}
+            {flock.hatches.length > 1 && (
+              <span className="text-[12px] text-gray-500">
+                → {n(flock.placedCount)} birds, average {day(flock.hatchDate)}
+              </span>
+            )}
+          </div>
+        ) : (
+          <div>
+            <div className="space-y-2">
+              {rows.map((r, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <div className="w-44">
+                    <input
+                      type="date"
+                      value={r.hatchDate}
+                      onChange={(e) =>
+                        setRows((cur) =>
+                          cur.map((x, j) => (j === i ? { ...x, hatchDate: e.target.value } : x)),
+                        )
+                      }
+                      className="input"
+                    />
+                  </div>
+                  <div className="w-32">
+                    <input
+                      value={r.qty}
+                      onChange={(e) =>
+                        setRows((cur) =>
+                          cur.map((x, j) => (j === i ? { ...x, qty: e.target.value } : x)),
+                        )
+                      }
+                      inputMode="numeric"
+                      placeholder="Birds"
+                      className="input text-right"
+                    />
+                  </div>
+                  <button
+                    onClick={() => setRows((cur) => cur.filter((_, j) => j !== i))}
+                    disabled={rows.length === 1}
+                    className="text-[12px] text-gray-400 hover:text-red-600 disabled:opacity-30"
+                    title="Remove this hatch"
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={() =>
+                setRows((cur) => [...cur, { hatchDate: today(), qty: "" }])
+              }
+              className="mt-2 text-[12px] text-blue-600 hover:underline"
+            >
+              + Add hatch
+            </button>
+
+            {clash && (
+              <p className="mt-2 text-[12px] text-red-600">
+                The same hatch date appears twice — combine those into one line.
+              </p>
+            )}
+            {preview && !clash && (
+              <p className="mt-2 text-[12px] text-gray-600">
+                <span className="font-medium text-gray-900">{n(preview.placedCount)} birds</span>,
+                age counting from{" "}
+                <span className="font-medium text-gray-900">{day(preview.hatchDate)}</span>
+                {preview.hatchDate !== flock.hatchDate && (
+                  <span className="text-amber-700"> (was {day(flock.hatchDate)})</span>
+                )}
+              </p>
+            )}
+
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                onClick={() => save.mutate()}
+                disabled={!preview || clash || save.isPending}
+                className="btn-primary whitespace-nowrap"
+              >
+                {save.isPending ? "Saving…" : "Save hatches"}
+              </button>
+              <button onClick={() => setEditing(false)} className="btn-ghost">
+                Cancel
+              </button>
+              <span className="text-[11px] text-gray-500">
+                Rewrites the placement rows for these arrivals, and refuses if it would leave the
+                house holding fewer than zero birds on any day.
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 

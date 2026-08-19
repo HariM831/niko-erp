@@ -14,9 +14,9 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { Plus } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { ApiError, api } from "../api";
-import { FLOCK_ORIGIN_LABELS, FLOCK_ORIGINS, type FlockOrigin } from "@shared/schema/flocks";
+import { hatchProfile } from "@shared/schema/flocks";
 import { HOUSE_PURPOSE_LABELS, type HousePurpose } from "@shared/schema/farms";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -195,9 +195,14 @@ function Tile({ label, value, tone }: { label: string; value: string; tone?: "wa
 /**
  * New flock.
  *
- * The standard set is chosen here and pinned for life, which is why the field
- * is on this dialog rather than buried in settings: revising a breeder guide
- * later must not restate what this flock was measured against.
+ * A batch arrives as several hatches across a week, so the hatches are the
+ * input and the flock's age is their bird-weighted average — the age most of
+ * its birds actually are, which is what the standard curve is keyed on.
+ *
+ * Not asked for, deliberately: the standard set (it is always the breed's, so
+ * choosing it is a question with one answer), the placement date (the house
+ * holds birds from the first hatch), and origin (a sentence, not two fields —
+ * it goes in the note).
  */
 function NewFlockDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [error, setError] = useState<string | null>(null);
@@ -206,14 +211,9 @@ function NewFlockDialog({ onClose, onSaved }: { onClose: () => void; onSaved: ()
     locationId: "",
     houseId: "",
     breedId: "",
-    standardSetId: "",
-    hatchDate: today(),
-    fromDate: today(),
-    origin: "doc" as FlockOrigin,
-    originRef: "",
-    placedCount: "",
     note: "",
   });
+  const [hatches, setHatches] = useState([{ hatchDate: today(), qty: "" }]);
 
   const { data: ctx } = useQuery<Context>({
     queryKey: ["farm-flock-context"],
@@ -221,7 +221,11 @@ function NewFlockDialog({ onClose, onSaved }: { onClose: () => void; onSaved: ()
   });
 
   const housesHere = ctx?.houses.filter((h) => h.locationId === f.locationId) ?? [];
-  const setsForBreed = ctx?.standardSets.filter((s) => s.breedId === f.breedId) ?? [];
+  const filled = hatches
+    .filter((h) => h.hatchDate && Number(h.qty) > 0)
+    .map((h) => ({ hatchDate: h.hatchDate, qty: Number(h.qty) }));
+  const profile = hatchProfile(filled);
+  const clash = new Set(filled.map((h) => h.hatchDate)).size !== filled.length;
 
   const save = useMutation({
     mutationFn: () =>
@@ -232,12 +236,7 @@ function NewFlockDialog({ onClose, onSaved }: { onClose: () => void; onSaved: ()
           locationId: f.locationId,
           houseId: f.houseId,
           breedId: f.breedId,
-          standardSetId: f.standardSetId,
-          hatchDate: f.hatchDate,
-          fromDate: f.fromDate,
-          origin: f.origin,
-          originRef: f.originRef.trim() || null,
-          placedCount: Number(f.placedCount),
+          hatches: filled,
           note: f.note.trim() || null,
         },
       }),
@@ -245,15 +244,15 @@ function NewFlockDialog({ onClose, onSaved }: { onClose: () => void; onSaved: ()
     onError: (e) => setError(e instanceof ApiError ? e.message : "Could not place that flock"),
   });
 
-  const ready =
-    f.code.trim() && f.locationId && f.houseId && f.breedId && f.standardSetId && Number(f.placedCount) > 0;
+  const ready = f.code.trim() && f.locationId && f.houseId && f.breedId && !!profile && !clash;
 
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-6">
       <div className="card w-full max-w-2xl p-5">
         <h2 className="text-[15px] font-semibold text-gray-900">New flock</h2>
         <p className="mt-0.5 text-[12px] text-gray-500">
-          A cohort with one hatch date. The standard set chosen here is pinned for its whole life.
+          A batch, made of the hatches it actually arrived in. Its age counts from their
+          bird-weighted average, and it is measured against the breed's default curve.
         </p>
         {error && (
           <div className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700">
@@ -305,15 +304,11 @@ function NewFlockDialog({ onClose, onSaved }: { onClose: () => void; onSaved: ()
             </select>
           </div>
 
-          <div>
+          <div className="md:col-span-3">
             <label className="label-required">Breed *</label>
             <select
               value={f.breedId}
-              onChange={(e) => {
-                const breedId = e.target.value;
-                const def = ctx?.standardSets.find((s) => s.breedId === breedId && s.isDefault);
-                setF((v) => ({ ...v, breedId, standardSetId: def?.id ?? "" }));
-              }}
+              onChange={(e) => setF((v) => ({ ...v, breedId: e.target.value }))}
               className="input"
             >
               <option value="">Choose…</option>
@@ -323,82 +318,80 @@ function NewFlockDialog({ onClose, onSaved }: { onClose: () => void; onSaved: ()
                 </option>
               ))}
             </select>
-          </div>
-          <div className="md:col-span-2">
-            <label className="label-required">Measured against *</label>
-            <select
-              value={f.standardSetId}
-              onChange={(e) => setF((v) => ({ ...v, standardSetId: e.target.value }))}
-              disabled={!f.breedId}
-              className="input"
-            >
-              <option value="">{f.breedId ? "Choose…" : "Pick a breed first"}</option>
-              {setsForBreed.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name} v{s.version}
-                  {s.isDefault ? " (default)" : ""}
-                </option>
-              ))}
-            </select>
-            {f.breedId && !setsForBreed.length && (
+            {f.breedId && !ctx?.standardSets.some((s) => s.breedId === f.breedId && s.isDefault) && (
               <p className="mt-1 text-[11px] text-amber-700">
-                That breed has no standard set yet — add one under Settings → Farms → Breeds &
-                Standards.
+                That breed has no default standard set, so this flock will be placed without a
+                benchmark. Add one under Settings → Farms → Breeds & Standards.
               </p>
             )}
           </div>
+        </div>
 
-          <div>
-            <label className="label-required">Hatched *</label>
-            <input
-              type="date"
-              value={f.hatchDate}
-              onChange={(e) => setF((v) => ({ ...v, hatchDate: e.target.value }))}
-              className="input"
-            />
+        {/* Hatches. The batch is what arrived, not one date somebody rounded to. */}
+        <div className="mt-4">
+          <label className="label-required">Hatches *</label>
+          <div className="space-y-2">
+            {hatches.map((h, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={h.hatchDate}
+                  onChange={(e) =>
+                    setHatches((cur) =>
+                      cur.map((r, j) => (j === i ? { ...r, hatchDate: e.target.value } : r)),
+                    )
+                  }
+                  className="input"
+                />
+                <input
+                  value={h.qty}
+                  onChange={(e) =>
+                    setHatches((cur) =>
+                      cur.map((r, j) => (j === i ? { ...r, qty: e.target.value } : r)),
+                    )
+                  }
+                  inputMode="numeric"
+                  placeholder="Birds"
+                  className="input text-right"
+                />
+                <button
+                  onClick={() => setHatches((cur) => cur.filter((_, j) => j !== i))}
+                  disabled={hatches.length === 1}
+                  className="text-[12px] text-gray-400 hover:text-red-600 disabled:opacity-30"
+                  title="Remove this hatch"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+            ))}
           </div>
-          <div>
-            <label className="label-required">Placed on *</label>
-            <input
-              type="date"
-              value={f.fromDate}
-              onChange={(e) => setF((v) => ({ ...v, fromDate: e.target.value }))}
-              className="input"
-            />
-          </div>
-          <div>
-            <label className="label-required">Birds *</label>
-            <input
-              value={f.placedCount}
-              onChange={(e) => setF((v) => ({ ...v, placedCount: e.target.value }))}
-              inputMode="numeric"
-              className="input text-right"
-            />
-          </div>
+          <button
+            onClick={() => setHatches((cur) => [...cur, { hatchDate: today(), qty: "" }])}
+            className="mt-2 text-[12px] text-blue-600 hover:underline"
+          >
+            + Add hatch
+          </button>
 
-          <div>
-            <label className="label">Origin</label>
-            <select
-              value={f.origin}
-              onChange={(e) => setF((v) => ({ ...v, origin: e.target.value as FlockOrigin }))}
-              className="input"
-            >
-              {FLOCK_ORIGINS.map((o) => (
-                <option key={o} value={o}>
-                  {FLOCK_ORIGIN_LABELS[o]}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="md:col-span-2">
-            <label className="label">Origin reference</label>
-            <input
-              value={f.originRef}
-              onChange={(e) => setF((v) => ({ ...v, originRef: e.target.value }))}
-              placeholder="Hatchery invoice, supplier lot…"
-              className="input"
-            />
-          </div>
+          {clash && (
+            <p className="mt-2 text-[12px] text-red-600">
+              The same hatch date appears twice — combine those into one line.
+            </p>
+          )}
+          {profile && !clash && (
+            <div className="mt-2 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-[12px] text-gray-600">
+              <span className="font-medium text-gray-900">{n(profile.placedCount)} birds</span>
+              {profile.spreadDays > 0 ? (
+                <>
+                  {" "}
+                  over {hatches.filter((h) => Number(h.qty) > 0).length} hatches spanning{" "}
+                  {profile.spreadDays + 1} days · age counts from the weighted average{" "}
+                  <span className="font-medium text-gray-900">{profile.hatchDate}</span>
+                </>
+              ) : (
+                <> hatched {profile.hatchDate}</>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="mt-3">
@@ -406,6 +399,7 @@ function NewFlockDialog({ onClose, onSaved }: { onClose: () => void; onSaved: ()
           <input
             value={f.note}
             onChange={(e) => setF((v) => ({ ...v, note: e.target.value }))}
+            placeholder="Purchased pullets, Suguna invoice 4471…"
             className="input"
           />
         </div>
