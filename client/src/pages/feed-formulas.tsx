@@ -9,6 +9,7 @@
  * to, so an old batch stays readable against the recipe of its day.
  */
 import { useEffect, useMemo, useState } from "react";
+import { FormulaMatrix } from "../components/formula-matrix";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
@@ -79,9 +80,9 @@ export function FeedFormulasPage() {
 
   const current = groups?.find((g) => g.name === selected);
 
-  useEffect(() => {
-    if (selected === null && groups?.length) setSelected(groups[0]!.name);
-  }, [groups, selected]);
+  // Deliberately no auto-select: nothing picked means the comparison, which is
+  // what somebody opening Formulas actually came to see. Landing straight in
+  // the first formula's editor also put a save button under an idle cursor.
 
   useEffect(() => {
     if (!current?.active) return;
@@ -168,6 +169,20 @@ export function FeedFormulasPage() {
 
       <div className="flex min-h-0 flex-1">
         <aside className="w-44 shrink-0 overflow-y-auto border-r bg-white lg:w-60">
+          {/* The comparison is the landing view: a formula means almost nothing
+              read on its own. Picking one from here opens it for editing. */}
+          <button
+            onClick={() => {
+              setSelected(null);
+              setSaved(null);
+            }}
+            className={`block w-full border-b border-gray-100 px-3 py-2 text-left hover:bg-gray-50 ${
+              selected === null ? "bg-brand-50" : ""
+            }`}
+          >
+            <div className="text-[13px] font-medium text-gray-900">All formulas</div>
+            <div className="text-[11px] text-gray-400">Side by side, with cost per kg</div>
+          </button>
           {groups?.map((g) => (
             <button
               key={g.name}
@@ -193,7 +208,9 @@ export function FeedFormulasPage() {
         </aside>
 
         <main className="min-w-0 flex-1 overflow-y-auto bg-surface p-3 lg:p-6">
-          <div className="mx-auto max-w-3xl">
+          {/* The editor is a form and wants a measure; the comparison is a
+              table and wants the width. */}
+          <div className={`mx-auto ${selected === null ? "max-w-6xl" : "max-w-3xl"}`}>
             {saved && (
               <div className="mb-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-[13px] text-green-800">
                 {saved}
@@ -205,6 +222,10 @@ export function FeedFormulasPage() {
               </div>
             )}
 
+            {selected === null ? (
+              <FormulaMatrix onPick={(n) => setSelected(n)} />
+            ) : (
+            <>
             <div className="card p-5">
               <div className="mb-3 grid grid-cols-2 gap-3 md:grid-cols-4">
                 <div className="col-span-2">
@@ -372,6 +393,8 @@ export function FeedFormulasPage() {
                   </div>
                 ))}
               </div>
+            )}
+            </>
             )}
           </div>
         </main>

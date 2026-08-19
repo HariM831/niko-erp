@@ -17,10 +17,12 @@
 import { Router } from "express";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
-import { formulaLines, formulas, items, lifeStage, productionOrders, users } from "@shared/schema";
+import { formulaLines, formulas, itemNutrients, items, lifeStage, productionOrders, users } from "@shared/schema";
+import { NUTRIENTS } from "@shared/feed";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
+import { getPreferences } from "../services/preferences";
 
 export const feedFormulasRouter = Router();
 
@@ -98,6 +100,167 @@ async function formulaProblem(body: Body): Promise<string | null> {
 }
 
 /** Every formula: live version, lines, and how much has been produced to it. */
+/**
+ * Every live formula side by side — what goes in, what it costs, what it
+ * delivers.
+ *
+ * One endpoint rather than a query per formula, because the page exists to be
+ * COMPARED: a recipe read on its own tells you almost nothing, while four in a
+ * column say immediately that soya is what makes the chick mash dear and that
+ * limestone climbs as the bird comes into lay.
+ *
+ * The arithmetic is done here rather than in the browser so the cost a person
+ * reads is the same one production will charge — moisture and overhead come
+ * from the mill's own preferences, not from constants in a component.
+ */
+feedFormulasRouter.get("/matrix", requirePermission("feed_mill", "view"), async (_req, res) => {
+  const live = await db
+    .select({
+      id: formulas.id,
+      name: formulas.name,
+      version: formulas.version,
+      stage: formulas.stage,
+      batchSizeKg: formulas.batchSizeKg,
+      effectiveFrom: formulas.effectiveFrom,
+      outputItemName: items.name,
+    })
+    .from(formulas)
+    .leftJoin(items, eq(items.id, formulas.outputItemId))
+    .where(eq(formulas.isActive, true))
+    .orderBy(asc(formulas.name));
+
+  // Named so the screen can say why a formula everybody knows about is absent,
+  // rather than leaving a hole somebody has to investigate.
+  const allNames = await db
+    .selectDistinct({ name: formulas.name })
+    .from(formulas)
+    .orderBy(asc(formulas.name));
+  const withoutLive = allNames
+    .map((n) => n.name)
+    .filter((n) => !live.some((f) => f.name === n));
+
+  if (!live.length) {
+    return res.json({ formulas: [], ingredients: [], nutrients: [], withoutLive });
+  }
+
+  const ids = live.map((f) => f.id);
+  const lines = await db
+    .select({
+      formulaId: formulaLines.formulaId,
+      itemId: formulaLines.itemId,
+      itemName: items.name,
+      quantityKg: formulaLines.quantityKg,
+      ratePerKg: items.costPrice,
+    })
+    .from(formulaLines)
+    .innerJoin(items, eq(items.id, formulaLines.itemId))
+    .where(inArray(formulaLines.formulaId, ids));
+
+  const itemIds = [...new Set(lines.map((l) => l.itemId))];
+  const analyses = itemIds.length
+    ? await db
+        .select({
+          itemId: itemNutrients.itemId,
+          nutrient: itemNutrients.nutrient,
+          value: itemNutrients.value,
+        })
+        .from(itemNutrients)
+        .where(inArray(itemNutrients.itemId, itemIds))
+    : [];
+  const byItem = new Map<string, Map<string, number>>();
+  for (const a of analyses) {
+    if (!byItem.has(a.itemId)) byItem.set(a.itemId, new Map());
+    byItem.get(a.itemId)!.set(a.nutrient, Number(a.value));
+  }
+
+  const prefs = await getPreferences(db);
+  const retention = Number(prefs.millMoistureRetention);
+  const overheadPerKg = Number(prefs.millOverheadPerKg);
+
+  const heads = live.map((f) => {
+    const own = lines.filter((l) => l.formulaId === f.id);
+    const totalKg = own.reduce((s, l) => s + Number(l.quantityKg), 0);
+    const materialCost = own.reduce((s, l) => s + Number(l.quantityKg) * Number(l.ratePerKg ?? 0), 0);
+    // Milling bakes off moisture, so a batch yields less than went in; the
+    // overhead is charged on what comes OUT, which is what gets transferred.
+    const outputKg = totalKg * retention;
+    const overhead = outputKg * overheadPerKg;
+    return {
+      id: f.id,
+      name: f.name,
+      version: f.version,
+      stage: f.stage,
+      outputItemName: f.outputItemName,
+      effectiveFrom: f.effectiveFrom,
+      totalKg: Number(totalKg.toFixed(3)),
+      materialCost: Number(materialCost.toFixed(2)),
+      outputKg: Number(outputKg.toFixed(3)),
+      overhead: Number(overhead.toFixed(2)),
+      costPerFinishedKg: outputKg > 0 ? Number(((materialCost + overhead) / outputKg).toFixed(4)) : 0,
+      /**
+       * Ingredients whose analysis is incomplete, worst first.
+       *
+       * Reported per formula rather than per figure: an unmeasured ingredient
+       * drags EVERY nutrient down, so flagging every cell marks the whole
+       * table and tells nobody anything. Naming the four ingredients to go and
+       * fix is the actionable form of the same fact.
+       */
+      thinAnalysis: own
+        .map((l) => ({
+          name: l.itemName,
+          kg: Number(l.quantityKg),
+          measured: byItem.get(l.itemId)?.size ?? 0,
+        }))
+        .filter((x) => x.measured < NUTRIENTS.length)
+        .sort((a, b) => b.kg - a.kg),
+    };
+  });
+
+  const ingredientIds = [...new Set(lines.map((l) => l.itemId))];
+  const ingredients = ingredientIds
+    .map((id) => {
+      const any = lines.find((l) => l.itemId === id)!;
+      const qty: Record<string, number> = {};
+      for (const f of live) {
+        const l = lines.find((x) => x.formulaId === f.id && x.itemId === id);
+        qty[f.id] = l ? Number(l.quantityKg) : 0;
+      }
+      return {
+        itemId: id,
+        name: any.itemName,
+        ratePerKg: Number(any.ratePerKg ?? 0),
+        qty,
+        total: Object.values(qty).reduce((s, v) => s + v, 0),
+      };
+    })
+    .sort((a, b) => b.total - a.total);
+
+  const nutrients = NUTRIENTS.map((def) => {
+    const values: Record<string, number> = {};
+    /** Kilos on the mix whose analysis is silent on this nutrient. */
+    const blindKg: Record<string, number> = {};
+    for (const f of live) {
+      const own = lines.filter((l) => l.formulaId === f.id);
+      const totalKg = own.reduce((s, l) => s + Number(l.quantityKg), 0);
+      let sum = 0;
+      let blind = 0;
+      for (const l of own) {
+        const v = byItem.get(l.itemId)?.get(def.key);
+        // Treated as zero, and SAID so: an unmeasured ingredient drags the
+        // weighted figure down, and a phosphorus source with no phosphorus on
+        // file is exactly how a ration reads short of a limit it actually meets.
+        if (v == null) blind += Number(l.quantityKg);
+        else sum += Number(l.quantityKg) * v;
+      }
+      values[f.id] = totalKg > 0 ? Number((sum / totalKg).toFixed(3)) : 0;
+      blindKg[f.id] = Number(blind.toFixed(3));
+    }
+    return { key: def.key, label: def.label, unit: def.unit, group: def.group, values, blindKg };
+  }).filter((n) => live.some((f) => n.values[f.id] !== 0 || n.blindKg[f.id]! > 0));
+
+  res.json({ formulas: heads, ingredients, nutrients, withoutLive });
+});
+
 feedFormulasRouter.get("/", requirePermission("feed_mill", "view"), async (_req, res) => {
   const versions = await db
     .select({
