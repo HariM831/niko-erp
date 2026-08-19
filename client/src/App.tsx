@@ -11,7 +11,6 @@ import { BulkUpdatePage } from "./pages/bulk-update";
 import { QualitySpecsPage } from "./pages/quality-specs";
 import { FeedNutrientsPage } from "./pages/feed-nutrients";
 import { FeedFormulasPage } from "./pages/feed-formulas";
-import { FeedFormulatorPage } from "./pages/feed-formulator";
 import { FeedProductionPage } from "./pages/feed-production";
 import { FeedTransfersPage } from "./pages/feed-transfers";
 import {
@@ -166,7 +165,9 @@ export function App() {
         <Route path="/procurement/weigh-out">{() => <Redirect to={stationPath("weigh-out")} />}</Route>
         <Route path="/feed-mill/nutrients" component={FeedNutrientsPage} />
         <Route path="/feed-mill/formulas" component={FeedFormulasPage} />
-        <Route path="/feed-mill/formulator" component={FeedFormulatorPage} />
+        {/* The formulator is no longer a screen of its own: it IS the
+            single-formula view, so its old path lands there. */}
+        <Route path="/feed-mill/formulator">{() => <Redirect to="/feed-mill/formulas" />}</Route>
         <Route path="/feed-mill/production" component={FeedProductionPage} />
         <Route path="/feed-mill/transfers" component={FeedTransfersPage} />
         <Route path="/procurement/settlement" component={SettlementPage} />

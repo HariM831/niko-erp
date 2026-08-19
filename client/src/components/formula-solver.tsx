@@ -1,9 +1,13 @@
 /**
- * The Formulator — re-solving a formula against what a life stage asks for.
+ * A formula, re-solved against what a life stage asks for.
  *
- * A formula on the left, a standard on the right, and the materials you are
- * willing to buy in between. Solve, look at what it costs against what the
- * formula costs today, and save it as the next version.
+ * This IS the single-formula view. Opening a recipe used to show a form for
+ * typing kilos into, which is a worse tool than a pencil: the interesting
+ * question about a formula is never "what is in it" — the comparison answers
+ * that — but "given today's prices, what should be in it".
+ *
+ * A standard on the right, the materials you are willing to buy on the left,
+ * solve, and save it as the next version.
  *
  * Nothing numeric travels from this screen: it names a stage, names materials,
  * and sets inclusion limits. Prices come from the stock ledger, analyses from
@@ -91,10 +95,15 @@ const inr = (n: number) =>
   `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const num = (v: string) => (v.trim() === "" ? null : Number(v));
 
-export function FeedFormulatorPage() {
-  const qc = useQueryClient();
+export function FormulaSolver({
+  selected,
+  onSaved,
+}: {
   /** null = a formula that does not exist yet. */
-  const [selected, setSelected] = useState<string | null>(null);
+  selected: string | null;
+  onSaved: (name: string) => void;
+}) {
+  const qc = useQueryClient();
   const [tab, setTab] = useState<"solve" | "history">("solve");
   const [stage, setStage] = useState<LifeStage>("layer_1");
   const [pool, setPool] = useState<string[]>([]);
@@ -181,53 +190,7 @@ export function FeedFormulatorPage() {
   const addable = (materials ?? []).filter((m) => !pool.includes(m.id));
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex items-start justify-between border-b bg-white px-6 py-3">
-        <div>
-          <h1 className="text-lg font-semibold">Formulator</h1>
-          <p className="text-[13px] text-gray-500">
-            Re-solve a formula to a life stage's standard, at the cheapest mix that still meets it
-          </p>
-        </div>
-      </header>
-
-      <div className="flex min-h-0 flex-1">
-        <aside className="w-44 shrink-0 overflow-y-auto border-r bg-white lg:w-56">
-          <button
-            onClick={() => {
-              setSelected(null);
-              setPool([]);
-              setLimits({});
-              setTab("solve");
-            }}
-            className={`block w-full border-b border-gray-100 px-3 py-2 text-left hover:bg-gray-50 ${
-              selected === null ? "bg-brand-50" : ""
-            }`}
-          >
-            <div className="text-[13px] font-medium text-gray-900">New formula</div>
-            <div className="text-[11px] text-gray-400">Start from any materials</div>
-          </button>
-          {groups?.map((g) => (
-            <button
-              key={g.name}
-              onClick={() => {
-                setSelected(g.name);
-                setTab("solve");
-              }}
-              className={`block w-full border-b border-gray-100 px-3 py-2 text-left hover:bg-gray-50 ${
-                selected === g.name ? "bg-brand-50" : ""
-              }`}
-            >
-              <div className="truncate text-[13px] font-medium text-gray-900">{g.name}</div>
-              <div className="text-[11px] text-gray-400">
-                {g.active ? `v${g.active.version} · ${g.active.lines.length} materials` : "no live version"}
-              </div>
-            </button>
-          ))}
-        </aside>
-
-        <main className="min-w-0 flex-1 overflow-y-auto bg-surface p-3 lg:p-5">
-          <div className="mx-auto max-w-5xl">
+    <>
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <span className="text-[15px] font-semibold text-gray-900">
                 {selected ?? "New formula"}
@@ -588,9 +551,6 @@ export function FeedFormulatorPage() {
                 )}
               </>
             )}
-          </div>
-        </main>
-      </div>
 
       {saveOpen && result?.feasible && (
         <SaveDialog
@@ -606,12 +566,12 @@ export function FeedFormulatorPage() {
             void qc.invalidateQueries({ queryKey: ["feed-formulas"] });
             void qc.invalidateQueries({ queryKey: ["feed-formula-matrix"] });
             setError(null);
-            setSelected(msg);
             setTab("history");
+            onSaved(msg);
           }}
         />
       )}
-    </div>
+    </>
   );
 }
 
