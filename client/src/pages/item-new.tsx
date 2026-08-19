@@ -2,7 +2,11 @@ import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api } from "../api";
-import { ITEM_CATEGORIES, ITEM_CATEGORY_LABELS } from "@shared/item-categories";
+import {
+  ITEM_CATEGORIES,
+  ITEM_CATEGORY_LABELS,
+  PRODUCE_CATEGORIES,
+} from "@shared/item-categories";
 import { uploadPending } from "../components/pending-attachments";
 import { ImagePlus, Search, X } from "lucide-react";
 
@@ -174,6 +178,9 @@ export function ItemNewPage({ editId }: { editId?: string }) {
     }
   };
 
+  /** Only what the farm produces is sold; everything else is bought to use. */
+  const sellable = (PRODUCE_CATEGORIES as readonly string[]).includes(form.category);
+
   const inputCls = "input";
   const label = "label";
   const previewSrc = image
@@ -319,19 +326,20 @@ export function ItemNewPage({ editId }: { editId?: string }) {
           <label className="flex cursor-pointer items-center gap-2.5">
             <input
               type="checkbox"
-              disabled={form.category !== "produce"}
-              checked={form.category === "produce" && form.isSold}
+              disabled={!sellable}
+              checked={sellable && form.isSold}
               onChange={(e) => setForm((f) => ({ ...f, isSold: e.target.checked }))}
               className="h-4 w-4 accent-brand-500"
             />
             <span className="text-[13px] font-bold">Sales Information</span>
           </label>
-          {form.category !== "produce" && (
+          {!sellable && (
             <p className="mb-2 text-[11px] text-gray-400">
-              Only Produce items are sold. Set the category to Produce to price a sale.
+              Only the farm's own output is sold — eggs, birds, manure. Set the category to one of
+              those to price a sale.
             </p>
           )}
-          {form.category === "produce" && form.isSold && (
+          {sellable && form.isSold && (
             <div className="mt-3 grid grid-cols-2 gap-4">
               <div>
                 <label className="label-required">Selling Price *</label>

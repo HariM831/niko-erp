@@ -20,10 +20,13 @@ import { contacts } from "./contacts";
  */
 export const itemCategory = pgEnum("item_category", [
   "feed",
+  "poultry_feed",
+  "eggs",
+  "birds",
+  "manure",
   "vaccines",
   "medicines",
   "construction",
-  "produce",
   "miscellaneous",
 ]);
 

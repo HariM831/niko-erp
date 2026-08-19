@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { and, asc, desc, eq, getTableColumns, ilike, isNull, or } from "drizzle-orm";
 import { z } from "zod";
+import { PRODUCE_CATEGORIES } from "@shared/item-categories";
 import {
   attachments,
   itemCategory,
@@ -194,9 +195,11 @@ itemsRouter.post(
     const body = req.body as z.infer<typeof itemSchema>;
     // Not a column — consumed by the guard above, kept out of the insert.
     delete (body as Record<string, unknown>).confirmNotDuplicate;
-    // Only Produce is sold — eggs, birds, manure. Everything else the org buys
-    // to use, so a selling price on cement is a typo waiting to be invoiced.
-    if (body.category !== "produce") {
+    // Only the farm's own output is sold — eggs, birds, manure. Everything else
+    // the org buys to use, so a selling price on cement is a typo waiting to be
+    // invoiced. Poultry feed is deliberately NOT here: the mill makes it for
+    // our own sheds, and if that ever changes it is a decision, not a default.
+    if (!PRODUCE_CATEGORIES.includes(body.category as (typeof PRODUCE_CATEGORIES)[number])) {
       body.isSold = false;
       body.sellingPrice = undefined;
       body.salesAccountId = undefined;
@@ -219,11 +222,11 @@ itemsRouter.patch(
   async (req, res) => {
     const patch = { ...req.body } as Record<string, unknown>;
     // The clamp reads the category the item will END UP with, so recategorising
-    // away from Produce strips its sale terms in the same edit.
+    // away from a sold category strips its sale terms in the same edit.
     const current = await db.query.items.findFirst({ where: eq(items.id, req.params.id!) });
     if (!current) return res.status(404).json({ error: "Item not found" });
     const finalCategory = "category" in patch ? patch.category : current.category;
-    if (finalCategory !== "produce") {
+    if (!PRODUCE_CATEGORIES.includes(finalCategory as (typeof PRODUCE_CATEGORIES)[number])) {
       patch.isSold = false;
       patch.sellingPrice = null;
       patch.salesAccountId = null;
