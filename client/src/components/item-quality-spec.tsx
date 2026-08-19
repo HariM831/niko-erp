@@ -1,5 +1,11 @@
 /**
- * Quality Specs — the standards a material is judged against.
+ * The quality spec for one material, on that material's own page.
+ *
+ * It used to be a screen of its own with a list of every material down the
+ * side — a second place to find an item, and one that answered "which material
+ * am I looking at" differently from the item page. A spec is a fact ABOUT a
+ * material, like its unit or its purchase account, so it belongs where the
+ * other facts are.
  *
  * The band bar is the point of this screen. Three numbers in three boxes tell
  * you nothing about whether your limits are sane; a bar showing pass, warning
@@ -15,16 +21,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
 import { QC_PARAMETERS, qcParameterDef } from "@shared/feed";
-
-interface IndexRow {
-  id: string;
-  name: string;
-  unit: string;
-  specId: string | null;
-  version: number | null;
-  effectiveFrom: string | null;
-  paramCount: number;
-}
 
 interface SpecParam {
   parameter: string;
@@ -215,21 +211,16 @@ function BandBar({ d }: { d: Draft }) {
   );
 }
 
-export function QualitySpecsPage() {
+export function ItemQualitySpec({ itemId }: { itemId: string }) {
   const qc = useQueryClient();
-  const [selected, setSelected] = useState<string | null>(null);
+  const selected = itemId;
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [sampleCount, setSampleCount] = useState("3");
   const [effectiveFrom, setEffectiveFrom] = useState(() => new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
 
-  const { data: index } = useQuery<IndexRow[]>({
-    queryKey: ["quality-specs"],
-    queryFn: () => api("/api/quality-specs"),
-  });
   const { data: detail } = useQuery<SpecPayload>({
     queryKey: ["quality-spec", selected],
     queryFn: () => api(`/api/quality-specs/${selected}`),
@@ -237,16 +228,6 @@ export function QualitySpecsPage() {
   });
 
   // The list arrives specced-first, so the head of it is the material somebody
-  // actually came here to look at.
-  const shown = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return (index ?? []).filter((r) => !q || r.name.toLowerCase().includes(q));
-  }, [index, search]);
-
-  useEffect(() => {
-    if (!selected && index?.length) setSelected(index[0]!.id);
-  }, [index, selected]);
-
   // Load the live spec into the draft whenever a different material is picked.
   useEffect(() => {
     if (!detail) return;
@@ -324,58 +305,7 @@ export function QualitySpecsPage() {
     setDrafts((ds) => ds.map((d, j) => (j === i ? { ...d, ...next } : d)));
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="border-b bg-white px-6 py-3">
-        <h1 className="text-lg font-semibold">Quality Specs</h1>
-        <p className="text-[13px] text-gray-500">
-          What each material has to measure up to at QC, and what a version judged
-        </p>
-      </header>
-
-      <div className="flex min-h-0 flex-1">
-        <aside className="flex w-44 shrink-0 flex-col border-r bg-white lg:w-60">
-          <div className="border-b p-2">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Find a material"
-              className="input h-8 w-full text-[13px]"
-            />
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-          {shown?.map((r) => (
-            <button
-              key={r.id}
-              onClick={() => {
-                setSelected(r.id);
-                setSaved(null);
-                setError(null);
-              }}
-              className={`block w-full border-b border-gray-100 px-3 py-2 text-left hover:bg-gray-50 ${
-                selected === r.id ? "bg-brand-50" : ""
-              }`}
-            >
-              <div className="truncate text-[13px] font-medium text-gray-900">{r.name}</div>
-              <div className="text-[11px] text-gray-400">
-                {r.specId ? (
-                  <>
-                    v{r.version} · {r.paramCount} parameter{r.paramCount === 1 ? "" : "s"}
-                  </>
-                ) : (
-                  "No spec"
-                )}
-              </div>
-            </button>
-          ))}
-          {index && !shown.length && (
-            <p className="p-4 text-[13px] text-gray-400">
-              {search ? `Nothing matches “${search}”.` : "No purchasable materials yet."}
-            </p>
-          )}
-          </div>
-        </aside>
-
-        <main className="min-w-0 flex-1 overflow-y-auto bg-surface p-3 lg:p-6">
+    <>
           {!detail ? (
             <p className="text-[13px] text-gray-400">Pick a material.</p>
           ) : (
@@ -659,8 +589,6 @@ export function QualitySpecsPage() {
               )}
             </div>
           )}
-        </main>
-      </div>
-    </div>
+    </>
   );
 }

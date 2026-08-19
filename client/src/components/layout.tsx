@@ -39,7 +39,6 @@ const NAV: NavItem[] = [
     icon: Package,
     children: [
       { label: "All Items", path: "/items" },
-      { label: "Quality Specs", path: "/items/quality-specs" },
     ],
   },
   {

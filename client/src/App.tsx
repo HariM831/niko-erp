@@ -8,7 +8,6 @@ import { ChartOfAccountsPage } from "./pages/chart-of-accounts";
 import { TransactionLockingPage } from "./pages/transaction-locking";
 import { BudgetDetailPage, BudgetNewPage, BudgetsPage } from "./pages/budgets";
 import { BulkUpdatePage } from "./pages/bulk-update";
-import { QualitySpecsPage } from "./pages/quality-specs";
 import { FeedNutrientsPage } from "./pages/feed-nutrients";
 import { FeedFormulasPage } from "./pages/feed-formulas";
 import { FeedProductionPage } from "./pages/feed-production";
@@ -95,7 +94,9 @@ export function App() {
       <Switch>
         <Route path="/" component={HomePage} />
         <Route path="/items/new">{() => <ItemNewPage />}</Route>
-        <Route path="/items/quality-specs" component={QualitySpecsPage} />
+        {/* A spec is a fact about a material, so it lives on the material.
+            The old index redirects rather than 404ing. */}
+        <Route path="/items/quality-specs">{() => <Redirect to="/items" />}</Route>
         <Route path="/items/:id/edit">{(p) => <ItemNewPage editId={p.id!} />}</Route>
         <Route path="/items/:id">{(p) => <ItemDetailPage id={p.id!} />}</Route>
         <Route path="/items" component={ItemsPage} />
