@@ -69,7 +69,7 @@ interface Flock {
   }>;
 }
 
-type Dialog = "transfer" | "record" | "lay" | "deplete" | "house" | null;
+type Dialog = "transfer" | "adjust" | "lay" | "deplete" | "house" | null;
 
 interface Handover {
   flockCode: string;
@@ -163,9 +163,6 @@ export function FlockDetailPage() {
         </div>
         {live && (
           <div className="flex flex-wrap gap-2">
-            <button onClick={() => setDialog("record")} className="btn-secondary">
-              Record mortality
-            </button>
             <button
               onClick={() => setDialog("transfer")}
               disabled={!open.length}
@@ -187,6 +184,13 @@ export function FlockDetailPage() {
                 Start lay
               </button>
             )}
+            <button
+              onClick={() => setDialog("adjust")}
+              disabled={!open.length}
+              className="btn-ghost"
+            >
+              Adjust count
+            </button>
             <button onClick={() => setDialog("deplete")} className="btn-ghost text-red-600">
               Deplete
             </button>
@@ -768,8 +772,6 @@ function FlockDialog({
     toHouseId: "",
     qty: "",
     on: today(),
-    movementKind: "mortality" as "mortality" | "cull" | "male_removal" | "adjustment",
-    causeCode: "",
     adjustmentSign: -1 as 1 | -1,
     note: "",
   });
@@ -782,7 +784,6 @@ function FlockDialog({
     queryFn: () => api("/api/farms/flock-context"),
   });
 
-  const needsCause = kind === "record" && (f.movementKind === "mortality" || f.movementKind === "cull");
   const occupied = new Set(open.map((p) => p.houseId));
 
   const save = useMutation({
@@ -799,16 +800,15 @@ function FlockDialog({
           },
         });
       }
-      if (kind === "record") {
+      if (kind === "adjust") {
         return api(`/api/farms/flocks/${flock.id}/movements`, {
           method: "POST",
           body: {
             placementId: f.placementId,
-            kind: f.movementKind,
+            kind: "adjustment",
             qty: Number(f.qty),
             eventDate: f.on,
-            causeCode: needsCause ? f.causeCode : null,
-            adjustmentSign: f.movementKind === "adjustment" ? f.adjustmentSign : null,
+            adjustmentSign: f.adjustmentSign,
             note: f.note.trim() || null,
           },
         });
@@ -825,7 +825,7 @@ function FlockDialog({
 
   const title = {
     transfer: "Transfer birds",
-    record: "Record mortality, cull or adjustment",
+    adjust: "Correct the bird count",
     lay: "Start lay",
     deplete: "Deplete flock",
   }[kind];
@@ -835,8 +835,7 @@ function FlockDialog({
       ? !!f.on
       : !!f.placementId &&
         Number(f.qty) > 0 &&
-        (kind !== "transfer" || !!f.toHouseId) &&
-        (!needsCause || !!f.causeCode);
+        (kind !== "transfer" || !!f.toHouseId);
 
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-6">
@@ -849,7 +848,7 @@ function FlockDialog({
         )}
 
         <div className="mt-4 space-y-3">
-          {(kind === "transfer" || kind === "record") && (
+          {(kind === "transfer" || kind === "adjust") && (
             <div>
               <label className="label-required">From house *</label>
               <select
@@ -886,56 +885,23 @@ function FlockDialog({
             </div>
           )}
 
-          {kind === "record" && (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="label-required">Event *</label>
-                <select
-                  value={f.movementKind}
-                  onChange={(e) =>
-                    setF((v) => ({ ...v, movementKind: e.target.value as typeof v.movementKind }))
-                  }
-                  className="input"
-                >
-                  <option value="mortality">Mortality</option>
-                  <option value="cull">Cull</option>
-                  <option value="male_removal">Male removal</option>
-                  <option value="adjustment">Adjustment</option>
-                </select>
-              </div>
-              {needsCause ? (
-                <div>
-                  <label className="label-required">Cause *</label>
-                  <select
-                    value={f.causeCode}
-                    onChange={(e) => setF((v) => ({ ...v, causeCode: e.target.value }))}
-                    className="input"
-                  >
-                    <option value="">Choose…</option>
-                    {ctx?.causes.map((c) => (
-                      <option key={c.code} value={c.code}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : f.movementKind === "adjustment" ? (
-                <div>
-                  <label className="label-required">Direction *</label>
-                  <select
-                    value={String(f.adjustmentSign)}
-                    onChange={(e) =>
-                      setF((v) => ({ ...v, adjustmentSign: Number(e.target.value) as 1 | -1 }))
-                    }
-                    className="input"
-                  >
-                    <option value="-1">Remove birds</option>
-                    <option value="1">Add birds</option>
-                  </select>
-                </div>
-              ) : (
-                <div />
-              )}
+          {kind === "adjust" && (
+            <div>
+              <label className="label-required">Direction *</label>
+              <select
+                value={String(f.adjustmentSign)}
+                onChange={(e) =>
+                  setF((v) => ({ ...v, adjustmentSign: Number(e.target.value) as 1 | -1 }))
+                }
+                className="input"
+              >
+                <option value="-1">Remove birds — the house holds fewer than recorded</option>
+                <option value="1">Add birds — the house holds more than recorded</option>
+              </select>
+              <p className="mt-1 text-[11px] text-gray-500">
+                A correction to the count, not a daily event. Deaths and culls are recorded on
+                Daily Records, where they carry a cause.
+              </p>
             </div>
           )}
 

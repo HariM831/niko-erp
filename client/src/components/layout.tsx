@@ -104,7 +104,14 @@ const NAV: NavItem[] = [
      */
     label: "Farms",
     icon: Bird,
-    path: "/farms",
+    children: [
+      { label: "Houses", path: "/farms" },
+      /* Daily entry is its own screen, not a panel on the flock. A batch is set
+         up a handful of times in its life; this is filled in every morning for
+         every house, and mixing the two puts a once-a-lifetime field next to a
+         once-a-day one. */
+      { label: "Daily Records", path: "/farms/daily" },
+    ],
   },
   {
     label: "Accountant",

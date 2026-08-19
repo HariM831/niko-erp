@@ -27,6 +27,7 @@ import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
+import { dayBoard, saveDay } from "../services/daily";
 import {
   ageOn,
   boardRows,
@@ -672,4 +673,55 @@ farmsFlockRouter.get("/board", view, async (req, res) => {
     };
   });
   res.json(out);
+});
+
+/* ── Daily records ───────────────────────────────────────────────────────── */
+
+/**
+ * Every open house on a day, with what has been recorded for it.
+ *
+ * Houses with no entry come back as well. A screen that lists only what has
+ * been filled in cannot show what has not, and the missing house is the whole
+ * reason for looking.
+ */
+farmsFlockRouter.get("/daily", view, async (req, res) => {
+  const day = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+    return res.status(422).json({ error: "Use a YYYY-MM-DD date" });
+  }
+  const out = await db.transaction((tx) => dayBoard(tx, day));
+  res.json(out);
+});
+
+const dailySchema = z.object({
+  placementId: z.string().uuid(),
+  day: isoDate,
+  feedConsumedKg: decimal,
+  feedClosingKg: decimal,
+  waterL: decimal,
+  eggsTotal: z.number().int().min(0).nullish(),
+  eggsCracked: z.number().int().min(0).nullish(),
+  eggsDirty: z.number().int().min(0).nullish(),
+  note: z.string().max(1000).nullish(),
+  losses: z
+    .array(
+      z.object({
+        kind: z.enum(["mortality", "cull", "male_removal"]),
+        qty: z.number().int().positive(),
+        causeCode: z.string().max(40).nullish(),
+        note: z.string().max(300).nullish(),
+      }),
+    )
+    .max(20),
+});
+
+farmsFlockRouter.post("/daily", manage, validateBody(dailySchema), async (req, res) => {
+  try {
+    const out = await db.transaction((tx) =>
+      saveDay(tx, req.body as never, req.session.user!.id),
+    );
+    res.json(out);
+  } catch (err) {
+    if (!fail(err, res)) throw err;
+  }
 });

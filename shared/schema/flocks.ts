@@ -12,7 +12,9 @@ import {
   date,
   index,
   integer,
+  numeric,
   pgTable,
+  primaryKey,
   smallint,
   text,
   timestamp,
@@ -214,6 +216,43 @@ export const MOVEMENT_KIND_LABELS: Record<MovementKind, string> = {
   depletion: "Depleted",
   adjustment: "Adjustment",
 };
+
+/**
+ * One row per house per day: what was fed, drunk, laid and lost.
+ *
+ * The composite primary key is the fix for the duplicate-record bug. The table
+ * this replaces had only non-unique indexes and leaned on an app-level check
+ * comparing a UTC-parsed date against a server-local midnight, so on a non-UTC
+ * server the same shed-day could be recorded twice with different numbers.
+ *
+ * Mortality is deliberately absent. It lives in `flockMovements` so it can
+ * carry a cause, and so the bird count keeps coming from one ledger rather than
+ * being split across two tables that can disagree. Saving a day writes both, in
+ * one transaction.
+ */
+export const placementDays = pgTable(
+  "placement_days",
+  {
+    placementId: uuid("placement_id")
+      .notNull()
+      .references(() => flockPlacements.id, { onDelete: "cascade" }),
+    day: date("day").notNull(),
+    feedConsumedKg: numeric("feed_consumed_kg", { precision: 10, scale: 2 }),
+    feedClosingKg: numeric("feed_closing_kg", { precision: 10, scale: 2 }),
+    waterL: numeric("water_l", { precision: 10, scale: 2 }),
+    /** Nullable and unconstrained by house purpose — see the migration. */
+    eggsTotal: integer("eggs_total"),
+    eggsCracked: integer("eggs_cracked"),
+    eggsDirty: integer("eggs_dirty"),
+    note: text("note"),
+    /** "manual" | "iot" | "import" */
+    source: text("source").notNull().default("manual"),
+    recordedBy: uuid("recorded_by").references(() => users.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.placementId, t.day] }), index("ix_placement_days_day").on(t.day)],
+);
 
 /** The kinds that must name a cause. */
 export const CAUSE_REQUIRED: readonly string[] = ["mortality", "cull"];
