@@ -414,6 +414,13 @@
       "when": 1786971184135,
       "tag": "0058_flock_hatches",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1786971244135,
+      "tag": "0059_flock_housing",
+      "breakpoints": true
     }
   ]
 }

@@ -58,6 +58,12 @@ export const flocks = pgTable(
      * history — never from the kind of house it is sitting in.
      */
     status: text("status").notNull().default("rearing"),
+    /**
+     * The day the flock moved out of rearing and into a layer house. Distinct
+     * from `layStartDate`: housed at 14 weeks, in lay around 18, and collapsing
+     * the two makes every "age at first egg" figure wrong by a month.
+     */
+    housedOn: date("housed_on"),
     layStartDate: date("lay_start_date"),
     depletedOn: date("depleted_on"),
     note: text("note"),

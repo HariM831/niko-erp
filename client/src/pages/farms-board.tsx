@@ -207,7 +207,6 @@ function Tile({ label, value, tone }: { label: string; value: string; tone?: "wa
 function NewFlockDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [f, setF] = useState({
-    code: "",
     locationId: "",
     houseId: "",
     breedId: "",
@@ -218,6 +217,17 @@ function NewFlockDialog({ onClose, onSaved }: { onClose: () => void; onSaved: ()
   const { data: ctx } = useQuery<Context>({
     queryKey: ["farm-flock-context"],
     queryFn: () => api("/api/farms/flock-context"),
+  });
+
+  // Shown, not typed. The server generates it again on save from the same rule,
+  // so a stale preview cannot become the actual code.
+  const { data: nextCode } = useQuery<{ code: string }>({
+    queryKey: ["next-flock-code", f.locationId, hatches[0]?.hatchDate?.slice(0, 4)],
+    queryFn: () =>
+      api(
+        `/api/farms/next-flock-code?locationId=${f.locationId}&year=${hatches[0]?.hatchDate?.slice(0, 4) ?? new Date().getFullYear()}`,
+      ),
+    enabled: !!f.locationId,
   });
 
   const housesHere = ctx?.houses.filter((h) => h.locationId === f.locationId) ?? [];
@@ -232,7 +242,6 @@ function NewFlockDialog({ onClose, onSaved }: { onClose: () => void; onSaved: ()
       api("/api/farms/flocks", {
         method: "POST",
         body: {
-          code: f.code.trim(),
           locationId: f.locationId,
           houseId: f.houseId,
           breedId: f.breedId,
@@ -244,7 +253,7 @@ function NewFlockDialog({ onClose, onSaved }: { onClose: () => void; onSaved: ()
     onError: (e) => setError(e instanceof ApiError ? e.message : "Could not place that flock"),
   });
 
-  const ready = f.code.trim() && f.locationId && f.houseId && f.breedId && !!profile && !clash;
+  const ready = f.locationId && f.houseId && f.breedId && !!profile && !clash;
 
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-6">
@@ -262,13 +271,12 @@ function NewFlockDialog({ onClose, onSaved }: { onClose: () => void; onSaved: ()
 
         <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3">
           <div>
-            <label className="label-required">Code *</label>
-            <input
-              value={f.code}
-              onChange={(e) => setF((v) => ({ ...v, code: e.target.value }))}
-              placeholder="AMN-2026-03"
-              className="input"
-            />
+            <label className="label">Code</label>
+            {/* Generated from site and year — "the second Nalbari batch of 2026"
+                is what people say, so it is what the code says. */}
+            <div className="input flex items-center bg-gray-50 font-medium text-gray-700">
+              {f.locationId ? (nextCode?.code ?? "…") : "Pick a site"}
+            </div>
           </div>
           <div>
             <label className="label-required">Site *</label>

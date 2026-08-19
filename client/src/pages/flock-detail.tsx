@@ -36,6 +36,7 @@ interface Flock {
   hatchDate: string;
   placedCount: number;
   hatches: Array<{ id: string; hatchDate: string; qty: number }>;
+  housedOn: string | null;
   hatchSpread: { spreadDays: number; firstHatch: string; lastHatch: string } | null;
   layStartDate: string | null;
   depletedOn: string | null;
@@ -68,7 +69,21 @@ interface Flock {
   }>;
 }
 
-type Dialog = "transfer" | "record" | "lay" | "deplete" | null;
+type Dialog = "transfer" | "record" | "lay" | "deplete" | "house" | null;
+
+interface Handover {
+  flockCode: string;
+  on: string;
+  age: { label: string; weeks: number };
+  inWindow: boolean;
+  placedCount: number;
+  birds: number;
+  lost: number;
+  cumMortalityPct: number;
+  liveabilityPct: number;
+  houses: Array<{ placementId: string; houseCode: string; birds: number }>;
+  causes: Array<{ label: string; qty: number }>;
+}
 
 export function FlockDetailPage() {
   const [, params] = useRoute("/farms/flocks/:id");
@@ -138,6 +153,12 @@ export function FlockDetailPage() {
               <span className="text-amber-700">no standard set pinned</span>
             )}
           </p>
+          {f.housedOn && (
+            <p className="mt-0.5 text-[12px] text-gray-500">
+              Housed {day(f.housedOn)}
+              {f.layStartDate && <> · in lay from {day(f.layStartDate)}</>}
+            </p>
+          )}
           {f.note && <p className="mt-0.5 text-[12px] text-gray-500">{f.note}</p>}
         </div>
         {live && (
@@ -152,6 +173,15 @@ export function FlockDetailPage() {
             >
               Transfer
             </button>
+            {!f.housedOn && (
+              <button
+                onClick={() => setDialog("house")}
+                disabled={!open.length}
+                className="btn-primary"
+              >
+                Move to layer
+              </button>
+            )}
             {f.status === "rearing" && (
               <button onClick={() => setDialog("lay")} className="btn-secondary">
                 Start lay
@@ -262,7 +292,10 @@ export function FlockDetailPage() {
         </table>
       </div>
 
-      {dialog && (
+      {dialog === "house" && (
+        <HousingDialog flock={f} onClose={() => setDialog(null)} onSaved={refresh} />
+      )}
+      {dialog && dialog !== "house" && (
         <FlockDialog kind={dialog} flock={f} onClose={() => setDialog(null)} onSaved={refresh} />
       )}
     </div>
@@ -442,6 +475,265 @@ function HatchPanel({
   );
 }
 
+/**
+ * Housing — rearing hands the batch over to laying.
+ *
+ * The handover sheet is the point of this screen. It is not a report generated
+ * afterwards; it is what both teams look at before agreeing the move, so it
+ * shows what is actually being handed over — how many birds, at what age, what
+ * fraction of the batch was lost getting here and to what.
+ *
+ * Nothing is copied across. Feed, weighings, vaccinations and medications all
+ * hang off the FLOCK rather than the shed, so they do not need to move when the
+ * birds do — which is the whole reason this is a two-minute confirmation rather
+ * than an afternoon of re-keying.
+ */
+function HousingDialog({
+  flock,
+  onClose,
+  onSaved,
+}: {
+  flock: Flock;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const open = flock.placements.filter((p) => !p.toDate);
+  const [placementId, setPlacementId] = useState(open[0]?.id ?? "");
+  const [on, setOn] = useState(today());
+  const [note, setNote] = useState("");
+  const [moves, setMoves] = useState<Array<{ toHouseId: string; qty: string }>>([
+    { toHouseId: "", qty: "" },
+  ]);
+
+  const { data: ctx } = useQuery<{
+    houses: Array<{ id: string; code: string; purpose: string; locationId: string }>;
+  }>({
+    queryKey: ["farm-flock-context"],
+    queryFn: () => api("/api/farms/flock-context"),
+  });
+  const { data: sheet } = useQuery<Handover>({
+    queryKey: ["handover", flock.id, on],
+    queryFn: () => api(`/api/farms/flocks/${flock.id}/handover?on=${on}`),
+  });
+
+  const source = open.find((p) => p.id === placementId);
+  const layerHouses = (ctx?.houses ?? []).filter(
+    (h) => h.purpose === "layer" && !open.some((p) => p.houseId === h.id),
+  );
+  const allocated = moves.reduce((n, m) => n + (Number(m.qty) || 0), 0);
+  const remaining = (source?.birds ?? 0) - allocated;
+
+  const save = useMutation({
+    mutationFn: () =>
+      api(`/api/farms/flocks/${flock.id}/house`, {
+        method: "POST",
+        body: {
+          placementId,
+          moves: moves
+            .filter((m) => m.toHouseId && Number(m.qty) > 0)
+            .map((m) => ({ toHouseId: m.toHouseId, qty: Number(m.qty) })),
+          on,
+          note: note.trim() || null,
+        },
+      }),
+    onSuccess: onSaved,
+    onError: (e) => setError(e instanceof ApiError ? e.message : "Could not house that flock"),
+  });
+
+  const ready =
+    !!placementId &&
+    remaining === 0 &&
+    moves.filter((m) => m.toHouseId && Number(m.qty) > 0).length > 0 &&
+    new Set(moves.filter((m) => m.toHouseId).map((m) => m.toHouseId)).size ===
+      moves.filter((m) => m.toHouseId).length;
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-6">
+      <div className="card w-full max-w-2xl p-5">
+        <h2 className="text-[15px] font-semibold text-gray-900">Move to layer</h2>
+        <p className="mt-0.5 text-[12px] text-gray-500">
+          Rearing hands the batch to laying. Every bird has to have somewhere to go — this moves the
+          whole house, not part of it.
+        </p>
+        {error && (
+          <div className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700">
+            {error}
+          </div>
+        )}
+
+        {/* The handover sheet — what the two teams are agreeing on. */}
+        {sheet && (
+          <div className="mt-4 rounded border border-gray-200 bg-gray-50 p-3">
+            <div className="mb-2 flex items-baseline justify-between">
+              <span className="text-[12px] font-semibold text-gray-700">Handover</span>
+              <span
+                className={`text-[11px] ${sheet.inWindow ? "text-gray-500" : "text-amber-700"}`}
+              >
+                {sheet.age.label}
+                {!sheet.inWindow && " — outside the usual 12–16 week window"}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[12px] md:grid-cols-4">
+              <Fact label="Birds handed over" value={n(sheet.birds)} />
+              <Fact label="Placed" value={n(sheet.placedCount)} />
+              <Fact label="Lost in rearing" value={`${n(sheet.lost)} (${sheet.cumMortalityPct.toFixed(2)}%)`} />
+              <Fact label="Liveability" value={`${sheet.liveabilityPct.toFixed(1)}%`} />
+            </div>
+            {!!sheet.causes.length && (
+              <div className="mt-2 border-t border-gray-200 pt-2 text-[11px] text-gray-600">
+                {sheet.causes.map((c) => `${c.label} ${n(c.qty)}`).join(" · ")}
+              </div>
+            )}
+            <p className="mt-2 text-[11px] text-gray-500">
+              Feed, weighings, vaccinations and medications stay with the flock — they are recorded
+              against the batch, not the shed, so nothing needs moving.
+            </p>
+          </div>
+        )}
+
+        <div className="mt-4 grid grid-cols-2 gap-3">
+          <div>
+            <label className="label-required">From *</label>
+            <select
+              value={placementId}
+              onChange={(e) => setPlacementId(e.target.value)}
+              className="input"
+            >
+              {open.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.houseCode} — {n(p.birds)} birds
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label-required">Housed on *</label>
+            <input
+              type="date"
+              value={on}
+              onChange={(e) => setOn(e.target.value)}
+              className="input"
+            />
+          </div>
+        </div>
+
+        <div className="mt-3">
+          <label className="label-required">Into *</label>
+          <div className="space-y-2">
+            {moves.map((m, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <div className="flex-1">
+                  <select
+                    value={m.toHouseId}
+                    onChange={(e) =>
+                      setMoves((cur) =>
+                        cur.map((x, j) => (j === i ? { ...x, toHouseId: e.target.value } : x)),
+                      )
+                    }
+                    className="input"
+                  >
+                    <option value="">Choose a layer house…</option>
+                    {layerHouses.map((h) => (
+                      <option key={h.id} value={h.id}>
+                        {h.code}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="w-32">
+                  <input
+                    value={m.qty}
+                    onChange={(e) =>
+                      setMoves((cur) =>
+                        cur.map((x, j) => (j === i ? { ...x, qty: e.target.value } : x)),
+                      )
+                    }
+                    inputMode="numeric"
+                    placeholder="Birds"
+                    className="input text-right"
+                  />
+                </div>
+                <button
+                  onClick={() => setMoves((cur) => cur.filter((_, j) => j !== i))}
+                  disabled={moves.length === 1}
+                  className="text-[12px] text-gray-400 hover:text-red-600 disabled:opacity-30"
+                  title="Remove"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 flex items-center gap-3">
+            <button
+              onClick={() => setMoves((cur) => [...cur, { toHouseId: "", qty: "" }])}
+              className="text-[12px] text-blue-600 hover:underline"
+            >
+              + Another house
+            </button>
+            {source && (
+              <button
+                onClick={() =>
+                  setMoves((cur) =>
+                    cur.map((x, j) =>
+                      j === 0 ? { ...x, qty: String(source.birds) } : { ...x, qty: "" },
+                    ),
+                  )
+                }
+                className="text-[12px] text-gray-500 hover:underline"
+              >
+                All into the first
+              </button>
+            )}
+            <span
+              className={`text-[12px] ${
+                remaining === 0 ? "text-green-700" : "text-amber-700"
+              }`}
+            >
+              {remaining === 0
+                ? "Every bird allocated"
+                : remaining > 0
+                  ? `${n(remaining)} still to place`
+                  : `${n(-remaining)} more than the house holds`}
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-3">
+          <label className="label">Note</label>
+          <input value={note} onChange={(e) => setNote(e.target.value)} className="input" />
+        </div>
+
+        <div className="mt-4 flex items-center gap-2">
+          <button
+            onClick={() => save.mutate()}
+            disabled={!ready || save.isPending}
+            className="btn-primary whitespace-nowrap"
+          >
+            {save.isPending ? "Housing…" : "House the flock"}
+          </button>
+          <button onClick={onClose} className="btn-ghost">
+            Cancel
+          </button>
+          <span className="text-[11px] text-gray-500">
+            Closes the rearing placement and opens the layer one(s) in a single transaction.
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wide text-gray-500">{label}</div>
+      <div className="font-medium tabular-nums text-gray-900">{value}</div>
+    </div>
+  );
+}
+
 function Tile({ label, value, tone }: { label: string; value: string; tone?: "warn" }) {
   return (
     <div className="card p-3">
@@ -463,7 +755,8 @@ function FlockDialog({
   onClose,
   onSaved,
 }: {
-  kind: Exclude<Dialog, null>;
+  /** Housing has its own dialog — it is a ceremony, not a form. */
+  kind: Exclude<Dialog, null | "house">;
   flock: Flock;
   onClose: () => void;
   onSaved: () => void;

@@ -27,6 +27,9 @@ import {
   ageOn,
   createFlock,
   depleteFlock,
+  handoverSummary,
+  houseFlock,
+  nextFlockCode,
   placementCount,
   recordMovement,
   setFlockHatches,
@@ -71,14 +74,39 @@ try {
       .returning();
 
     const sheds = await tx.select().from(houses).where(eq(houses.isActive, true));
-    const pullet = sheds.find((h) => h.purpose === "pullet");
+    const pullets = sheds.filter((h) => h.purpose === "pullet");
+    const pullet = pullets[0];
+    const pullet2 = pullets[1];
     const layers = sheds.filter((h) => h.purpose === "layer");
-    if (!pullet || layers.length < 2) throw new Error("Need a pullet house and two layer houses");
+    if (!pullet || !pullet2 || layers.length < 2) {
+      throw new Error("Need two pullet houses and two layer houses");
+    }
     const [l1, l2] = layers;
     const userId = (await tx.execute(`SELECT id FROM users LIMIT 1`)).rows[0] as
       | { id: string }
       | undefined;
     if (!userId) throw new Error("No users");
+
+    // ── The generated code ──
+    const first = await nextFlockCode(tx, pullet.locationId, 2026);
+    ok("a code is site, year and sequence", /^[A-Z]{1,3}-2026-\d\d$/.test(first), first);
+    const auto = await createFlock(tx, {
+      locationId: pullet.locationId,
+      breedId: breed!.id,
+      houseId: pullet2.id,
+      hatches: [{ hatchDate: "2026-03-01", qty: 10 }],
+      userId: (
+        (await tx.execute(`SELECT id FROM users LIMIT 1`)).rows[0] as { id: string }
+      ).id,
+    });
+    ok("createFlock generates one when none is given", auto.flock.code === first, auto.flock.code);
+    const second = await nextFlockCode(tx, pullet.locationId, 2026);
+    ok("and the next one steps past it", second !== first, `${first} → ${second}`);
+    // A different year is a different sequence, not a continuation.
+    ok(
+      "the year has its own sequence",
+      (await nextFlockCode(tx, pullet.locationId, 2027)).endsWith("-01"),
+    );
 
     // ── The weighted average, before anything touches the database ──
     ok(
@@ -284,49 +312,75 @@ try {
     );
     ok("and the refusal left the count alone", (await placementCount(tx, placement.id)) === 9_800);
 
-    // ── The split: 80% to L1, remainder to L2 ──
-    console.log(`\n  Splitting to ${l1!.code} and ${l2!.code}`);
-    const t1 = await transferBirds(tx, {
+    // ── Housing: rearing hands over to laying ──
+    console.log("\n  Housing");
+    await refuses("housing into a pullet house", () =>
+      houseFlock(tx, {
+        flockId: flock.id,
+        placementId: placement.id,
+        moves: [{ toHouseId: pullet2!.id, qty: 9_800 }],
+        on: "2026-04-25",
+        userId: userId.id,
+      }),
+    );
+    await refuses("housing that leaves birds behind", () =>
+      houseFlock(tx, {
+        flockId: flock.id,
+        placementId: placement.id,
+        moves: [{ toHouseId: l1!.id, qty: 9_000 }],
+        on: "2026-04-25",
+        userId: userId.id,
+      }),
+    );
+
+    const sheet = await handoverSummary(tx, flock.id, "2026-04-25");
+    ok("the handover counts the birds", sheet.birds === 9_800);
+    ok("and what was lost getting there", sheet.lost === 200, `${sheet.cumMortalityPct.toFixed(2)}%`);
+    ok("and breaks it down by cause", sheet.causes.length === 2, sheet.causes.map((c) => `${c.label} ${c.qty}`).join(", "));
+    ok("16 weeks is inside the housing window", sheet.inWindow === true, sheet.age.label);
+
+    const housed = await houseFlock(tx, {
+      flockId: flock.id,
       placementId: placement.id,
-      toHouseId: l1!.id,
-      qty: 7_840,
-      eventDate: "2026-04-25",
+      moves: [
+        { toHouseId: l1!.id, qty: 7_840 },
+        { toHouseId: l2!.id, qty: 1_960 },
+      ],
+      on: "2026-04-25",
       userId: userId.id,
     });
-    ok("a partial transfer leaves the source open", t1.closed === false);
-    ok("source holds the remainder", (await placementCount(tx, placement.id)) === 1_960);
-    ok("destination holds what moved", (await placementCount(tx, t1.toPlacementId)) === 7_840);
-
-    const t2 = await transferBirds(tx, {
-      placementId: placement.id,
-      toHouseId: l2!.id,
-      qty: 1_960,
-      eventDate: "2026-04-25",
-      userId: userId.id,
-    });
-    ok("a full transfer closes the source", t2.closed === true);
-    const [closed] = await tx
-      .select()
-      .from(flockPlacements)
-      .where(eq(flockPlacements.id, placement.id));
-    ok("the closed placement carries its end date", closed?.toDate === "2026-04-25");
-
-    // ── The point of the whole exercise ──
-    const all = await tx
-      .select({
-        kind: flockMovements.kind,
-        qty: flockMovements.qty,
-        sign: flockMovements.adjustmentSign,
-      })
+    ok("housing stamps the date", housed.flock.housedOn === "2026-04-25");
+    ok("status stays rearing — housed is not laying", housed.flock.status === "rearing");
+    ok("the rearing house is closed", (await tx.select().from(flockPlacements).where(eq(flockPlacements.id, placement.id)))[0]?.toDate === "2026-04-25");
+    const afterHousing = await tx
+      .select({ kind: flockMovements.kind, qty: flockMovements.qty, sign: flockMovements.adjustmentSign })
       .from(flockMovements)
       .innerJoin(flockPlacements, eq(flockPlacements.id, flockMovements.placementId))
       .where(eq(flockPlacements.flockId, flock.id));
-    const birds = all.reduce((n, m) => n + movementDelta(m.kind, m.qty, m.sign), 0);
-    ok("a transfer does not change the flock total", birds === 9_800, `${birds}`);
+    ok(
+      "housing does not change the flock total",
+      afterHousing.reduce((n2, m) => n2 + movementDelta(m.kind, m.qty, m.sign), 0) === 9_800,
+    );
+    await refuses("housing a flock twice", () =>
+      houseFlock(tx, {
+        flockId: flock.id,
+        placementId: placement.id,
+        moves: [{ toHouseId: l1!.id, qty: 1 }],
+        on: "2026-05-01",
+        userId: userId.id,
+      }),
+    );
+
+    // ── The split it produced ──
+    console.log(`\n  Splitting to ${l1!.code} and ${l2!.code}`);
+    const [t1, t2] = housed.moves;
+    ok("the first layer house holds what moved", (await placementCount(tx, t1!.toPlacementId)) === 7_840);
+    ok("the second holds the rest", (await placementCount(tx, t2!.toPlacementId)) === 1_960);
+    ok("the rearing house is empty", (await placementCount(tx, placement.id)) === 0);
 
     // More deaths on both sides of the move.
     await recordMovement(tx, {
-      placementId: t1.toPlacementId,
+      placementId: t1!.toPlacementId,
       kind: "mortality",
       qty: 40,
       eventDate: "2026-06-01",
@@ -334,7 +388,7 @@ try {
       userId: userId.id,
     });
     await recordMovement(tx, {
-      placementId: t2.toPlacementId,
+      placementId: t2!.toPlacementId,
       kind: "mortality",
       qty: 10,
       eventDate: "2026-06-01",

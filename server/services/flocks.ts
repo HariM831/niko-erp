@@ -11,7 +11,7 @@
  * another, writing a paired transfer_out/transfer_in so the ledger balances and
  * the timeline still reads correctly years from now.
  */
-import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, like, lte, sql } from "drizzle-orm";
 import {
   CAUSE_REQUIRED,
   flockHatches,
@@ -20,6 +20,8 @@ import {
   flocks,
   hatchProfile,
   houses,
+  locations,
+  mortalityCauses,
   movementDelta,
   standardSets,
 } from "@shared/schema";
@@ -113,6 +115,39 @@ export async function recomputeHatchProfile(tx: Tx, flockId: string) {
 }
 
 /**
+ * The next flock code for a site and year: `NAL-2026-03`.
+ *
+ * Read off the codes that exist rather than a counter, so a deleted or
+ * hand-entered flock cannot leave the sequence pointing at a number already in
+ * use. Site and year are IN the code because that is what people say out loud —
+ * "the second Nalbari batch of the year" — and a bare serial would send them to
+ * a screen to find out which one that is.
+ *
+ * `flocks.code` is unique, so a race between two people opening the dialog ends
+ * in a rejected insert rather than two flocks sharing a name.
+ */
+export async function nextFlockCode(tx: Tx, locationId: string, year: number) {
+  const [site] = await tx
+    .select({ code: locations.code })
+    .from(locations)
+    .where(eq(locations.id, locationId));
+  if (!site) throw new PostingError("No such site");
+
+  // Three letters is enough to tell Nalbari from Panbari at a glance, and keeps
+  // the whole code short enough to write on a shed door.
+  const prefix = `${site.code.replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase()}-${year}-`;
+  const taken = await tx
+    .select({ code: flocks.code })
+    .from(flocks)
+    .where(like(flocks.code, `${prefix}%`));
+  const highest = taken.reduce((max, r) => {
+    const tail = r.code.slice(prefix.length);
+    return /^\d+$/.test(tail) ? Math.max(max, Number(tail)) : max;
+  }, 0);
+  return `${prefix}${String(highest + 1).padStart(2, "0")}`;
+}
+
+/**
  * Place a new flock into its first house.
  *
  * Everything lands in one transaction: a flock with no placement is a cohort
@@ -127,7 +162,8 @@ export async function recomputeHatchProfile(tx: Tx, flockId: string) {
 export async function createFlock(
   tx: Tx,
   args: {
-    code: string;
+    /** Omitted by the UI — generated from site and year. Scripts may pass one. */
+    code?: string | null;
     locationId: string;
     breedId: string;
     houseId: string;
@@ -157,10 +193,16 @@ export async function createFlock(
     .from(standardSets)
     .where(and(eq(standardSets.breedId, args.breedId), eq(standardSets.isDefault, true)));
 
+  // The year comes from when the birds hatched, not from today: a batch entered
+  // in January for a December hatch belongs to the December sequence.
+  const code =
+    args.code?.trim() ||
+    (await nextFlockCode(tx, args.locationId, Number(profile.firstHatch.slice(0, 4))));
+
   const [flock] = await tx
     .insert(flocks)
     .values({
-      code: args.code.trim(),
+      code,
       locationId: args.locationId,
       breedId: args.breedId,
       standardSetId: defaultSet?.id ?? null,
@@ -489,6 +531,174 @@ export async function recordMovement(
     })
     .returning();
   return row!;
+}
+
+/** The window a batch is normally housed in. Outside it is a warning, not a bar. */
+export const HOUSING_WEEKS = { from: 12, to: 16 } as const;
+
+/**
+ * What is being handed over: the state of the flock on a given day.
+ *
+ * Everything here is derived from the movement ledger, which is the reason the
+ * handover needs no copying at all. Feed, weighings, vaccinations and
+ * medications hang off the FLOCK, not the house it happens to be standing in —
+ * so when the birds walk from P1 to L4 their records do not move, because they
+ * were never in P1 to begin with. The old model kept them against the shed,
+ * which is exactly why housing used to mean re-keying everything and why every
+ * lifetime figure restarted at the move.
+ *
+ * (Feed deliveries, bird weighings, vaccination events and medication courses
+ * are Phase 3/4 tables and do not exist yet. They will appear in this summary
+ * without a migration, because they attach to the flock.)
+ */
+export async function handoverSummary(tx: Tx, flockId: string, on: string) {
+  const [flock] = await tx.select().from(flocks).where(eq(flocks.id, flockId));
+  if (!flock) throw new PostingError("No such flock");
+
+  const rows = await tx
+    .select({
+      placementId: flockMovements.placementId,
+      houseCode: houses.code,
+      eventDate: flockMovements.eventDate,
+      kind: flockMovements.kind,
+      qty: flockMovements.qty,
+      sign: flockMovements.adjustmentSign,
+      causeCode: flockMovements.causeCode,
+      causeLabel: mortalityCauses.label,
+      toDate: flockPlacements.toDate,
+    })
+    .from(flockMovements)
+    .innerJoin(flockPlacements, eq(flockPlacements.id, flockMovements.placementId))
+    .innerJoin(houses, eq(houses.id, flockPlacements.houseId))
+    .leftJoin(mortalityCauses, eq(mortalityCauses.code, flockMovements.causeCode))
+    .where(and(eq(flockPlacements.flockId, flockId), lte(flockMovements.eventDate, on)));
+
+  const byHouse = new Map<string, { houseCode: string; placementId: string; birds: number; open: boolean }>();
+  const byCause = new Map<string, number>();
+  let lost = 0;
+  for (const m of rows) {
+    const slot = byHouse.get(m.placementId) ?? {
+      houseCode: m.houseCode,
+      placementId: m.placementId,
+      birds: 0,
+      open: !m.toDate,
+    };
+    slot.birds += movementDelta(m.kind, m.qty, m.sign);
+    byHouse.set(m.placementId, slot);
+    if (m.kind === "mortality" || m.kind === "cull") {
+      lost += m.qty;
+      const label = m.causeLabel ?? m.causeCode ?? "Unknown";
+      byCause.set(label, (byCause.get(label) ?? 0) + m.qty);
+    }
+  }
+
+  const birds = [...byHouse.values()].reduce((n, h) => n + h.birds, 0);
+  const age = ageOn(flock.hatchDate, on);
+  return {
+    flockCode: flock.code,
+    on,
+    age,
+    /** Whether the batch is inside the usual 12–16 week housing window. */
+    inWindow: age.weeks >= HOUSING_WEEKS.from && age.weeks <= HOUSING_WEEKS.to,
+    placedCount: flock.placedCount,
+    birds,
+    lost,
+    cumMortalityPct: flock.placedCount ? (lost / flock.placedCount) * 100 : 0,
+    liveabilityPct: flock.placedCount ? (birds / flock.placedCount) * 100 : 0,
+    houses: [...byHouse.values()].filter((h) => h.open && h.birds > 0),
+    causes: [...byCause.entries()]
+      .map(([label, qty]) => ({ label, qty }))
+      .sort((a, b) => b.qty - a.qty),
+  };
+}
+
+/**
+ * Housing — the move out of rearing and into the layer house(s).
+ *
+ * The one ceremony in a flock's life where it changes hands. It is a transfer
+ * underneath, but a specific one, and giving it its own operation buys three
+ * things a bare transfer does not:
+ *
+ *  - **It is all-or-nothing.** The quantities must add up to every bird in the
+ *    rearing house. Housing that leaves 200 birds behind in P1 is not a clean
+ *    handover, it is a mess two teams will argue about in a month.
+ *  - **It only goes to layer houses.** Housing a batch into another pullet shed
+ *    is a transfer, not housing, and calling it housing would put a false date
+ *    on the flock.
+ *  - **It stamps `housed_on`**, which anchors every rearing-phase figure in the
+ *    lifetime report.
+ *
+ * Splitting across several layer houses is ordinary — one rearing shed usually
+ * fills two laying sheds — so it takes a list, and all of it lands in one
+ * transaction.
+ */
+export async function houseFlock(
+  tx: Tx,
+  args: {
+    flockId: string;
+    placementId: string;
+    moves: Array<{ toHouseId: string; qty: number }>;
+    on: string;
+    note?: string | null;
+    userId: string;
+  },
+) {
+  if (!args.moves.length) throw new PostingError("Say which layer house the birds go to");
+
+  const [flock] = await tx.select().from(flocks).where(eq(flocks.id, args.flockId));
+  if (!flock) throw new PostingError("No such flock");
+  if (flock.status === "depleted") throw new PostingError("That flock is depleted");
+  if (flock.housedOn) {
+    throw new PostingError(
+      `${flock.code} was already housed on ${flock.housedOn}. Use a transfer to move it again.`,
+    );
+  }
+
+  // Every destination must be a layer house at the flock's own site.
+  for (const m of args.moves) {
+    const house = await liveHouse(tx, m.toHouseId);
+    if (house.purpose !== "layer") {
+      throw new PostingError(
+        `${house.code} is a ${house.purpose} house. Housing goes into a layer house — use a transfer for anything else.`,
+      );
+    }
+    if (house.locationId !== flock.locationId) {
+      throw new PostingError(`${house.code} is at another site`);
+    }
+  }
+
+  const available = await placementCount(tx, args.placementId, args.on);
+  const moving = args.moves.reduce((n, m) => n + m.qty, 0);
+  if (moving !== available) {
+    throw new PostingError(
+      `The rearing house holds ${available.toLocaleString("en-IN")} birds and you have allocated ${moving.toLocaleString("en-IN")}. Housing moves the whole batch — every bird has to have somewhere to go.`,
+    );
+  }
+
+  const handover = await handoverSummary(tx, args.flockId, args.on);
+  const results = [];
+  for (const m of args.moves) {
+    results.push(
+      await transferBirds(tx, {
+        placementId: args.placementId,
+        toHouseId: m.toHouseId,
+        qty: m.qty,
+        eventDate: args.on,
+        note: args.note ?? "Housed",
+        userId: args.userId,
+      }),
+    );
+  }
+
+  // Status stays "rearing": housed at 14 weeks is not laying at 14 weeks. Lay
+  // is its own event, recorded when the first eggs actually appear.
+  const [updated] = await tx
+    .update(flocks)
+    .set({ housedOn: args.on })
+    .where(eq(flocks.id, args.flockId))
+    .returning();
+
+  return { flock: updated!, handover, moves: results };
 }
 
 /**

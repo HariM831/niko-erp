@@ -32,6 +32,9 @@ import {
   boardRows,
   createFlock,
   depleteFlock,
+  handoverSummary,
+  houseFlock,
+  nextFlockCode,
   placementCounts,
   recordMovement,
   setFlockHatches,
@@ -330,8 +333,20 @@ farmsFlockRouter.get("/flocks", view, async (req, res) => {
   res.json(rows);
 });
 
+/** The code the next flock at this site would get, so the dialog can show it. */
+farmsFlockRouter.get("/next-flock-code", view, async (req, res) => {
+  const locationId = req.query.locationId as string | undefined;
+  const year = Number(req.query.year) || new Date().getFullYear();
+  if (!locationId) return res.status(422).json({ error: "Which site?" });
+  try {
+    const code = await db.transaction((tx) => nextFlockCode(tx, locationId, year));
+    res.json({ code });
+  } catch (err) {
+    if (!fail(err, res)) throw err;
+  }
+});
+
 const newFlockSchema = z.object({
-  code: z.string().min(1).max(40),
   locationId: z.string().uuid(),
   breedId: z.string().uuid(),
   houseId: z.string().uuid(),
@@ -365,6 +380,7 @@ farmsFlockRouter.get("/flocks/:id", view, async (req, res) => {
         status: flocks.status,
         hatchDate: flocks.hatchDate,
         placedCount: flocks.placedCount,
+        housedOn: flocks.housedOn,
         layStartDate: flocks.layStartDate,
         depletedOn: flocks.depletedOn,
         note: flocks.note,
@@ -535,6 +551,50 @@ farmsFlockRouter.post(
         recordMovement(tx, { ...req.body, userId: req.session.user!.id }),
       );
       res.status(201).json(row);
+    } catch (err) {
+      if (!fail(err, res)) throw err;
+    }
+  },
+);
+
+/**
+ * The handover sheet, as at a date. Read before housing to see what is being
+ * handed over, and after it as the record of what was.
+ */
+farmsFlockRouter.get("/flocks/:id/handover", view, async (req, res) => {
+  const on = (req.query.on as string) || new Date().toISOString().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(on)) {
+    return res.status(422).json({ error: "Use a YYYY-MM-DD date" });
+  }
+  try {
+    const out = await db.transaction((tx) => handoverSummary(tx, req.params.id!, on));
+    res.json(out);
+  } catch (err) {
+    if (!fail(err, res)) throw err;
+  }
+});
+
+/** Housing — rearing hands the batch to laying. See services/flocks.ts. */
+farmsFlockRouter.post(
+  "/flocks/:id/house",
+  manage,
+  validateBody(
+    z.object({
+      placementId: z.string().uuid(),
+      moves: z
+        .array(z.object({ toHouseId: z.string().uuid(), qty: z.number().int().positive() }))
+        .min(1)
+        .max(10),
+      on: isoDate,
+      note: z.string().max(500).nullish(),
+    }),
+  ),
+  async (req, res) => {
+    try {
+      const out = await db.transaction((tx) =>
+        houseFlock(tx, { flockId: req.params.id!, ...req.body, userId: req.session.user!.id }),
+      );
+      res.json(out);
     } catch (err) {
       if (!fail(err, res)) throw err;
     }

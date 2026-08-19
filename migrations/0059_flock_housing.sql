@@ -1,0 +1,13 @@
+-- Housing: the move out of the pullet house and into the layer house.
+--
+-- Every batch makes this move somewhere between 12 and 16 weeks, and it is the
+-- moment the rearing team hands the birds to the laying team. It is worth its
+-- own date rather than being inferred from the placement rows, because "when
+-- was this flock housed" is asked constantly — it anchors the rearing-phase
+-- figures in every lifetime report — and deriving it would mean guessing which
+-- of several transfers was the one that counted.
+--
+-- Distinct from lay_start_date on purpose. A flock housed at 14 weeks is not
+-- laying at 14 weeks; it comes into lay around 18. Collapsing the two would
+-- make every "age at first egg" figure wrong by a month.
+ALTER TABLE "flocks" ADD COLUMN IF NOT EXISTS "housed_on" date;
