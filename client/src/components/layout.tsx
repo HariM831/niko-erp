@@ -13,7 +13,6 @@ import {
   ScrollText,
   Settings,
   ShoppingCart,
-  Truck,
   Wheat,
 } from "lucide-react";
 import { useAuth } from "../auth";
@@ -70,21 +69,27 @@ const NAV: NavItem[] = [
     ],
   },
   {
-    label: "Office",
-    icon: Truck,
-    children: [
-      { label: "Gate In", path: "/office/gate" },
-      /* Weigh In, QC, Unloading and Weigh Out — four tabs on one page, because
-         a truck walks all four in a single visit. */
-      { label: "Weighment", path: "/office/unloading" },
-      { label: "Settlement", path: "/office/settlement" },
-      { label: "Goods Receipts", path: "/office/receipts" },
-    ],
-  },
-  {
+    /**
+     * One group, in the order the material moves.
+     *
+     * A lorry arrives, is weighed, is settled — and the same maize is then
+     * formulated and milled. Splitting that into Office and Feed Mill made
+     * somebody cross between two menus to follow one sack, and put the
+     * weighbridge in a different module from the mill it feeds.
+     *
+     * The permission MODULES stay separate underneath: a gate operator has no
+     * business issuing production, and one menu heading should not hand it to
+     * them.
+     */
     label: "Feed Mill",
     icon: Wheat,
     children: [
+      { label: "Gate In", path: "/office/gate" },
+      /* Weigh In, QC, Weigh Out and Feed Transfer — four tabs on one page,
+         because a truck walks them in a single visit. */
+      { label: "Weighment", path: "/office/unloading" },
+      { label: "Settlement", path: "/office/settlement" },
+      { label: "Goods Receipts", path: "/office/receipts" },
       { label: "Formulas", path: "/feed-mill/formulas" },
       { label: "Production", path: "/feed-mill/production" },
     ],
