@@ -15,6 +15,7 @@ import { validateBody } from "../lib/validate";
 import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, reverseJournal } from "../services/posting";
 import {
+  mainStore,
   postInventoryMovement,
   stockLedger,
   reverseStock,
@@ -191,6 +192,10 @@ inventoryRouter.post(
           transactionDate: body.adjustmentDate,
           sourceType: "inventory_adjustment",
           sourceId: adj!.id,
+          // An adjustment corrects a count, and a count happens somewhere. No
+          // store on the document yet, so it lands in the primary site's — the
+          // field to add when adjustments become per-house.
+          stockLocationId: await mainStore(tx),
           contraAccountId: body.adjustmentAccountId,
           narration: `Inventory adjustment ${number} — ${body.reason}`,
           postedBy: req.session.user!.id,

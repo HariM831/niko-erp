@@ -1,5 +1,5 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
-import { inventoryTransactions, items } from "@shared/schema";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { inventoryTransactions, items, locations, stockLocations } from "@shared/schema";
 import type { Db, Tx } from "../db";
 import { PostingError, postJournal } from "./posting";
 
@@ -12,6 +12,16 @@ const fromPaise = (p: number): string => (p / 100).toFixed(2);
 
 export interface StockMovement {
   itemId: string;
+  /**
+   * Which store this happened in.
+   *
+   * Optional on the movement and defaulted per call, because almost every
+   * caller moves stock in ONE place — the mill makes feed at the mill. Only a
+   * transfer needs two, and it says so by setting it per movement.
+   */
+  stockLocationId?: string;
+  /** The batch, where the item tracks them. FEFO is the caller's decision. */
+  lotId?: string;
   /** Signed: positive receives stock, negative issues it. */
   quantity: string;
   /** Signed value of the movement, matching the sign of quantity. */
@@ -28,6 +38,32 @@ export interface StockMovement {
  * caller owns the accounting, because only the caller knows which accounts the
  * movement belongs against. Quantity on hand is always derived from these rows.
  */
+/**
+ * The main store of a location, or of the primary location when none is given.
+ *
+ * Every location gets one when it is created, so this is a lookup rather than a
+ * find-or-create. Callers that genuinely know where they are — the mill, a
+ * house — pass their own; the rest land in the main store of the site the
+ * business runs from, which is where stock with no better answer belongs.
+ */
+export async function mainStore(tx: Tx | Db, locationId?: string | null): Promise<string> {
+  const [row] = await tx
+    .select({ id: stockLocations.id })
+    .from(stockLocations)
+    .innerJoin(locations, eq(locations.id, stockLocations.locationId))
+    .where(
+      locationId
+        ? and(eq(stockLocations.locationId, locationId), eq(stockLocations.kind, "main"))
+        : eq(stockLocations.kind, "main"),
+    )
+    .orderBy(desc(locations.isPrimary), asc(locations.createdAt))
+    .limit(1);
+  if (!row) {
+    throw new PostingError("No stock location exists — every location needs a main store");
+  }
+  return row.id;
+}
+
 export async function moveStock(
   tx: Tx,
   args: {
@@ -35,6 +71,8 @@ export async function moveStock(
     transactionDate: string;
     sourceType: string;
     sourceId?: string;
+    /** The store these movements happened in, unless a movement names its own. */
+    stockLocationId?: string;
   },
 ): Promise<void> {
   if (!args.movements.length) return;
@@ -56,17 +94,29 @@ export async function moveStock(
     }
   }
 
-  await tx.insert(inventoryTransactions).values(
-    args.movements.map((m) => ({
+  // Every row must land somewhere. A movement with no store, in a call with no
+  // default, is a row nobody can ask "where" of — refused rather than parked in
+  // whichever store happened to be first.
+  const txnRows = args.movements.map((m) => {
+    const stockLocationId = m.stockLocationId ?? args.stockLocationId;
+    if (!stockLocationId) {
+      throw new PostingError(
+        "A stock movement needs a store — pass stockLocationId on the call or on the movement",
+      );
+    }
+    return {
       itemId: m.itemId,
+      stockLocationId,
+      lotId: m.lotId,
       transactionDate: args.transactionDate,
       quantity: m.quantity,
       value: m.value ?? "0",
       sourceType: args.sourceType,
       sourceId: args.sourceId,
       notes: m.notes,
-    })),
-  );
+    };
+  });
+  await tx.insert(inventoryTransactions).values(txnRows);
 }
 
 /**
@@ -95,6 +145,8 @@ export async function postInventoryMovement(
     postedBy: string;
     /** Refuse movements that would take stock below zero. */
     preventNegative?: boolean;
+    /** The store these movements happened in, unless a movement names its own. */
+    stockLocationId?: string;
   },
 ): Promise<string | null> {
   if (!args.contraAccountId && !args.contraSystemKey) {
@@ -107,6 +159,7 @@ export async function postInventoryMovement(
     transactionDate: args.transactionDate,
     sourceType: args.sourceType,
     sourceId: args.sourceId,
+    stockLocationId: args.stockLocationId,
   });
 
   const itemIds = [...new Set(args.movements.map((m) => m.itemId))];
@@ -170,6 +223,10 @@ export async function reverseStock(
   await tx.insert(inventoryTransactions).values(
     existing.map((e) => ({
       itemId: e.itemId,
+      // A reversal undoes a movement where it happened. Sending it back to a
+      // different store would leave both stores wrong.
+      stockLocationId: e.stockLocationId,
+      lotId: e.lotId,
       transactionDate: args.transactionDate,
       quantity: (-Number(e.quantity)).toFixed(3),
       value: (-Number(e.value)).toFixed(2),

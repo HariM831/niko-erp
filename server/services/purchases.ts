@@ -26,7 +26,7 @@ import type { Db, Tx } from "../db";
 import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, postJournal } from "./posting";
 import { computeDocumentTotals, fromPaise, toPaise, type DocLineInput } from "./documents";
-import { moveStock } from "./inventory";
+import { mainStore, moveStock } from "./inventory";
 
 /**
  * A line as the routes and other modules supply it.
@@ -432,6 +432,8 @@ export interface CreateBillArgs {
   vendorBillNumber?: string;
   /** The grand total the vendor printed, kept so a bill can be found by it. */
   vendorBillTotal?: string;
+  /** The site the goods physically arrived at, when the caller knows it. */
+  stockLocationOf?: string | null;
   reference?: string;
   freightAmount?: string;
   freightVendorId?: string;
@@ -575,6 +577,9 @@ export async function createBill(tx: Tx, args: CreateBillArgs) {
     transactionDate: args.billDate,
     sourceType: "bill",
     sourceId: bill!.id,
+    // Where the goods landed. Procurement passes the receiving site; a bill
+    // keyed by hand falls back to the main store of the primary location.
+    stockLocationId: await mainStore(tx, args.stockLocationOf ?? null),
   });
 
   // The item master's purchase rate follows the latest bill.

@@ -173,8 +173,9 @@ try {
     console.log("\n  VOIDING GIVES IT BACK\n");
 
     // What the bill void does: reverse the stock as well as the money.
-    const { moveStock } = await import("../server/services/inventory");
+    const { mainStore, moveStock } = await import("../server/services/inventory");
     await moveStock(tx, {
+      stockLocationId: await mainStore(tx, loc.id!),
       movements: [
         { itemId: maize.id, quantity: "-10000.000", value: "-200000.00" },
         { itemId: soya.id, quantity: "-5000.000", value: "-250000.00" },

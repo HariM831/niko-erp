@@ -12,6 +12,7 @@ import {
   journalEntryLineTags,
   journalEntryLines,
   paymentMode,
+  inventoryTransactions,
   items,
   officeReceiptLines,
   officeReceipts,
@@ -31,7 +32,7 @@ import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, postJournal, reverseJournal } from "../services/posting";
-import { moveStock } from "../services/inventory";
+import { mainStore, moveStock } from "../services/inventory";
 import { advancedSearch, listLimit, quickSearch } from "../services/document-search";
 import {
   billSearch,
@@ -740,6 +741,20 @@ purchasesRouter.post(
           transactionDate: req.body.voidDate,
           sourceType: "bill",
           sourceId: bill.id,
+          // The same store the goods went into: reversing them somewhere else
+          // would leave one store long and another short.
+          stockLocationId: stockBack[0]
+            ? ((await tx
+                .select({ id: inventoryTransactions.stockLocationId })
+                .from(inventoryTransactions)
+                .where(
+                  and(
+                    eq(inventoryTransactions.sourceType, "bill"),
+                    eq(inventoryTransactions.sourceId, bill.id),
+                  ),
+                )
+                .limit(1))[0]?.id ?? (await mainStore(tx)))
+            : await mainStore(tx),
         });
 
         // The item master's purchase rate follows the latest LIVE bill, so a

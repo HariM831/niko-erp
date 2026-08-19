@@ -40,7 +40,7 @@ import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, assertPeriodOpen, reverseJournal } from "../services/posting";
-import { moveStock, postInventoryMovement, stockOnHand } from "../services/inventory";
+import { mainStore, moveStock, postInventoryMovement, stockOnHand } from "../services/inventory";
 import { getPreferences } from "../services/preferences";
 
 export const feedProductionRouter = Router();
@@ -343,6 +343,7 @@ export async function produceOne(
     transactionDate: body.orderDate,
     sourceType: "feed_mill",
     sourceId: order!.id,
+    stockLocationId: await mainStore(tx, locationId),
     // Whatever the two stock sides do not cancel is the milling overhead, and
     // that is a real cost of running the mill.
     contraAccountId: await feedExpenseAccount(tx),
@@ -438,6 +439,7 @@ feedProductionRouter.post(
           transactionDate: new Date().toISOString().slice(0, 10),
           sourceType: "feed_mill_void",
           sourceId: order.id,
+          stockLocationId: await mainStore(tx, order.locationId),
         });
         const [updated] = await tx
           .update(productionOrders)
@@ -586,6 +588,10 @@ feedProductionRouter.post(
           transactionDate: body.transferDate,
           sourceType: "feed_transfer",
           sourceId: transfer!.id,
+          // Out of the mill's store. The feed is consumed on arrival at the
+          // shed, so there is no receiving movement to place — see the module
+          // note on why a transfer is an expense rather than a move.
+          stockLocationId: await mainStore(tx, fromLocationId),
           contraAccountId: await feedExpenseAccount(tx),
           narration: `Feed transfer ${number} — ${level.name} ${qty.toLocaleString("en-IN")} kg to ${toName}`,
           postedBy: req.session.user!.id,
@@ -636,6 +642,7 @@ feedProductionRouter.post(
               notes: `Void ${transfer.number}: ${req.body.reason}`,
             },
           ],
+          stockLocationId: await mainStore(tx, transfer.fromLocationId),
           transactionDate: new Date().toISOString().slice(0, 10),
           sourceType: "feed_transfer_void",
           sourceId: transfer.id,

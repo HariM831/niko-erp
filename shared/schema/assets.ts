@@ -10,6 +10,7 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
+import { itemLots, stockLocations } from "./stock-locations";
 import { assetStatus, depreciationMethod } from "./enums";
 import { accounts, journalEntries } from "./accounting";
 import { users } from "./auth";
@@ -113,6 +114,16 @@ export const inventoryTransactions = pgTable(
     itemId: uuid("item_id")
       .notNull()
       .references(() => items.id),
+    /**
+     * Which store the movement happened in. Stock on hand becomes a sum per
+     * item PER LOCATION — the same rule the ledger already follows, one
+     * dimension wider, and still no stored balance anywhere.
+     */
+    stockLocationId: uuid("stock_location_id")
+      .notNull()
+      .references(() => stockLocations.id),
+    /** The batch, where one is tracked. Null for anything issued in bulk. */
+    lotId: uuid("lot_id").references(() => itemLots.id),
     transactionDate: date("transaction_date").notNull(),
     quantity: numeric("quantity", { precision: 14, scale: 3 }).notNull(),
     /** Value of this movement; drives the GL amount when one is posted. */
@@ -125,6 +136,7 @@ export const inventoryTransactions = pgTable(
   },
   (t) => [
     index("ix_inv_txn_item").on(t.itemId, t.transactionDate),
+    index("ix_inv_txn_stock_location").on(t.stockLocationId, t.itemId, t.transactionDate),
     index("ix_inv_txn_source").on(t.sourceType, t.sourceId),
   ],
 );

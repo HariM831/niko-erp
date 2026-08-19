@@ -62,6 +62,18 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     description: "Chart of accounts, manual journals, fixed assets, budgets, locking",
   },
   {
+    key: "farms",
+    label: "Farms",
+    description: "Houses, flocks, daily records, feed, weighings, health",
+    actions: [
+      { key: "view", label: "View" },
+      { key: "record", label: "Record a day" },
+      { key: "flocks", label: "Place, transfer and deplete flocks" },
+      { key: "health", label: "Vaccinations and medication" },
+      { key: "manage", label: "Houses, breeds and standards" },
+    ],
+  },
+  {
     key: "office",
     label: "Office",
     description: "Goods receipts: gate in, weighment, QC, settlement",
