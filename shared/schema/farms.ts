@@ -1,15 +1,19 @@
 import {
   boolean,
+  date,
   index,
   integer,
   numeric,
   pgTable,
+  primaryKey,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import { users } from "./auth";
 import { contacts } from "./contacts";
 import { locations } from "./locations";
 import { stockLocations } from "./stock-locations";

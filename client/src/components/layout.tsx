@@ -14,6 +14,7 @@ import {
   Settings,
   ShoppingCart,
   Wheat,
+  Bird,
 } from "lucide-react";
 import { useAuth } from "../auth";
 import { TopBar } from "./topbar";
@@ -93,6 +94,17 @@ const NAV: NavItem[] = [
       { label: "Formulas", path: "/feed-mill/formulas" },
       { label: "Production", path: "/feed-mill/production" },
     ],
+  },
+  {
+    /**
+     * Farms is one entry, not a group: the board IS the module, and everything
+     * else on it is reached from a house card or a flock. A menu of six farm
+     * screens would mostly be links to things you get to by pointing at the
+     * shed you were already looking at.
+     */
+    label: "Farms",
+    icon: Bird,
+    path: "/farms",
   },
   {
     label: "Accountant",

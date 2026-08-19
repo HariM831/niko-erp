@@ -10,6 +10,8 @@ export * from "./reporting-tags";
 export * from "./preferences";
 export * from "./stock-locations";
 export * from "./farms";
+export * from "./breeds";
+export * from "./flocks";
 export * from "./custom-fields";
 export * from "./banking";
 export * from "./sales";
