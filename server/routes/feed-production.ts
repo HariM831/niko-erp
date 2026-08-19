@@ -122,8 +122,15 @@ feedProductionRouter.get("/orders/:id", requirePermission("feed_mill", "view"), 
 });
 
 /**
- * Produce. One call: the formula scaled by batches goes into the record, the
- * finished feed goes into stock, the journal posts, done.
+ * Produce. One call: each formula scaled by its batches goes into the record,
+ * the finished feed goes into stock, the journals post, done.
+ *
+ * A run may carry SEVERAL formulas, because a morning at the mill is one act —
+ * one operator, one shift, one decision to press the button. They post as one
+ * order EACH, because a formula has its own output item, its own ingredients
+ * and its own cost per kilo; merging them would make the cost of layer mash
+ * depend on how much chick mash happened to be made beside it. One transaction
+ * though, so a run is never half-posted.
  *
  * Every ingredient needs a price — the batch cost is real money the moment it
  * capitalises, and a zero-priced line would silently make feed cheaper than it
@@ -134,8 +141,15 @@ feedProductionRouter.post(
   requirePermission("feed_mill", "produce"),
   validateBody(
     z.object({
-      formulaId: z.string().uuid(),
-      batchCount: z.number().int().min(1).max(100),
+      runs: z
+        .array(
+          z.object({
+            formulaId: z.string().uuid(),
+            batchCount: z.number().int().min(1).max(100),
+          }),
+        )
+        .min(1)
+        .max(20),
       orderDate: dateStr,
       locationId: z.string().uuid().optional(),
       notes: z.string().max(2000).nullish(),
@@ -143,8 +157,7 @@ feedProductionRouter.post(
   ),
   async (req, res) => {
     const body = req.body as {
-      formulaId: string;
-      batchCount: number;
+      runs: Array<{ formulaId: string; batchCount: number }>;
       orderDate: string;
       locationId?: string;
       notes?: string | null;
@@ -152,93 +165,22 @@ feedProductionRouter.post(
     try {
       const out = await db.transaction(async (tx) => {
         await assertPeriodOpen(tx, body.orderDate, "inventory_adjustment");
-        const formula = await tx.query.formulas.findFirst({ where: eq(formulas.id, body.formulaId) });
-        if (!formula) throw new PostingError("Formula not found");
-        if (!formula.isActive) {
-          throw new PostingError(`${formula.name} v${formula.version} is retired — produce the live version`);
+        // The same formula twice in one run is a slip, not an instruction: each
+        // would read the ledger as though the other had not happened.
+        const seen = new Set<string>();
+        for (const r of body.runs) {
+          if (seen.has(r.formulaId)) {
+            throw new PostingError(
+              "The same formula is in this run twice — add its batches together",
+            );
+          }
+          seen.add(r.formulaId);
         }
-        const recipe = await tx
-          .select({ line: formulaLines, itemName: items.name, costPrice: items.costPrice })
-          .from(formulaLines)
-          .innerJoin(items, eq(items.id, formulaLines.itemId))
-          .where(eq(formulaLines.formulaId, formula.id))
-          .orderBy(asc(formulaLines.sortOrder));
-        if (!recipe.length) throw new PostingError("The formula has no ingredient lines");
-
-        const unpriced = recipe.filter((r) => !(Number(r.costPrice ?? 0) > 0));
-        if (unpriced.length) {
-          throw new PostingError(
-            `${unpriced.map((u) => u.itemName).join(", ")} ${unpriced.length === 1 ? "has" : "have"} no cost price — a batch cannot be costed without one`,
-          );
+        const made = [];
+        for (const run of body.runs) {
+          made.push(await produceOne(tx, run, body, req.session.user!.id));
         }
-
-        const locationId = body.locationId ?? (await millLocation(tx));
-        const outputKg = Number(formula.batchSizeKg) * body.batchCount;
-        let inputValueP = 0;
-        const lineValues = recipe.map((r) => {
-          const kgTotal = Number(r.line.quantityKg) * body.batchCount;
-          const rate = Number(r.costPrice);
-          const valueP = Math.round(kgTotal * rate * 100);
-          inputValueP += valueP;
-          return { r, kgTotal, rate, valueP };
-        });
-        const prefs = await getPreferences(tx);
-        const overheadP = Math.round(outputKg * Number(prefs.millOverheadPerKg) * 100);
-        const totalP = inputValueP + overheadP;
-        const costPerKg = totalP / 100 / outputKg;
-
-        const number = await nextDocumentNumber(tx, "production_order");
-        const [order] = await tx
-          .insert(productionOrders)
-          .values({
-            number,
-            formulaId: formula.id,
-            locationId,
-            orderDate: body.orderDate,
-            batchCount: body.batchCount,
-            plannedOutputKg: outputKg.toFixed(3),
-            actualOutputKg: outputKg.toFixed(3),
-            status: "completed",
-            inputValue: (inputValueP / 100).toFixed(2),
-            overheadValue: (overheadP / 100).toFixed(2),
-            costPerKg: costPerKg.toFixed(6),
-            notes: body.notes ?? null,
-            completedAt: new Date(),
-            completedBy: req.session.user!.id,
-            createdBy: req.session.user!.id,
-          })
-          .returning();
-        await tx.insert(productionOrderLines).values(
-          lineValues.map(({ r, kgTotal, rate, valueP }, i) => ({
-            orderId: order!.id,
-            itemId: r.line.itemId,
-            plannedKg: kgTotal.toFixed(3),
-            actualKg: kgTotal.toFixed(3),
-            ratePerKg: rate.toFixed(6),
-            value: (valueP / 100).toFixed(2),
-            sortOrder: i,
-          })),
-        );
-
-        const journalEntryId = await postInventoryMovement(tx, {
-          movements: [
-            { itemId: formula.outputItemId, quantity: outputKg.toFixed(3), value: (totalP / 100).toFixed(2) },
-          ],
-          transactionDate: body.orderDate,
-          sourceType: "feed_mill",
-          sourceId: order!.id,
-          contraAccountId: await feedExpenseAccount(tx),
-          narration:
-            `Production ${number} — ${formula.name} v${formula.version}, ${body.batchCount} batch(es), ` +
-            `${outputKg.toLocaleString("en-IN")} kg at ₹${costPerKg.toFixed(2)}/kg`,
-          postedBy: req.session.user!.id,
-        });
-        const [updated] = await tx
-          .update(productionOrders)
-          .set({ journalEntryId })
-          .where(eq(productionOrders.id, order!.id))
-          .returning();
-        return updated!;
+        return made;
       });
       res.status(201).json(out);
     } catch (err) {
@@ -246,6 +188,108 @@ feedProductionRouter.post(
     }
   },
 );
+
+/**
+ * One formula's share of a run: its record, its stock movement, its journal.
+ *
+ * Exported so a check script can drive the real thing inside a rolled-back
+ * transaction. A production test that reimplements the costing proves only that
+ * the test agrees with itself.
+ */
+export async function produceOne(
+  tx: Tx,
+  run: { formulaId: string; batchCount: number },
+  body: { orderDate: string; locationId?: string; notes?: string | null },
+  userId: string,
+) {
+  const formula = await tx.query.formulas.findFirst({ where: eq(formulas.id, run.formulaId) });
+  if (!formula) throw new PostingError("Formula not found");
+  if (!formula.isActive) {
+    throw new PostingError(`${formula.name} v${formula.version} is retired — produce the live version`);
+  }
+  const recipe = await tx
+    .select({ line: formulaLines, itemName: items.name, costPrice: items.costPrice })
+    .from(formulaLines)
+    .innerJoin(items, eq(items.id, formulaLines.itemId))
+    .where(eq(formulaLines.formulaId, formula.id))
+    .orderBy(asc(formulaLines.sortOrder));
+  if (!recipe.length) throw new PostingError("The formula has no ingredient lines");
+
+  const unpriced = recipe.filter((r) => !(Number(r.costPrice ?? 0) > 0));
+  if (unpriced.length) {
+    throw new PostingError(
+      `${unpriced.map((u) => u.itemName).join(", ")} ${unpriced.length === 1 ? "has" : "have"} no cost price — a batch cannot be costed without one`,
+    );
+  }
+
+  const locationId = body.locationId ?? (await millLocation(tx));
+  const outputKg = Number(formula.batchSizeKg) * run.batchCount;
+  let inputValueP = 0;
+  const lineValues = recipe.map((r) => {
+    const kgTotal = Number(r.line.quantityKg) * run.batchCount;
+    const rate = Number(r.costPrice);
+    const valueP = Math.round(kgTotal * rate * 100);
+    inputValueP += valueP;
+    return { r, kgTotal, rate, valueP };
+  });
+  const prefs = await getPreferences(tx);
+  const overheadP = Math.round(outputKg * Number(prefs.millOverheadPerKg) * 100);
+  const totalP = inputValueP + overheadP;
+  const costPerKg = totalP / 100 / outputKg;
+
+  const number = await nextDocumentNumber(tx, "production_order");
+  const [order] = await tx
+    .insert(productionOrders)
+    .values({
+      number,
+      formulaId: formula.id,
+      locationId,
+      orderDate: body.orderDate,
+      batchCount: run.batchCount,
+      plannedOutputKg: outputKg.toFixed(3),
+      actualOutputKg: outputKg.toFixed(3),
+      status: "completed",
+      inputValue: (inputValueP / 100).toFixed(2),
+      overheadValue: (overheadP / 100).toFixed(2),
+      costPerKg: costPerKg.toFixed(6),
+      notes: body.notes ?? null,
+      completedAt: new Date(),
+      completedBy: userId,
+      createdBy: userId,
+    })
+    .returning();
+  await tx.insert(productionOrderLines).values(
+    lineValues.map(({ r, kgTotal, rate, valueP }, i) => ({
+      orderId: order!.id,
+      itemId: r.line.itemId,
+      plannedKg: kgTotal.toFixed(3),
+      actualKg: kgTotal.toFixed(3),
+      ratePerKg: rate.toFixed(6),
+      value: (valueP / 100).toFixed(2),
+      sortOrder: i,
+    })),
+  );
+
+  const journalEntryId = await postInventoryMovement(tx, {
+    movements: [
+      { itemId: formula.outputItemId, quantity: outputKg.toFixed(3), value: (totalP / 100).toFixed(2) },
+    ],
+    transactionDate: body.orderDate,
+    sourceType: "feed_mill",
+    sourceId: order!.id,
+    contraAccountId: await feedExpenseAccount(tx),
+    narration:
+      `Production ${number} — ${formula.name} v${formula.version}, ${run.batchCount} batch(es), ` +
+      `${outputKg.toLocaleString("en-IN")} kg at ₹${costPerKg.toFixed(2)}/kg`,
+    postedBy: userId,
+  });
+  const [updated] = await tx
+    .update(productionOrders)
+    .set({ journalEntryId })
+    .where(eq(productionOrders.id, order!.id))
+    .returning();
+  return updated!;
+}
 
 /**
  * Void a production: reverse the journal, withdraw the feed. Refused once
