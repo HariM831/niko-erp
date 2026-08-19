@@ -9,7 +9,6 @@ import {
   Home,
   Landmark,
   LogOut,
-  Package,
   PieChart,
   ScrollText,
   Settings,
@@ -35,16 +34,14 @@ interface NavItem {
 const NAV: NavItem[] = [
   { label: "Home", icon: Home, path: "/" },
   {
-    label: "Items",
-    icon: Package,
-    children: [
-      { label: "All Items", path: "/items" },
-    ],
-  },
-  {
+    // Items sits under Inventory: an item IS the thing stock is counted in, and
+    // a group of its own for a single entry was a heading pretending to be a
+    // module. Its paths stay at /items — a link to an item is quoted in a
+    // hundred places and none of them get better for moving.
     label: "Inventory",
     icon: Boxes,
     children: [
+      { label: "Items", path: "/items" },
       { label: "Stock on Hand", path: "/inventory/stock" },
       { label: "Adjustments", path: "/inventory/adjustments" },
     ],
