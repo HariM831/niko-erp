@@ -11,7 +11,7 @@
  * another, writing a paired transfer_out/transfer_in so the ledger balances and
  * the timeline still reads correctly years from now.
  */
-import { and, asc, eq, inArray, isNull, like, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, like, lte, sql } from "drizzle-orm";
 import {
   CAUSE_REQUIRED,
   flockHatches,
@@ -77,14 +77,6 @@ export async function placementCount(tx: Tx, placementId: string, asOf?: string)
   return (await placementCounts(tx, [placementId], asOf)).get(placementId) ?? 0;
 }
 
-/** The open placements of a flock, oldest first. */
-async function openPlacements(tx: Tx, flockId: string) {
-  return tx
-    .select()
-    .from(flockPlacements)
-    .where(and(eq(flockPlacements.flockId, flockId), isNull(flockPlacements.toDate)))
-    .orderBy(asc(flockPlacements.fromDate));
-}
 
 async function liveHouse(tx: Tx, houseId: string) {
   const [h] = await tx.select().from(houses).where(eq(houses.id, houseId));
@@ -381,103 +373,6 @@ export async function setFlockHatches(
   return profile;
 }
 
-/**
- * Move birds from one house to another.
- *
- * A partial transfer leaves the source open with the remainder; a full one
- * closes it. Either way two movements are written against the same date, so the
- * flock's total is unchanged by the move itself — which is what makes lifetime
- * mortality continuous across a house change, the thing the old model got
- * wrong.
- */
-export async function transferBirds(
-  tx: Tx,
-  args: {
-    placementId: string;
-    toHouseId: string;
-    qty: number;
-    eventDate: string;
-    note?: string | null;
-    userId: string;
-  },
-) {
-  const [from] = await tx
-    .select()
-    .from(flockPlacements)
-    .where(eq(flockPlacements.id, args.placementId));
-  if (!from) throw new PostingError("No such placement");
-  if (from.toDate) throw new PostingError("That placement is already closed");
-  if (args.qty <= 0) throw new PostingError("Transfer at least one bird");
-  if (args.eventDate < from.fromDate) {
-    throw new PostingError("A transfer cannot pre-date the placement it leaves");
-  }
-  if (from.houseId === args.toHouseId) throw new PostingError("That is the same house");
-
-  const available = await placementCount(tx, from.id, args.eventDate);
-  if (args.qty > available) {
-    throw new PostingError(`Only ${available.toLocaleString("en-IN")} bird(s) in that house`);
-  }
-  await liveHouse(tx, args.toHouseId);
-
-  // Re-enter a house the flock already occupies rather than opening a second
-  // placement beside it — the partial unique index would refuse anyway, and one
-  // house holding one flock twice is not a thing.
-  const [existing] = await tx
-    .select()
-    .from(flockPlacements)
-    .where(
-      and(
-        eq(flockPlacements.flockId, from.flockId),
-        eq(flockPlacements.houseId, args.toHouseId),
-        isNull(flockPlacements.toDate),
-      ),
-    );
-  const to =
-    existing ??
-    (
-      await tx
-        .insert(flockPlacements)
-        .values({
-          flockId: from.flockId,
-          houseId: args.toHouseId,
-          fromDate: args.eventDate,
-          note: args.note ?? null,
-        })
-        .returning()
-    )[0]!;
-
-  await tx.insert(flockMovements).values([
-    {
-      placementId: from.id,
-      eventDate: args.eventDate,
-      kind: "transfer_out",
-      qty: args.qty,
-      counterpartPlacementId: to.id,
-      note: args.note ?? null,
-      recordedBy: args.userId,
-    },
-    {
-      placementId: to.id,
-      eventDate: args.eventDate,
-      kind: "transfer_in",
-      qty: args.qty,
-      counterpartPlacementId: from.id,
-      note: args.note ?? null,
-      recordedBy: args.userId,
-    },
-  ]);
-
-  // Emptied by the move: close it. A placement left open at zero shows up as a
-  // house with a flock in it on every board.
-  if (args.qty === available) {
-    await tx
-      .update(flockPlacements)
-      .set({ toDate: args.eventDate })
-      .where(eq(flockPlacements.id, from.id));
-  }
-
-  return { fromPlacementId: from.id, toPlacementId: to.id, closed: args.qty === available };
-}
 
 /** Mortality, culls, male removals and adjustments. */
 export async function recordMovement(
@@ -535,6 +430,386 @@ export async function recordMovement(
 
 /** The window a batch is normally housed in. Outside it is a warning, not a bar. */
 export const HOUSING_WEEKS = { from: 12, to: 16 } as const;
+
+/**
+ * Would this whole set of movements ever leave a house holding fewer than zero
+ * birds? Asked before anything is written.
+ *
+ * Simulated per HOUSE rather than per placement, because a placement may not
+ * exist yet — the destination of a transfer line is created by the very
+ * operation being checked. One flock can be open in a house only once, so the
+ * house is a safe key.
+ */
+function walkForNegative(
+  events: Array<{ date: string; houseId: string; houseCode: string; delta: number }>,
+) {
+  const sorted = [...events].sort(
+    // Same day: arrivals land before departures, because birds that arrive in
+    // the morning can be moved on in the afternoon.
+    (a, b) => a.date.localeCompare(b.date) || b.delta - a.delta,
+  );
+  const running = new Map<string, number>();
+  for (const e of sorted) {
+    const next = (running.get(e.houseId) ?? 0) + e.delta;
+    if (next < 0) return { houseCode: e.houseCode, date: e.date, short: next };
+    running.set(e.houseId, next);
+  }
+  return null;
+}
+
+/**
+ * Every movement of a flock that is NOT of the given kinds, as house-keyed
+ * events — the fixed background a proposed set of lines is checked against.
+ */
+async function otherEvents(tx: Tx, flockId: string, excludeKinds: readonly string[]) {
+  const rows = await tx
+    .select({
+      houseId: houses.id,
+      houseCode: houses.code,
+      date: flockMovements.eventDate,
+      kind: flockMovements.kind,
+      qty: flockMovements.qty,
+      sign: flockMovements.adjustmentSign,
+    })
+    .from(flockMovements)
+    .innerJoin(flockPlacements, eq(flockPlacements.id, flockMovements.placementId))
+    .innerJoin(houses, eq(houses.id, flockPlacements.houseId))
+    .where(eq(flockPlacements.flockId, flockId));
+  return rows
+    .filter((r) => !excludeKinds.includes(r.kind))
+    .map((r) => ({
+      houseId: r.houseId,
+      houseCode: r.houseCode,
+      date: r.date,
+      delta: movementDelta(r.kind, r.qty, r.sign),
+    }));
+}
+
+/**
+ * The flock's placement in a house, reused if it has one and created if not.
+ *
+ * Reuses a CLOSED placement as well as an open one. When a set of transfer
+ * lines is rewritten, every placement is temporarily emptied and reopened — and
+ * a version of this that only looked for open rows created a second placement
+ * in a house the flock had already left, splitting one occupancy across two
+ * rows and stranding the movements on the wrong one. A flock returning to a
+ * house it has stood in is the same occupancy; `reconcilePlacements` decides
+ * afterwards whether it is still open.
+ */
+async function placementIn(tx: Tx, flockId: string, houseId: string, from: string) {
+  const [existing] = await tx
+    .select()
+    .from(flockPlacements)
+    .where(and(eq(flockPlacements.flockId, flockId), eq(flockPlacements.houseId, houseId)))
+    .orderBy(asc(flockPlacements.fromDate))
+    .limit(1);
+  if (existing) {
+    // An earlier line than the placement's start drags the start back with it.
+    if (from < existing.fromDate) {
+      await tx
+        .update(flockPlacements)
+        .set({ fromDate: from })
+        .where(eq(flockPlacements.id, existing.id));
+      return { ...existing, fromDate: from };
+    }
+    return existing;
+  }
+  const [made] = await tx
+    .insert(flockPlacements)
+    .values({ flockId, houseId, fromDate: from })
+    .returning();
+  return made!;
+}
+
+/**
+ * Reopen every placement before a set is rebuilt.
+ *
+ * End dates are a CONSEQUENCE of the ledger, so they are cleared and recomputed
+ * rather than patched. Leaving them in place while the movements underneath
+ * change is how a house ends up closed on a date nothing happened.
+ */
+async function reopenAll(tx: Tx, flockId: string) {
+  await tx
+    .update(flockPlacements)
+    .set({ toDate: null })
+    .where(eq(flockPlacements.flockId, flockId));
+}
+
+/** Close placements that have emptied, reopen those that have not. */
+async function reconcilePlacements(tx: Tx, flockId: string) {
+  const all = await tx
+    .select()
+    .from(flockPlacements)
+    .where(eq(flockPlacements.flockId, flockId))
+    .orderBy(asc(flockPlacements.fromDate));
+  const counts = await placementCounts(
+    tx,
+    all.map((p) => p.id),
+  );
+  for (const p of all) {
+    const left = counts.get(p.id) ?? 0;
+    const moves = await tx
+      .select({ date: flockMovements.eventDate })
+      .from(flockMovements)
+      .where(eq(flockMovements.placementId, p.id))
+      .orderBy(desc(flockMovements.eventDate))
+      .limit(1);
+    if (left === 0 && moves.length) {
+      // Emptied: it closes on the day the last bird left. A placement left open
+      // at zero shows up as a house with a flock in it on every board.
+      if (p.toDate !== moves[0]!.date) {
+        await tx
+          .update(flockPlacements)
+          .set({ toDate: moves[0]!.date })
+          .where(eq(flockPlacements.id, p.id));
+      }
+    } else if (left > 0 && p.toDate) {
+      // Refilled by an edit: it is open again.
+      await tx.update(flockPlacements).set({ toDate: null }).where(eq(flockPlacements.id, p.id));
+    } else if (!moves.length) {
+      // An edit removed every movement it ever had, so it never happened.
+      await tx.delete(flockPlacements).where(eq(flockPlacements.id, p.id));
+    }
+  }
+}
+
+export interface TransferLine {
+  eventDate: string;
+  fromHouseId: string;
+  toHouseId: string;
+  qty: number;
+}
+
+/**
+ * Replace a flock's transfers.
+ *
+ * Moving a batch out of rearing is not one event — it takes the best part of a
+ * week, a lorry at a time, and nobody knows on the first morning how it will
+ * break down. So transfers are an editable set of dated lines, exactly like
+ * hatches, rather than a single act that has to be got right first time.
+ *
+ * Housing falls out of this rather than being its own ceremony: when the last
+ * bird leaves rearing for a layer house, `housed_on` is that date. There is
+ * nothing to "carry over" — feed, weighings, vaccinations and medications hang
+ * off the FLOCK, not the shed, so they never move when the birds do.
+ */
+export async function setFlockTransfers(
+  tx: Tx,
+  flockId: string,
+  lines: TransferLine[],
+  userId: string,
+) {
+  const [flock] = await tx.select().from(flocks).where(eq(flocks.id, flockId));
+  if (!flock) throw new PostingError("No such flock");
+
+  const shedIds = [...new Set(lines.flatMap((l) => [l.fromHouseId, l.toHouseId]))];
+  const sheds = shedIds.length
+    ? await tx.select().from(houses).where(inArray(houses.id, shedIds))
+    : [];
+  const shedOf = new Map(sheds.map((h) => [h.id, h]));
+
+  for (const l of lines) {
+    if (l.qty <= 0) throw new PostingError("Every transfer line needs a number above zero");
+    if (l.fromHouseId === l.toHouseId) throw new PostingError("A line moves birds to the same house");
+    for (const id of [l.fromHouseId, l.toHouseId]) {
+      const h = shedOf.get(id);
+      if (!h) throw new PostingError("No such house");
+      if (!h.isActive) throw new PostingError(`${h.code} is retired`);
+      if (h.locationId !== flock.locationId) throw new PostingError(`${h.code} is at another site`);
+    }
+  }
+
+  // Check the whole resulting ledger before touching anything.
+  const background = await otherEvents(tx, flockId, ["transfer_in", "transfer_out"]);
+  const proposed = lines.flatMap((l) => [
+    {
+      houseId: l.fromHouseId,
+      houseCode: shedOf.get(l.fromHouseId)!.code,
+      date: l.eventDate,
+      delta: -l.qty,
+    },
+    {
+      houseId: l.toHouseId,
+      houseCode: shedOf.get(l.toHouseId)!.code,
+      date: l.eventDate,
+      delta: l.qty,
+    },
+  ]);
+  const bad = walkForNegative([...background, ...proposed]);
+  if (bad) {
+    throw new PostingError(
+      `That would leave ${bad.houseCode} holding ${bad.short.toLocaleString("en-IN")} birds on ${bad.date}.`,
+    );
+  }
+
+  // Out with the old set.
+  const existing = await tx
+    .select({ id: flockPlacements.id })
+    .from(flockPlacements)
+    .where(eq(flockPlacements.flockId, flockId));
+  await tx.delete(flockMovements).where(
+    and(
+      inArray(
+        flockMovements.placementId,
+        existing.map((p) => p.id),
+      ),
+      inArray(flockMovements.kind, ["transfer_in", "transfer_out"]),
+    ),
+  );
+
+  await reopenAll(tx, flockId);
+
+  // In with the new, oldest first so a placement opens on its earliest line.
+  for (const l of [...lines].sort((a, b) => a.eventDate.localeCompare(b.eventDate))) {
+    const from = await placementIn(tx, flockId, l.fromHouseId, l.eventDate);
+    const to = await placementIn(tx, flockId, l.toHouseId, l.eventDate);
+    await tx.insert(flockMovements).values([
+      {
+        placementId: from.id,
+        eventDate: l.eventDate,
+        kind: "transfer_out",
+        qty: l.qty,
+        counterpartPlacementId: to.id,
+        recordedBy: userId,
+      },
+      {
+        placementId: to.id,
+        eventDate: l.eventDate,
+        kind: "transfer_in",
+        qty: l.qty,
+        counterpartPlacementId: from.id,
+        recordedBy: userId,
+      },
+    ]);
+  }
+
+  await reconcilePlacements(tx, flockId);
+
+  // Housed when the rearing house finally empties into layer houses. Derived,
+  // so correcting a transfer line corrects the housing date with it.
+  const layerIds = new Set(sheds.filter((h) => h.purpose === "layer").map((h) => h.id));
+  const intoLayers = lines.filter((l) => layerIds.has(l.toHouseId));
+  let housedOn: string | null = null;
+  if (intoLayers.length) {
+    const rearing = [...new Set(intoLayers.map((l) => l.fromHouseId))];
+    const stillThere = await tx
+      .select({ id: flockPlacements.id })
+      .from(flockPlacements)
+      .where(
+        and(
+          eq(flockPlacements.flockId, flockId),
+          inArray(flockPlacements.houseId, rearing),
+          isNull(flockPlacements.toDate),
+        ),
+      );
+    if (!stillThere.length) {
+      housedOn = intoLayers.reduce((d, l) => (l.eventDate > d ? l.eventDate : d), intoLayers[0]!.eventDate);
+    }
+  }
+  await tx.update(flocks).set({ housedOn }).where(eq(flocks.id, flockId));
+
+  return { housedOn, lines: lines.length };
+}
+
+export interface CullLine {
+  eventDate: string;
+  houseId: string;
+  qty: number;
+}
+
+/**
+ * Replace a flock's culling-out.
+ *
+ * End of life is no more a single day than the start of it: a house is emptied
+ * over several days as the lorries come. Same shape as hatches and transfers —
+ * an editable set of dated lines — so a batch part-way through being culled
+ * reads correctly, rather than being either wholly alive or wholly gone.
+ *
+ * The flock is depleted when the last bird leaves, and that is derived: remove
+ * a cull line and it is live again, which is what somebody correcting a
+ * mistyped lorry actually means.
+ */
+export async function setFlockCulls(tx: Tx, flockId: string, lines: CullLine[], userId: string) {
+  const [flock] = await tx.select().from(flocks).where(eq(flocks.id, flockId));
+  if (!flock) throw new PostingError("No such flock");
+
+  const shedIds = [...new Set(lines.map((l) => l.houseId))];
+  const sheds = shedIds.length
+    ? await tx.select().from(houses).where(inArray(houses.id, shedIds))
+    : [];
+  const shedOf = new Map(sheds.map((h) => [h.id, h]));
+  for (const l of lines) {
+    if (l.qty <= 0) throw new PostingError("Every culling line needs a number above zero");
+    if (!shedOf.has(l.houseId)) throw new PostingError("No such house");
+  }
+
+  const background = await otherEvents(tx, flockId, ["depletion"]);
+  const proposed = lines.map((l) => ({
+    houseId: l.houseId,
+    houseCode: shedOf.get(l.houseId)!.code,
+    date: l.eventDate,
+    delta: -l.qty,
+  }));
+  const bad = walkForNegative([...background, ...proposed]);
+  if (bad) {
+    throw new PostingError(
+      `That would leave ${bad.houseCode} holding ${bad.short.toLocaleString("en-IN")} birds on ${bad.date}.`,
+    );
+  }
+
+  const placements = await tx
+    .select({ id: flockPlacements.id, houseId: flockPlacements.houseId })
+    .from(flockPlacements)
+    .where(eq(flockPlacements.flockId, flockId));
+  await tx.delete(flockMovements).where(
+    and(
+      inArray(
+        flockMovements.placementId,
+        placements.map((p) => p.id),
+      ),
+      eq(flockMovements.kind, "depletion"),
+    ),
+  );
+
+  await reopenAll(tx, flockId);
+
+  for (const l of lines) {
+    const placement = placements.find((p) => p.houseId === l.houseId);
+    if (!placement) throw new PostingError("That flock was never in that house");
+    await tx.insert(flockMovements).values({
+      placementId: placement.id,
+      eventDate: l.eventDate,
+      kind: "depletion",
+      qty: l.qty,
+      recordedBy: userId,
+    });
+  }
+
+  await reconcilePlacements(tx, flockId);
+
+  // Depleted only when nothing is left anywhere.
+  const after = await tx
+    .select({ id: flockPlacements.id })
+    .from(flockPlacements)
+    .where(eq(flockPlacements.flockId, flockId));
+  const counts = await placementCounts(
+    tx,
+    after.map((p) => p.id),
+  );
+  const alive = [...counts.values()].reduce((n, v) => n + v, 0);
+  const lastDay = lines.reduce((d, l) => (l.eventDate > d ? l.eventDate : d), lines[0]?.eventDate ?? "");
+  const [updated] = await tx
+    .update(flocks)
+    .set(
+      alive === 0 && lines.length
+        ? { status: "depleted", depletedOn: lastDay }
+        : { status: flock.layStartDate ? "laying" : "rearing", depletedOn: null },
+    )
+    .where(eq(flocks.id, flockId))
+    .returning();
+
+  return { flock: updated!, remaining: alive, lines: lines.length };
+}
 
 /**
  * What is being handed over: the state of the flock on a given day.
@@ -612,94 +887,6 @@ export async function handoverSummary(tx: Tx, flockId: string, on: string) {
   };
 }
 
-/**
- * Housing — the move out of rearing and into the layer house(s).
- *
- * The one ceremony in a flock's life where it changes hands. It is a transfer
- * underneath, but a specific one, and giving it its own operation buys three
- * things a bare transfer does not:
- *
- *  - **It is all-or-nothing.** The quantities must add up to every bird in the
- *    rearing house. Housing that leaves 200 birds behind in P1 is not a clean
- *    handover, it is a mess two teams will argue about in a month.
- *  - **It only goes to layer houses.** Housing a batch into another pullet shed
- *    is a transfer, not housing, and calling it housing would put a false date
- *    on the flock.
- *  - **It stamps `housed_on`**, which anchors every rearing-phase figure in the
- *    lifetime report.
- *
- * Splitting across several layer houses is ordinary — one rearing shed usually
- * fills two laying sheds — so it takes a list, and all of it lands in one
- * transaction.
- */
-export async function houseFlock(
-  tx: Tx,
-  args: {
-    flockId: string;
-    placementId: string;
-    moves: Array<{ toHouseId: string; qty: number }>;
-    on: string;
-    note?: string | null;
-    userId: string;
-  },
-) {
-  if (!args.moves.length) throw new PostingError("Say which layer house the birds go to");
-
-  const [flock] = await tx.select().from(flocks).where(eq(flocks.id, args.flockId));
-  if (!flock) throw new PostingError("No such flock");
-  if (flock.status === "depleted") throw new PostingError("That flock is depleted");
-  if (flock.housedOn) {
-    throw new PostingError(
-      `${flock.code} was already housed on ${flock.housedOn}. Use a transfer to move it again.`,
-    );
-  }
-
-  // Every destination must be a layer house at the flock's own site.
-  for (const m of args.moves) {
-    const house = await liveHouse(tx, m.toHouseId);
-    if (house.purpose !== "layer") {
-      throw new PostingError(
-        `${house.code} is a ${house.purpose} house. Housing goes into a layer house — use a transfer for anything else.`,
-      );
-    }
-    if (house.locationId !== flock.locationId) {
-      throw new PostingError(`${house.code} is at another site`);
-    }
-  }
-
-  const available = await placementCount(tx, args.placementId, args.on);
-  const moving = args.moves.reduce((n, m) => n + m.qty, 0);
-  if (moving !== available) {
-    throw new PostingError(
-      `The rearing house holds ${available.toLocaleString("en-IN")} birds and you have allocated ${moving.toLocaleString("en-IN")}. Housing moves the whole batch — every bird has to have somewhere to go.`,
-    );
-  }
-
-  const handover = await handoverSummary(tx, args.flockId, args.on);
-  const results = [];
-  for (const m of args.moves) {
-    results.push(
-      await transferBirds(tx, {
-        placementId: args.placementId,
-        toHouseId: m.toHouseId,
-        qty: m.qty,
-        eventDate: args.on,
-        note: args.note ?? "Housed",
-        userId: args.userId,
-      }),
-    );
-  }
-
-  // Status stays "rearing": housed at 14 weeks is not laying at 14 weeks. Lay
-  // is its own event, recorded when the first eggs actually appear.
-  const [updated] = await tx
-    .update(flocks)
-    .set({ housedOn: args.on })
-    .where(eq(flocks.id, args.flockId))
-    .returning();
-
-  return { flock: updated!, handover, moves: results };
-}
 
 /**
  * The flock comes into lay.
@@ -721,46 +908,6 @@ export async function startLay(tx: Tx, flockId: string, on: string) {
   return row!;
 }
 
-/**
- * End of life. Every open placement is emptied by an explicit `depletion`
- * movement and then closed, so the count reaches zero through the ledger rather
- * than by a flag that contradicts it.
- */
-export async function depleteFlock(tx: Tx, flockId: string, on: string, userId: string) {
-  const [flock] = await tx.select().from(flocks).where(eq(flocks.id, flockId));
-  if (!flock) throw new PostingError("No such flock");
-  if (flock.status === "depleted") throw new PostingError("That flock is already depleted");
-
-  const open = await openPlacements(tx, flockId);
-  const counts = await placementCounts(
-    tx,
-    open.map((p) => p.id),
-    on,
-  );
-  for (const p of open) {
-    if (on < p.fromDate) {
-      throw new PostingError("That date is before the flock arrived in one of its houses");
-    }
-    const left = counts.get(p.id) ?? 0;
-    if (left > 0) {
-      await tx.insert(flockMovements).values({
-        placementId: p.id,
-        eventDate: on,
-        kind: "depletion",
-        qty: left,
-        recordedBy: userId,
-      });
-    }
-    await tx.update(flockPlacements).set({ toDate: on }).where(eq(flockPlacements.id, p.id));
-  }
-
-  const [row] = await tx
-    .update(flocks)
-    .set({ status: "depleted", depletedOn: on })
-    .where(eq(flocks.id, flockId))
-    .returning();
-  return { flock: row!, placementsClosed: open.length };
-}
 
 /**
  * Age in weeks and days on a given date. Day 0 is the hatch date, so a flock

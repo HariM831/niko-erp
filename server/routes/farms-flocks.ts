@@ -32,15 +32,14 @@ import {
   ageOn,
   boardRows,
   createFlock,
-  depleteFlock,
   handoverSummary,
-  houseFlock,
   nextFlockCode,
   placementCounts,
   recordMovement,
+  setFlockCulls,
   setFlockHatches,
+  setFlockTransfers,
   startLay,
-  transferBirds,
 } from "../services/flocks";
 
 export const farmsFlockRouter = Router();
@@ -441,6 +440,7 @@ farmsFlockRouter.get("/flocks/:id", view, async (req, res) => {
         adjustmentSign: flockMovements.adjustmentSign,
         causeCode: flockMovements.causeCode,
         causeLabel: mortalityCauses.label,
+        counterpartPlacementId: flockMovements.counterpartPlacementId,
         note: flockMovements.note,
         createdAt: flockMovements.createdAt,
       })
@@ -508,29 +508,6 @@ farmsFlockRouter.put(
   },
 );
 
-farmsFlockRouter.post(
-  "/flocks/:id/transfer",
-  manage,
-  validateBody(
-    z.object({
-      placementId: z.string().uuid(),
-      toHouseId: z.string().uuid(),
-      qty: z.number().int().positive(),
-      eventDate: isoDate,
-      note: z.string().max(500).nullish(),
-    }),
-  ),
-  async (req, res) => {
-    try {
-      const out = await db.transaction((tx) =>
-        transferBirds(tx, { ...req.body, userId: req.session.user!.id }),
-      );
-      res.json(out);
-    } catch (err) {
-      if (!fail(err, res)) throw err;
-    }
-  },
-);
 
 farmsFlockRouter.post(
   "/flocks/:id/movements",
@@ -575,25 +552,63 @@ farmsFlockRouter.get("/flocks/:id/handover", view, async (req, res) => {
   }
 });
 
-/** Housing — rearing hands the batch to laying. See services/flocks.ts. */
-farmsFlockRouter.post(
-  "/flocks/:id/house",
+/**
+ * Replace a flock's transfers.
+ *
+ * One set of dated lines, not one act. Moving a batch out of rearing takes the
+ * best part of a week, a lorry at a time, so it is edited the same way hatches
+ * are — see services/flocks.ts.
+ */
+farmsFlockRouter.put(
+  "/flocks/:id/transfers",
   manage,
   validateBody(
     z.object({
-      placementId: z.string().uuid(),
-      moves: z
-        .array(z.object({ toHouseId: z.string().uuid(), qty: z.number().int().positive() }))
-        .min(1)
-        .max(10),
-      on: isoDate,
-      note: z.string().max(500).nullish(),
+      lines: z
+        .array(
+          z.object({
+            eventDate: isoDate,
+            fromHouseId: z.string().uuid(),
+            toHouseId: z.string().uuid(),
+            qty: z.number().int().positive(),
+          }),
+        )
+        .max(50),
     }),
   ),
   async (req, res) => {
     try {
       const out = await db.transaction((tx) =>
-        houseFlock(tx, { flockId: req.params.id!, ...req.body, userId: req.session.user!.id }),
+        setFlockTransfers(tx, req.params.id!, req.body.lines, req.session.user!.id),
+      );
+      res.json(out);
+    } catch (err) {
+      if (!fail(err, res)) throw err;
+    }
+  },
+);
+
+/** Replace a flock's culling-out. Same shape, same reason. */
+farmsFlockRouter.put(
+  "/flocks/:id/culls",
+  manage,
+  validateBody(
+    z.object({
+      lines: z
+        .array(
+          z.object({
+            eventDate: isoDate,
+            houseId: z.string().uuid(),
+            qty: z.number().int().positive(),
+          }),
+        )
+        .max(50),
+    }),
+  ),
+  async (req, res) => {
+    try {
+      const out = await db.transaction((tx) =>
+        setFlockCulls(tx, req.params.id!, req.body.lines, req.session.user!.id),
       );
       res.json(out);
     } catch (err) {
@@ -616,21 +631,6 @@ farmsFlockRouter.post(
   },
 );
 
-farmsFlockRouter.post(
-  "/flocks/:id/deplete",
-  manage,
-  validateBody(z.object({ on: isoDate })),
-  async (req, res) => {
-    try {
-      const out = await db.transaction((tx) =>
-        depleteFlock(tx, req.params.id!, req.body.on, req.session.user!.id),
-      );
-      res.json(out);
-    } catch (err) {
-      if (!fail(err, res)) throw err;
-    }
-  },
-);
 
 /* ── The board ───────────────────────────────────────────────────────────── */
 
