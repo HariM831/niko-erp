@@ -54,6 +54,8 @@ interface DetailDoc {
   id: string;
   number: string;
   status: string;
+  /** The grand total the vendor printed, on a bill settled from a truck. */
+  vendorBillTotal?: string | null;
   subTotal: string;
   discountTotal: string;
   cgst: string;
@@ -702,7 +704,13 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
                 <table className="w-full border-l border-[#9e9e9e]">
                   <tbody>
                     <tr>
-                      <td className="py-1.5 pr-2.5 text-right align-middle">Sub Total</td>
+                      {/* Named for what it is where we know: on a settled truck
+                          this row IS the vendor's printed grand total, and it
+                          is the figure they quote on the phone — our own Total
+                          below is theirs less whatever came off. */}
+                      <td className="py-1.5 pr-2.5 text-right align-middle">
+                        {doc.vendorBillTotal ? "Vendor's bill total" : "Sub Total"}
+                      </td>
                       <td className="w-[110px] py-1.5 pl-1.5 pr-2.5 text-right align-middle tabular-nums">
                         {formatNum(goodsSubTotal)}
                       </td>

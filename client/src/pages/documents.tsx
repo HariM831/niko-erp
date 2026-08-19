@@ -103,6 +103,9 @@ export const BILL_SEARCH: SearchField[] = [
   ...dated("Bill Date"),
   { key: "dueDate", label: "Due Date", kind: "dateRange" },
   { key: "total", label: "Total", kind: "numberRange" },
+  // What the vendor printed, before our deductions — the figure they quote on
+  // the phone, which our own total never equals on a truck that ran short.
+  { key: "vendorBillTotal", label: "Vendor Bill Total", kind: "numberRange" },
   { key: "itemDescription", label: "Item Description", kind: "text" },
   { key: "account", label: "Account", kind: "account" },
   { key: "notes", label: "Notes", kind: "text" },

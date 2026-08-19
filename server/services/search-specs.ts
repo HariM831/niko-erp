@@ -52,6 +52,8 @@ export const billSearch: DocumentSearch = {
     dueDate: { kind: "dateRange", col: bills.dueDate },
     created: { kind: "dateRange", col: bills.createdAt },
     total: { kind: "numberRange", col: bills.total },
+    /** Their printed grand total — the figure on the paper somebody is holding. */
+    vendorBillTotal: { kind: "numberRange", col: bills.vendorBillTotal },
     itemId: { kind: "lineItem" },
     itemDescription: { kind: "lineText", on: billLines.description },
     account: { kind: "accountName" },

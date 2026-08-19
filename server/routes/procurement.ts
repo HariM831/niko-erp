@@ -1717,6 +1717,8 @@ procurementRouter.post(
           vendor,
           billDate,
           vendorBillNumber: receipt.vendorBillNumber ?? undefined,
+          // Their figure, not ours: our total is theirs less what we deducted.
+          vendorBillTotal: receipt.billTotalAmount ?? undefined,
           reference: receipt.number,
           notes: explanation,
           // Only when the whole truck came from one order; a multi-PO receipt

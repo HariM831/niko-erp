@@ -407,6 +407,8 @@ export interface CreateBillArgs {
   billDate: string;
   dueDate?: string;
   vendorBillNumber?: string;
+  /** The grand total the vendor printed, kept so a bill can be found by it. */
+  vendorBillTotal?: string;
   reference?: string;
   freightAmount?: string;
   freightVendorId?: string;
@@ -477,6 +479,7 @@ export async function createBill(tx: Tx, args: CreateBillArgs) {
     .values({
       number,
       vendorBillNumber: args.vendorBillNumber,
+      vendorBillTotal: args.vendorBillTotal,
       vendorId: args.vendor.id,
       status: "open",
       billDate: args.billDate,

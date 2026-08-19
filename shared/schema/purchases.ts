@@ -113,6 +113,15 @@ export const bills = pgTable(
     number: varchar("number", { length: 30 }).notNull().unique(),
     /** Vendor's own bill/invoice number. */
     vendorBillNumber: text("vendor_bill_number"),
+    /**
+     * The grand total the vendor printed, before anything we deducted.
+     *
+     * Our own total is what we owe — their figure less short weight — so it is
+     * never the number on the paper somebody is holding when they ring up about
+     * a bill. Kept so it can be searched on, and shown on the document beside
+     * their bill number.
+     */
+    vendorBillTotal: numeric("vendor_bill_total", { precision: 14, scale: 2 }),
     vendorId: uuid("vendor_id")
       .notNull()
       .references(() => contacts.id),
