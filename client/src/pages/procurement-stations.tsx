@@ -22,8 +22,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api } from "../api";
 import { useAuth } from "../auth";
 import { StatusBadge } from "../components/status-badge";
+import { FeedTransferForm } from "../components/feed-transfer-form";
 
-export type Station = "weighbridge" | "qc" | "weigh-out";
+export type Station = "weighbridge" | "qc" | "weigh-out" | "transfer";
 
 /**
  * Tab order is the order a truck meets them.
@@ -32,7 +33,15 @@ export type Station = "weighbridge" | "qc" | "weigh-out";
  * come off and the empty vehicle goes straight on the weighbridge, so it is
  * one act by one operator and it belongs to Weigh Out.
  */
-export const STATION_ORDER: Station[] = ["weighbridge", "qc", "weigh-out"];
+export const STATION_ORDER: Station[] = ["weighbridge", "qc", "weigh-out", "transfer"];
+
+/**
+ * Feed transfer has no queue: it is not a truck waiting on somebody, it is a
+ * transaction somebody raises. It lives here because it is WEIGHED — feed onto
+ * a vehicle, out to a shed — and the platform is where the scales and the
+ * operator are.
+ */
+const QUEUELESS: Station[] = ["transfer"];
 
 export const isStation = (v: string): v is Station =>
   (STATION_ORDER as string[]).includes(v);
@@ -43,6 +52,7 @@ const QUEUE_OF: Record<Station, string> = {
   weighbridge: "gross",
   qc: "qc",
   "weigh-out": "tare",
+  transfer: "",
 };
 
 const TITLE: Record<Station, { title: string; sub: string; empty: string }> = {
@@ -52,6 +62,11 @@ const TITLE: Record<Station, { title: string; sub: string; empty: string }> = {
     empty: "No trucks waiting at the platform.",
   },
   qc: { title: "Quality Control", sub: "Weighed, awaiting NIR", empty: "Nothing to sample." },
+  transfer: {
+    title: "Feed Transfer",
+    sub: "Feed out of the mill to a shed",
+    empty: "",
+  },
   "weigh-out": {
     title: "Weigh Out",
     sub: "Cleared by QC — count the bags off and weigh the empty truck",
@@ -642,12 +657,12 @@ export function StationPage({ station }: { station: Station }) {
   const meta = TITLE[station];
 
   // Every queue, every tab — the counts are the point of putting them together.
-  const queues: Record<Station, ReturnType<typeof useQueue>> = {
+  const queues: Record<string, ReturnType<typeof useQueue>> = {
     weighbridge: useQueue("weighbridge"),
     qc: useQueue("qc"),
     "weigh-out": useQueue("weigh-out"),
   };
-  const { data: queue, isLoading } = queues[station];
+  const { data: queue, isLoading } = queues[station] ?? { data: undefined, isLoading: false };
 
   const { data: receipt } = useQuery<Receipt>({
     queryKey: ["procurement", "receipt", selected],
@@ -668,14 +683,15 @@ export function StationPage({ station }: { station: Station }) {
 
   return (
     <div className="mx-auto max-w-4xl p-6">
-      <h1 className="text-[19px] font-semibold text-gray-900">Unloading</h1>
+      <h1 className="text-[19px] font-semibold text-gray-900">Weighment</h1>
       <p className="mb-3 text-[13px] text-gray-500">
-        Everything between the gate and settlement, in the order a truck meets it.
+        Everything the platform does — a truck in, its quality, its weight out, and feed going
+        the other way.
       </p>
 
       <div className="mb-4 flex gap-1 border-b border-gray-200" role="tablist">
         {STATION_ORDER.map((s) => {
-          const count = queues[s].data?.length ?? 0;
+          const count = queues[s]?.data?.length ?? 0;
           const active = s === station;
           return (
             <button
@@ -706,9 +722,14 @@ export function StationPage({ station }: { station: Station }) {
 
       <div className="mb-3 flex items-baseline justify-between">
         <p className="text-[13px] text-gray-500">{meta.sub}</p>
-        <span className="text-[13px] text-gray-400">{queue?.length ?? 0} waiting</span>
+        {!QUEUELESS.includes(station) && (
+          <span className="text-[13px] text-gray-400">{queue?.length ?? 0} waiting</span>
+        )}
       </div>
 
+      {QUEUELESS.includes(station) ? (
+        <FeedTransferForm />
+      ) : (
       <div className="grid gap-4 md:grid-cols-2">
         <div className="card overflow-hidden">
           {isLoading && <div className="p-4 text-[13px] text-gray-400">Loading…</div>}
@@ -763,6 +784,7 @@ export function StationPage({ station }: { station: Station }) {
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }

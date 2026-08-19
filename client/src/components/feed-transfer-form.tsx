@@ -33,7 +33,7 @@ const kg = (v: string | number | null | undefined) =>
   v == null ? "—" : `${Number(v).toLocaleString("en-IN", { maximumFractionDigits: 3 })} kg`;
 const inr = (n: number) => `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-export function FeedTransfersPage() {
+export function FeedTransferForm() {
   const qc = useQueryClient();
   const [itemId, setItemId] = useState("");
   const [fromId, setFromId] = useState("");
@@ -103,16 +103,11 @@ export function FeedTransfersPage() {
   })();
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="border-b bg-white px-6 py-3">
-        <h1 className="text-lg font-semibold">Feed Transfers</h1>
-        <p className="text-[13px] text-gray-500">
-          Feed leaving the mill for a shed — consumed on arrival, costed at today's stock value
-        </p>
-      </header>
-
-      <div className="min-h-0 flex-1 overflow-y-auto bg-surface p-3 lg:p-6">
-        <div className="mx-auto max-w-2xl">
+    <div className="mx-auto max-w-2xl">
+      <p className="mb-3 text-[13px] text-gray-500">
+        Feed leaving the mill for a shed — consumed on arrival, costed at today's stock value.
+        One vehicle, one shed, one transfer.
+      </p>
           {done && (
             <div className="mb-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-[13px] text-green-800">
               {done}
@@ -225,8 +220,6 @@ export function FeedTransfersPage() {
             {rows && !rows.length && (
               <p className="card p-4 text-center text-[13px] text-gray-400">Nothing transferred yet.</p>
             )}
-          </div>
-        </div>
       </div>
     </div>
   );

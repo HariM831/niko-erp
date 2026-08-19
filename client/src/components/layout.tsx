@@ -74,13 +74,13 @@ const NAV: NavItem[] = [
     ],
   },
   {
-    label: "Procurement",
+    label: "Gate",
     icon: Truck,
     children: [
       { label: "Gate In", path: "/procurement/gate" },
       /* Weigh In, QC, Unloading and Weigh Out — four tabs on one page, because
          a truck walks all four in a single visit. */
-      { label: "Unloading", path: "/procurement/unloading" },
+      { label: "Weighment", path: "/procurement/unloading" },
       { label: "Settlement", path: "/procurement/settlement" },
       { label: "Goods Receipts", path: "/procurement/receipts" },
     ],
@@ -92,7 +92,6 @@ const NAV: NavItem[] = [
       { label: "Nutrient Profiles", path: "/feed-mill/nutrients" },
       { label: "Formulas", path: "/feed-mill/formulas" },
       { label: "Production", path: "/feed-mill/production" },
-      { label: "Feed Transfers", path: "/feed-mill/transfers" },
     ],
   },
   {

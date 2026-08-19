@@ -62,9 +62,12 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     description: "Chart of accounts, manual journals, fixed assets, budgets, locking",
   },
   {
+    // The KEY stays "procurement": it is written into every role's stored
+    // permissions and into entities.ts. Only the label is the user's word for
+    // it, and renaming the key would silently strip everyone's access.
     key: "procurement",
-    label: "Procurement",
-    description: "Goods receipts: gate in, weighbridge, QC, unloading, settlement",
+    label: "Gate",
+    description: "Goods receipts: gate in, weighment, QC, settlement",
     actions: [
       { key: "view", label: "View" },
       { key: "gate_in", label: "Gate In" },

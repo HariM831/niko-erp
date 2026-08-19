@@ -12,7 +12,6 @@ import { QualitySpecsPage } from "./pages/quality-specs";
 import { FeedNutrientsPage } from "./pages/feed-nutrients";
 import { FeedFormulasPage } from "./pages/feed-formulas";
 import { FeedProductionPage } from "./pages/feed-production";
-import { FeedTransfersPage } from "./pages/feed-transfers";
 import {
   CustomersPage,
   ItemsPage,
@@ -169,7 +168,11 @@ export function App() {
             single-formula view, so its old path lands there. */}
         <Route path="/feed-mill/formulator">{() => <Redirect to="/feed-mill/formulas" />}</Route>
         <Route path="/feed-mill/production" component={FeedProductionPage} />
-        <Route path="/feed-mill/transfers" component={FeedTransfersPage} />
+        {/* Feed transfer is weighed on the same platform, so it lives with the
+            other weighments rather than in a screen of its own. */}
+        <Route path="/feed-mill/transfers">
+          {() => <Redirect to={stationPath("transfer")} />}
+        </Route>
         <Route path="/procurement/settlement" component={SettlementPage} />
         <Route path="/procurement/:station">
           {(p) => <ProcurementStationPage key={p.station} stationKey={p.station!} />}

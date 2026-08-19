@@ -67,7 +67,7 @@ const SECTIONS: SectionDef[] = [
   { key: "m-expenses", label: "Expenses", group: "Module Settings", entity: "expense" },
   {
     key: "m-procurement",
-    label: "Procurement",
+    label: "Gate",
     group: "Module Settings",
     entity: "procurement_receipt",
     prefs: "procurement",
