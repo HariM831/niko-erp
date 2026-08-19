@@ -26,6 +26,7 @@ import type { Db, Tx } from "../db";
 import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, postJournal } from "./posting";
 import { computeDocumentTotals, fromPaise, toPaise, type DocLineInput } from "./documents";
+import { moveStock } from "./inventory";
 
 /**
  * A line as the routes and other modules supply it.
@@ -72,11 +73,33 @@ export async function resolveLineAccounts<
     let accountId = line.accountId;
     if (!accountId && line.itemId) {
       const [item] = await tx
-        .select({ purchaseAccountId: items.purchaseAccountId })
+        .select({
+          name: items.name,
+          purchaseAccountId: items.purchaseAccountId,
+          inventoryAccountId: items.inventoryAccountId,
+          tracked: items.trackInventory,
+        })
         .from(items)
         .where(eq(items.id, line.itemId))
         .limit(1);
-      accountId = item?.purchaseAccountId ?? undefined;
+      /**
+       * An inventory item capitalises; everything else is spent.
+       *
+       * Maize bought at the gate is an ASSET until it is milled, so its line
+       * debits the stock account rather than Feed & Additives. Send it to the
+       * expense account and the ledger says the farm consumed forty tonnes the
+       * day the lorry arrived, while Stock on Hand shows nothing to consume.
+       */
+      if (item?.tracked) {
+        if (!item.inventoryAccountId) {
+          throw new PostingError(
+            `"${item.name}" tracks inventory but has no inventory account — it cannot capitalise`,
+          );
+        }
+        accountId = item.inventoryAccountId;
+      } else {
+        accountId = item?.purchaseAccountId ?? undefined;
+      }
     }
     if (!accountId) {
       throw new PostingError(
@@ -460,6 +483,38 @@ export async function syncPurchaseRates(tx: Tx | Db, itemIds?: string[]): Promis
   return result.rowCount ?? 0;
 }
 
+/**
+ * The lines of a bill that are goods going into stock.
+ *
+ * Only inventory-tracked items, and only positive ones: a deduction line is
+ * money we are not paying, not material coming back off the pile.
+ */
+async function stockLines(
+  tx: Tx,
+  c: BillComputation,
+): Promise<Array<{ itemId: string; quantity: string; value: string }>> {
+  const withItems = c.computedLines.filter((l) => l.itemId && Number(l.amount) > 0);
+  if (!withItems.length) return [];
+  const tracked = await tx
+    .select({ id: items.id })
+    .from(items)
+    .where(
+      and(
+        inArray(items.id, [...new Set(withItems.map((l) => l.itemId!))]),
+        eq(items.trackInventory, true),
+      ),
+    );
+  const ids = new Set(tracked.map((t) => t.id));
+  return withItems
+    .filter((l) => ids.has(l.itemId!))
+    .map((l) => ({
+      itemId: l.itemId!,
+      quantity: Number(l.quantity).toFixed(3),
+      // What the goods cost us, which is the line net of its own discount.
+      value: Number(l.amount).toFixed(2),
+    }));
+}
+
 export async function createBill(tx: Tx, args: CreateBillArgs) {
   const vendor = args.vendor;
   const c = await computeBill(
@@ -503,6 +558,24 @@ export async function createBill(tx: Tx, args: CreateBillArgs) {
     .values(billLineValues(c, bill!.id))
     .returning({ id: billLines.id, lineOrder: billLines.lineOrder });
   await saveBillLineTags(tx, c, insertedLines);
+
+  /**
+   * Goods on an inventory item go into stock, here.
+   *
+   * No journal of its own: the bill's own entry above already debits the stock
+   * account for these lines, so posting a second one would capitalise the same
+   * maize twice. moveStock records the quantity and value only, which is
+   * exactly the half that was missing.
+   *
+   * A negative line is a deduction, not a return of goods — short weight was
+   * never received, so nothing comes back off the pile.
+   */
+  await moveStock(tx, {
+    movements: await stockLines(tx, c),
+    transactionDate: args.billDate,
+    sourceType: "bill",
+    sourceId: bill!.id,
+  });
 
   // The item master's purchase rate follows the latest bill.
   const billedItemIds = [...new Set(c.computedLines.map((l) => l.itemId).filter((v): v is string => !!v))];

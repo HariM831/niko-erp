@@ -12,6 +12,7 @@ import {
   journalEntryLineTags,
   journalEntryLines,
   paymentMode,
+  items,
   officeReceiptLines,
   officeReceipts,
   reportingTagOptions,
@@ -30,6 +31,7 @@ import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, postJournal, reverseJournal } from "../services/posting";
+import { moveStock } from "../services/inventory";
 import { advancedSearch, listLimit, quickSearch } from "../services/document-search";
 import {
   billSearch,
@@ -714,6 +716,31 @@ purchasesRouter.post(
           .set({ status: "void", balanceDue: "0.00", updatedAt: new Date() })
           .where(eq(bills.id, bill.id))
           .returning();
+
+        /**
+         * Stock goes back out with the money.
+         *
+         * The void reverses the journal, so the debit to the stock account is
+         * undone; leave the quantity behind and Stock on Hand claims forty
+         * tonnes of maize the ledger says was never bought.
+         */
+        const stockBack = await tx
+          .select({ itemId: billLines.itemId, quantity: billLines.quantity, amount: billLines.amount })
+          .from(billLines)
+          .innerJoin(items, eq(items.id, billLines.itemId))
+          .where(and(eq(billLines.billId, bill.id), eq(items.trackInventory, true)));
+        await moveStock(tx, {
+          movements: stockBack
+            .filter((l) => Number(l.amount) > 0)
+            .map((l) => ({
+              itemId: l.itemId!,
+              quantity: `-${Number(l.quantity).toFixed(3)}`,
+              value: `-${Number(l.amount).toFixed(2)}`,
+            })),
+          transactionDate: req.body.voidDate,
+          sourceType: "bill",
+          sourceId: bill.id,
+        });
 
         // The item master's purchase rate follows the latest LIVE bill, so a
         // void walks it back to the one before.

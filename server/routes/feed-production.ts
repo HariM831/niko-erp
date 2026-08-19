@@ -208,14 +208,37 @@ export async function produceOne(
     throw new PostingError(`${formula.name} v${formula.version} is retired — produce the live version`);
   }
   const recipe = await tx
-    .select({ line: formulaLines, itemName: items.name, costPrice: items.costPrice })
+    .select({
+      line: formulaLines,
+      itemName: items.name,
+      costPrice: items.costPrice,
+      tracked: items.trackInventory,
+    })
     .from(formulaLines)
     .innerJoin(items, eq(items.id, formulaLines.itemId))
     .where(eq(formulaLines.formulaId, formula.id))
     .orderBy(asc(formulaLines.sortOrder));
   if (!recipe.length) throw new PostingError("The formula has no ingredient lines");
 
-  const unpriced = recipe.filter((r) => !(Number(r.costPrice ?? 0) > 0));
+  /**
+   * A batch is costed at what the material in the silo actually cost.
+   *
+   * Weighted average from the stock ledger, not the item's list price: the
+   * maize being milled this morning was bought at the price it was bought at,
+   * and pricing it at today's quote makes every batch cost something no
+   * invoice supports. The list price is the fallback for anything not tracked.
+   */
+  const levels = await stockOnHand(tx);
+  const held = new Map(levels.map((l) => [l.itemId, l]));
+  const rateOf = (r: (typeof recipe)[number]) => {
+    const h = held.get(r.line.itemId);
+    if (h && Number(h.quantity) > 0 && Number(h.value) > 0) {
+      return Number(h.value) / Number(h.quantity);
+    }
+    return Number(r.costPrice ?? 0);
+  };
+
+  const unpriced = recipe.filter((r) => !(rateOf(r) > 0));
   if (unpriced.length) {
     throw new PostingError(
       `${unpriced.map((u) => u.itemName).join(", ")} ${unpriced.length === 1 ? "has" : "have"} no cost price — a batch cannot be costed without one`,
@@ -224,10 +247,35 @@ export async function produceOne(
 
   const locationId = body.locationId ?? (await millLocation(tx));
   const outputKg = Number(formula.batchSizeKg) * run.batchCount;
+
+  /**
+   * The mill cannot make what it does not hold.
+   *
+   * Checked before anything is written, and named per material, because "not
+   * enough stock" on a five-ingredient batch sends somebody to count five
+   * silos.
+   */
+  const short = recipe
+    .filter((r) => r.tracked)
+    .map((r) => ({
+      name: r.itemName,
+      need: Number(r.line.quantityKg) * run.batchCount,
+      have: Number(held.get(r.line.itemId)?.quantity ?? 0),
+    }))
+    .filter((x) => x.have < x.need - 0.0005);
+  if (short.length) {
+    throw new PostingError(
+      `${formula.name} needs more than the mill holds: ` +
+        short
+          .map((x) => `${x.name} ${x.need.toLocaleString("en-IN")} kg against ${x.have.toLocaleString("en-IN")} kg`)
+          .join(", "),
+    );
+  }
+
   let inputValueP = 0;
   const lineValues = recipe.map((r) => {
     const kgTotal = Number(r.line.quantityKg) * run.batchCount;
-    const rate = Number(r.costPrice);
+    const rate = rateOf(r);
     const valueP = Math.round(kgTotal * rate * 100);
     inputValueP += valueP;
     return { r, kgTotal, rate, valueP };
@@ -270,13 +318,33 @@ export async function produceOne(
     })),
   );
 
+  /**
+   * The ingredients leave the silo and the feed arrives, in one movement.
+   *
+   * Raw material is an asset until it is milled, so producing is a transfer
+   * between two stock accounts rather than a purchase: the maize comes out at
+   * what it cost, the finished feed goes in at that plus the overhead, and the
+   * only thing the mill actually SPENDS is the overhead itself.
+   *
+   * Both sides in one call so the journal balances by construction — post the
+   * output alone and Feed Stock grows out of nothing.
+   */
   const journalEntryId = await postInventoryMovement(tx, {
     movements: [
+      ...lineValues
+        .filter(({ r }) => r.tracked)
+        .map(({ r, kgTotal, valueP }) => ({
+          itemId: r.line.itemId,
+          quantity: `-${kgTotal.toFixed(3)}`,
+          value: `-${(valueP / 100).toFixed(2)}`,
+        })),
       { itemId: formula.outputItemId, quantity: outputKg.toFixed(3), value: (totalP / 100).toFixed(2) },
     ],
     transactionDate: body.orderDate,
     sourceType: "feed_mill",
     sourceId: order!.id,
+    // Whatever the two stock sides do not cancel is the milling overhead, and
+    // that is a real cost of running the mill.
     contraAccountId: await feedExpenseAccount(tx),
     narration:
       `Production ${number} — ${formula.name} v${formula.version}, ${run.batchCount} batch(es), ` +
@@ -328,6 +396,28 @@ feedProductionRouter.post(
             req.session.user!.id,
           );
         }
+        /**
+         * The feed comes back out and the ingredients go back in.
+         *
+         * A void is an undoing, so the silo has to be made whole: put the
+         * finished feed back only and the maize this batch ate stays eaten,
+         * and the mill is short forty tonnes nobody can account for.
+         *
+         * The lines carry what was actually consumed at the price it was
+         * consumed at, which is why they are read back rather than recomputed —
+         * today's weighted average is not the one this batch was costed on.
+         */
+        const consumed = await tx
+          .select({
+            itemId: productionOrderLines.itemId,
+            actualKg: productionOrderLines.actualKg,
+            value: productionOrderLines.value,
+            tracked: items.trackInventory,
+          })
+          .from(productionOrderLines)
+          .innerJoin(items, eq(items.id, productionOrderLines.itemId))
+          .where(eq(productionOrderLines.orderId, order.id));
+
         await moveStock(tx, {
           movements: [
             {
@@ -336,6 +426,14 @@ feedProductionRouter.post(
               value: `-${(Number(order.inputValue ?? 0) + Number(order.overheadValue ?? 0)).toFixed(2)}`,
               notes: `Void ${order.number}: ${req.body.reason}`,
             },
+            ...consumed
+              .filter((l) => l.tracked)
+              .map((l) => ({
+                itemId: l.itemId,
+                quantity: Number(l.actualKg ?? 0).toFixed(3),
+                value: Number(l.value ?? 0).toFixed(2),
+                notes: `Void ${order.number}: returned to stock`,
+              })),
           ],
           transactionDate: new Date().toISOString().slice(0, 10),
           sourceType: "feed_mill_void",
