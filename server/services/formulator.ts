@@ -65,9 +65,23 @@ export interface ShadowPrice {
   insight: string;
 }
 
+export interface Blocker {
+  kind: "nutrient" | "inclusion";
+  /** Nutrient key, or ingredient id for an inclusion limit. */
+  key: string;
+  label: string;
+  /** What the standard or the limit asked for. */
+  asked: string;
+  /** The best these ingredients can do for it, ignoring every other bound. */
+  best: number | null;
+  detail: string;
+}
+
 export interface SolveResult {
   feasible: boolean;
   message?: string;
+  /** When infeasible: the bounds that cannot be met. Empty if none stands out. */
+  blockers?: Blocker[];
   /** ingredientId → % of the mix (i.e. kg per 100 kg). */
   solution: Record<string, number>;
   /** Raw-material cost of 100 kg of mix, before milling. */
@@ -132,6 +146,92 @@ function buildModel(ingredients: SolveIngredient[], standard: SolveStandard[]): 
   return model;
 }
 
+/**
+ * Which bound is the impossible one.
+ *
+ * "No feasible solution" is useless to a nutritionist: they cannot tell whether
+ * to loosen a limit, buy a denser material, or go and fix an analysis figure.
+ *
+ * So each bound is tested on its own — drop every OTHER nutrient bound and see
+ * whether this one alone can be met. A bound that fails in isolation is
+ * genuinely unreachable with these materials, and it is named with the best the
+ * pool can actually do. If every bound passes alone, the conflict is between
+ * them, and saying so is more honest than picking one at random.
+ *
+ * Inclusion limits are checked by arithmetic rather than by solving: mins that
+ * sum past 100, or maxes that cannot reach it, are the two ways a pool is
+ * impossible before nutrition is even considered.
+ */
+function diagnose(priced: SolveIngredient[], standard: SolveStandard[]): Blocker[] {
+  const out: Blocker[] = [];
+
+  const minSum = priced.reduce((s, i) => s + (i.minPercent ?? 0), 0);
+  if (minSum > 100.0001) {
+    out.push({
+      kind: "inclusion",
+      key: "minimums",
+      label: "Inclusion minimums",
+      asked: "must total 100%",
+      best: round(minSum, 3),
+      detail: `The minimums alone add to ${round(minSum, 2)}% of the mix — more than the whole of it.`,
+    });
+  }
+  // An ingredient with no max can carry the rest, so only an all-capped pool
+  // can fall short of 100.
+  const allCapped = priced.every((i) => i.maxPercent != null);
+  const maxSum = priced.reduce((s, i) => s + (i.maxPercent ?? 0), 0);
+  if (allCapped && maxSum < 99.9999) {
+    out.push({
+      kind: "inclusion",
+      key: "maximums",
+      label: "Inclusion maximums",
+      asked: "must reach 100%",
+      best: round(maxSum, 3),
+      detail: `Every material is capped and the caps only add to ${round(maxSum, 2)}% — the mix cannot be filled.`,
+    });
+  }
+
+  for (const std of standard) {
+    if (std.minValue == null && std.maxValue == null) continue;
+    // This bound alone, against the same inclusion limits.
+    const solo = buildModel(priced, [std]);
+    const r = lpSolver.Solve(solo) as Record<string, number> & { feasible: boolean };
+    if (r.feasible) continue;
+
+    // Unreachable on its own. Say how close the pool can get, by optimising
+    // the nutrient itself with no bound on it at all.
+    const probe = buildModel(priced, []);
+    probe.optimize = `n_${std.nutrient}`;
+    probe.opType = std.minValue != null ? "max" : "min";
+    for (const ing of priced) {
+      probe.variables[`i_${ing.id}`]![`n_${std.nutrient}`] =
+        (ing.nutrients[std.nutrient] ?? 0) / 100;
+    }
+    const p = lpSolver.Solve(probe) as Record<string, number> & { feasible: boolean; result: number };
+    const best = p.feasible ? round(p.result, 3) : null;
+    const asked =
+      std.minValue != null && std.maxValue != null
+        ? `${std.minValue}–${std.maxValue}`
+        : std.minValue != null
+          ? `at least ${std.minValue}`
+          : `at most ${std.maxValue}`;
+    out.push({
+      kind: "nutrient",
+      key: std.nutrient,
+      label: std.nutrient,
+      asked,
+      best,
+      detail:
+        best == null
+          ? `Nothing in the pool can satisfy this bound.`
+          : std.minValue != null
+            ? `The richest mix these materials allow reaches ${best}, short of ${std.minValue}.`
+            : `The leanest mix these materials allow is ${best}, over ${std.maxValue}.`,
+    });
+  }
+  return out;
+}
+
 export function solveLeastCost(opts: SolveOptions): SolveResult {
   const priced = opts.ingredients.filter((i) => i.costPerKg != null && i.costPerKg > 0);
   const empty: SolveResult = {
@@ -159,10 +259,13 @@ export function solveLeastCost(opts: SolveOptions): SolveResult {
   const out = lpSolver.Solve(model) as Record<string, number> & { feasible: boolean; result: number };
 
   if (!out.feasible) {
+    const blockers = diagnose(priced, opts.standard);
     return {
       ...empty,
-      message:
-        "No mix of these ingredients can land inside the standard. Loosen an inclusion limit, add a denser ingredient, or check the analysis figures.",
+      blockers,
+      message: blockers.length
+        ? "No mix of these ingredients can meet every bound."
+        : "No mix of these ingredients can land inside the standard, and no single bound is the cause — the inclusion limits are contradictory taken together.",
     };
   }
 
