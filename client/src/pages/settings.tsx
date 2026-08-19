@@ -20,6 +20,7 @@ import { ReportingTagsSection } from "./settings-tags";
 import { CustomFieldsTab } from "./settings-fields";
 import { DeductionRulesSection } from "./deduction-rules";
 import { OfficeSitesSection } from "./office-sites";
+import { FarmHousesSection } from "./farm-houses";
 import { FeedStandardsSection } from "./feed-standards";
 import {
   AccountantPrefsSection,
@@ -75,6 +76,12 @@ const SECTIONS: SectionDef[] = [
       { key: "deductions", label: "Deduction Rules" },
       { key: "sites", label: "Gates & Weighbridges" },
     ],
+  },
+  {
+    key: "m-farms",
+    label: "Farms",
+    group: "Module Settings",
+    extras: [{ key: "houses", label: "Houses" }],
   },
   {
     key: "m-feed-mill",
@@ -872,6 +879,7 @@ const MODULE_EXTRAS: Record<string, () => ReactElement> = {
   deductions: DeductionRulesSection,
   sites: OfficeSitesSection,
   "feed-standards": FeedStandardsSection,
+  houses: FarmHousesSection,
 };
 
 function ModuleSettings({ def }: { def: SectionDef }) {

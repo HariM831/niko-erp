@@ -365,6 +365,20 @@
       "when": 1786970764135,
       "tag": "0051_stock_locations_and_lots",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1786970824135,
+      "tag": "0052_houses",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1786970884135,
+      "tag": "0053_house_type_two_kinds",
+      "breakpoints": true
     }
   ]
 }

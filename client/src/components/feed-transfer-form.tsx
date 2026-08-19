@@ -15,6 +15,13 @@ import { StatusBadge } from "../components/status-badge";
 interface Context {
   feeds: Array<{ itemId: string; formulaName: string; itemName: string; quantity: number; value: number }>;
   locations: Array<{ id: string; name: string; type: string; isPrimary: boolean }>;
+  houses: Array<{
+    id: string;
+    code: string;
+    purpose: string;
+    farmName: string;
+    stockLocationId: string;
+  }>;
 }
 
 interface TransferRow {
@@ -71,7 +78,7 @@ export function FeedTransferForm() {
           itemId,
           quantityKg: quantity.trim(),
           fromLocationId: fromId,
-          toLocationId: toId,
+          toHouseId: toId,
           transferDate: new Date().toISOString().slice(0, 10),
         },
       }),
@@ -150,13 +157,13 @@ export function FeedTransferForm() {
                 <label className="label-required">To house *</label>
                 <select value={toId} onChange={(e) => setToId(e.target.value)} className="input">
                   <option value="">Choose…</option>
-                  {ctx?.locations
-                    .filter((l) => l.id !== fromId)
-                    .map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.name}
-                      </option>
-                    ))}
+                  {/* Houses, not locations. Offering locations is what let the
+                      feed mill appear as somewhere to send feed to. */}
+                  {ctx?.houses.map((h) => (
+                    <option key={h.id} value={h.id}>
+                      {h.farmName} · {h.code}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div>

@@ -23,13 +23,14 @@
  * remainder, and raw materials stay periodic — office moves no stock.
  */
 import { Router } from "express";
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
   accounts,
   feedTransfers,
   formulaLines,
   formulas,
+  houses,
   items,
   locations,
   productionOrderLines,
@@ -470,14 +471,24 @@ feedProductionRouter.get("/transfers", requirePermission("feed_mill", "view"), a
       value: feedTransfers.value,
       status: feedTransfers.status,
       toLocationId: feedTransfers.toLocationId,
+      toHouseCode: houses.code,
     })
     .from(feedTransfers)
     .innerJoin(items, eq(items.id, feedTransfers.itemId))
+    // Left: the rows written before houses existed have no house to join to.
+    .leftJoin(houses, eq(houses.id, feedTransfers.toHouseId))
     .orderBy(desc(feedTransfers.transferDate))
     .limit(100);
   const locs = await db.select({ id: locations.id, name: locations.name }).from(locations);
   const byId = new Map(locs.map((l) => [l.id, l.name]));
-  res.json(rows.map((r) => ({ ...r, toLocationName: byId.get(r.toLocationId) ?? "—" })));
+  // The house is the answer where there is one; the site is what the older
+  // rows can offer.
+  res.json(
+    rows.map((r) => ({
+      ...r,
+      toLocationName: r.toHouseCode ?? byId.get(r.toLocationId) ?? "—",
+    })),
+  );
 });
 
 /** What a transfer picks from: each formula's feed with the stock behind it. */
@@ -485,7 +496,7 @@ feedProductionRouter.get(
   "/transfers/context",
   requirePermission("feed_mill", "view"),
   async (_req, res) => {
-    const [levels, formulaRows, locs] = await Promise.all([
+    const [levels, formulaRows, locs, houseRows] = await Promise.all([
       stockOnHand(db),
       db
         .select({ name: formulas.name, outputItemId: formulas.outputItemId })
@@ -497,6 +508,21 @@ feedProductionRouter.get(
         // Deactivated places stay on old documents but out of new dropdowns.
         .where(eq(locations.isActive, true))
         .orderBy(asc(locations.name)),
+      // Feed goes to a HOUSE. Offering locations is what put the feed mill in
+      // the destination list — you cannot transfer feed to the place it came
+      // from.
+      db
+        .select({
+          id: houses.id,
+          code: houses.code,
+          purpose: houses.purpose,
+          farmName: locations.name,
+          stockLocationId: houses.stockLocationId,
+        })
+        .from(houses)
+        .innerJoin(locations, eq(locations.id, houses.locationId))
+        .where(and(eq(houses.isActive, true), eq(locations.isActive, true)))
+        .orderBy(asc(locations.name), asc(houses.displayOrder), asc(houses.code)),
     ]);
     const byItem = new Map(levels.map((l) => [l.itemId, l]));
     res.json({
@@ -511,6 +537,7 @@ feedProductionRouter.get(
         };
       }),
       locations: locs,
+      houses: houseRows,
     });
   },
 );
@@ -526,7 +553,7 @@ feedProductionRouter.post(
     z.object({
       itemId: z.string().uuid(),
       quantityKg: qtyStr,
-      toLocationId: z.string().uuid(),
+      toHouseId: z.string().uuid(),
       fromLocationId: z.string().uuid().optional(),
       transferDate: dateStr,
       notes: z.string().max(2000).nullish(),
@@ -536,7 +563,7 @@ feedProductionRouter.post(
     const body = req.body as {
       itemId: string;
       quantityKg: string;
-      toLocationId: string;
+      toHouseId: string;
       fromLocationId?: string;
       transferDate: string;
       notes?: string | null;
@@ -546,7 +573,19 @@ feedProductionRouter.post(
         await assertPeriodOpen(tx, body.transferDate, "inventory_adjustment");
 
         const fromLocationId = body.fromLocationId ?? (await millLocation(tx));
-        if (fromLocationId === body.toLocationId) {
+        const [house] = await tx
+          .select({
+            id: houses.id,
+            code: houses.code,
+            locationId: houses.locationId,
+            stockLocationId: houses.stockLocationId,
+            farmName: locations.name,
+          })
+          .from(houses)
+          .innerJoin(locations, eq(locations.id, houses.locationId))
+          .where(eq(houses.id, body.toHouseId));
+        if (!house) throw new PostingError("No such house");
+        if (fromLocationId === house.locationId) {
           throw new PostingError("A transfer needs two different places");
         }
 
@@ -571,7 +610,8 @@ feedProductionRouter.post(
             itemId: body.itemId,
             quantityKg: body.quantityKg,
             fromLocationId,
-            toLocationId: body.toLocationId,
+            toLocationId: house.locationId,
+            toHouseId: house.id,
             ratePerKg: rate.toFixed(6),
             value: (valueP / 100).toFixed(2),
             notes: body.notes ?? null,
@@ -579,8 +619,7 @@ feedProductionRouter.post(
           })
           .returning();
 
-        const toName = (await tx.query.locations.findFirst({ where: eq(locations.id, body.toLocationId) }))!
-          .name;
+        const toName = `${house.farmName} ${house.code}`;
         const journalEntryId = await postInventoryMovement(tx, {
           movements: [
             { itemId: body.itemId, quantity: `-${body.quantityKg}`, value: `-${(valueP / 100).toFixed(2)}` },

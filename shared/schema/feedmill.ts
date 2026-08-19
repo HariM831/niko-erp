@@ -31,6 +31,7 @@ import {
 import { items } from "./items";
 import { locations } from "./locations";
 import { users } from "./auth";
+import { houses } from "./farms";
 
 const qty = (name: string) => numeric(name, { precision: 14, scale: 3 });
 const money = (name: string) => numeric(name, { precision: 14, scale: 2 });
@@ -302,6 +303,12 @@ export const feedTransfers = pgTable(
       .notNull()
       .references(() => locations.id),
     /** The shed. Where the feed is eaten. */
+    /**
+     * The house the feed went to. Nullable only because it postdates the rows
+     * written when a shed was still a location — a transfer raised today always
+     * names one.
+     */
+    toHouseId: uuid("to_house_id").references(() => houses.id),
     toLocationId: uuid("to_location_id")
       .notNull()
       .references(() => locations.id),
