@@ -10,6 +10,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import { contacts } from "./contacts";
 import { locations } from "./locations";
 import { stockLocations } from "./stock-locations";
 
@@ -21,6 +22,12 @@ import { stockLocations } from "./stock-locations";
  * screen offered the mill as somewhere to send feed. A location is a site — it
  * carries an address and the state code that decides GST place of supply — and
  * a shed is not a site.
+ *
+ * A house has two independent facts about it, and conflating them is the bug
+ * 0052 shipped: WHERE it stands (`locationId` — Nalbari, Panbari) and WHO owns
+ * it (`ownerId`). All six existing sheds stand at Nalbari; three companies own
+ * two each. Owner decides who gets billed — feed delivered to a Luit shed is a
+ * sale to Luit, and its eggs are a purchase from them.
  *
  * Every house owns a stock location, created with it in the same transaction.
  * The foreign key is NOT NULL because a house that cannot hold feed is not a
@@ -35,9 +42,16 @@ export const houses = pgTable(
   "houses",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    /** The site the shed physically stands on. */
     locationId: uuid("location_id")
       .notNull()
       .references(() => locations.id),
+    /**
+     * The company that owns the shed. NULL means it is ours: these are Amino's
+     * books, so Amino is the org rather than a contact — a self-referencing
+     * contact would let somebody raise an invoice from us to us.
+     */
+    ownerId: uuid("owner_id").references(() => contacts.id),
     stockLocationId: uuid("stock_location_id")
       .notNull()
       .references(() => stockLocations.id),
@@ -66,6 +80,7 @@ export const houses = pgTable(
       .on(t.bhDeviceId)
       .where(sql`${t.bhDeviceId} IS NOT NULL`),
     index("ix_houses_location").on(t.locationId, t.displayOrder),
+    index("ix_houses_owner").on(t.ownerId),
   ],
 );
 

@@ -1,14 +1,14 @@
 /**
- * Houses — the sheds, grouped by the farm they stand on.
+ * Houses — the sheds, grouped by the site they stand on.
  *
- * Until this screen existed a shed was a `locations` row, which is why the feed
- * transfer picker offered "Nalbari Feed Mill" as somewhere to send feed. A
- * location is a site with an address and a GST state code; a house is a
- * building inside one, and it owns the store its feed sits in.
+ * Two facts about a shed that look like one and are not: WHERE it stands and
+ * WHO owns it. All six sheds stand at Nalbari; Nandamuri and Luit own two each
+ * and the rest are ours. Owner is what decides billing — feed delivered to a
+ * Luit shed is a sale to Luit, and its eggs are a purchase from them — so it
+ * cannot be inferred from the site, and the site cannot be inferred from it.
  *
- * Only the three things about a house that hold still: which farm it stands on,
- * whether it rears or lays, and the controller fitted to it. Bird count and feed
- * on hand are readings — they move every day, they belong on the operational
+ * Beyond those, only what else holds still: the type and the controller. Bird
+ * count and feed on hand are readings — they move every day, they belong on the
  * screens that produce them, and putting them on a settings form invites
  * somebody to type over a measurement.
  */
@@ -29,12 +29,15 @@ interface House {
   isActive: boolean;
   locationId: string;
   locationName: string;
+  ownerId: string | null;
+  /** Null when the shed is ours; the screen shows our own name instead. */
+  ownerName: string | null;
 }
 
-interface Farm {
-  id: string;
-  code: string;
-  name: string;
+interface Context {
+  sites: Array<{ id: string; code: string; name: string }>;
+  owners: Array<{ id: string; name: string }>;
+  ourName: string;
 }
 
 export function FarmHousesSection() {
@@ -43,6 +46,7 @@ export function FarmHousesSection() {
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({
     locationId: "",
+    ownerId: "",
     code: "",
     purpose: "lay" as HousePurpose,
     bhDeviceId: "",
@@ -52,9 +56,9 @@ export function FarmHousesSection() {
     queryKey: ["farm-houses"],
     queryFn: () => api("/api/farms/houses"),
   });
-  const { data: farms } = useQuery<Farm[]>({
-    queryKey: ["farm-list"],
-    queryFn: () => api("/api/farms/farms"),
+  const { data: ctx } = useQuery<Context>({
+    queryKey: ["farm-context"],
+    queryFn: () => api("/api/farms/context"),
   });
 
   const refresh = () => {
@@ -68,6 +72,8 @@ export function FarmHousesSection() {
         method: "POST",
         body: {
           locationId: form.locationId,
+          // Empty means ours, which is stored as no owner at all.
+          ownerId: form.ownerId || null,
           code: form.code.trim(),
           purpose: form.purpose,
           bhDeviceId: form.bhDeviceId.trim() || null,
@@ -75,7 +81,7 @@ export function FarmHousesSection() {
       }),
     onSuccess: () => {
       setAdding(false);
-      setForm({ locationId: "", code: "", purpose: "lay", bhDeviceId: "" });
+      setForm({ locationId: "", ownerId: "", code: "", purpose: "lay", bhDeviceId: "" });
       setError(null);
       refresh();
     },
@@ -89,7 +95,10 @@ export function FarmHousesSection() {
     onError: (e) => setError(e instanceof ApiError ? e.message : "Could not change that"),
   });
 
-  const byFarm = (houses ?? []).reduce<Record<string, House[]>>((acc, h) => {
+  // Grouped by site, because that is the thing you walk around. Owner varies
+  // within a site — Nalbari carries sheds belonging to three companies — so it
+  // is a column, not a heading.
+  const bySite = (houses ?? []).reduce<Record<string, House[]>>((acc, h) => {
     (acc[h.locationName] = acc[h.locationName] ?? []).push(h);
     return acc;
   }, {});
@@ -98,7 +107,7 @@ export function FarmHousesSection() {
     <div>
       <SettingsHeader
         title="Houses"
-        description="The sheds on each farm, what each is for, and the controller fitted to it. Bird counts and feed on hand are not here — they change daily and live on the screens that record them."
+        description="The sheds at each site, who owns each one, what it is for, and the controller fitted to it. Owner decides who gets billed for feed and who the eggs are bought from. Bird counts and feed on hand are not here — they change daily and live on the screens that record them."
       />
       {error && <Banner tone="error">{error}</Banner>}
 
@@ -110,18 +119,33 @@ export function FarmHousesSection() {
 
       {adding && (
         <div className="card mb-4 p-4">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
             <div>
-              <label className="label-required">Farm *</label>
+              <label className="label-required">Site *</label>
               <select
                 value={form.locationId}
                 onChange={(e) => setForm((f) => ({ ...f, locationId: e.target.value }))}
                 className="input"
               >
                 <option value="">Choose…</option>
-                {farms?.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.name}
+                {ctx?.sites.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Owner</label>
+              <select
+                value={form.ownerId}
+                onChange={(e) => setForm((f) => ({ ...f, ownerId: e.target.value }))}
+                className="input"
+              >
+                <option value="">{ctx?.ourName ?? "Us"}</option>
+                {ctx?.owners.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
                   </option>
                 ))}
               </select>
@@ -180,19 +204,20 @@ export function FarmHousesSection() {
       <SettingsTable
         columns={[
           { label: "House" },
+          { label: "Owner" },
           { label: "Type" },
           { label: "Controller" },
           { label: "", width: "80px" },
         ]}
       >
-        {!houses?.length && <EmptyRow colSpan={4}>No houses yet.</EmptyRow>}
-        {Object.entries(byFarm).map(([farm, list]) => (
+        {!houses?.length && <EmptyRow colSpan={5}>No houses yet.</EmptyRow>}
+        {Object.entries(bySite).map(([site, list]) => (
           // The key belongs on the fragment, not on the header row inside it —
           // a table cannot take a wrapper element, so the group IS the fragment.
-          <Fragment key={farm}>
+          <Fragment key={site}>
             <tr>
-              <td colSpan={4} className="bg-gray-50 px-3 py-1.5 text-[12px] font-semibold text-gray-600">
-                {farm}
+              <td colSpan={5} className="bg-gray-50 px-3 py-1.5 text-[12px] font-semibold text-gray-600">
+                {site}
               </td>
             </tr>
             {list.map((h) => (
@@ -200,6 +225,13 @@ export function FarmHousesSection() {
                 <td className="px-3 py-2">
                   <span className="font-medium text-gray-900">{h.code}</span>
                   {h.name && <span className="ml-2 text-gray-500">{h.name}</span>}
+                </td>
+                <td className="px-3 py-2">
+                  {h.ownerName ? (
+                    <span className="text-gray-900">{h.ownerName}</span>
+                  ) : (
+                    <span className="text-gray-400">{ctx?.ourName ?? "Us"}</span>
+                  )}
                 </td>
                 <td className="px-3 py-2 text-gray-600">{HOUSE_PURPOSE_LABELS[h.purpose]}</td>
                 <td className="px-3 py-2 font-mono text-[12px] text-gray-500">

@@ -379,6 +379,13 @@
       "when": 1786970884135,
       "tag": "0053_house_type_two_kinds",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1786970944135,
+      "tag": "0054_house_owner",
+      "breakpoints": true
     }
   ]
 }
