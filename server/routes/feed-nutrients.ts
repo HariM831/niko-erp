@@ -41,7 +41,15 @@ const bodySchema = z.object({
 /** The profile for one material, plus how complete it is. */
 async function profile(itemId: string) {
   const [item] = await db
-    .select({ id: items.id, name: items.name, unit: items.unit, costPrice: items.costPrice })
+    .select({
+      id: items.id,
+      name: items.name,
+      unit: items.unit,
+      costPrice: items.costPrice,
+      // Whether the formulator may reach it: shown beside the figures, because
+      // a complete analysis on an item nobody can solve with is wasted work.
+      isFeedIngredient: items.isFeedIngredient,
+    })
     .from(items)
     .where(eq(items.id, itemId));
   if (!item) return null;

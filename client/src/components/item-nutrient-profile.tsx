@@ -1,14 +1,14 @@
 /**
- * Nutrient profiles — the analysis behind every least-cost mix.
+ * The nutrient analysis for one material, on that material's own page.
  *
- * The list earns its keep by the "measured" column: a material with nothing on
- * file cannot enter a formulation, and this is where that is visible. The editor
- * groups the long tail of amino acids away from the four figures everybody
- * actually types.
+ * It used to be a screen of its own with every ingredient listed down the
+ * side. An analysis is a fact ABOUT a material — the same kind of thing as its
+ * quality spec, which now sits on the next tab — so keeping it somewhere else
+ * meant two places to look up one maize.
  *
- * A blank means NOT MEASURED, and clearing a box deletes the reading. Zero is a
- * different statement — it tells the solver the material contains none of the
- * nutrient, and the solver will believe it.
+ * A blank is not a zero, and the distinction is the point: blank means nobody
+ * has measured it and the formulator will treat it as nothing while SAYING so;
+ * zero is a claim that the material genuinely contains none.
  */
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -21,16 +21,6 @@ import {
   type NutrientSource,
 } from "@shared/feed";
 
-interface IndexRow {
-  id: string;
-  name: string;
-  unit: string;
-  costPrice: string | null;
-  measured: number;
-  me: string | null;
-  cp: string | null;
-}
-
 interface ProfileRow {
   nutrient: string;
   value: string;
@@ -41,7 +31,13 @@ interface ProfileRow {
 }
 
 interface Profile {
-  item: { id: string; name: string; unit: string; costPrice: string | null };
+  item: {
+    id: string;
+    name: string;
+    unit: string;
+    costPrice: string | null;
+    isFeedIngredient: boolean;
+  };
   values: ProfileRow[];
 }
 
@@ -53,48 +49,28 @@ interface Draft {
 
 const numOrEmpty = (v: string | null | undefined) => (v == null ? "" : String(Number(v)));
 
-export function FeedNutrientsPage() {
+export function ItemNutrientProfile({ itemId }: { itemId: string }) {
   const qc = useQueryClient();
-  const [selected, setSelected] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+  const selected = itemId;
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
 
-  const [picking, setPicking] = useState(false);
-  const { data: index } = useQuery<IndexRow[]>({
-    queryKey: ["feed-nutrients"],
-    queryFn: () => api("/api/feed/nutrients"),
-  });
-  const { data: candidates } = useQuery<Array<{ id: string; name: string }>>({
-    queryKey: ["feed-nutrient-candidates"],
-    queryFn: () => api("/api/feed/nutrients/candidates"),
-    enabled: picking,
-  });
-  const mark = useMutation({
-    mutationFn: (v: { id: string; isFeedIngredient: boolean }) =>
-      api(`/api/feed/nutrients/${v.id}/mark`, { method: "POST", body: { isFeedIngredient: v.isFeedIngredient } }),
-    onSuccess: (_r, v) => {
+  const markIngredient = useMutation({
+    mutationFn: (isFeedIngredient: boolean) =>
+      api(`/api/feed/nutrients/${itemId}/mark`, { method: "POST", body: { isFeedIngredient } }),
+    onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["feed-nutrients"] });
-      void qc.invalidateQueries({ queryKey: ["feed-nutrient-candidates"] });
-      if (v.isFeedIngredient) setSelected(v.id);
-      setPicking(false);
+      void qc.invalidateQueries({ queryKey: ["item", itemId] });
     },
+    onError: (e) => setError(e instanceof ApiError ? e.message : "Could not change that"),
   });
+
   const { data: profile } = useQuery<Profile>({
     queryKey: ["feed-nutrients", selected],
     queryFn: () => api(`/api/feed/nutrients/${selected}`),
     enabled: !!selected,
   });
-
-  const shown = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return (index ?? []).filter((r) => !q || r.name.toLowerCase().includes(q));
-  }, [index, search]);
-
-  useEffect(() => {
-    if (!selected && index?.length) setSelected(index[0]!.id);
-  }, [index, selected]);
 
   useEffect(() => {
     if (!profile) return;
@@ -149,85 +125,7 @@ export function FeedNutrientsPage() {
   const measuredCount = Object.values(drafts).filter((d) => d.value.trim() !== "").length;
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="border-b bg-white px-6 py-3">
-        <h1 className="text-lg font-semibold">Nutrient Profiles</h1>
-        <p className="text-[13px] text-gray-500">
-          What each material is made of. A material with nothing on file cannot enter a formulation
-        </p>
-      </header>
-
-      <div className="flex min-h-0 flex-1">
-        <aside className="flex w-44 shrink-0 flex-col border-r bg-white lg:w-64">
-          <div className="space-y-1.5 border-b p-2">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Find a material"
-              className="input h-8 w-full text-[13px]"
-            />
-            <button
-              onClick={() => setPicking((p) => !p)}
-              className="w-full rounded-md border border-dashed border-gray-300 px-2 py-1 text-[12px] text-gray-500 hover:border-brand-400 hover:text-brand-600"
-            >
-              {picking ? "Cancel" : "+ Mark an item as a feed ingredient"}
-            </button>
-            {picking && (
-              <select
-                autoFocus
-                defaultValue=""
-                onChange={(e) => e.target.value && mark.mutate({ id: e.target.value, isFeedIngredient: true })}
-                className="input h-8 w-full text-[12px]"
-              >
-                <option value="" disabled>
-                  Pick from the item master…
-                </option>
-                {candidates?.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            {shown.map((r) => (
-              <button
-                key={r.id}
-                onClick={() => {
-                  setSelected(r.id);
-                  setSaved(null);
-                  setError(null);
-                }}
-                className={`block w-full border-b border-gray-100 px-3 py-2 text-left hover:bg-gray-50 ${
-                  selected === r.id ? "bg-brand-50" : ""
-                }`}
-              >
-                <div className="truncate text-[13px] font-medium text-gray-900">{r.name}</div>
-                <div className="text-[11px] text-gray-400">
-                  {r.measured === 0 ? (
-                    "No analysis"
-                  ) : (
-                    <>
-                      {r.measured} nutrient{r.measured === 1 ? "" : "s"}
-                      {r.cp != null && ` · CP ${Number(r.cp)}%`}
-                      {r.me != null && ` · ${Number(r.me)} kcal`}
-                    </>
-                  )}
-                </div>
-              </button>
-            ))}
-            {index && !shown.length && (
-              <p className="p-4 text-[13px] text-gray-400">
-                {search
-                  ? `Nothing matches “${search}”.`
-                  : "No feed ingredients yet — mark the materials the mill mixes."}
-              </p>
-            )}
-          </div>
-        </aside>
-
-        <main className="min-w-0 flex-1 overflow-y-auto bg-surface p-3 lg:p-6">
+    <>
           {!profile ? (
             <p className="text-[13px] text-gray-400">Pick a material.</p>
           ) : (
@@ -249,9 +147,24 @@ export function FeedNutrientsPage() {
                     <FlaskConical size={16} className="text-brand-500" />
                     <span className="text-[15px] font-semibold text-gray-900">{profile.item.name}</span>
                   </div>
-                  <span className="text-[12px] text-gray-500">
-                    {measuredCount} of {NUTRIENTS.length} nutrients on file
-                  </span>
+                  <div className="flex items-center gap-3">
+                    {/* What the analysis is FOR. An item the formulator may not
+                        reach is one nobody will ever solve with, however
+                        completely it is measured — so the switch sits with the
+                        figures rather than three screens away. */}
+                    <label className="flex cursor-pointer items-center gap-1.5 text-[12px] text-gray-600">
+                      <input
+                        type="checkbox"
+                        checked={profile.item.isFeedIngredient ?? false}
+                        onChange={(e) => markIngredient.mutate(e.target.checked)}
+                        className="h-3.5 w-3.5 accent-brand-500"
+                      />
+                      Available to the formulator
+                    </label>
+                    <span className="text-[12px] text-gray-500">
+                      {measuredCount} of {NUTRIENTS.length} nutrients on file
+                    </span>
+                  </div>
                 </div>
 
                 {NUTRIENT_GROUPS.map(({ group, label }) => (
@@ -303,16 +216,6 @@ export function FeedNutrientsPage() {
                   <div className="flex shrink-0 items-center gap-3">
                     <button
                       onClick={() => {
-                        setSelected(null);
-                        mark.mutate({ id: profile.item.id, isFeedIngredient: false });
-                      }}
-                      className="text-[11px] text-gray-400 hover:text-red-600"
-                      title="Take it off the feed list; the analysis is kept"
-                    >
-                      Not a feed ingredient
-                    </button>
-                    <button
-                      onClick={() => {
                         setSaved(null);
                         setError(null);
                         save.mutate();
@@ -335,8 +238,6 @@ export function FeedNutrientsPage() {
               )}
             </div>
           )}
-        </main>
-      </div>
-    </div>
+    </>
   );
 }

@@ -8,7 +8,6 @@ import { ChartOfAccountsPage } from "./pages/chart-of-accounts";
 import { TransactionLockingPage } from "./pages/transaction-locking";
 import { BudgetDetailPage, BudgetNewPage, BudgetsPage } from "./pages/budgets";
 import { BulkUpdatePage } from "./pages/bulk-update";
-import { FeedNutrientsPage } from "./pages/feed-nutrients";
 import { FeedFormulasPage } from "./pages/feed-formulas";
 import { FeedProductionPage } from "./pages/feed-production";
 import {
@@ -163,7 +162,9 @@ export function App() {
         <Route path="/office/weighbridge">{() => <Redirect to={stationPath("weighbridge")} />}</Route>
         <Route path="/office/qc">{() => <Redirect to={stationPath("qc")} />}</Route>
         <Route path="/office/weigh-out">{() => <Redirect to={stationPath("weigh-out")} />}</Route>
-        <Route path="/feed-mill/nutrients" component={FeedNutrientsPage} />
+        {/* An analysis is a fact about a material, so it lives on the
+            material — beside its quality spec. */}
+        <Route path="/feed-mill/nutrients">{() => <Redirect to="/items" />}</Route>
         <Route path="/feed-mill/formulas" component={FeedFormulasPage} />
         {/* The formulator is no longer a screen of its own: it IS the
             single-formula view, so its old path lands there. */}

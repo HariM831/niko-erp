@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ItemNutrientProfile } from "../components/item-nutrient-profile";
 import { ItemQualitySpec } from "../components/item-quality-spec";
 import { Link, useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -80,7 +81,7 @@ const Field = ({ label, value, link }: { label: string; value: string; link?: st
 export function ItemDetailPage({ id }: { id: string }) {
   const [, navigate] = useLocation();
   const qc = useQueryClient();
-  const [tab, setTab] = useState<"overview" | "transactions" | "quality">("overview");
+  const [tab, setTab] = useState<"overview" | "transactions" | "quality" | "nutrition">("overview");
   const [moreOpen, setMoreOpen] = useState(false);
   const [merging, setMerging] = useState(false);
   const [mergeTarget, setMergeTarget] = useState("");
@@ -211,7 +212,7 @@ export function ItemDetailPage({ id }: { id: string }) {
         <nav className="flex gap-5 text-[13px]">
           {/* Quality only where it means something: a spec judges a material
               arriving on a lorry, and cement does not arrive that way. */}
-          {(["overview", "transactions", ...(item.category === "feed" ? (["quality"] as const) : [])] as const).map((t) => (
+          {(["overview", "transactions", ...(item.category === "feed" ? (["quality", "nutrition"] as const) : [])] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -261,7 +262,13 @@ export function ItemDetailPage({ id }: { id: string }) {
         </div>
       )}
 
-      {tab === "quality" ? (
+      {tab === "nutrition" ? (
+        <div className="flex-1 overflow-y-auto bg-surface p-6">
+          <div className="mx-auto max-w-3xl">
+            <ItemNutrientProfile itemId={id} />
+          </div>
+        </div>
+      ) : tab === "quality" ? (
         <div className="flex-1 overflow-y-auto bg-surface p-6">
           <div className="mx-auto max-w-3xl">
             <ItemQualitySpec itemId={id} />
