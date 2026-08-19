@@ -197,6 +197,95 @@ export interface StockLevel {
  * ledger movements. Never a stored column, for the same reason account
  * balances aren't — a cached number can drift from the rows behind it.
  */
+export interface StockPeriodRow {
+  itemId: string;
+  name: string;
+  unit: string;
+  category: string | null;
+  /** On hand the moment the period opened. */
+  opening: string;
+  /** Received during the period. */
+  inQty: string;
+  /** Issued during the period, as a positive number. */
+  outQty: string;
+  /** On hand at the close of the end date. */
+  closing: string;
+  /** What that closing stock is worth, at weighted average. */
+  value: string;
+  reorderLevel: string | null;
+  belowReorder: boolean;
+}
+
+/**
+ * Stock for a period: what moved, and where it left us.
+ *
+ * Opening is everything before the window — the item's opening balance plus
+ * every movement up to it — so the three columns tell one story that adds up:
+ * opening + in − out = closing. A report where the balance is computed from a
+ * different set of rows than the movements is a report nobody can reconcile.
+ *
+ * Value is at the CLOSING date rather than for the period, because a value for
+ * a window is not a thing anybody can use: stock is worth what it is worth on
+ * the day you ask.
+ */
+export async function stockLedger(
+  tx: Reader,
+  opts: { from: string; to: string; category?: string },
+): Promise<StockPeriodRow[]> {
+  const rows = await tx
+    .select({
+      itemId: items.id,
+      name: items.name,
+      unit: items.unit,
+      category: items.category,
+      openingStock: items.openingStock,
+      openingRate: items.openingStockRate,
+      reorderLevel: items.reorderLevel,
+      before: sql<string>`coalesce(sum(${inventoryTransactions.quantity}) FILTER (
+        WHERE ${inventoryTransactions.transactionDate} < ${opts.from}), 0)`,
+      inQty: sql<string>`coalesce(sum(${inventoryTransactions.quantity}) FILTER (
+        WHERE ${inventoryTransactions.transactionDate} BETWEEN ${opts.from} AND ${opts.to}
+          AND ${inventoryTransactions.quantity} > 0), 0)`,
+      outQty: sql<string>`coalesce(-sum(${inventoryTransactions.quantity}) FILTER (
+        WHERE ${inventoryTransactions.transactionDate} BETWEEN ${opts.from} AND ${opts.to}
+          AND ${inventoryTransactions.quantity} < 0), 0)`,
+      // Everything up to and including the end date, for the closing figures.
+      toDateQty: sql<string>`coalesce(sum(${inventoryTransactions.quantity}) FILTER (
+        WHERE ${inventoryTransactions.transactionDate} <= ${opts.to}), 0)`,
+      toDateValue: sql<string>`coalesce(sum(${inventoryTransactions.value}) FILTER (
+        WHERE ${inventoryTransactions.transactionDate} <= ${opts.to}), 0)`,
+    })
+    .from(items)
+    .leftJoin(inventoryTransactions, eq(inventoryTransactions.itemId, items.id))
+    .where(
+      opts.category
+        ? and(eq(items.trackInventory, true), eq(items.isActive, true), sql`${items.category}::text = ${opts.category}`)
+        : and(eq(items.trackInventory, true), eq(items.isActive, true)),
+    )
+    .groupBy(items.id)
+    .orderBy(items.name);
+
+  return rows.map((r) => {
+    const opening = Number(r.openingStock) + Number(r.before);
+    const closing = Number(r.openingStock) + Number(r.toDateQty);
+    const openingValueP = Math.round(Number(r.openingStock) * toPaise(r.openingRate));
+    const valueP = openingValueP + toPaise(r.toDateValue);
+    return {
+      itemId: r.itemId,
+      name: r.name,
+      unit: r.unit,
+      category: r.category,
+      opening: opening.toFixed(3),
+      inQty: Number(r.inQty).toFixed(3),
+      outQty: Number(r.outQty).toFixed(3),
+      closing: closing.toFixed(3),
+      value: (valueP / 100).toFixed(2),
+      reorderLevel: r.reorderLevel,
+      belowReorder: r.reorderLevel !== null && closing < Number(r.reorderLevel),
+    };
+  });
+}
+
 export async function stockOnHand(tx: Reader, itemId?: string): Promise<StockLevel[]> {
   // A join rather than a correlated subquery: drizzle renders bare column names
   // inside sql`` subqueries, so `where item_id = id` would silently bind `id` to

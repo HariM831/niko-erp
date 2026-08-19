@@ -16,6 +16,7 @@ import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, reverseJournal } from "../services/posting";
 import {
   postInventoryMovement,
+  stockLedger,
   reverseStock,
   stockOnHand,
 } from "../services/inventory";
@@ -56,6 +57,22 @@ function handlePostingError(err: unknown, res: Parameters<Parameters<Router["pos
 
 inventoryRouter.get("/stock", requirePermission("items", "view"), async (_req, res) => {
   res.json(await stockOnHand(db));
+});
+
+/**
+ * Stock for a window: what moved, and where it left us.
+ *
+ * Dates are required rather than defaulted here — a report that silently picks
+ * its own period is one nobody can quote. The screen defaults to today and
+ * says so.
+ */
+inventoryRouter.get("/stock/period", requirePermission("items", "view"), async (req, res) => {
+  const q = req.query as Record<string, string | undefined>;
+  const iso = /^\d{4}-\d{2}-\d{2}$/;
+  const to = q.to && iso.test(q.to) ? q.to : new Date().toISOString().slice(0, 10);
+  const from = q.from && iso.test(q.from) ? q.from : to;
+  if (from > to) return res.status(422).json({ error: "The period starts after it ends" });
+  res.json(await stockLedger(db, { from, to, category: q.category || undefined }));
 });
 
 inventoryRouter.get(

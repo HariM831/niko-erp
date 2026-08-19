@@ -3,13 +3,24 @@ import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
 
+/** Current on-hand, for the adjustment form's "quantity now" column. */
 interface StockLevel {
   itemId: string;
   name: string;
   unit: string;
-  openingStock: string;
-  movements: string;
   quantity: string;
+  value: string;
+}
+
+interface StockPeriodRow {
+  itemId: string;
+  name: string;
+  unit: string;
+  category: string | null;
+  opening: string;
+  inQty: string;
+  outQty: string;
+  closing: string;
   value: string;
   reorderLevel: string | null;
   belowReorder: boolean;
@@ -37,15 +48,51 @@ interface Account {
 const today = () => new Date().toISOString().slice(0, 10);
 const qty = (v: string) => Number(v).toLocaleString("en-IN", { maximumFractionDigits: 3 });
 
+/**
+ * Stock on Hand — what moved in a window, and where it left us.
+ *
+ * A tab per kind of thing, because "how much feed do we hold" has two answers:
+ * the maize in the silo and the mash in the store, and adding them is
+ * meaningless. Raw material comes in at the gate and leaves at the mill; what
+ * the mill makes goes the other way.
+ *
+ * Opening + in - out = closing, all from the same rows. A report whose balance
+ * is computed from a different set of movements than it displays is one nobody
+ * can reconcile against a count.
+ */
+const STOCK_TABS: Array<{ key: string; label: string; hint: string }> = [
+  { key: "feed", label: "Raw Material", hint: "Bought at the gate, consumed by the mill" },
+  { key: "poultry_feed", label: "Poultry Feed", hint: "Made by the mill, transferred to a shed" },
+  { key: "eggs", label: "Eggs", hint: "Graded and sold" },
+  { key: "birds", label: "Birds", hint: "" },
+  { key: "manure", label: "Manure", hint: "" },
+];
+
 export function StockPage() {
   const [, navigate] = useLocation();
-  const { data: levels, isLoading } = useQuery({
-    queryKey: ["stock"],
-    queryFn: () => api<StockLevel[]>("/api/inventory/stock"),
+  const [tab, setTab] = useState("feed");
+  // Today by default: the question somebody opens this page with is almost
+  // always "what happened today, and where does that leave us".
+  const [from, setFrom] = useState(today);
+  const [to, setTo] = useState(today);
+
+  const { data: rows, isLoading } = useQuery({
+    queryKey: ["stock-period", tab, from, to],
+    queryFn: () =>
+      api<StockPeriodRow[]>(`/api/inventory/stock/period?from=${from}&to=${to}&category=${tab}`),
   });
 
-  const totalValue = (levels ?? []).reduce((s, l) => s + Number(l.value), 0);
-  const lowCount = (levels ?? []).filter((l) => l.belowReorder).length;
+  const totalValue = (rows ?? []).reduce((s, l) => s + Number(l.value), 0);
+  const movedIn = (rows ?? []).reduce((s, l) => s + Number(l.inQty), 0);
+  const movedOut = (rows ?? []).reduce((s, l) => s + Number(l.outQty), 0);
+  const meta = STOCK_TABS.find((t) => t.key === tab);
+
+  const preset = (days: number) => {
+    const start = new Date();
+    start.setDate(start.getDate() - days);
+    setFrom(start.toISOString().slice(0, 10));
+    setTo(new Date().toISOString().slice(0, 10));
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -56,32 +103,83 @@ export function StockPage() {
         </button>
       </header>
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="mb-5 grid max-w-2xl grid-cols-3 gap-3">
-          <div className="rounded-lg bg-gray-50 px-4 py-3">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-              Tracked items
-            </div>
-            <div className="mt-1 text-[15px] font-medium tabular-nums">{levels?.length ?? 0}</div>
+        <div className="mb-4 flex gap-1 border-b border-gray-200" role="tablist">
+          {STOCK_TABS.map((t) => (
+            <button
+              key={t.key}
+              role="tab"
+              aria-selected={tab === t.key}
+              onClick={() => setTab(t.key)}
+              className={`-mb-px border-b-2 px-3 py-2 text-[13px] transition-colors ${
+                tab === t.key
+                  ? "border-brand-500 font-semibold text-brand-700"
+                  : "border-transparent text-gray-500 hover:text-gray-800"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="mb-4 flex flex-wrap items-end gap-2">
+          <div>
+            <label className="label">From</label>
+            <input
+              type="date"
+              value={from}
+              onChange={(e) => setFrom(e.target.value)}
+              className="input h-8 w-40 text-[13px]"
+            />
           </div>
-          <div className="rounded-lg bg-gray-50 px-4 py-3">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-              Stock value
-            </div>
-            <div className="mt-1 text-[15px] font-medium tabular-nums">
-              {formatMoney(totalValue)}
-            </div>
+          <div>
+            <label className="label">To</label>
+            <input
+              type="date"
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              className="input h-8 w-40 text-[13px]"
+            />
           </div>
-          <div className="rounded-lg bg-gray-50 px-4 py-3">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-              Below reorder level
+          <button
+            onClick={() => {
+              setFrom(today());
+              setTo(today());
+            }}
+            className="btn-ghost h-8 text-[12px]"
+          >
+            Today
+          </button>
+          <button onClick={() => preset(6)} className="btn-ghost h-8 text-[12px]">
+            7 days
+          </button>
+          <button onClick={() => preset(29)} className="btn-ghost h-8 text-[12px]">
+            30 days
+          </button>
+          {from > to && (
+            <span className="pb-2 text-[12px] text-red-600">The period starts after it ends.</span>
+          )}
+        </div>
+
+        <div className="mb-5 grid max-w-3xl grid-cols-4 gap-3">
+          {[
+            ["Items", String(rows?.length ?? 0)],
+            ["In", qty(String(movedIn))],
+            ["Out", qty(String(movedOut))],
+            ["Closing value", formatMoney(totalValue)],
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-lg bg-gray-50 px-4 py-3">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                {label}
+              </div>
+              <div className="mt-1 text-[15px] font-medium tabular-nums">{value}</div>
             </div>
-            <div className="mt-1 text-[15px] font-medium tabular-nums">{lowCount}</div>
-          </div>
+          ))}
         </div>
 
         <p className="mb-4 max-w-3xl text-[13px] text-gray-500">
-          Quantity is opening stock plus every ledger movement — never a stored number, so it
-          cannot drift from the transactions behind it.
+          {meta?.hint ? `${meta.hint}. ` : ""}In and out are what moved between the dates; closing
+          is what was on hand at the end of {formatDate(to)}. Never a stored number, so it cannot
+          drift from the transactions behind it.
         </p>
 
         <table className="w-full text-[13px]">
@@ -89,8 +187,9 @@ export function StockPage() {
             <tr>
               <th className="px-3 py-2 text-left">Item</th>
               <th className="px-3 py-2 text-right">Opening</th>
-              <th className="px-3 py-2 text-right">Movements</th>
-              <th className="px-3 py-2 text-right">On hand</th>
+              <th className="px-3 py-2 text-right">In</th>
+              <th className="px-3 py-2 text-right">Out</th>
+              <th className="px-3 py-2 text-right">Closing</th>
               <th className="px-3 py-2 text-right">Reorder level</th>
               <th className="px-3 py-2 text-right">Value</th>
             </tr>
@@ -98,19 +197,20 @@ export function StockPage() {
           <tbody>
             {isLoading && (
               <tr>
-                <td colSpan={6} className="px-3 py-6 text-center text-gray-400">
-                  Loading…
+                <td colSpan={7} className="px-3 py-6 text-center text-gray-400">
+                  Loading...
                 </td>
               </tr>
             )}
-            {levels?.length === 0 && (
+            {rows?.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-3 py-10 text-center text-gray-500">
-                  No inventory-tracked items. Turn on inventory tracking on an item to see it here.
+                <td colSpan={7} className="px-3 py-10 text-center text-gray-500">
+                  Nothing in {meta?.label ?? "this category"} tracks inventory yet. Turn tracking on
+                  for an item to see it here.
                 </td>
               </tr>
             )}
-            {levels?.map((l) => (
+            {rows?.map((l) => (
               <tr
                 key={l.itemId}
                 onClick={() => navigate(`/items/${l.itemId}`)}
@@ -125,17 +225,27 @@ export function StockPage() {
                   )}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums text-gray-500">
-                  {qty(l.openingStock)}
+                  {qty(l.opening)}
                 </td>
-                <td className="px-3 py-2 text-right tabular-nums text-gray-500">
-                  {Number(l.movements) > 0 ? "+" : ""}
-                  {qty(l.movements)}
+                <td
+                  className={`px-3 py-2 text-right tabular-nums ${
+                    Number(l.inQty) > 0 ? "text-green-700" : "text-gray-300"
+                  }`}
+                >
+                  {Number(l.inQty) > 0 ? qty(l.inQty) : "-"}
+                </td>
+                <td
+                  className={`px-3 py-2 text-right tabular-nums ${
+                    Number(l.outQty) > 0 ? "text-amber-700" : "text-gray-300"
+                  }`}
+                >
+                  {Number(l.outQty) > 0 ? qty(l.outQty) : "-"}
                 </td>
                 <td className="px-3 py-2 text-right font-medium tabular-nums">
-                  {qty(l.quantity)} <span className="text-gray-400">{l.unit}</span>
+                  {qty(l.closing)} <span className="text-gray-400">{l.unit}</span>
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums text-gray-500">
-                  {l.reorderLevel ? qty(l.reorderLevel) : "—"}
+                  {l.reorderLevel ? qty(l.reorderLevel) : "-"}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">{formatMoney(l.value)}</td>
               </tr>
