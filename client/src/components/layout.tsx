@@ -105,14 +105,15 @@ const NAV: NavItem[] = [
      * screens would mostly be links to things you get to by pointing at the
      * shed you were already looking at.
      */
-    /**
-     * One entry, because Farms is one screen: Houses, and everything else is
-     * reached by pointing at the shed you were already looking at. It becomes a
-     * group again the day a second top-level farm page exists.
-     */
     label: "Farms",
     icon: Bird,
-    path: "/farms",
+    children: [
+      { label: "Houses", path: "/farms" },
+      /* A batch is not the shed's — it keeps one record across every shed it
+         lives in, so it is made and listed on its own screen. Houses report
+         what they happen to be holding. */
+      { label: "Batches", path: "/farms/batches" },
+    ],
   },
   {
     label: "Accountant",

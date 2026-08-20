@@ -174,7 +174,6 @@ export function HouseDetailPage() {
     }>;
   } | null>(null);
   
-  const [showStockDialog, setShowStockDialog] = useState(false);
   const [showRecordDialog, setShowRecordDialog] = useState(false);
   const [showWeightDialog, setShowWeightDialog] = useState(false);
   
@@ -183,7 +182,6 @@ export function HouseDetailPage() {
   const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
   const [editingWeightId, setEditingWeightId] = useState<string | null>(null);
   const [editingVaccinationId, setEditingVaccinationId] = useState<string | null>(null);
-  const [editingStockId, setEditingStockId] = useState<string | null>(null);
   const [selectedBatch, setSelectedBatch] = useState<string>("__all__");
   const [breeds, setBreeds] = useState<{id: string; name: string; description?: string}[]>([]);
   const [breedStandards, setBreedStandards] = useState<{
@@ -607,44 +605,6 @@ export function HouseDetailPage() {
       });
   }, [shedData, filteredStocks, shed, earliestStock, breedStandards, selectedBatch]);
 
-  const handleSaveStock = async () => {
-    if (!shedId || !stockForm.openingCount || !stockForm.batchNumber) return;
-
-    setIsSaving(true);
-    try {
-      const payload: any = {
-        shedId,
-        batchNumber: stockForm.batchNumber,
-        dateIn: new Date(stockForm.dateIn).toISOString(),
-        openingCount: parseInt(stockForm.openingCount),
-        breedId: stockForm.breedId || null,
-        batchBirthDate: stockForm.batchBirthDate ? new Date(stockForm.batchBirthDate).toISOString() : null,
-        isActive: stockForm.isActive,
-        notes: stockForm.notes || null
-      };
-
-      await apiRequest(editingStockId ? 'PATCH' : 'POST', editingStockId ? `/api/bird-stock/${editingStockId}` : '/api/bird-stock', payload);
-      setShowStockDialog(false);
-      setEditingStockId(null);
-      setStockForm({
-        batchNumber: '',
-        dateIn: format(new Date(), 'yyyy-MM-dd'),
-        batchBirthDate: '',
-        openingCount: '',
-        notes: '',
-        breedId: '',
-        isActive: true,
-      });
-      toast({ title: editingStockId ? 'Batch Updated' : 'Batch Added', description: `Batch ${stockForm.batchNumber} saved successfully.` });
-      setSelectedBatch("__all__");
-      fetchData();
-    } catch (error) {
-      console.error('Failed to save stock:', error);
-      toast({ title: 'Failed to save batch', description: 'Network error. Please check your connection and try again.', variant: 'destructive' });
-    } finally {
-      setIsSaving(false);
-    }
-  };
 
 
   const handleDeleteRecord = async (recordId: string) => {
@@ -719,20 +679,6 @@ export function HouseDetailPage() {
     });
     setEditingVaccinationId(record.id);
     setShowVaccinationDialog(true);
-  };
-
-  const handleEditStock = async (stock: BirdStock) => {
-    setStockForm({
-      batchNumber: stock.batchNumber,
-      dateIn: format(new Date(stock.dateIn), 'yyyy-MM-dd'),
-      batchBirthDate: stock.batchBirthDate ? format(new Date(stock.batchBirthDate), 'yyyy-MM-dd') : '',
-      openingCount: stock.openingCount.toString(),
-      notes: stock.notes || '',
-      breedId: (stock as any).breedId || '',
-      isActive: stock.isActive !== false,
-    });
-    setEditingStockId(stock.id);
-    setShowStockDialog(true);
   };
 
 
@@ -1080,131 +1026,18 @@ export function HouseDetailPage() {
             <CardContent className="py-12 text-center">
               <Bird className="w-12 h-12 mx-auto mb-4 text-slate-300" />
               <h3 className="text-lg font-medium text-slate-600 mb-2">No Birds Placed Yet</h3>
-              <p className="text-slate-400 mb-4">Add birds to start tracking</p>
-              {isAdmin && (
-                <Dialog open={showStockDialog} onOpenChange={(open) => { setShowStockDialog(open); if (!open) setEditingStockId(null); }}>
-                  <DialogTrigger asChild>
-                    <Button data-testid="button-add-birds">
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add Birds
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>{editingStockId ? 'Edit Birds' : 'Add Birds'}</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4 pt-4">
-                      <div>
-                        <Label>Batch Number</Label>
-                        <Input
-                          placeholder="e.g., BATCH-2024-001"
-                          value={stockForm.batchNumber}
-                          onChange={(e) => setStockForm(prev => ({ ...prev, batchNumber: e.target.value }))}
-                          className="min-h-[44px]"
-                          data-testid="input-batch-number"
-                        />
-                      </div>
-                      <div>
-                        <Label>Date Birds Placed</Label>
-                        <Input
-                          type="date"
-                          value={stockForm.dateIn}
-                          onChange={(e) => setStockForm(prev => ({ ...prev, dateIn: e.target.value }))}
-                          className="min-h-[44px]"
-                          data-testid="input-date-in"
-                        />
-                      </div>
-                      <div>
-                        <Label>Number of Birds</Label>
-                        <Input
-                          type="number"
-                          placeholder="e.g., 5000"
-                          value={stockForm.openingCount}
-                          onChange={(e) => setStockForm(prev => ({ ...prev, openingCount: e.target.value }))}
-                          className="min-h-[44px]"
-                          data-testid="input-opening-count"
-                        />
-                      </div>
-                      <div>
-                        <Label>Breed</Label>
-                        <Select
-                          value={stockForm.breedId}
-                          onValueChange={(value) => setStockForm(prev => ({ ...prev, breedId: value }))}
-                        >
-                          <SelectTrigger className="min-h-[44px]" data-testid="select-breed-initial">
-                            <SelectValue placeholder="Select breed" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {breeds.map((breed) => (
-                              <SelectItem key={breed.id} value={breed.id}>
-                                {breed.name}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label>Date of Birth</Label>
-                        <Input
-                          type="date"
-                          value={stockForm.batchBirthDate}
-                          onChange={(e) => setStockForm(prev => ({ ...prev, batchBirthDate: e.target.value }))}
-                          className="min-h-[44px]"
-                          data-testid="input-batch-birth-date"
-                        />
-                        <p className="text-xs text-slate-500 mt-1">Birth date of these birds (used for age calculation)</p>
-                      </div>
-                      <div>
-                        <Label>Notes (optional)</Label>
-                        <Input
-                          placeholder="Any additional notes"
-                          value={stockForm.notes}
-                          onChange={(e) => setStockForm(prev => ({ ...prev, notes: e.target.value }))}
-                          className="min-h-[44px]"
-                          data-testid="input-notes"
-                        />
-                      </div>
-                      {editingStockId && (
-                        <div>
-                          <Label>Batch Status</Label>
-                          <div className="flex gap-2 mt-1">
-                            <Button
-                              type="button"
-                              variant={stockForm.isActive ? 'default' : 'outline'}
-                              className="flex-1 min-h-[44px]"
-                              onClick={() => setStockForm(prev => ({ ...prev, isActive: true }))}
-                              data-testid="button-batch-active"
-                            >
-                              Active
-                            </Button>
-                            <Button
-                              type="button"
-                              variant={!stockForm.isActive ? 'default' : 'outline'}
-                              className="flex-1 min-h-[44px]"
-                              onClick={() => setStockForm(prev => ({ ...prev, isActive: false }))}
-                              data-testid="button-batch-inactive"
-                            >
-                              Inactive
-                            </Button>
-                          </div>
-                          <p className="text-xs text-slate-500 mt-1">Inactive batches are excluded from all shed totals and age calculations.</p>
-                        </div>
-                      )}
-                      <Button
-                        className="w-full min-h-[44px]"
-                        onClick={handleSaveStock}
-                        disabled={isSaving || !stockForm.batchNumber || !stockForm.openingCount}
-                        data-testid="button-save-stock"
-                      >
-                        {isSaving ? 'Saving...' : (editingStockId ? 'Update Birds' : 'Add Birds')}
-                      </Button>
-                    </div>
-                  </DialogContent>
-                </Dialog>
-              )}
-              {!isAdmin && (
-                <p className="text-sm text-slate-400">Only admins can add birds</p>
-              )}
+              {/*
+                Batches are not created here. A batch keeps one record across
+                every shed it lives in, so it is made on the Batches screen and
+                placed into a house from there; a house reports what it happens
+                to be holding.
+              */}
+              <p className="text-slate-400 mb-4">
+                Batches are created on the Batches screen, then placed into a house.
+              </p>
+              <Button onClick={() => setLocation("/farms/batches")} data-testid="button-go-batches">
+                Go to Batches
+              </Button>
             </CardContent>
           </Card>
         ) : (
@@ -2299,17 +2132,6 @@ export function HouseDetailPage() {
                       culling.
                     </p>
                     </div>
-                    {isAdmin && (
-                      <Button
-                        size="sm"
-                        className="flex-shrink-0"
-                        onClick={() => setShowStockDialog(true)}
-                        data-testid="button-place-batch"
-                      >
-                        <Plus className="mr-1 h-4 w-4" />
-                        Place a batch
-                      </Button>
-                    )}
                   </CardHeader>
                   <CardContent>
                     {stocks.length === 0 ? (

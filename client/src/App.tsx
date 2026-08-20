@@ -11,6 +11,7 @@ import { BulkUpdatePage } from "./pages/bulk-update";
 import { FeedFormulasPage } from "./pages/feed-formulas";
 import { FeedProductionPage } from "./pages/feed-production";
 import { FarmsHousesPage } from "./pages/farms-houses";
+import { FarmsBatchesPage } from "./pages/farms-batches";
 import { HouseDetailPage } from "./pages/house-detail";
 import { FlockDetailPage } from "./pages/flock-detail";
 import {
@@ -174,6 +175,7 @@ export function App() {
         <Route path="/feed-mill/formulator">{() => <Redirect to="/feed-mill/formulas" />}</Route>
         <Route path="/feed-mill/production" component={FeedProductionPage} />
         <Route path="/farms" component={FarmsHousesPage} />
+        <Route path="/farms/batches" component={FarmsBatchesPage} />
         {/* The Houses screen moved up to /farms; keep the old path working. */}
         <Route path="/farms/daily">{() => <Redirect to="/farms" />}</Route>
         <Route path="/farms/houses/:id" component={HouseDetailPage} />

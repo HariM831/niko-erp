@@ -114,7 +114,7 @@ export function FlockDetailPage() {
   if (!f) return <p className="p-6 text-[13px] text-gray-500">Flock not found.</p>;
 
   const tabs: Array<{ key: Tab; label: string; count?: number }> = [
-    { key: "hatches", label: "Hatches", count: f.hatches.length },
+    { key: "hatches", label: "Batches", count: f.hatches.length },
     {
       key: "transfers",
       label: "Transfer",
@@ -350,7 +350,7 @@ function HatchTab({
 
   return (
     <Panel
-      title="Hatches"
+      title="Batches"
       blurb="Chicks arrive over a week, not on one day. The flock's age counts from the bird-weighted average of these lines — the age most of its birds actually are."
       onSave={() => save.mutate()}
       saving={save.isPending}
