@@ -435,6 +435,13 @@
       "when": 1786971364135,
       "tag": "0061_daily_amino_shape",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1786971424135,
+      "tag": "0062_weighings_and_vaccination",
+      "breakpoints": true
     }
   ]
 }

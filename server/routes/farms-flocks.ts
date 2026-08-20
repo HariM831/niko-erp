@@ -29,6 +29,7 @@ import { validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
 import { dayBoard, saveDay } from "../services/daily";
 import { housesBoard } from "../services/houses-board";
+import { houseDetail } from "../services/house-detail";
 import {
   ageOn,
   boardRows,
@@ -737,5 +738,12 @@ farmsFlockRouter.post("/daily", manage, validateBody(dailySchema), async (req, r
  */
 farmsFlockRouter.get("/houses-board", view, async (_req, res) => {
   const out = await db.transaction((tx) => housesBoard(tx));
+  res.json(out);
+});
+
+/** One house's page — the shed screen's eight collections, in one request. */
+farmsFlockRouter.get("/houses/:id/detail", view, async (req, res) => {
+  const out = await db.transaction((tx) => houseDetail(tx, req.params.id!));
+  if (!out) return res.status(404).json({ error: "House not found" });
   res.json(out);
 });
