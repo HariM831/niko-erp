@@ -31,7 +31,7 @@ export function KpiCard({
 }) {
   return (
     <Card
-      className={cn("relative overflow-hidden transition-shadow hover:shadow-md", onClick && "cursor-pointer", className)}
+      className={cn("relative overflow-hidden border-0 transition-shadow hover:shadow-md", onClick && "cursor-pointer", className)}
       onClick={onClick}
     >
       <CardContent className={cn("pt-0", variant === "default" ? "p-5" : "p-3.5")}>

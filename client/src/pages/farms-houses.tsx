@@ -559,9 +559,9 @@ export function FarmsHousesPage() {
             <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Layers
             </div>
-            <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
+            <div className="overflow-hidden rounded-lg bg-card shadow-sm">
               <table className="w-full text-sm">
-                <thead className="bg-primary/10">
+                <thead className="bg-gray-50">
                   <tr className="border-b border-primary/20">
                     <Th align="left">Shed</Th>
                     <Th>Birds</Th>
@@ -649,9 +649,9 @@ export function FarmsHousesPage() {
             <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Pullets
             </div>
-            <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
+            <div className="overflow-hidden rounded-lg bg-card shadow-sm">
               <table className="w-full text-sm">
-                <thead className="bg-primary/10">
+                <thead className="bg-gray-50">
                   <tr className="border-b border-primary/20">
                     <Th align="left">Shed</Th>
                     <Th>Birds</Th>
@@ -1058,7 +1058,7 @@ function KpiCard({
   accent: string;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-lg border bg-card shadow-sm transition-shadow hover:shadow-md">
+    <div className="relative overflow-hidden rounded-lg bg-card shadow-sm transition-shadow hover:shadow-md">
       <div className="p-3.5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">

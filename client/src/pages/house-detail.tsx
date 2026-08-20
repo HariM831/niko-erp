@@ -1293,7 +1293,7 @@ export function HouseDetailPage() {
                                   <p className="text-sm font-medium mb-2">{bulkUploadData.length} records found in CSV:</p>
                                   <div className="max-h-64 overflow-auto border rounded">
                                     <table className="w-full text-xs">
-                                      <thead className="bg-primary/10 sticky top-0">
+                                      <thead className="bg-gray-50 sticky top-0">
                                         <tr className="border-b border-primary/20">
                                           <th className="p-2 text-left text-[11px] font-semibold uppercase tracking-wider text-primary">Date</th>
                                           <th className="p-2 text-left text-[11px] font-semibold uppercase tracking-wider text-primary">Batch</th>
@@ -2041,7 +2041,7 @@ export function HouseDetailPage() {
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
-                          <thead className="bg-primary/10">
+                          <thead className="bg-gray-50">
                             <tr className="border-b border-primary/20">
                               <th className="text-left py-3 px-2 text-[11px] font-semibold uppercase tracking-wider text-primary">Date</th>
                               <th className="text-left py-3 px-2 text-[11px] font-semibold uppercase tracking-wider text-primary">Age</th>
