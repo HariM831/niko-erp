@@ -64,6 +64,8 @@ interface Shed {
 
 interface BirdStock {
   id: string;
+  /** Not in the original shape — a batch links through to its flock. */
+  flockId?: string;
   shedId: string;
   batchNumber: string;
   dateIn: string;
@@ -206,8 +208,6 @@ export function HouseDetailPage() {
   const [showRecordDetailDialog, setShowRecordDetailDialog] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<DailyRecord | null>(null);
   
-  const [showTransferDialog, setShowTransferDialog] = useState(false);
-  const [isTransferring, setIsTransferring] = useState(false);
   const [transferForm, setTransferForm] = useState({
     batchNumber: '',
     toShedId: '',
@@ -646,16 +646,6 @@ export function HouseDetailPage() {
     }
   };
 
-  const handleDeleteStock = async (stockId: string) => {
-    if (!confirm('Are you sure you want to delete this bird batch?')) return;
-    
-    try {
-      await apiRequest('DELETE', `/api/bird-stock/${stockId}`);
-      fetchData();
-    } catch (error) {
-      console.error('Failed to delete stock:', error);
-    }
-  };
 
   const handleDeleteRecord = async (recordId: string) => {
     if (!confirm('Are you sure you want to delete this daily record?')) return;
@@ -745,21 +735,6 @@ export function HouseDetailPage() {
     setShowStockDialog(true);
   };
 
-  const handleToggleStockActive = async (stock: BirdStock) => {
-    try {
-      await apiRequest('PATCH', `/api/bird-stock/${stock.id}`, { isActive: stock.isActive === false });
-      toast({
-        title: stock.isActive === false ? 'Batch Reactivated' : 'Batch Marked Inactive',
-        description: stock.isActive === false
-          ? `Batch ${stock.batchNumber} is now included in calculations.`
-          : `Batch ${stock.batchNumber} is now excluded from all shed calculations.`,
-      });
-      fetchData();
-    } catch (error) {
-      console.error('Failed to toggle batch active state:', error);
-      toast({ title: 'Failed to update batch', description: 'Network error. Please try again.', variant: 'destructive' });
-    }
-  };
 
   const handleSaveRecord = async () => {
     if (!shedId) return;
@@ -946,52 +921,6 @@ export function HouseDetailPage() {
     return batchStock.openingCount - totalMortality + totalTransferredIn - totalTransferredOut - totalCulled - totalMaleBirds;
   };
 
-  const handleTransfer = async () => {
-    if (!shedId || !transferForm.batchNumber || !transferForm.toShedId || !transferForm.birdCount) return;
-    
-    const birdCount = parseInt(transferForm.birdCount);
-    const availableBirds = getAvailableBirdsForBatch(transferForm.batchNumber);
-    
-    // Validate bird count doesn't exceed available
-    if (birdCount > availableBirds) {
-      alert(`Cannot transfer ${birdCount} birds. Only ${availableBirds} birds available in this batch.`);
-      return;
-    }
-    
-    if (birdCount <= 0) {
-      alert('Please enter a valid number of birds to transfer.');
-      return;
-    }
-
-    // Immediately disable button and close dialog to prevent duplicates
-    setIsTransferring(true);
-    setShowTransferDialog(false);
-
-    try {
-      await apiRequest('POST', '/api/batch-transfers', {
-        batchNumber: transferForm.batchNumber,
-        fromShedId: shedId,
-        toShedId: transferForm.toShedId,
-        transferDate: transferForm.transferDate,
-        birdCount: birdCount,
-        notes: transferForm.notes,
-        transferredBy: state.currentUser?.name || 'Unknown'
-      });
-      setTransferForm({
-        batchNumber: '',
-        toShedId: '',
-        transferDate: format(new Date(), 'yyyy-MM-dd'),
-        birdCount: '',
-        notes: ''
-      });
-      fetchData();
-    } catch (error) {
-      console.error('Failed to transfer batch:', error);
-      alert('Transfer failed. Please try again.');
-    } finally {
-      setIsTransferring(false);
-    }
-  };
 
   const formOpeningBirds = useMemo(() => {
     const formDate = new Date(recordForm.date);
@@ -2348,219 +2277,83 @@ export function HouseDetailPage() {
               </TabsContent>
 
               <TabsContent value="batches">
+                {/*
+                  Batches are not the shed's, and they are not edited here.
+                  A batch belongs to the flock: it arrives over several hatches,
+                  moves to the layer house over several lorries, and is culled
+                  out over several days — and it keeps its record through all of
+                  it. A shed is only where it was standing on a given day, which
+                  is why daily entry is against the shed but the numbers land on
+                  the flock's ledger.
+
+                  So this lists what this house has held and hands off to the
+                  flock, where those three things are edited as dated line sets.
+                */}
                 <Card>
-                  <CardHeader className="flex flex-row items-center justify-between">
+                  <CardHeader className="flex flex-row items-start justify-between gap-3">
+                    <div>
                     <CardTitle>Bird Batches</CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      What this house has held. A batch keeps its own record across every shed it
+                      lives in — open it to see the whole life, and to record hatches, transfers or
+                      culling.
+                    </p>
+                    </div>
                     {isAdmin && (
-                      <div className="flex gap-2">
-{shed?.type === 'pullet' && (
-                        <Button size="sm" className="min-h-[44px]" onClick={() => setShowTransferDialog(true)} data-testid="button-transfer-batch">
-                          <ArrowUpRight className="w-4 h-4 mr-2" />
-                          Transfer
-                        </Button>
-                        )}
-                        <Dialog open={showStockDialog} onOpenChange={(open) => { setShowStockDialog(open); if (!open) setEditingStockId(null); }}>
-                          <DialogTrigger asChild>
-                            <Button size="sm" className="min-h-[44px]" data-testid="button-add-batch">
-                              <Plus className="w-4 h-4 mr-2" />
-                              Add Birds
-                            </Button>
-                          </DialogTrigger>
-                          <DialogContent>
-                            <DialogHeader>
-                              <DialogTitle>{editingStockId ? 'Edit Birds' : 'Add Birds'}</DialogTitle>
-                            </DialogHeader>
-                            <div className="space-y-4 pt-4">
-                              <div>
-                                <Label>Batch Number</Label>
-                                <Input
-                                  placeholder="e.g., BATCH-2024-001"
-                                  value={stockForm.batchNumber}
-                                  onChange={(e) => setStockForm(prev => ({ ...prev, batchNumber: e.target.value }))}
-                                  className="min-h-[44px]"
-                                  data-testid="input-batch-number"
-                                />
-                              </div>
-                              <div>
-                                <Label>Date Birds Placed</Label>
-                                <Input
-                                  type="date"
-                                  value={stockForm.dateIn}
-                                  onChange={(e) => setStockForm(prev => ({ ...prev, dateIn: e.target.value }))}
-                                  className="min-h-[44px]"
-                                  data-testid="input-date-in"
-                                />
-                              </div>
-                              <div>
-                                <Label>Number of Birds</Label>
-                                <Input
-                                  type="number"
-                                  placeholder="e.g., 5000"
-                                  value={stockForm.openingCount}
-                                  onChange={(e) => setStockForm(prev => ({ ...prev, openingCount: e.target.value }))}
-                                  className="min-h-[44px]"
-                                  data-testid="input-opening-count"
-                                />
-                              </div>
-                              <div>
-                                <Label>Breed</Label>
-                                <Select
-                                  value={stockForm.breedId}
-                                  onValueChange={(value) => setStockForm(prev => ({ ...prev, breedId: value }))}
-                                >
-                                  <SelectTrigger className="min-h-[44px]" data-testid="select-breed">
-                                    <SelectValue placeholder="Select breed" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {breeds.map((breed) => (
-                                      <SelectItem key={breed.id} value={breed.id}>
-                                        {breed.name}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div>
-                                <Label>Date of Birth</Label>
-                                <Input
-                                  type="date"
-                                  value={stockForm.batchBirthDate}
-                                  onChange={(e) => setStockForm(prev => ({ ...prev, batchBirthDate: e.target.value }))}
-                                  className="min-h-[44px]"
-                                  data-testid="input-batch-birth-date-2"
-                                />
-                                <p className="text-xs text-slate-500 mt-1">Birth date of these birds (used for age calculation)</p>
-                              </div>
-                              <div>
-                                <Label>Notes (optional)</Label>
-                                <Input
-                                  placeholder="Any additional notes"
-                                  value={stockForm.notes}
-                                  onChange={(e) => setStockForm(prev => ({ ...prev, notes: e.target.value }))}
-                                  className="min-h-[44px]"
-                                  data-testid="input-notes"
-                                />
-                              </div>
-                              {editingStockId && (
-                                <div>
-                                  <Label>Batch Status</Label>
-                                  <div className="flex gap-2 mt-1">
-                                    <Button
-                                      type="button"
-                                      variant={stockForm.isActive ? 'default' : 'outline'}
-                                      className="flex-1 min-h-[44px]"
-                                      onClick={() => setStockForm(prev => ({ ...prev, isActive: true }))}
-                                      data-testid="button-batch-active-2"
-                                    >
-                                      Active
-                                    </Button>
-                                    <Button
-                                      type="button"
-                                      variant={!stockForm.isActive ? 'default' : 'outline'}
-                                      className="flex-1 min-h-[44px]"
-                                      onClick={() => setStockForm(prev => ({ ...prev, isActive: false }))}
-                                      data-testid="button-batch-inactive-2"
-                                    >
-                                      Inactive
-                                    </Button>
-                                  </div>
-                                  <p className="text-xs text-slate-500 mt-1">Inactive batches are excluded from all shed totals and age calculations.</p>
-                                </div>
-                              )}
-                              <Button
-                                className="w-full min-h-[44px]"
-                                onClick={handleSaveStock}
-                                disabled={isSaving || !stockForm.batchNumber || !stockForm.openingCount}
-                                data-testid="button-save-stock"
-                              >
-                                {isSaving ? 'Saving...' : (editingStockId ? 'Update Birds' : 'Add Birds')}
-                              </Button>
-                            </div>
-                          </DialogContent>
-                        </Dialog>
-                      </div>
+                      <Button
+                        size="sm"
+                        className="flex-shrink-0"
+                        onClick={() => setShowStockDialog(true)}
+                        data-testid="button-place-batch"
+                      >
+                        <Plus className="mr-1 h-4 w-4" />
+                        Place a batch
+                      </Button>
                     )}
                   </CardHeader>
                   <CardContent>
                     {stocks.length === 0 ? (
-                      <div className="text-center py-8 text-slate-400">
-                        No bird batches yet
+                      <div className="py-8 text-center text-muted-foreground" data-testid="text-no-batches">
+                        No batch has been placed in this house yet.
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        {stocks.map((stock) => {
-                          const batchAge = calculateAge(stock.batchBirthDate || stock.dateIn);
-                          const batchBreed = breeds.find(b => b.id === (stock as any).breedId);
-                          const isInactive = stock.isActive === false;
-                          return (
-                            <div
-                              key={stock.id}
-                              className={`flex items-center justify-between p-3 bg-slate-50 rounded-lg${isInactive ? ' opacity-60' : ''}`}
-                              data-testid={`batch-${stock.id}`}
-                            >
-                              <div>
-                                <div className="font-medium flex items-center gap-2">
-                                  {stock.batchNumber}
-                                  {batchBreed && (
-                                    <Badge variant="outline" className="text-xs font-normal">{batchBreed.name}</Badge>
-                                  )}
-                                  {isInactive && (
-                                    <Badge variant="secondary" className="text-xs font-normal" data-testid={`badge-inactive-${stock.id}`}>Inactive</Badge>
-                                  )}
-                                </div>
-                                <div className="text-sm text-slate-500">
-                                  Placed: {format(new Date(stock.dateIn), 'dd MMM yyyy')}
-                                  {stock.batchBirthDate && ` | DOB: ${format(new Date(stock.batchBirthDate), 'dd MMM yyyy')}`}
-                                  {' | '}Age: {batchAge.weeks}w {batchAge.days}d
-                                  {stock.sourceShedId && <span className="text-info"> (Transferred)</span>}
-                                  {stock.notes && ` - ${stock.notes}`}
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-3">
-                                <div className="flex items-center gap-2">
-                                  <Bird className="w-4 h-4 text-slate-400" />
-                                  <span className="font-medium">{stock.openingCount.toLocaleString()}</span>
-                                </div>
-                                {isAdmin && (
-                                  <>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className={isInactive ? "text-success hover:text-success/80 hover:bg-success/10" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"}
-                                    onClick={() => handleToggleStockActive(stock)}
-                                    title={isInactive ? 'Reactivate batch (include in calculations)' : 'Mark batch inactive (exclude from calculations)'}
-                                    data-testid={`button-toggle-batch-${stock.id}`}
-                                  >
-                                    {isInactive ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="text-info hover:text-info/80 hover:bg-info/10"
-                                    onClick={() => handleEditStock(stock)}
-                                    data-testid={`button-edit-batch-${stock.id}`}
-                                  >
-                                    <Edit className="w-4 h-4" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="text-destructive hover:text-destructive/80 hover:bg-destructive/10"
-                                    onClick={() => handleDeleteStock(stock.id)}
-                                    data-testid={`button-delete-batch-${stock.id}`}
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </Button>
-                                  </>
+                        {stocks.map((stock) => (
+                          <button
+                            key={stock.id}
+                            onClick={() =>
+                              stock.flockId && setLocation(`/farms/flocks/${stock.flockId}`)
+                            }
+                            className="flex w-full items-center justify-between gap-3 rounded-lg border border-border p-3 text-left transition-colors hover:bg-muted/40"
+                            data-testid={`batch-${stock.id}`}
+                          >
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 font-medium text-foreground">
+                                {stock.batchNumber}
+                                {stock.isActive === false && (
+                                  <Badge variant="secondary" className="text-xs font-normal">
+                                    Depleted
+                                  </Badge>
                                 )}
                               </div>
+                              <div className="text-sm text-muted-foreground">
+                                Placed: {format(new Date(stock.dateIn), 'dd MMM yyyy')}
+                                {stock.batchBirthDate &&
+                                  ` | Hatched: ${format(new Date(stock.batchBirthDate), 'dd MMM yyyy')}`}
+                              </div>
                             </div>
-                          );
-                        })}
+                            <div className="flex flex-shrink-0 items-center gap-3">
+                              <div className="text-right">
+                                <div className="text-xs text-muted-foreground">Placed</div>
+                                <div className="font-medium tabular-nums text-foreground">
+                                  {stock.openingCount.toLocaleString()}
+                                </div>
+                              </div>
+                              <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
+                            </div>
+                          </button>
+                        ))}
                       </div>
-                    )}
-                    {!isAdmin && (
-                      <p className="text-xs text-slate-400 mt-4 text-center">Only admins can add or remove bird batches</p>
                     )}
                   </CardContent>
                 </Card>
@@ -2638,106 +2431,6 @@ export function HouseDetailPage() {
           </DialogContent>
         </Dialog>
 
-        <Dialog open={showTransferDialog} onOpenChange={setShowTransferDialog}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Transfer Batch to Another Shed</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 pt-4">
-              <div>
-                <Label>Batch Number</Label>
-                <Select
-                  value={transferForm.batchNumber}
-                  onValueChange={(value) => setTransferForm(prev => ({ ...prev, batchNumber: value }))}
-                >
-                  <SelectTrigger className="min-h-[44px]" data-testid="select-transfer-batch">
-                    <SelectValue placeholder="Select batch" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Array.from(new Set(stocks.map(s => s.batchNumber))).map(batch => (
-                      <SelectItem key={batch} value={batch}>{batch}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Transfer To Shed</Label>
-                <Select
-                  value={transferForm.toShedId}
-                  onValueChange={(value) => setTransferForm(prev => ({ ...prev, toShedId: value }))}
-                >
-                  <SelectTrigger className="min-h-[44px]" data-testid="select-transfer-to-shed">
-                    <SelectValue placeholder="Select destination shed" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {allSheds.filter(s => s.id !== shedId).map(s => (
-                      <SelectItem key={s.id} value={s.id}>{s.name} ({s.type})</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Transfer Date</Label>
-                <Input
-                  type="date"
-                  value={transferForm.transferDate}
-                  onChange={(e) => setTransferForm(prev => ({ ...prev, transferDate: e.target.value }))}
-                  className="min-h-[44px]"
-                  data-testid="input-transfer-date"
-                />
-              </div>
-              <div>
-                <Label>
-                  Number of Birds
-                  {transferForm.batchNumber && (
-                    <span className="text-sm text-slate-500 ml-2">
-                      (Available: {getAvailableBirdsForBatch(transferForm.batchNumber).toLocaleString()})
-                    </span>
-                  )}
-                </Label>
-                <Input
-                  type="number"
-                  placeholder="Enter bird count"
-                  value={transferForm.birdCount}
-                  onChange={(e) => setTransferForm(prev => ({ ...prev, birdCount: e.target.value }))}
-                  className="min-h-[44px]"
-                  data-testid="input-transfer-count"
-                  max={transferForm.batchNumber ? getAvailableBirdsForBatch(transferForm.batchNumber) : undefined}
-                />
-                {transferForm.batchNumber && parseInt(transferForm.birdCount || '0') > getAvailableBirdsForBatch(transferForm.batchNumber) && (
-                  <p className="text-sm text-destructive mt-1">
-                    Cannot transfer more than {getAvailableBirdsForBatch(transferForm.batchNumber).toLocaleString()} birds
-                  </p>
-                )}
-              </div>
-              <div>
-                <Label>Notes (Optional)</Label>
-                <Input
-                  placeholder="Transfer notes"
-                  value={transferForm.notes}
-                  onChange={(e) => setTransferForm(prev => ({ ...prev, notes: e.target.value }))}
-                  className="min-h-[44px]"
-                  data-testid="input-transfer-notes"
-                />
-              </div>
-              <Button 
-                className="w-full min-h-[44px]" 
-                onClick={handleTransfer}
-                disabled={
-                  isTransferring || 
-                  !transferForm.batchNumber || 
-                  !transferForm.toShedId || 
-                  !transferForm.birdCount ||
-                  parseInt(transferForm.birdCount || '0') <= 0 ||
-                  parseInt(transferForm.birdCount || '0') > getAvailableBirdsForBatch(transferForm.batchNumber)
-                }
-                data-testid="button-confirm-transfer"
-              >
-                {isTransferring ? 'Transferring...' : 'Transfer Birds'}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
 
         {/* Record Detail Dialog */}
         <Dialog open={showRecordDetailDialog} onOpenChange={setShowRecordDetailDialog}>

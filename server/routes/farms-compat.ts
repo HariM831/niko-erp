@@ -28,7 +28,7 @@ import type { db as Db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { PostingError } from "../services/posting";
 import { DAILY_KINDS, saveDay } from "../services/daily";
-import { createFlock, setFlockTransfers } from "../services/flocks";
+import { createFlock } from "../services/flocks";
 
 type Tx = Parameters<Parameters<typeof Db.transaction>[0]>[0];
 
@@ -381,58 +381,16 @@ farmsCompatRouter.post("/bird-stock", manage, async (req, res) => {
   }
 });
 
-/** The only edit the screen makes to a batch is retiring or reviving it. */
-farmsCompatRouter.patch("/bird-stock/:id", manage, async (req, res) => {
-  try {
-    const isActive = (req.body as { isActive?: boolean }).isActive;
-    const out = await db.transaction(async (tx) => {
-      const [p] = await tx
-        .select({ flockId: flockPlacements.flockId })
-        .from(flockPlacements)
-        .where(eq(flockPlacements.id, req.params.id!));
-      if (!p) throw new PostingError("No such batch");
-      if (isActive === undefined) throw new PostingError("Nothing to change");
-      const [row] = await tx
-        .update(flocks)
-        .set(isActive ? { status: "rearing", depletedOn: null } : { status: "depleted" })
-        .where(eq(flocks.id, p.flockId))
-        .returning();
-      return row!;
-    });
-    res.json(out);
-  } catch (err) {
-    if (!fail(err, res)) throw err;
-  }
-});
 
-farmsCompatRouter.delete("/bird-stock/:id", manage, async (req, res) => {
-  try {
-    await db.transaction(async (tx) => {
-      const [p] = await tx
-        .select({ id: flockPlacements.id, flockId: flockPlacements.flockId })
-        .from(flockPlacements)
-        .where(eq(flockPlacements.id, req.params.id!));
-      if (!p) throw new PostingError("No such batch");
-      const [{ n } = { n: 0 }] = (
-        await tx.execute(
-          sql`SELECT count(*)::int AS n FROM flock_movements
-              WHERE placement_id = ${p.id} AND kind <> 'place'`,
-        )
-      ).rows as Array<{ n: number }>;
-      if (n > 0) {
-        throw new PostingError(
-          `That batch already has ${n} recorded movement(s). Retire it instead of deleting it — a batch with history is not a mistake to erase.`,
-        );
-      }
-      await tx.delete(flockMovements).where(eq(flockMovements.placementId, p.id));
-      await tx.delete(flockPlacements).where(eq(flockPlacements.id, p.id));
-      await tx.delete(flocks).where(eq(flocks.id, p.flockId));
-    });
-    res.json({ ok: true });
-  } catch (err) {
-    if (!fail(err, res)) throw err;
-  }
-});
+
+/*
+ * Retiring, deleting and transferring a batch are deliberately NOT here.
+ * A batch belongs to the flock, not the shed: it arrives over several hatches,
+ * moves over several lorries and is culled out over several days, keeping one
+ * record throughout. Those three things are edited on the flock as dated line
+ * sets, which is also where they can be checked against each other. A second
+ * shed-wise door into the same ledger is how the two come to disagree.
+ */
 
 /* ── The shed itself ─────────────────────────────────────────────────────── */
 
@@ -456,80 +414,6 @@ farmsCompatRouter.patch("/sheds/:id", manage, async (req, res) => {
       .returning();
     if (!row) return res.status(404).json({ error: "House not found" });
     res.json(row);
-  } catch (err) {
-    if (!fail(err, res)) throw err;
-  }
-});
-
-/* ── Transfers ───────────────────────────────────────────────────────────── */
-
-/**
- * Add one transfer to a flock's set.
- *
- * `setFlockTransfers` replaces the whole set, so the existing lines are read
- * back and the new one appended. Going through it rather than inserting a pair
- * directly means this move is checked the same way as one entered on the flock
- * page — including the walk that refuses anything leaving a house below zero.
- */
-farmsCompatRouter.post("/batch-transfers", manage, async (req, res) => {
-  try {
-    const b = z
-      .object({
-        batchNumber: z.string().min(1),
-        fromShedId: z.string().uuid(),
-        toShedId: z.string().uuid(),
-        transferDate: z.string(),
-        birdCount: z.number().int().positive(),
-      })
-      .parse(req.body);
-
-    const out = await db.transaction(async (tx) => {
-      const [flock] = await tx.select().from(flocks).where(eq(flocks.code, b.batchNumber));
-      if (!flock) throw new PostingError(`No batch ${b.batchNumber}`);
-
-      const existing = await tx
-        .select({
-          eventDate: flockMovements.eventDate,
-          qty: flockMovements.qty,
-          fromHouseId: flockPlacements.houseId,
-          counterpartId: flockMovements.counterpartPlacementId,
-        })
-        .from(flockMovements)
-        .innerJoin(flockPlacements, eq(flockPlacements.id, flockMovements.placementId))
-        .where(
-          and(eq(flockPlacements.flockId, flock.id), eq(flockMovements.kind, "transfer_out")),
-        );
-
-      const lines = [] as Array<{
-        eventDate: string;
-        fromHouseId: string;
-        toHouseId: string;
-        qty: number;
-      }>;
-      for (const e of existing) {
-        const [to] = await tx
-          .select({ houseId: flockPlacements.houseId })
-          .from(flockPlacements)
-          .where(eq(flockPlacements.id, e.counterpartId!));
-        if (to) {
-          lines.push({
-            eventDate: e.eventDate,
-            fromHouseId: e.fromHouseId,
-            toHouseId: to.houseId,
-            qty: e.qty,
-          });
-        }
-      }
-      lines.push({
-        eventDate: day(b.transferDate),
-        fromHouseId: b.fromShedId,
-        toHouseId: b.toShedId,
-        qty: b.birdCount,
-      });
-
-      return setFlockTransfers(tx, flock.id, lines, req.session.user!.id);
-    });
-    res.status(201).json(out);
   } catch (err) {
     if (!fail(err, res)) throw err;
   }
