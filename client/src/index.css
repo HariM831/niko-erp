@@ -22,6 +22,25 @@
   --color-coral-500: #f0616f;
   --color-amber-500: #f59e0b;
   --color-violet-500: #8b5cf6;
+
+  /* ── Tokens carried over from the farm's own app ─────────────────────────
+     The Houses screen is a port, markup and all, so it needs the palette it
+     was written against. These names are new here — nothing in EGGSY used
+     them before — so they add utilities without disturbing anything. */
+  --color-background: hsl(30 20% 97.5%);
+  --color-foreground: hsl(358 30% 12%);
+  --color-card: hsl(0 0% 100%);
+  --color-primary: hsl(358 97% 27%);
+  --color-secondary: hsl(30 15% 94%);
+  --color-muted: hsl(30 15% 94%);
+  --color-muted-foreground: hsl(358 10% 48%);
+  --color-success: hsl(142 60% 30%);
+  --color-warning: hsl(40 90% 45%);
+  --color-info: hsl(221 83% 53%);
+  --color-destructive: hsl(0 84.2% 45%);
+  --color-border: hsl(30 15% 88%);
+  --color-input: hsl(30 15% 88%);
+  --color-ring: hsl(358 97% 27%);
 }
 
 body {

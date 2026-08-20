@@ -1,393 +1,1032 @@
 /**
- * Daily records — every house, one day, one screen.
+ * Houses — ported from the farm's own app, screen for screen.
  *
- * The form inside each house is ported field-for-field from the farm's own app:
- * the same four groups (Birds, Water, Feed, Eggs), the same inputs, and the same
- * figures computed underneath each group — opening and closing birds, total
- * water and water per bird, feed per bird, egg percent. The people filling this
- * in every morning already know that form, and the data migrating across was
+ * The layout, the tiles, the modals and every calculation below are carried
+ * over unchanged: smart date, closing stock, age from the batch reference date,
+ * egg percent against breed standard with its green/amber/red banding, feed per
+ * bird and per egg, feed stock as delivered-minus-consumed, water per bird and
+ * the water:feed ratio, mortality against standard and the seven-day average.
+ * The people reading this every morning know it, and the data coming across was
  * recorded through it.
  *
- * Two deliberate departures, both decided by the farm:
- *  - **Transferred in / out are not here.** Moving birds between houses is a set
- *    of dated lines on the flock page, so it has one home rather than two.
- *  - **Feed delivered is not typed.** It is the mill's transfer into this house,
- *    which already exists as a stock movement with a cost on it. Shown, not
- *    entered — a second hand-keyed number would be a second answer.
+ * What changed is only where the numbers come from. EGGSY keeps flocks,
+ * placements and a movement ledger rather than sheds with counts on them, so
+ * one endpoint adapts its tables into the five collections this page expects —
+ * see server/services/houses-board.ts. Nothing is adapted in here, because
+ * every edit in this file is a chance to change a number on screen.
  *
- * Sized for a phone in a shed: 44px touch targets, one column on small screens,
- * and houses already entered collapse so the ones still needing attention are
- * what fills the screen.
+ * Not carried over: "Add Shed". Houses are created in Settings → Farms →
+ * Houses, where they get their site, owner and feed store together.
  */
-import { useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Plus, X } from "lucide-react";
-import { ApiError, api } from "../api";
-import { HOUSE_PURPOSE_LABELS, type HousePurpose } from "@shared/schema/farms";
+import { useState, useEffect, useMemo } from "react";
+import { useLocation } from "wouter";
+import {
+  X,
+  Egg,
+  Bird,
+  Wheat,
+  Droplets,
+  Skull,
+  ChevronRight,
+  Calendar,
+  type LucideIcon,
+} from "lucide-react";
+import { api } from "../api";
+import {
+  getBatchAgeRefDate,
+  getAgeRefStock,
+  isBatchActive,
+} from "../lib/bird-batches";
 
-const today = () => new Date().toISOString().slice(0, 10);
-const n = (v: number) => v.toLocaleString("en-IN");
-const num = (v: string) => (v.trim() === "" ? 0 : Number(v) || 0);
-
-interface Loss {
-  kind: "mortality" | "cull" | "male_removal";
-  qty: number;
-  causeCode?: string | null;
-  note?: string | null;
+interface Breed {
+  id: string;
+  name: string;
 }
 
-interface Row {
-  placementId: string;
-  houseCode: string;
-  housePurpose: HousePurpose;
-  locationName: string;
-  flockId: string;
-  flockCode: string;
-  age: { label: string; weeks: number };
-  birds: number;
-  openingBirds: number;
-  feedDeliveredKg: string | null;
-  entered: boolean;
-  expectEggs: boolean;
-  feedHint: string | null;
-  day: {
-    feedConsumedKg: string | null;
-    feedClosingKg: string | null;
-    waterUpperKl: string | null;
-    waterLowerKl: string | null;
-    eggsTotal: number | null;
-    eggsCracked: number | null;
-    eggsDirty: number | null;
-    note: string | null;
-  } | null;
-  losses: Loss[];
+interface Shed {
+  id: string;
+  name: string;
+  type: "pullet" | "layer";
+  displayOrder: number;
+  dateOfBirth?: string;
+  breedId?: string;
 }
 
-interface Board {
-  day: string;
-  rows: Row[];
-  entered: number;
+interface BirdStock {
+  id: string;
+  shedId: string;
+  dateIn: string;
+  openingCount: number;
+  batchNumber?: string;
+  batchBirthDate?: string;
+  sourceShedId?: string;
+  breedId?: string;
+  isActive?: boolean;
+}
+
+interface DailyRecord {
+  id: string;
+  shedId: string;
+  date: string;
+  mortality: number;
+  maleBirds: number;
+  birdsTransferredIn: number;
+  birdsTransferredOut: number;
+  birdsCulled: number;
+  waterUpperKl: number;
+  waterLowerKl: number;
+  feedIntakeKg: number;
+  eggsProduced: number;
+}
+
+interface BreedStandard {
+  id: string;
+  breedId: string;
+  weekNumber: number;
+  feedGramsPerBird: number;
+  waterMlPerBird: number;
+  eggPercentage: number;
+  mortalityPercent: number;
+  bodyWeightGrams: number;
+}
+
+interface FormulaTransfer {
+  id: string;
+  formulaId: string;
+  formulaName: string;
+  costPerKg: number | null;
+  quantityKg: number;
+  shedId: string;
+  shedName: string;
+  date: string;
+}
+
+interface BoardData {
+  sheds: Shed[];
+  stocks: Record<string, BirdStock[]>;
+  records: Record<string, DailyRecord[]>;
+  breeds: Breed[];
+  breedStandards: Record<string, BreedStandard[]>;
+  formulaTransfers: FormulaTransfer[];
+}
+
+type ModalType = "eggs" | "feed" | "water" | "birds" | null;
+
+/**
+ * Whole days between two dates, the same calendar-day count date-fns gives.
+ * Inlined rather than pulling in the library for one function — and India keeps
+ * no daylight saving, so the UTC arithmetic and the local arithmetic agree.
+ */
+function differenceInDays(later: Date, earlier: Date): number {
+  const day = (d: Date) => Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+  return Math.trunc((day(later) - day(earlier)) / 86_400_000);
+}
+
+function getSmartDate(): string {
+  const now = new Date();
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const istNow = new Date(now.getTime() + istOffset);
+  const istHour = istNow.getUTCHours();
+  const istYear = istNow.getUTCFullYear();
+  const istMonth = String(istNow.getUTCMonth() + 1).padStart(2, "0");
+  const istDay = String(istNow.getUTCDate()).padStart(2, "0");
+  const istToday = `${istYear}-${istMonth}-${istDay}`;
+  if (istHour >= 17) return istToday;
+  const yesterday = new Date(istNow.getTime() - 24 * 60 * 60 * 1000);
+  return `${yesterday.getUTCFullYear()}-${String(yesterday.getUTCMonth() + 1).padStart(2, "0")}-${String(yesterday.getUTCDate()).padStart(2, "0")}`;
+}
+
+function getEffectiveBreedId(
+  shed: Shed,
+  shedStocks: BirdStock[],
+  allRecords: DailyRecord[] = [],
+): string | undefined {
+  // Breed should come from the same batch that drives the shed's age (the
+  // current flock), so age standards line up with the right breed.
+  const ageRef = getAgeRefStock(shedStocks, allRecords as never);
+  if (ageRef?.breedId) return ageRef.breedId;
+  const activeWithBreed = shedStocks.find((s) => isBatchActive(s) && s.breedId);
+  if (activeWithBreed?.breedId) return activeWithBreed.breedId;
+  return shed.breedId;
+}
+
+function calculateClosingStock(
+  shedStocks: BirdStock[],
+  allRecords: DailyRecord[],
+  upToDate: string,
+): number {
+  // Inactive batches are excluded from every total.
+  const inactiveBatches = new Set(
+    shedStocks.filter((s) => !isBatchActive(s)).map((s) => s.batchNumber),
+  );
+  const totalOpening = shedStocks
+    .filter(
+      (s) =>
+        isBatchActive(s) &&
+        new Date(s.dateIn) <= new Date(upToDate + "T23:59:59"),
+    )
+    .reduce((sum, s) => sum + s.openingCount, 0);
+  const totalChanges = allRecords
+    .filter((r) => r.date.substring(0, 10) <= upToDate)
+    .filter((r) => {
+      const b = (r as unknown as { batchNumber?: string }).batchNumber;
+      return !b || !inactiveBatches.has(b);
+    })
+    .reduce(
+      (sum, r) =>
+        sum +
+        (r.birdsTransferredIn || 0) -
+        (r.mortality || 0) -
+        (r.birdsTransferredOut || 0) -
+        (r.birdsCulled || 0) -
+        (r.maleBirds || 0),
+      0,
+    );
+  return Math.max(0, totalOpening + totalChanges);
+}
+
+function fmtNum(n: number, decimals = 0): string {
+  return n.toLocaleString("en-IN", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+}
+
+/**
+ * Everything the screen shows for one shed on one day.
+ *
+ * Lifted out of the component only so its return type can be named for
+ * `ShedRow`; the arithmetic is exactly as it was.
+ */
+function buildShedMetrics(
+  shed: Shed,
+  shedStocks: BirdStock[],
+  allRecords: DailyRecord[],
+  breedStandards: Record<string, BreedStandard[]>,
+  formulaTransfers: FormulaTransfer[],
+  displayDate: string,
+) {
+  const closingStock = calculateClosingStock(
+    shedStocks,
+    allRecords,
+    displayDate,
+  );
+  const dateRecord = allRecords.find(
+    (r) => r.date.substring(0, 10) === displayDate,
+  );
+
+  const ageRef = getBatchAgeRefDate(shedStocks, allRecords as never);
+  const ageWeeks =
+    ageRef && closingStock > 0
+      ? Math.max(
+          0,
+          Math.floor(differenceInDays(new Date(displayDate), ageRef) / 7),
+        )
+      : null;
+  const ageDays =
+    ageRef && closingStock > 0
+      ? Math.max(0, differenceInDays(new Date(displayDate), ageRef) % 7)
+      : null;
+
+  const breedId = getEffectiveBreedId(shed, shedStocks, allRecords);
+  const standards = breedId ? breedStandards[breedId] || [] : [];
+  const weekStandard =
+    ageWeeks !== null ? standards.find((s) => s.weekNumber === ageWeeks) : null;
+
+  const eggs = dateRecord?.eggsProduced || 0;
+  const actualEggPct = closingStock > 0 ? (eggs / closingStock) * 100 : 0;
+  const stdEggPct = weekStandard?.eggPercentage || 0;
+  const eggDelta = actualEggPct - stdEggPct;
+
+  let eggColor: "green" | "yellow" | "red" = "green";
+  if (stdEggPct > 0) {
+    if (actualEggPct >= stdEggPct) eggColor = "green";
+    else if (actualEggPct >= stdEggPct - 1) eggColor = "yellow";
+    else eggColor = "red";
+  } else if (eggs === 0 && shed.type === "layer" && closingStock > 0) {
+    eggColor = "red";
+  }
+
+  const feedKg = dateRecord?.feedIntakeKg || 0;
+  const feedPerEgg = eggs > 0 ? (feedKg * 1000) / eggs : 0;
+  const feedPerBirdG = closingStock > 0 ? (feedKg * 1000) / closingStock : 0;
+  const stdFeedPerBirdG = weekStandard?.feedGramsPerBird || 0;
+
+  const shedTransfers = formulaTransfers.filter(
+    (t) => t.shedId === shed.id && t.date.substring(0, 10) <= displayDate,
+  );
+  const totalDeliveredKg = shedTransfers.reduce(
+    (sum, t) => sum + t.quantityKg,
+    0,
+  );
+  const dateConsumedKg = dateRecord?.feedIntakeKg || 0;
+  const allTimeConsumedKg = allRecords
+    .filter((r) => r.date.substring(0, 10) <= displayDate)
+    .reduce((sum, r) => sum + (r.feedIntakeKg || 0), 0);
+  const feedStockKg = Math.max(0, totalDeliveredKg - allTimeConsumedKg);
+
+  const waterUpper = dateRecord?.waterUpperKl || 0;
+  const waterLower = dateRecord?.waterLowerKl || 0;
+  const totalWaterL = (waterUpper + waterLower) * 1000;
+  const waterPerBirdMl =
+    closingStock > 0 ? (totalWaterL / closingStock) * 1000 : 0;
+  const stdWaterMlPerBird = weekStandard?.waterMlPerBird || 0;
+  const waterFeedRatio = feedKg > 0 ? totalWaterL / feedKg : 0;
+
+  const prevDateObj = new Date(displayDate + "T00:00:00");
+  prevDateObj.setDate(prevDateObj.getDate() - 1);
+  const prevDate = `${prevDateObj.getFullYear()}-${String(prevDateObj.getMonth() + 1).padStart(2, "0")}-${String(prevDateObj.getDate()).padStart(2, "0")}`;
+  const prevDateRecord = allRecords.find(
+    (r) => r.date.substring(0, 10) === prevDate,
+  );
+  const prevClosingStock = calculateClosingStock(
+    shedStocks,
+    allRecords,
+    prevDate,
+  );
+  const prevEggs = prevDateRecord?.eggsProduced || 0;
+  const prevEggPct =
+    prevClosingStock > 0 ? (prevEggs / prevClosingStock) * 100 : 0;
+  const eggPctChange = prevDateRecord ? actualEggPct - prevEggPct : null;
+
+  const mortality = dateRecord?.mortality || 0;
+  const prevWeekStandard =
+    ageWeeks !== null && ageWeeks > 0
+      ? standards.find((s) => s.weekNumber === ageWeeks - 1)
+      : null;
+  const cumulativeMortThis = weekStandard?.mortalityPercent || 0;
+  const cumulativeMortPrev = prevWeekStandard?.mortalityPercent || 0;
+  const stdMortalityPct = Math.max(0, cumulativeMortThis - cumulativeMortPrev);
+  const actualMortalityPct =
+    closingStock > 0 ? (mortality / (closingStock + mortality)) * 100 : 0;
+
+  const last7Records = allRecords
+    .filter((r) => {
+      const d = r.date.substring(0, 10);
+      return d <= displayDate;
+    })
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 7);
+  const weekTotalMort = last7Records.reduce(
+    (sum, r) => sum + (r.mortality || 0),
+    0,
+  );
+  const weekAvgBirds = closingStock > 0 ? closingStock : 0;
+  const weekAvgMortPct =
+    weekAvgBirds > 0
+      ? (weekTotalMort / (weekAvgBirds * last7Records.length)) * 100
+      : 0;
+
+  return {
+    shed,
+    closingStock,
+    ageWeeks,
+    ageDays,
+    eggs,
+    actualEggPct,
+    stdEggPct,
+    eggDelta,
+    eggColor,
+    eggPctChange,
+    feedKg,
+    feedPerEgg,
+    feedPerBirdG,
+    stdFeedPerBirdG,
+    totalDeliveredKg,
+    dateConsumedKg,
+    feedStockKg,
+    totalWaterL,
+    waterPerBirdMl,
+    stdWaterMlPerBird,
+    waterFeedRatio,
+    mortality,
+    stdMortalityPct,
+    actualMortalityPct,
+    weekAvgMortPct,
+    hasRecord: !!dateRecord,
+  };
 }
 
 export function FarmsDailyPage() {
-  const [date, setDate] = useState(today());
-  const { data: board, isLoading } = useQuery<Board>({
-    queryKey: ["farms-daily", date],
-    queryFn: () => api(`/api/farms/daily?date=${date}`),
-  });
-
-  const total = board?.rows.length ?? 0;
-  const done = board?.entered ?? 0;
-
-  return (
-    <div className="p-4 pb-24 md:p-6">
-      <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-gray-900">Daily records</h1>
-          <p className="mt-0.5 text-[13px] text-gray-500">
-            Birds, water, feed and eggs — one card per house, for one day.
-          </p>
-        </div>
-        <div className="w-full md:w-auto">
-          <label className="label">Day</label>
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value || today())}
-            className="input min-h-[44px]"
-          />
-        </div>
-      </div>
-
-      {isLoading && <p className="text-[13px] text-gray-500">Loading…</p>}
-
-      {board && !board.rows.length && (
-        <div className="card p-6 text-center">
-          <p className="text-[14px] font-medium text-gray-900">No house held birds on this day.</p>
-          <p className="mt-1 text-[13px] text-gray-500">
-            Place a flock from the Farms board and it will appear here.
-          </p>
-        </div>
-      )}
-
-      <div className="space-y-3">
-        {board?.rows.map((r) => (
-          <HouseDay key={r.placementId} row={r} day={date} />
-        ))}
-      </div>
-
-      {!!total && (
-        <div className="fixed bottom-0 left-0 right-0 border-t border-gray-200 bg-white/95 px-4 py-3 backdrop-blur md:left-[180px] md:px-6">
-          <div className="flex items-center justify-between text-[13px]">
-            <span className={done === total ? "text-green-700" : "text-gray-700"}>
-              <span className="font-semibold">
-                {done} of {total}
-              </span>{" "}
-              houses entered
-            </span>
-            {done < total && (
-              <span className="text-[12px] text-amber-700">{total - done} still to record</span>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
+  const [, setLocation] = useLocation();
+  const [sheds, setSheds] = useState<Shed[]>([]);
+  const [stocks, setStocks] = useState<Record<string, BirdStock[]>>({});
+  const [records, setRecords] = useState<Record<string, DailyRecord[]>>({});
+  const [breedStandards, setBreedStandards] = useState<
+    Record<string, BreedStandard[]>
+  >({});
+  const [formulaTransfers, setFormulaTransfers] = useState<FormulaTransfer[]>(
+    [],
   );
-}
-
-function HouseDay({ row, day }: { row: Row; day: string }) {
-  const qc = useQueryClient();
-  const [open, setOpen] = useState(!row.entered);
-  const [error, setError] = useState<string | null>(null);
-  const [f, setF] = useState({
-    mortality: "",
-    culled: "",
-    maleBirds: "",
-    waterUpperKl: "",
-    waterLowerKl: "",
-    feedConsumedKg: "",
-    feedClosingKg: "",
-    eggsTotal: "",
-    eggsCracked: "",
-    eggsDirty: "",
-    note: "",
-  });
+  const [isLoading, setIsLoading] = useState(true);
+  const [modalShed, setModalShed] = useState<Shed | null>(null);
+  const [modalType, setModalType] = useState<ModalType>(null);
+  const [displayDate, setDisplayDate] = useState<string>(() => getSmartDate());
 
   useEffect(() => {
-    const of = (k: Loss["kind"]) =>
-      String(row.losses.filter((l) => l.kind === k).reduce((a, l) => a + l.qty, 0) || "");
-    setF({
-      mortality: of("mortality"),
-      culled: of("cull"),
-      maleBirds: of("male_removal"),
-      waterUpperKl: row.day?.waterUpperKl ?? "",
-      waterLowerKl: row.day?.waterLowerKl ?? "",
-      feedConsumedKg: row.day?.feedConsumedKg ?? "",
-      feedClosingKg: row.day?.feedClosingKg ?? "",
-      eggsTotal: row.day?.eggsTotal == null ? "" : String(row.day.eggsTotal),
-      eggsCracked: row.day?.eggsCracked == null ? "" : String(row.day.eggsCracked),
-      eggsDirty: row.day?.eggsDirty == null ? "" : String(row.day.eggsDirty),
-      note: row.day?.note ?? "",
+    fetchAllData();
+  }, []);
+
+  const fetchAllData = async () => {
+    try {
+      // One request. EGGSY's tables are adapted into these five collections on
+      // the server, so nothing below has to know how they are really stored.
+      const data = await api<BoardData>("/api/farms/houses-board");
+      setSheds(data.sheds);
+      setStocks(data.stocks);
+      setRecords(data.records);
+      setBreedStandards(data.breedStandards);
+      setFormulaTransfers(data.formulaTransfers);
+    } catch (error) {
+      console.error("Failed to fetch data:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const shedMetrics = useMemo(
+    () =>
+      sheds.map((shed) =>
+        buildShedMetrics(
+          shed,
+          stocks[shed.id] || [],
+          records[shed.id] || [],
+          breedStandards,
+          formulaTransfers,
+          displayDate,
+        ),
+      ),
+    [sheds, stocks, records, breedStandards, formulaTransfers, displayDate],
+  );
+
+  const summaryData = useMemo(() => {
+    let totalEggs = 0;
+    let totalBirds = 0;
+    let totalFeedKg = 0;
+    let totalMortality = 0;
+
+    shedMetrics.forEach((m) => {
+      totalEggs += m.eggs;
+      totalBirds += m.closingStock;
+      totalFeedKg += m.feedKg;
+      totalMortality += m.mortality;
     });
-    setOpen(!row.entered);
-  }, [row]);
 
-  // ── The figures the farm's form shows under each group ──
-  const lost = num(f.mortality) + num(f.culled) + num(f.maleBirds);
-  const closingBirds = row.openingBirds - lost;
-  const totalWaterKl = num(f.waterUpperKl) + num(f.waterLowerKl);
-  // kL → mL is ×1,000,000. Per bird, against the closing count.
-  const waterPerBird = closingBirds > 0 ? (totalWaterKl * 1_000_000) / closingBirds : 0;
-  const feedPerBird = closingBirds > 0 ? (num(f.feedConsumedKg) * 1000) / closingBirds : 0;
-  const eggPercent = closingBirds > 0 ? (num(f.eggsTotal) / closingBirds) * 100 : 0;
+    return { totalEggs, totalBirds, totalFeedKg, totalMortality };
+  }, [shedMetrics]);
 
-  const losses: Loss[] = [
-    { kind: "mortality" as const, qty: num(f.mortality) },
-    { kind: "cull" as const, qty: num(f.culled) },
-    { kind: "male_removal" as const, qty: num(f.maleBirds) },
-  ].filter((l) => l.qty > 0);
+  const openModal = (shed: Shed, type: ModalType) => {
+    setModalShed(shed);
+    setModalType(type);
+  };
 
-  const save = useMutation({
-    mutationFn: () =>
-      api("/api/farms/daily", {
-        method: "POST",
-        body: {
-          placementId: row.placementId,
-          day,
-          feedConsumedKg: f.feedConsumedKg || null,
-          feedClosingKg: f.feedClosingKg || null,
-          waterUpperKl: f.waterUpperKl || null,
-          waterLowerKl: f.waterLowerKl || null,
-          eggsTotal: f.eggsTotal === "" ? null : Number(f.eggsTotal),
-          eggsCracked: f.eggsCracked === "" ? null : Number(f.eggsCracked),
-          eggsDirty: f.eggsDirty === "" ? null : Number(f.eggsDirty),
-          note: f.note.trim() || null,
-          losses,
-        },
-      }),
-    onSuccess: () => {
-      setError(null);
-      void qc.invalidateQueries({ queryKey: ["farms-daily"] });
-      void qc.invalidateQueries({ queryKey: ["farms-board"] });
-    },
-    onError: (e) => setError(e instanceof ApiError ? e.message : "Could not save that day"),
-  });
+  const closeModal = () => {
+    setModalShed(null);
+    setModalType(null);
+  };
 
-  const set = (k: keyof typeof f) => (v: string) => setF((c) => ({ ...c, [k]: v }));
+  /** The shed's current batch — what its row and tiles are describing. */
+  const flockIdFor = (shedId: string) => {
+    const ref = getAgeRefStock(
+      stocks[shedId] || [],
+      (records[shedId] || []) as never,
+    );
+    return ref?.id ?? null;
+  };
+  const openShed = (shedId: string) => {
+    const placementId = flockIdFor(shedId);
+    if (placementId) setLocation(`/farms/placements/${placementId}`);
+  };
+
+  const currentMetrics = modalShed
+    ? shedMetrics.find((m) => m.shed.id === modalShed.id)
+    : null;
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4 p-4" data-testid="page-skeleton">
+        <div className="h-8 w-48 animate-pulse rounded bg-primary/10" />
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div
+              key={i}
+              className="animate-pulse space-y-3 rounded-lg border p-4"
+            >
+              <div className="h-5 w-2/3 rounded bg-primary/10" />
+              <div className="h-4 w-1/2 rounded bg-primary/10" />
+              <div className="flex gap-2">
+                <div className="h-8 w-20 rounded bg-primary/10" />
+                <div className="h-8 w-20 rounded bg-primary/10" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const eggColorClass = (color: "green" | "yellow" | "red") => {
+    switch (color) {
+      case "green":
+        return "bg-success/10 text-success border-success/40";
+      case "yellow":
+        return "bg-warning/10 text-warning border-warning/40";
+      case "red":
+        return "bg-destructive/10 text-destructive border-destructive/40";
+    }
+  };
+
+  const layerSheds = shedMetrics.filter((m) => m.shed.type === "layer");
+  const pulletSheds = shedMetrics.filter((m) => m.shed.type === "pullet");
+
+  const computeAggregate = (group: typeof shedMetrics) => {
+    const totalBirds = group.reduce((s, m) => s + m.closingStock, 0);
+    const totalEggs = group.reduce((s, m) => s + m.eggs, 0);
+    const totalFeedKg = group.reduce((s, m) => s + m.feedKg, 0);
+    const totalMortality = group.reduce((s, m) => s + m.mortality, 0);
+    const totalWaterL = group.reduce((s, m) => s + m.totalWaterL, 0);
+    const avgEggPct = totalBirds > 0 ? (totalEggs / totalBirds) * 100 : 0;
+    const avgFeedPerBirdG =
+      totalBirds > 0 ? (totalFeedKg * 1000) / totalBirds : 0;
+    const avgWaterPerBirdMl =
+      totalBirds > 0 ? (totalWaterL / totalBirds) * 1000 : 0;
+    return {
+      totalBirds,
+      totalEggs,
+      avgEggPct,
+      avgFeedPerBirdG,
+      avgWaterPerBirdMl,
+      totalMortality,
+    };
+  };
+
+  const layerAgg = computeAggregate(layerSheds);
+  const pulletAgg = computeAggregate(pulletSheds);
 
   return (
-    <div className={`card ${row.entered && !open ? "bg-green-50/40" : ""}`}>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex min-h-[52px] w-full items-center justify-between gap-3 px-4 py-3 text-left"
+    <div className="mx-auto max-w-4xl p-4" data-testid="bird-dashboard">
+      <div className="mb-4">
+        <h1 className="text-xl font-bold text-foreground">Houses</h1>
+        <p className="text-[13px] text-muted-foreground">Bird sheds overview</p>
+      </div>
+
+      {/* Date Selector */}
+      <div className="mb-3 flex items-center gap-2">
+        <Calendar className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+        <input
+          type="date"
+          value={displayDate}
+          onChange={(e) => setDisplayDate(e.target.value)}
+          className="flex-1 rounded-md border border-input bg-card px-2 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          data-testid="input-display-date"
+        />
+        <button
+          onClick={() => setDisplayDate(getSmartDate())}
+          className="whitespace-nowrap rounded-md px-2 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/8"
+          data-testid="button-reset-date"
+        >
+          Reset
+        </button>
+      </div>
+
+      {/* Summary Tiles */}
+      <div
+        className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4"
+        data-testid="summary-tiles"
       >
-        <div className="flex flex-wrap items-baseline gap-x-2">
-          {row.entered && <Check size={14} className="text-green-600" />}
-          <span className="text-[15px] font-semibold text-gray-900">{row.houseCode}</span>
-          <span className="text-[12px] text-gray-500">
-            {row.flockCode} · {n(row.birds)} birds · {row.age.label}
-          </span>
-        </div>
-        <span className="whitespace-nowrap text-[12px] text-gray-500">
-          {row.entered ? (
-            <>
-              {row.day?.feedConsumedKg && <>{Number(row.day.feedConsumedKg).toLocaleString("en-IN")} kg</>}
-              {row.day?.eggsTotal != null && <> · {n(row.day.eggsTotal)} eggs</>}
-              {!!row.losses.length && (
-                <span className="text-red-600">
-                  {" "}
-                  · {n(row.losses.reduce((a, l) => a + l.qty, 0))} lost
-                </span>
-              )}
-            </>
-          ) : (
-            <span className="text-amber-700">Not entered</span>
-          )}
-        </span>
-      </button>
+        <KpiCard
+          label="Eggs"
+          value={fmtNum(summaryData.totalEggs)}
+          icon={Egg}
+          accent="bg-warning"
+        />
+        <KpiCard
+          label="Birds"
+          value={fmtNum(summaryData.totalBirds)}
+          icon={Bird}
+          accent="bg-info"
+        />
+        <KpiCard
+          label="Feed (T)"
+          value={fmtNum(summaryData.totalFeedKg / 1000, 1)}
+          icon={Wheat}
+          accent="bg-success"
+        />
+        <KpiCard
+          label="Mortality"
+          value={fmtNum(summaryData.totalMortality)}
+          icon={Skull}
+          accent="bg-destructive"
+        />
+      </div>
 
-      {open && (
-        <div className="border-t border-gray-100 px-4 py-3">
-          {error && (
-            <div className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700">
-              {error}
+      {/* ===== DESKTOP TABLE VIEW (hidden on mobile) ===== */}
+      <div className="hidden md:block">
+        {layerSheds.length > 0 && (
+          <div className="mb-4">
+            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Layers
             </div>
-          )}
-
-          {/* ── Birds ── */}
-          <Group title="Birds">
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-              <Field label="Mortality" value={f.mortality} onChange={set("mortality")} />
-              <Field label="Culled" value={f.culled} onChange={set("culled")} />
-              {row.housePurpose !== "layer" && (
-                <Field label="Male birds" value={f.maleBirds} onChange={set("maleBirds")} />
-              )}
+            <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
+              <table className="w-full text-sm">
+                <thead className="bg-primary/10">
+                  <tr className="border-b border-primary/20">
+                    <Th align="left">Shed</Th>
+                    <Th>Birds</Th>
+                    <Th>Age</Th>
+                    <Th>Eggs %</Th>
+                    <Th>Feed (g/b)</Th>
+                    <Th>Water (ml/b)</Th>
+                    <Th>Mort</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {layerSheds.map((m) => (
+                    <tr
+                      key={m.shed.id}
+                      className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-muted/30"
+                      onClick={() => openShed(m.shed.id)}
+                      data-testid={`row-shed-${m.shed.id}`}
+                    >
+                      <td className="px-3 py-2 font-medium text-foreground">
+                        {m.shed.name}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                        {fmtNum(m.closingStock)}
+                      </td>
+                      <td className="px-3 py-2 text-right text-muted-foreground">
+                        {m.ageWeeks !== null ? `${m.ageWeeks}w` : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {m.closingStock > 0 ? (
+                          <span
+                            className={`inline-block rounded px-1.5 py-0.5 text-xs font-semibold ${eggColorClass(m.eggColor)}`}
+                          >
+                            {m.actualEggPct.toFixed(1)}%
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                        {m.feedPerBirdG > 0 ? fmtNum(m.feedPerBirdG, 0) : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                        {m.waterPerBirdMl > 0
+                          ? fmtNum(m.waterPerBirdMl, 0)
+                          : "—"}
+                      </td>
+                      <td
+                        className={`px-3 py-2 text-right font-medium ${m.mortality > 0 ? "text-destructive" : "text-muted-foreground"}`}
+                      >
+                        {m.mortality}
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="border-t border-border bg-muted/40 text-xs font-semibold text-foreground">
+                    <td className="px-3 py-2">Total</td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {fmtNum(layerAgg.totalBirds)}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">—</td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {layerAgg.avgEggPct.toFixed(1)}%
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {layerAgg.avgFeedPerBirdG > 0
+                        ? fmtNum(layerAgg.avgFeedPerBirdG, 0)
+                        : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {layerAgg.avgWaterPerBirdMl > 0
+                        ? fmtNum(layerAgg.avgWaterPerBirdMl, 0)
+                        : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-destructive">
+                      {fmtNum(layerAgg.totalMortality)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
-            <Readout>
-              <span>
-                Opening: <strong className="tabular-nums">{n(row.openingBirds)}</strong>
-              </span>
-              <span>
-                Closing:{" "}
-                <strong
-                  className={`tabular-nums ${closingBirds < 0 ? "text-red-600" : "text-green-700"}`}
-                >
-                  {n(closingBirds)}
-                </strong>
-              </span>
-            </Readout>
-          </Group>
-
-          {/* ── Water ── */}
-          <Group title="Water">
-            <div className="grid grid-cols-2 gap-3">
-              <Field
-                label="Upper level"
-                unit="kL"
-                value={f.waterUpperKl}
-                onChange={set("waterUpperKl")}
-              />
-              <Field
-                label="Lower level"
-                unit="kL"
-                value={f.waterLowerKl}
-                onChange={set("waterLowerKl")}
-              />
-            </div>
-            <Readout>
-              <span>
-                Total: <strong className="tabular-nums">{totalWaterKl.toFixed(2)} kL</strong>
-              </span>
-              <span>
-                Per bird: <strong className="tabular-nums">{waterPerBird.toFixed(1)} mL</strong>
-              </span>
-            </Readout>
-          </Group>
-
-          {/* ── Feed ── */}
-          <Group title="Feed">
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-              <div>
-                <label className="label">
-                  Delivered <span className="font-normal text-gray-400">kg</span>
-                </label>
-                <div className="input flex min-h-[44px] items-center justify-end bg-gray-50 tabular-nums text-gray-700">
-                  {row.feedDeliveredKg
-                    ? Number(row.feedDeliveredKg).toLocaleString("en-IN")
-                    : "0"}
-                </div>
-                <p className="mt-0.5 text-[11px] text-gray-400">from the mill</p>
-              </div>
-              <Field
-                label="Consumed"
-                unit="kg"
-                value={f.feedConsumedKg}
-                onChange={set("feedConsumedKg")}
-                hint={
-                  row.feedHint
-                    ? `yesterday ${Number(row.feedHint).toLocaleString("en-IN")}`
-                    : undefined
-                }
-              />
-              <Field
-                label="Stock"
-                unit="kg"
-                value={f.feedClosingKg}
-                onChange={set("feedClosingKg")}
-              />
-            </div>
-            <Readout>
-              <span>
-                Per bird: <strong className="tabular-nums">{feedPerBird.toFixed(1)} g</strong>
-              </span>
-            </Readout>
-          </Group>
-
-          {/* ── Eggs ── */}
-          {row.expectEggs && (
-            <Group title="Eggs">
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-                <Field label="Eggs produced" value={f.eggsTotal} onChange={set("eggsTotal")} />
-                <Field label="Cracked" value={f.eggsCracked} onChange={set("eggsCracked")} />
-                <Field label="Dirty" value={f.eggsDirty} onChange={set("eggsDirty")} />
-              </div>
-              <Readout>
-                <span>
-                  Egg %:{" "}
-                  <strong className={`tabular-nums ${eggPercent > 100 ? "text-amber-700" : ""}`}>
-                    {eggPercent.toFixed(1)}%
-                  </strong>{" "}
-                  <span className="text-gray-500">(per 100 birds)</span>
-                </span>
-              </Readout>
-            </Group>
-          )}
-
-          <div className="mt-3">
-            <label className="label">Note</label>
-            <input
-              value={f.note}
-              onChange={(e) => set("note")(e.target.value)}
-              className="input min-h-[44px]"
-            />
           </div>
+        )}
 
-          <div className="mt-4 flex flex-wrap items-center gap-2">
+        {pulletSheds.length > 0 && (
+          <div className="mb-4">
+            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Pullets
+            </div>
+            <div className="overflow-hidden rounded-lg border bg-card shadow-sm">
+              <table className="w-full text-sm">
+                <thead className="bg-primary/10">
+                  <tr className="border-b border-primary/20">
+                    <Th align="left">Shed</Th>
+                    <Th>Birds</Th>
+                    <Th>Age</Th>
+                    <Th>Feed (g/b)</Th>
+                    <Th>Water (ml/b)</Th>
+                    <Th>Mort</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pulletSheds.map((m) => (
+                    <tr
+                      key={m.shed.id}
+                      className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-muted/30"
+                      onClick={() => openShed(m.shed.id)}
+                      data-testid={`row-shed-${m.shed.id}`}
+                    >
+                      <td className="px-3 py-2 font-medium text-foreground">
+                        {m.shed.name}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                        {fmtNum(m.closingStock)}
+                      </td>
+                      <td className="px-3 py-2 text-right text-muted-foreground">
+                        {m.ageWeeks !== null ? `${m.ageWeeks}w` : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                        {m.feedPerBirdG > 0 ? fmtNum(m.feedPerBirdG, 0) : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                        {m.waterPerBirdMl > 0
+                          ? fmtNum(m.waterPerBirdMl, 0)
+                          : "—"}
+                      </td>
+                      <td
+                        className={`px-3 py-2 text-right font-medium ${m.mortality > 0 ? "text-destructive" : "text-muted-foreground"}`}
+                      >
+                        {m.mortality}
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="border-t border-border bg-muted/40 text-xs font-semibold text-foreground">
+                    <td className="px-3 py-2">Total</td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {fmtNum(pulletAgg.totalBirds)}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">—</td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {pulletAgg.avgFeedPerBirdG > 0
+                        ? fmtNum(pulletAgg.avgFeedPerBirdG, 0)
+                        : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {pulletAgg.avgWaterPerBirdMl > 0
+                        ? fmtNum(pulletAgg.avgWaterPerBirdMl, 0)
+                        : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-destructive">
+                      {fmtNum(pulletAgg.totalMortality)}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ===== MOBILE CARD VIEW (hidden on desktop) ===== */}
+      <div className="md:hidden">
+        {layerSheds.length > 0 && (
+          <div className="mb-3">
+            <div className="mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Layers
+            </div>
+            <div className="space-y-1.5">
+              {layerSheds.map((m) => (
+                <ShedRow
+                  key={m.shed.id}
+                  metrics={m}
+                  onTileClick={(type) => openModal(m.shed, type)}
+                  onShedClick={() => openShed(m.shed.id)}
+                />
+              ))}
+              <div className="rounded-lg border border-slate-200 bg-slate-100 p-2.5">
+                <div className="mb-1.5 text-[10px] font-semibold uppercase text-muted-foreground">
+                  Layer Totals
+                </div>
+                <div className="grid grid-cols-4 gap-1.5">
+                  <AggTile
+                    tone="warning"
+                    label="Eggs"
+                    value={`${layerAgg.avgEggPct.toFixed(0)}%`}
+                  />
+                  <AggTile
+                    tone="success"
+                    label="Feed"
+                    value={
+                      layerAgg.avgFeedPerBirdG > 0
+                        ? `${fmtNum(layerAgg.avgFeedPerBirdG, 0)}g`
+                        : "—"
+                    }
+                  />
+                  <AggTile
+                    tone="info"
+                    label="Water"
+                    value={
+                      layerAgg.avgWaterPerBirdMl > 0
+                        ? fmtNum(layerAgg.avgWaterPerBirdMl, 0)
+                        : "—"
+                    }
+                  />
+                  <AggTile
+                    tone="destructive"
+                    label="Mort"
+                    value={fmtNum(layerAgg.totalMortality)}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {pulletSheds.length > 0 && (
+          <div className="mb-3">
+            <div className="mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Pullets
+            </div>
+            <div className="space-y-1.5">
+              {pulletSheds.map((m) => (
+                <ShedRow
+                  key={m.shed.id}
+                  metrics={m}
+                  onTileClick={(type) => openModal(m.shed, type)}
+                  onShedClick={() => openShed(m.shed.id)}
+                />
+              ))}
+              <div className="rounded-lg border border-slate-200 bg-slate-100 p-2.5">
+                <div className="mb-1.5 text-[10px] font-semibold uppercase text-muted-foreground">
+                  Pullet Totals
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <AggTile
+                    tone="success"
+                    label="Feed"
+                    value={
+                      pulletAgg.avgFeedPerBirdG > 0
+                        ? `${fmtNum(pulletAgg.avgFeedPerBirdG, 0)}g`
+                        : "—"
+                    }
+                  />
+                  <AggTile
+                    tone="info"
+                    label="Water"
+                    value={
+                      pulletAgg.avgWaterPerBirdMl > 0
+                        ? fmtNum(pulletAgg.avgWaterPerBirdMl, 0)
+                        : "—"
+                    }
+                  />
+                  <AggTile
+                    tone="destructive"
+                    label="Mort"
+                    value={fmtNum(pulletAgg.totalMortality)}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {sheds.length === 0 && (
+        <div className="rounded-lg border border-dashed bg-white py-12 text-center text-muted-foreground">
+          No houses configured yet. Add them under Settings → Farms → Houses.
+        </div>
+      )}
+
+      {/* Detail Modal */}
+      {modalShed && modalType && currentMetrics && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
+          onClick={closeModal}
+        >
+          <div className="fixed inset-0 bg-black/40" />
+          <div
+            className="relative max-h-[70vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:rounded-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
-              onClick={() => save.mutate()}
-              disabled={save.isPending || closingBirds < 0}
-              className="btn-primary min-h-[44px] whitespace-nowrap"
+              onClick={closeModal}
+              className="absolute right-3 top-3 p-1 text-muted-foreground hover:text-slate-600"
+              data-testid="button-close-modal"
             >
-              {save.isPending
-                ? "Saving…"
-                : closingBirds < 0
-                  ? "Closing birds cannot be negative"
-                  : row.entered
-                    ? "Update record"
-                    : "Save record"}
+              <X className="h-5 w-5" />
             </button>
-            {save.isSuccess && !save.isPending && (
-              <span className="text-[12px] text-green-700">Saved</span>
+            <div className="mb-4 flex items-center gap-2">
+              <span
+                className={`rounded px-2 py-0.5 text-xs font-medium ${modalShed.type === "layer" ? "bg-primary text-white" : "bg-secondary text-foreground"}`}
+              >
+                {modalShed.type}
+              </span>
+              <h3 className="text-lg font-bold text-foreground">
+                {modalShed.name}
+              </h3>
+              {currentMetrics.ageWeeks !== null && (
+                <span className="ml-auto text-xs text-muted-foreground">
+                  Age: {currentMetrics.ageWeeks}w {currentMetrics.ageDays}d
+                </span>
+              )}
+            </div>
+
+            {modalType === "eggs" && (
+              <div className="space-y-3" data-testid="modal-eggs">
+                <h4 className="flex items-center gap-1.5 text-sm font-semibold text-slate-600">
+                  <Egg className="h-4 w-4 text-warning" />
+                  Egg Production
+                </h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <MetricCard
+                    label="Total Produced"
+                    value={fmtNum(currentMetrics.eggs)}
+                  />
+                  <MetricCard
+                    label="Actual %"
+                    value={`${currentMetrics.actualEggPct.toFixed(1)}%`}
+                    highlight={currentMetrics.eggColor}
+                  />
+                  <MetricCard
+                    label="Breed Std %"
+                    value={
+                      currentMetrics.stdEggPct > 0
+                        ? `${currentMetrics.stdEggPct.toFixed(1)}%`
+                        : "—"
+                    }
+                  />
+                  <MetricCard
+                    label="vs Std"
+                    value={
+                      currentMetrics.stdEggPct > 0
+                        ? `${currentMetrics.eggDelta >= 0 ? "+" : ""}${currentMetrics.eggDelta.toFixed(1)}%`
+                        : "—"
+                    }
+                    highlight={currentMetrics.eggDelta >= 0 ? "green" : "red"}
+                  />
+                  <MetricCard
+                    label="vs Previous Day"
+                    value={
+                      currentMetrics.eggPctChange !== null
+                        ? `${currentMetrics.eggPctChange >= 0 ? "+" : ""}${currentMetrics.eggPctChange.toFixed(1)}%`
+                        : "—"
+                    }
+                    highlight={
+                      currentMetrics.eggPctChange !== null
+                        ? currentMetrics.eggPctChange >= 0
+                          ? "green"
+                          : "red"
+                        : undefined
+                    }
+                  />
+                </div>
+              </div>
+            )}
+
+            {modalType === "feed" && (
+              <div className="space-y-3" data-testid="modal-feed">
+                <h4 className="flex items-center gap-1.5 text-sm font-semibold text-slate-600">
+                  <Wheat className="h-4 w-4 text-success" />
+                  Feed Details
+                </h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <MetricCard
+                    label="Delivered (kg)"
+                    value={fmtNum(currentMetrics.totalDeliveredKg, 1)}
+                  />
+                  <MetricCard
+                    label="Consumed (kg)"
+                    value={fmtNum(currentMetrics.dateConsumedKg, 1)}
+                  />
+                  <MetricCard
+                    label="Stock (kg)"
+                    value={fmtNum(currentMetrics.feedStockKg, 1)}
+                  />
+                  <MetricCard
+                    label="Per Bird (g)"
+                    value={fmtNum(currentMetrics.feedPerBirdG, 1)}
+                    sub={
+                      currentMetrics.stdFeedPerBirdG > 0
+                        ? `Std: ${fmtNum(currentMetrics.stdFeedPerBirdG, 0)}g`
+                        : undefined
+                    }
+                  />
+                  {modalShed?.type === "layer" && (
+                    <MetricCard
+                      label="Per Egg (g)"
+                      value={
+                        currentMetrics.feedPerEgg > 0
+                          ? fmtNum(currentMetrics.feedPerEgg, 0)
+                          : "—"
+                      }
+                    />
+                  )}
+                </div>
+              </div>
+            )}
+
+            {modalType === "water" && (
+              <div className="space-y-3" data-testid="modal-water">
+                <h4 className="flex items-center gap-1.5 text-sm font-semibold text-slate-600">
+                  <Droplets className="h-4 w-4 text-info" />
+                  Water Details
+                </h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <MetricCard
+                    label="Total (L)"
+                    value={fmtNum(currentMetrics.totalWaterL, 1)}
+                  />
+                  <MetricCard
+                    label="Per Bird (ml)"
+                    value={fmtNum(currentMetrics.waterPerBirdMl, 0)}
+                    sub={
+                      currentMetrics.stdWaterMlPerBird > 0
+                        ? `Std: ${fmtNum(currentMetrics.stdWaterMlPerBird, 0)} ml`
+                        : undefined
+                    }
+                  />
+                  <MetricCard
+                    label="Water:Feed"
+                    value={
+                      currentMetrics.waterFeedRatio > 0
+                        ? `${currentMetrics.waterFeedRatio.toFixed(2)}:1`
+                        : "—"
+                    }
+                  />
+                </div>
+              </div>
+            )}
+
+            {modalType === "birds" && (
+              <div className="space-y-3" data-testid="modal-birds">
+                <h4 className="flex items-center gap-1.5 text-sm font-semibold text-slate-600">
+                  <Skull className="h-4 w-4 text-destructive" />
+                  Bird Details
+                </h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <MetricCard
+                    label="Total Birds"
+                    value={fmtNum(currentMetrics.closingStock)}
+                  />
+                  <MetricCard
+                    label="Today's Mortality"
+                    value={fmtNum(currentMetrics.mortality)}
+                  />
+                  <MetricCard
+                    label="Week Avg Mort %"
+                    value={`${currentMetrics.weekAvgMortPct.toFixed(2)}%`}
+                  />
+                  <MetricCard
+                    label="Std Mort %"
+                    value={
+                      currentMetrics.stdMortalityPct > 0
+                        ? `${currentMetrics.stdMortalityPct.toFixed(2)}%`
+                        : "—"
+                    }
+                  />
+                </div>
+              </div>
             )}
           </div>
         </div>
@@ -396,53 +1035,230 @@ function HouseDay({ row, day }: { row: Row; day: string }) {
   );
 }
 
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="mb-3 rounded-lg border border-gray-200 p-3">
-      <h4 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-gray-600">
-        {title}
-      </h4>
-      {children}
-    </div>
-  );
-}
-
-/** The grey strip of derived figures the farm's form puts under each group. */
-function Readout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="mt-2 flex flex-wrap justify-between gap-x-4 gap-y-1 rounded bg-gray-100 px-2.5 py-1.5 text-[12px] text-gray-700">
-      {children}
-    </div>
-  );
-}
-
-function Field({
-  label,
-  unit,
-  value,
-  onChange,
-  hint,
+function Th({
+  children,
+  align,
 }: {
-  label: string;
-  unit?: string;
-  value: string;
-  onChange: (v: string) => void;
-  hint?: string;
+  children: React.ReactNode;
+  align?: "left";
 }) {
   return (
-    <div>
-      <label className="label">
+    <th
+      className={`px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-primary ${
+        align === "left" ? "text-left" : "text-right"
+      }`}
+    >
+      {children}
+    </th>
+  );
+}
+
+/** The summary tile at the top, in the compact form the farm's app uses. */
+function KpiCard({
+  label,
+  value,
+  icon: Icon,
+  accent,
+}: {
+  label: string;
+  value: string;
+  icon: LucideIcon;
+  accent: string;
+}) {
+  return (
+    <div className="relative overflow-hidden rounded-lg border bg-card shadow-sm transition-shadow hover:shadow-md">
+      <div className="p-3.5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {label}
+            </p>
+            <p
+              className="whitespace-nowrap text-lg font-bold leading-tight text-foreground"
+              style={{ fontVariantNumeric: "tabular-nums" }}
+            >
+              {value}
+            </p>
+          </div>
+          <div
+            className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg ${accent}`}
+          >
+            <Icon className="h-4 w-4 text-white" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Spelled out rather than interpolated: Tailwind extracts class names from the
+ * source text, so `bg-${tone}/10` would compile to nothing at all.
+ */
+const AGG_TONE = {
+  warning: "bg-warning/10 border-warning/40 text-warning",
+  success: "bg-success/10 border-success/40 text-success",
+  info: "bg-info/10 border-info/40 text-info",
+  destructive: "bg-destructive/10 border-destructive/40 text-destructive",
+} as const;
+
+function AggTile({
+  tone,
+  label,
+  value,
+}: {
+  tone: keyof typeof AGG_TONE;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className={`rounded border px-1 py-1.5 text-center ${AGG_TONE[tone]}`}>
+      <div className="text-[9px] font-medium leading-tight opacity-70">
         {label}
-        {unit && <span className="ml-1 font-normal text-gray-400">{unit}</span>}
-      </label>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        inputMode="decimal"
-        placeholder="0"
-        className="input min-h-[44px] text-right"
-      />
-      {hint && <p className="mt-0.5 text-[11px] text-gray-400">{hint}</p>}
+      </div>
+      <div className="text-sm font-bold leading-tight">{value}</div>
+    </div>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  highlight,
+  sub,
+}: {
+  label: string;
+  value: string;
+  highlight?: "green" | "yellow" | "red";
+  sub?: string;
+}) {
+  const bgClass =
+    highlight === "green"
+      ? "bg-success/10 border-success/40"
+      : highlight === "yellow"
+        ? "bg-warning/10 border-warning/40"
+        : highlight === "red"
+          ? "bg-destructive/10 border-destructive/40"
+          : "bg-slate-50 border-slate-200";
+  return (
+    <div className={`rounded-lg border p-3 ${bgClass}`}>
+      <div className="mb-0.5 text-[11px] text-muted-foreground">{label}</div>
+      <div className="text-lg font-bold text-foreground">{value}</div>
+      {sub && (
+        <div className="mt-0.5 text-[10px] text-muted-foreground">{sub}</div>
+      )}
+    </div>
+  );
+}
+
+type ShedMetrics = ReturnType<typeof buildShedMetrics>;
+
+interface ShedRowProps {
+  metrics: ShedMetrics;
+  onTileClick: (type: ModalType) => void;
+  onShedClick: () => void;
+}
+
+function ShedRow({ metrics, onTileClick, onShedClick }: ShedRowProps) {
+  const m = metrics;
+  const eggBg =
+    m.eggColor === "green"
+      ? "bg-success/10 text-success border-success/40"
+      : m.eggColor === "yellow"
+        ? "bg-warning/10 text-warning border-warning/40"
+        : "bg-destructive/10 text-destructive border-destructive/40";
+
+  return (
+    <div
+      className="rounded-lg border bg-white p-2.5 shadow-sm"
+      data-testid={`row-shed-${m.shed.id}`}
+    >
+      <button
+        className="group mb-2 flex w-full items-center gap-1 text-left"
+        onClick={onShedClick}
+        data-testid={`link-shed-${m.shed.id}`}
+      >
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-semibold text-foreground transition-colors group-hover:text-primary">
+            {m.shed.name}
+          </div>
+          <div className="text-[10px] leading-tight text-muted-foreground">
+            {m.closingStock > 0 ? `${fmtNum(m.closingStock)} birds` : "Empty"}
+            {m.ageWeeks !== null && ` · ${m.ageWeeks}w`}
+          </div>
+        </div>
+        <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-slate-300 group-hover:text-primary" />
+      </button>
+
+      <div
+        className={`grid gap-1.5 ${m.shed.type === "layer" ? "grid-cols-4" : "grid-cols-3"}`}
+      >
+        {m.shed.type === "layer" && (
+          <button
+            className={`rounded border px-1 py-1.5 text-center transition-transform active:scale-95 ${m.closingStock > 0 ? eggBg : "border-slate-200 bg-slate-50 text-muted-foreground"}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              onTileClick("eggs");
+            }}
+            data-testid={`tile-eggs-${m.shed.id}`}
+          >
+            <div className="text-[9px] font-medium leading-tight opacity-70">
+              Eggs
+            </div>
+            <div className="text-sm font-bold leading-tight">
+              {m.closingStock > 0 ? `${m.actualEggPct.toFixed(0)}%` : "—"}
+            </div>
+          </button>
+        )}
+
+        <button
+          className="rounded border border-success/40 bg-success/10 px-1 py-1.5 text-center text-success transition-transform active:scale-95"
+          onClick={(e) => {
+            e.stopPropagation();
+            onTileClick("feed");
+          }}
+          data-testid={`tile-feed-${m.shed.id}`}
+        >
+          <div className="text-[9px] font-medium leading-tight opacity-70">
+            Feed
+          </div>
+          <div className="text-sm font-bold leading-tight">
+            {m.feedPerBirdG > 0 ? `${fmtNum(m.feedPerBirdG, 0)}g` : "—"}
+          </div>
+        </button>
+
+        <button
+          className="rounded border border-info/40 bg-info/10 px-1 py-1.5 text-center text-info transition-transform active:scale-95"
+          onClick={(e) => {
+            e.stopPropagation();
+            onTileClick("water");
+          }}
+          data-testid={`tile-water-${m.shed.id}`}
+        >
+          <div className="text-[9px] font-medium leading-tight opacity-70">
+            Water
+          </div>
+          <div className="text-sm font-bold leading-tight">
+            {m.waterPerBirdMl > 0 ? `${fmtNum(m.waterPerBirdMl, 0)}ml` : "—"}
+          </div>
+        </button>
+
+        <button
+          className={`rounded border px-1 py-1.5 text-center transition-transform active:scale-95 ${m.mortality > 0 ? "border-destructive/40 bg-destructive/10 text-destructive" : "border-slate-200 bg-slate-50 text-muted-foreground"}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onTileClick("birds");
+          }}
+          data-testid={`tile-mortality-${m.shed.id}`}
+        >
+          <div className="text-[9px] font-medium leading-tight opacity-70">
+            Mort
+          </div>
+          <div className="text-sm font-bold leading-tight">
+            {m.mortality > 0 ? m.mortality : "0"}
+          </div>
+        </button>
+      </div>
     </div>
   );
 }

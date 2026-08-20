@@ -28,6 +28,7 @@ import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
 import { dayBoard, saveDay } from "../services/daily";
+import { housesBoard } from "../services/houses-board";
 import {
   ageOn,
   boardRows,
@@ -725,4 +726,16 @@ farmsFlockRouter.post("/daily", manage, validateBody(dailySchema), async (req, r
   } catch (err) {
     if (!fail(err, res)) throw err;
   }
+});
+
+/**
+ * Everything the Houses screen holds in state, in one request.
+ *
+ * The screen is a port from the farm's own app and its calculations are carried
+ * over untouched, so the shapes it expects are produced in the adapter rather
+ * than by editing the page — see services/houses-board.ts.
+ */
+farmsFlockRouter.get("/houses-board", view, async (_req, res) => {
+  const out = await db.transaction((tx) => housesBoard(tx));
+  res.json(out);
 });
