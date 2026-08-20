@@ -27,6 +27,7 @@ import {
 } from "@shared/schema";
 import type { db as Db } from "../db";
 import { PostingError } from "./posting";
+import { refreshFlockDay } from "./rollup";
 
 type Tx = Parameters<Parameters<typeof Db.transaction>[0]>[0];
 
@@ -226,6 +227,7 @@ export async function createFlock(
     })),
   );
 
+  await refreshFlockDay(tx, flock!.id);
   return { flock: flock!, placement: placement!, profile };
 }
 
@@ -370,6 +372,7 @@ export async function setFlockHatches(
     .where(eq(flockPlacements.id, first.id));
 
   await recomputeHatchProfile(tx, flockId);
+  await refreshFlockDay(tx, flockId);
   return profile;
 }
 
@@ -425,6 +428,7 @@ export async function recordMovement(
       recordedBy: args.userId,
     })
     .returning();
+  await refreshFlockDay(tx, placement.flockId);
   return row!;
 }
 
@@ -708,6 +712,7 @@ export async function setFlockTransfers(
   }
   await tx.update(flocks).set({ housedOn }).where(eq(flocks.id, flockId));
 
+  await refreshFlockDay(tx, flockId);
   return { housedOn, lines: lines.length };
 }
 
@@ -808,6 +813,7 @@ export async function setFlockCulls(tx: Tx, flockId: string, lines: CullLine[], 
     .where(eq(flocks.id, flockId))
     .returning();
 
+  await refreshFlockDay(tx, flockId);
   return { flock: updated!, remaining: alive, lines: lines.length };
 }
 
@@ -905,6 +911,8 @@ export async function startLay(tx: Tx, flockId: string, on: string) {
     .set({ status: "laying", layStartDate: on })
     .where(eq(flocks.id, flockId))
     .returning();
+  // Every day from here on is in lay, and the phase is stamped on the row.
+  await refreshFlockDay(tx, flockId);
   return row!;
 }
 

@@ -43,6 +43,7 @@ import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, assertPeriodOpen, reverseJournal } from "../services/posting";
 import { mainStore, moveStock, postInventoryMovement, stockOnHand } from "../services/inventory";
 import { getPreferences } from "../services/preferences";
+import { refreshHouse } from "../services/rollup";
 
 export const feedProductionRouter = Router();
 
@@ -641,6 +642,9 @@ feedProductionRouter.post(
           .set({ journalEntryId })
           .where(eq(feedTransfers.id, transfer!.id))
           .returning();
+        // A delivery is a new FIFO layer for the shed, so the feed cost of every
+        // flock that has stood there is restated.
+        await refreshHouse(tx, house.id);
         return updated!;
       });
       res.status(201).json(out);
@@ -691,6 +695,9 @@ feedProductionRouter.post(
           .set({ status: "void", voidReason: req.body.reason })
           .where(eq(feedTransfers.id, transfer.id))
           .returning();
+        // Voiding withdraws the layer: the feed cost it carried has to come back
+        // out of every day that drew on it.
+        if (transfer.toHouseId) await refreshHouse(tx, transfer.toHouseId);
         return updated!;
       });
       res.json(out);

@@ -31,6 +31,7 @@ import {
 import type { db as Db } from "../db";
 import { PostingError } from "./posting";
 import { ageOn, placementCounts } from "./flocks";
+import { refreshFlockDay } from "./rollup";
 
 type Tx = Parameters<Parameters<typeof Db.transaction>[0]>[0];
 
@@ -314,6 +315,10 @@ export async function saveDay(tx: Tx, input: DayInput, userId: string) {
       })),
     );
   }
+
+  // The reporting surface is rebuilt inside the same transaction, so it either
+  // agrees with the ledger or neither of them happened.
+  await refreshFlockDay(tx, placement.flockId);
 
   return { placementId: placement.id, day: input.day, lost: losing };
 }

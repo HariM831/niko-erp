@@ -442,6 +442,13 @@
       "when": 1786971424135,
       "tag": "0062_weighings_and_vaccination",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1786971484135,
+      "tag": "0063_flock_day",
+      "breakpoints": true
     }
   ]
 }

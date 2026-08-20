@@ -29,6 +29,7 @@ import { requirePermission } from "../lib/rbac";
 import { PostingError } from "../services/posting";
 import { DAILY_KINDS, saveDay } from "../services/daily";
 import { createFlock } from "../services/flocks";
+import { refreshFromPlacement } from "../services/rollup";
 
 type Tx = Parameters<Parameters<typeof Db.transaction>[0]>[0];
 
@@ -239,6 +240,9 @@ farmsCompatRouter.post("/weekly-weights", manage, async (req, res) => {
           },
         })
         .returning();
+      // Body and egg weight are carried forward onto every day until the next
+      // weighing, so the rows have to be rebuilt when one is corrected.
+      await refreshFromPlacement(tx, placementId);
       return made!;
     });
     res.status(201).json(row);
