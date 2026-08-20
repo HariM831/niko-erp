@@ -215,3 +215,11 @@ body {
     min-height: 297mm;
   }
 }
+
+@layer utilities {
+  /* Clears the home indicator on a phone, and collapses to a sensible gap on a
+     device that has none. The bottom nav sits on top of this. */
+  .safe-area-inset-bottom {
+    padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  }
+}
