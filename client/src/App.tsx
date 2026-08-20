@@ -12,6 +12,7 @@ import { FeedFormulasPage } from "./pages/feed-formulas";
 import { FeedProductionPage } from "./pages/feed-production";
 import { FarmsBoardPage } from "./pages/farms-board";
 import { FarmsDailyPage } from "./pages/farms-daily";
+import { HouseDetailPage } from "./pages/house-detail";
 import { FlockDetailPage } from "./pages/flock-detail";
 import {
   CustomersPage,
@@ -175,6 +176,7 @@ export function App() {
         <Route path="/feed-mill/production" component={FeedProductionPage} />
         <Route path="/farms" component={FarmsBoardPage} />
         <Route path="/farms/daily" component={FarmsDailyPage} />
+        <Route path="/farms/houses/:id" component={HouseDetailPage} />
         <Route path="/farms/flocks/:id" component={FlockDetailPage} />
         {/* Feed transfer is weighed on the same platform, so it lives with the
             other weighments rather than in a screen of its own. */}

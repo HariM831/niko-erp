@@ -427,21 +427,8 @@ export function FarmsDailyPage() {
     setModalType(null);
   };
 
-  /**
-   * TEMPORARY — the row should open the HOUSE.
-   *
-   * A shed exists whether or not it holds birds, which is why the farm's app
-   * opens an empty one perfectly happily. This pointed at a placement instead,
-   * which only exists while birds are in the house: an empty shed had nothing
-   * to navigate to, and the route it built was never registered. Until the
-   * house page is ported this jumps to the flock, so an occupied shed at least
-   * leads somewhere real.
-   */
-  const openShed = (shedId: string) => {
-    const stock = getAgeRefStock(stocks[shedId] || [], (records[shedId] || []) as never);
-    const flockId = stock?.flockId;
-    if (flockId) setLocation(`/farms/flocks/${flockId}`);
-  };
+  /** A row opens the house, which exists whether or not it holds birds. */
+  const openShed = (shedId: string) => setLocation(`/farms/houses/${shedId}`);
 
   const currentMetrics = modalShed
     ? shedMetrics.find((m) => m.shed.id === modalShed.id)
