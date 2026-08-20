@@ -238,8 +238,14 @@ export const placementDays = pgTable(
       .references(() => flockPlacements.id, { onDelete: "cascade" }),
     day: date("day").notNull(),
     feedConsumedKg: numeric("feed_consumed_kg", { precision: 10, scale: 2 }),
+    /** What is left in the silo. The farm calls it "Stock". */
     feedClosingKg: numeric("feed_closing_kg", { precision: 10, scale: 2 }),
-    waterL: numeric("water_l", { precision: 10, scale: 2 }),
+    /**
+     * Two tank readings, because the operator reads two meters. Downstream
+     * takes the sum — only one number ever leaves this table.
+     */
+    waterUpperKl: numeric("water_upper_kl", { precision: 10, scale: 2 }),
+    waterLowerKl: numeric("water_lower_kl", { precision: 10, scale: 2 }),
     /** Nullable and unconstrained by house purpose — see the migration. */
     eggsTotal: integer("eggs_total"),
     eggsCracked: integer("eggs_cracked"),

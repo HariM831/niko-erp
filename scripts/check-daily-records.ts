@@ -60,7 +60,7 @@ try {
         placementId: placement.id,
         day: "2026-02-10",
         feedConsumedKg: "180.50",
-        waterL: "340",
+        waterUpperKl: "200", waterLowerKl: "140",
         losses: [
           { kind: "mortality", qty: 12, causeCode: "respiratory" },
           { kind: "cull", qty: 3, causeCode: "cull_weak" },
@@ -78,7 +78,7 @@ try {
         placementId: placement.id,
         day: "2026-02-10",
         feedConsumedKg: "185.00",
-        waterL: "340",
+        waterUpperKl: "200", waterLowerKl: "140",
         losses: [{ kind: "mortality", qty: 8, causeCode: "respiratory" }],
       },
       userId,
@@ -124,13 +124,32 @@ try {
     );
 
     // ── Refusals ──
-    await refuses("a loss with no cause", () =>
-      saveDay(
-        tx,
-        { placementId: placement.id, day: "2026-02-11", losses: [{ kind: "mortality", qty: 1 }] },
-        userId,
-      ),
+    // The form ported from the farm's own app does not ask why, so a row that
+    // does not say is recorded as "unknown" rather than refused — the column and
+    // its CHECK stay, ready for the day causes start being captured.
+    await saveDay(
+      tx,
+      {
+        placementId: placement.id,
+        day: "2026-02-11",
+        losses: [{ kind: "mortality", qty: 1 }],
+      },
+      userId,
     );
+    const unstated = await tx
+      .select({ causeCode: flockMovements.causeCode })
+      .from(flockMovements)
+      .where(
+        and(eq(flockMovements.placementId, placement.id), eq(flockMovements.eventDate, "2026-02-11")),
+      );
+    ok("a loss with no stated cause is kept as unknown", unstated[0]?.causeCode === "unknown", String(unstated[0]?.causeCode));
+
+    // Put the day back to empty so the board checks below still read clean.
+    await saveDay(tx, { placementId: placement.id, day: "2026-02-11", losses: [] }, userId);
+    await tx
+      .delete(placementDays)
+      .where(and(eq(placementDays.placementId, placement.id), eq(placementDays.day, "2026-02-11")));
+
     await refuses("losing more birds than the house holds", () =>
       saveDay(
         tx,

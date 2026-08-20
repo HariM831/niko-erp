@@ -20,6 +20,7 @@
 import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
 import {
   CAUSE_REQUIRED,
+  feedTransfers,
   flockMovements,
   flockPlacements,
   flocks,
@@ -39,16 +40,26 @@ export const DAILY_KINDS = ["mortality", "cull", "male_removal"] as const;
 export interface LossLine {
   kind: (typeof DAILY_KINDS)[number];
   qty: number;
+  /**
+   * The form ported from the farm's own app does not ask why — so a row that
+   * does not say falls back to "unknown" rather than being refused. The column
+   * and its CHECK stay, so the day causes start being recorded nothing has to
+   * change underneath.
+   */
   causeCode?: string | null;
   note?: string | null;
 }
+
+/** What a row without a stated cause is recorded as. */
+const UNSTATED_CAUSE = "unknown";
 
 export interface DayInput {
   placementId: string;
   day: string;
   feedConsumedKg?: string | null;
   feedClosingKg?: string | null;
-  waterL?: string | null;
+  waterUpperKl?: string | null;
+  waterLowerKl?: string | null;
   eggsTotal?: number | null;
   eggsCracked?: number | null;
   eggsDirty?: number | null;
@@ -118,6 +129,31 @@ export async function dayBoard(tx: Tx, day: string) {
     );
 
   const counts = await placementCounts(tx, ids, day);
+  // Opening is the closing count of the day before — the farm's own form shows
+  // both, and seeing them either side of the entry is what catches a fat finger.
+  const prev = new Date(Date.parse(`${day}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+  const opening = await placementCounts(tx, ids, prev);
+
+  // Feed DELIVERED is not typed here. It is the mill's transfer into this house,
+  // which already exists as a real stock movement with a cost on it; a second
+  // hand-keyed number beside it would be a second answer to the same question.
+  const delivered = await tx
+    .select({
+      houseId: feedTransfers.toHouseId,
+      kg: sql<string>`sum(${feedTransfers.quantityKg})`,
+    })
+    .from(feedTransfers)
+    .where(
+      and(
+        inArray(
+          feedTransfers.toHouseId,
+          placements.map((p) => p.houseId),
+        ),
+        eq(feedTransfers.transferDate, day),
+      ),
+    )
+    .groupBy(feedTransfers.toHouseId);
+  const deliveredOf = new Map(delivered.map((d) => [d.houseId, d.kg]));
 
   // Yesterday's feed is a hint, not a default — it saves typing on a house
   // whose intake is steady without quietly inventing a number for one whose
@@ -148,6 +184,8 @@ export async function dayBoard(tx: Tx, day: string) {
       ...p,
       age,
       birds: counts.get(p.placementId) ?? 0,
+      openingBirds: opening.get(p.placementId) ?? 0,
+      feedDeliveredKg: deliveredOf.get(p.houseId) ?? null,
       entered: !!entry,
       day: entry ?? null,
       losses: lossOf.get(p.placementId) ?? [],
@@ -196,9 +234,7 @@ export async function saveDay(tx: Tx, input: DayInput, userId: string) {
 
   for (const l of input.losses) {
     if (l.qty <= 0) throw new PostingError("A loss line needs a number above zero");
-    if (CAUSE_REQUIRED.includes(l.kind) && !l.causeCode) {
-      throw new PostingError("Every mortality and cull line needs a cause");
-    }
+
   }
 
   // How many birds the house holds on the day, ignoring the losses being
@@ -230,7 +266,8 @@ export async function saveDay(tx: Tx, input: DayInput, userId: string) {
       day: input.day,
       feedConsumedKg: money(input.feedConsumedKg),
       feedClosingKg: money(input.feedClosingKg),
-      waterL: money(input.waterL),
+      waterUpperKl: money(input.waterUpperKl),
+      waterLowerKl: money(input.waterLowerKl),
       eggsTotal: input.eggsTotal ?? null,
       eggsCracked: input.eggsCracked ?? null,
       eggsDirty: input.eggsDirty ?? null,
@@ -242,7 +279,8 @@ export async function saveDay(tx: Tx, input: DayInput, userId: string) {
       set: {
         feedConsumedKg: money(input.feedConsumedKg),
         feedClosingKg: money(input.feedClosingKg),
-        waterL: money(input.waterL),
+        waterUpperKl: money(input.waterUpperKl),
+        waterLowerKl: money(input.waterLowerKl),
         eggsTotal: input.eggsTotal ?? null,
         eggsCracked: input.eggsCracked ?? null,
         eggsDirty: input.eggsDirty ?? null,
@@ -268,7 +306,9 @@ export async function saveDay(tx: Tx, input: DayInput, userId: string) {
         eventDate: input.day,
         kind: l.kind,
         qty: l.qty,
-        causeCode: l.causeCode ?? null,
+        causeCode: CAUSE_REQUIRED.includes(l.kind)
+          ? (l.causeCode ?? UNSTATED_CAUSE)
+          : (l.causeCode ?? null),
         note: l.note?.trim() || null,
         recordedBy: userId,
       })),

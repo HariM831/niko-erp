@@ -428,6 +428,13 @@
       "when": 1786971304135,
       "tag": "0060_placement_days",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1786971364135,
+      "tag": "0061_daily_amino_shape",
+      "breakpoints": true
     }
   ]
 }
