@@ -58,6 +58,8 @@ interface BirdStock {
   dateIn: string;
   openingCount: number;
   batchNumber?: string;
+  /** Not in the original shape — the row needs somewhere to link to. */
+  flockId?: string;
   batchBirthDate?: string;
   sourceShedId?: string;
   breedId?: string;
@@ -425,17 +427,20 @@ export function FarmsDailyPage() {
     setModalType(null);
   };
 
-  /** The shed's current batch — what its row and tiles are describing. */
-  const flockIdFor = (shedId: string) => {
-    const ref = getAgeRefStock(
-      stocks[shedId] || [],
-      (records[shedId] || []) as never,
-    );
-    return ref?.id ?? null;
-  };
+  /**
+   * TEMPORARY — the row should open the HOUSE.
+   *
+   * A shed exists whether or not it holds birds, which is why the farm's app
+   * opens an empty one perfectly happily. This pointed at a placement instead,
+   * which only exists while birds are in the house: an empty shed had nothing
+   * to navigate to, and the route it built was never registered. Until the
+   * house page is ported this jumps to the flock, so an occupied shed at least
+   * leads somewhere real.
+   */
   const openShed = (shedId: string) => {
-    const placementId = flockIdFor(shedId);
-    if (placementId) setLocation(`/farms/placements/${placementId}`);
+    const stock = getAgeRefStock(stocks[shedId] || [], (records[shedId] || []) as never);
+    const flockId = stock?.flockId;
+    if (flockId) setLocation(`/farms/flocks/${flockId}`);
   };
 
   const currentMetrics = modalShed

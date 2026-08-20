@@ -62,6 +62,7 @@ export async function housesBoard(tx: Tx) {
       shedId: flockPlacements.houseId,
       dateIn: flockPlacements.fromDate,
       batchNumber: flocks.code,
+      flockId: flocks.id,
       /** The flock's bird-weighted average hatch date — what drives the age. */
       batchBirthDate: flocks.hatchDate,
       breedId: flocks.breedId,
@@ -83,6 +84,8 @@ export async function housesBoard(tx: Tx) {
       dateIn: p.dateIn,
       openingCount: p.openingCount,
       batchNumber: p.batchNumber,
+      /** Not in the original shape — the row needs somewhere to link to. */
+      flockId: p.flockId,
       batchBirthDate: p.batchBirthDate,
       breedId: p.breedId,
       isActive: p.status !== "depleted",
