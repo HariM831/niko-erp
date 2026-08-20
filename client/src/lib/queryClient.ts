@@ -48,7 +48,7 @@ const tail = (url: string) => url.split("?")[0]!.split("/").filter(Boolean).pop(
 
 class NotWired extends Error {
   constructor(method: string, url: string) {
-    super(`${method} ${url} is not wired up in EGGSY yet`);
+    super(`${method} ${url} has no EGGSY equivalent`);
   }
 }
 
@@ -96,7 +96,18 @@ export async function apiRequest(method: string, url: string, body?: unknown) {
     throw new NotWired(method, url);
   }
 
-  throw new NotWired(method, url);
+  // ── Writes ──
+  //
+  // Same paths, translated onto EGGSY's services in server/routes/farms-compat.
+  // The in-flight read cache is cleared so the refetch every save triggers sees
+  // what was just written rather than the copy from a moment ago.
+  inflight.clear();
+  const target = url.replace(/^\/api\//, "/api/farms/compat/");
+  const result = await api<unknown>(target, {
+    method: method as "POST" | "PATCH" | "DELETE",
+    body: body ?? undefined,
+  });
+  return asResponse(result);
 }
 
 /**
