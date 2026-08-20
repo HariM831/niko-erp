@@ -349,7 +349,7 @@ function buildShedMetrics(
   };
 }
 
-export function FarmsDailyPage() {
+export function FarmsHousesPage() {
   const [, setLocation] = useLocation();
   const [sheds, setSheds] = useState<Shed[]>([]);
   const [stocks, setStocks] = useState<Record<string, BirdStock[]>>({});

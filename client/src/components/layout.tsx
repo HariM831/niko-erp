@@ -105,16 +105,14 @@ const NAV: NavItem[] = [
      * screens would mostly be links to things you get to by pointing at the
      * shed you were already looking at.
      */
+    /**
+     * One entry, because Farms is one screen: Houses, and everything else is
+     * reached by pointing at the shed you were already looking at. It becomes a
+     * group again the day a second top-level farm page exists.
+     */
     label: "Farms",
     icon: Bird,
-    children: [
-      { label: "Houses", path: "/farms" },
-      /* Daily entry is its own screen, not a panel on the flock. A batch is set
-         up a handful of times in its life; this is filled in every morning for
-         every house, and mixing the two puts a once-a-lifetime field next to a
-         once-a-day one. */
-      { label: "Daily Records", path: "/farms/daily" },
-    ],
+    path: "/farms",
   },
   {
     label: "Accountant",
