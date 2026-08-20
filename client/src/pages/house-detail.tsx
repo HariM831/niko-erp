@@ -13,6 +13,9 @@ import { ArrowLeft, Plus, Bird, Calendar, Scale, Droplets, Wheat, AlertTriangle,
 import { useApp } from "@/lib/store";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+/* The chart strokes below are literals because SVG cannot read a Tailwind
+   class. They are EGGSY's palette: amber-500 for feed, brand-500 for water,
+   brand-600 for eggs, and gray-400 dashed for the standard. */
 import {
   LineChart,
   Line,
@@ -918,7 +921,7 @@ export function HouseDetailPage() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <p className="text-slate-500 mb-4">Shed not found</p>
+          <p className="text-gray-500 mb-4">Shed not found</p>
           <Button onClick={() => setLocation("/farms/daily")}>Go Back</Button>
         </div>
       </div>
@@ -942,7 +945,7 @@ export function HouseDetailPage() {
   const eggPercent = formClosingBirds > 0 ? (formEggsProduced / formClosingBirds) * 100 : 0;
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4">
+    <div className="min-h-screen bg-gray-50 p-4">
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center gap-4 mb-6">
           <Button 
@@ -955,7 +958,7 @@ export function HouseDetailPage() {
           </Button>
           <div className="flex-1">
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-2xl font-bold text-slate-800">{shed.name}</h1>
+              <h1 className="text-2xl font-bold text-gray-800">{shed.name}</h1>
               <Badge variant={shed.type === 'pullet' ? 'secondary' : 'default'}>
                 {shed.type}
               </Badge>
@@ -992,16 +995,16 @@ export function HouseDetailPage() {
               )}
             </div>
             {age && (
-              <p className="text-slate-500 text-sm">
+              <p className="text-gray-500 text-sm">
                 Age: {age.weeks} weeks, {age.days} days
               </p>
             )}
             {largestBatchStock && (
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-gray-400">
                   Breed: {breeds.find(b => b.id === (largestBatchStock as any).breedId)?.name || 'Not set'}
                 </p>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-gray-400">
                   DOB: {largestBatchStock.batchBirthDate ? format(new Date(largestBatchStock.batchBirthDate), 'dd MMM yyyy') : 'Not set'}
                 </p>
               </div>
@@ -1024,15 +1027,15 @@ export function HouseDetailPage() {
         {stocks.length === 0 ? (
           <Card className="mb-6">
             <CardContent className="py-12 text-center">
-              <Bird className="w-12 h-12 mx-auto mb-4 text-slate-300" />
-              <h3 className="text-lg font-medium text-slate-600 mb-2">No Birds Placed Yet</h3>
+              <Bird className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+              <h3 className="text-lg font-medium text-gray-600 mb-2">No Birds Placed Yet</h3>
               {/*
                 Batches are not created here. A batch keeps one record across
                 every shed it lives in, so it is made on the Batches screen and
                 placed into a house from there; a house reports what it happens
                 to be holding.
               */}
-              <p className="text-slate-400 mb-4">
+              <p className="text-gray-400 mb-4">
                 Batches are created on the Batches screen, then placed into a house.
               </p>
               <Button onClick={() => setLocation("/farms/batches")} data-testid="button-go-batches">
@@ -1113,7 +1116,7 @@ export function HouseDetailPage() {
                             <Line 
                               type="monotone" 
                               dataKey="stdFeed" 
-                              stroke="#94a3b8" 
+                              stroke="#9ca3af" 
                               strokeWidth={2}
                               strokeDasharray="5 5"
                               dot={false}
@@ -1156,7 +1159,7 @@ export function HouseDetailPage() {
                           <Line 
                             type="monotone" 
                             dataKey="waterPerBird" 
-                            stroke="#3b82f6" 
+                            stroke="#408dfb" 
                             strokeWidth={2}
                             dot={{ r: 3 }}
                             name="Actual"
@@ -1165,7 +1168,7 @@ export function HouseDetailPage() {
                             <Line 
                               type="monotone" 
                               dataKey="stdWater" 
-                              stroke="#94a3b8" 
+                              stroke="#9ca3af" 
                               strokeWidth={2}
                               strokeDasharray="5 5"
                               dot={false}
@@ -1209,7 +1212,7 @@ export function HouseDetailPage() {
                             <Line 
                               type="monotone" 
                               dataKey="eggPercent" 
-                              stroke="#f97316" 
+                              stroke="#2570eb" 
                               strokeWidth={2}
                               dot={{ r: 3 }}
                               name="Actual"
@@ -1218,7 +1221,7 @@ export function HouseDetailPage() {
                               <Line 
                                 type="monotone" 
                                 dataKey="stdEggPercent" 
-                                stroke="#94a3b8" 
+                                stroke="#9ca3af" 
                                 strokeWidth={2}
                                 strokeDasharray="5 5"
                                 dot={false}
@@ -1355,7 +1358,7 @@ export function HouseDetailPage() {
                               disabled={!isAdmin}
                             />
                             {!isAdmin && (
-                              <p className="text-xs text-slate-500 mt-1">Only admins can add records for past dates</p>
+                              <p className="text-xs text-gray-500 mt-1">Only admins can add records for past dates</p>
                             )}
                             {!editingRecordId && recordForm.date && records.some(r => format(new Date(r.date), 'yyyy-MM-dd') === recordForm.date) && (
                               <p className="text-xs text-destructive mt-1 font-medium">A record already exists for this date. Please edit the existing record instead.</p>
@@ -1363,7 +1366,7 @@ export function HouseDetailPage() {
                           </div>
 
                           <div className="border rounded-lg p-4 space-y-3">
-                            <h4 className="font-semibold flex items-center gap-2 text-slate-700">
+                            <h4 className="font-semibold flex items-center gap-2 text-gray-700">
                               <Bird className="w-4 h-4" />
                               Birds
                             </h4>
@@ -1412,7 +1415,7 @@ export function HouseDetailPage() {
                               </div>
                               <div>
                                 <Label className="text-xs flex items-center gap-1">
-                                  <Scissors className="w-3 h-3 text-slate-500" />
+                                  <Scissors className="w-3 h-3 text-gray-500" />
                                   Culled
                                 </Label>
                                 <Input
@@ -1425,7 +1428,7 @@ export function HouseDetailPage() {
                                 />
                               </div>
                             </div>
-                            <div className="text-sm bg-slate-100 p-2 rounded flex justify-between">
+                            <div className="text-sm bg-gray-100 p-2 rounded flex justify-between">
                               <span>Opening: <strong>{formOpeningBirds.toLocaleString()}</strong></span>
                               <span>Closing: <strong className={formClosingBirds < 0 ? 'text-destructive' : 'text-success'}>{formClosingBirds.toLocaleString()}</strong></span>
                             </div>
@@ -1554,7 +1557,7 @@ export function HouseDetailPage() {
                   </CardHeader>
                   <CardContent>
                     {shedData.records.length === 0 ? (
-                      <div className="text-center py-8 text-slate-400">
+                      <div className="text-center py-8 text-gray-400">
                         No daily records yet
                       </div>
                     ) : (
@@ -1635,7 +1638,7 @@ export function HouseDetailPage() {
                           return (
                             <div 
                               key={record.id} 
-                              className="flex items-center justify-between p-3 bg-slate-50 rounded-lg cursor-pointer hover:bg-slate-100 transition-colors"
+                              className="flex items-center justify-between p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors"
                               data-testid={`record-${record.id}`}
                               onClick={() => {
                                 setSelectedRecord(record);
@@ -1646,7 +1649,7 @@ export function HouseDetailPage() {
                                 <div className="font-medium">
                                   {format(new Date(record.date), 'dd MMM yyyy')}
                                 </div>
-                                <div className="text-sm text-slate-500">
+                                <div className="text-sm text-gray-500">
                                   by {record.recordedBy} {ageRefDate && <span className="text-xs">(Week {recordAgeWeeks})</span>}
                                 </div>
                               </div>
@@ -1746,7 +1749,7 @@ export function HouseDetailPage() {
                             const birthStr = largestBatchStock?.batchBirthDate || largestBatchStock?.dateIn || earliestStock?.dateIn;
                             const selectedAge = birthStr ? calculateAge(birthStr, new Date(weightForm.date)) : age;
                             return (
-                              <div className="text-sm text-slate-500 bg-slate-100 p-2 rounded">
+                              <div className="text-sm text-gray-500 bg-gray-100 p-2 rounded">
                                 Week {selectedAge?.weeks} ({weightForm.date === format(new Date(), 'yyyy-MM-dd') ? 'today' : weightForm.date})
                               </div>
                             );
@@ -1795,7 +1798,7 @@ export function HouseDetailPage() {
                   </CardHeader>
                   <CardContent>
                     {(shedData.weights as WeeklyWeight[]).length === 0 ? (
-                      <div className="text-center py-8 text-slate-400">
+                      <div className="text-center py-8 text-gray-400">
                         No weight records yet
                       </div>
                     ) : (
@@ -1803,20 +1806,20 @@ export function HouseDetailPage() {
                         {(shedData.weights as WeeklyWeight[]).map((weight) => (
                           <div 
                             key={weight.id} 
-                            className="flex items-center justify-between p-3 bg-slate-50 rounded-lg"
+                            className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
                             data-testid={`weight-${weight.id}`}
                           >
                             <div>
                               <div className="font-medium">
                                 Week {weight.weekNumber}
                               </div>
-                              <div className="text-sm text-slate-500">
+                              <div className="text-sm text-gray-500">
                                 {format(new Date(weight.date), 'dd MMM yyyy')}
                               </div>
                             </div>
                             <div className="flex items-center gap-4">
                               <div className="flex items-center gap-1">
-                                <Scale className="w-4 h-4 text-slate-400" />
+                                <Scale className="w-4 h-4 text-gray-400" />
                                 <span className="font-medium">{weight.averageWeight} g</span>
                               </div>
                               {shed?.type === 'layer' && weight.eggWeight && (
@@ -2335,7 +2338,7 @@ export function HouseDetailPage() {
                   </div>
                 </div>
 
-                <div className="border-t pt-3 text-sm text-slate-500">
+                <div className="border-t pt-3 text-sm text-gray-500">
                   Recorded by: {selectedRecord.recordedBy}
                 </div>
               </div>

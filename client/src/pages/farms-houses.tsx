@@ -736,7 +736,7 @@ export function FarmsHousesPage() {
                   onShedClick={() => openShed(m.shed.id)}
                 />
               ))}
-              <div className="rounded-lg border border-slate-200 bg-slate-100 p-2.5">
+              <div className="rounded-lg border border-gray-200 bg-gray-100 p-2.5">
                 <div className="mb-1.5 text-[10px] font-semibold uppercase text-muted-foreground">
                   Layer Totals
                 </div>
@@ -789,7 +789,7 @@ export function FarmsHousesPage() {
                   onShedClick={() => openShed(m.shed.id)}
                 />
               ))}
-              <div className="rounded-lg border border-slate-200 bg-slate-100 p-2.5">
+              <div className="rounded-lg border border-gray-200 bg-gray-100 p-2.5">
                 <div className="mb-1.5 text-[10px] font-semibold uppercase text-muted-foreground">
                   Pullet Totals
                 </div>
@@ -843,7 +843,7 @@ export function FarmsHousesPage() {
           >
             <button
               onClick={closeModal}
-              className="absolute right-3 top-3 p-1 text-muted-foreground hover:text-slate-600"
+              className="absolute right-3 top-3 p-1 text-muted-foreground hover:text-gray-600"
               data-testid="button-close-modal"
             >
               <X className="h-5 w-5" />
@@ -866,7 +866,7 @@ export function FarmsHousesPage() {
 
             {modalType === "eggs" && (
               <div className="space-y-3" data-testid="modal-eggs">
-                <h4 className="flex items-center gap-1.5 text-sm font-semibold text-slate-600">
+                <h4 className="flex items-center gap-1.5 text-sm font-semibold text-gray-600">
                   <Egg className="h-4 w-4 text-warning" />
                   Egg Production
                 </h4>
@@ -918,7 +918,7 @@ export function FarmsHousesPage() {
 
             {modalType === "feed" && (
               <div className="space-y-3" data-testid="modal-feed">
-                <h4 className="flex items-center gap-1.5 text-sm font-semibold text-slate-600">
+                <h4 className="flex items-center gap-1.5 text-sm font-semibold text-gray-600">
                   <Wheat className="h-4 w-4 text-success" />
                   Feed Details
                 </h4>
@@ -960,7 +960,7 @@ export function FarmsHousesPage() {
 
             {modalType === "water" && (
               <div className="space-y-3" data-testid="modal-water">
-                <h4 className="flex items-center gap-1.5 text-sm font-semibold text-slate-600">
+                <h4 className="flex items-center gap-1.5 text-sm font-semibold text-gray-600">
                   <Droplets className="h-4 w-4 text-info" />
                   Water Details
                 </h4>
@@ -992,7 +992,7 @@ export function FarmsHousesPage() {
 
             {modalType === "birds" && (
               <div className="space-y-3" data-testid="modal-birds">
-                <h4 className="flex items-center gap-1.5 text-sm font-semibold text-slate-600">
+                <h4 className="flex items-center gap-1.5 text-sm font-semibold text-gray-600">
                   <Skull className="h-4 w-4 text-destructive" />
                   Bird Details
                 </h4>
@@ -1131,7 +1131,7 @@ function MetricCard({
         ? "bg-warning/10 border-warning/40"
         : highlight === "red"
           ? "bg-destructive/10 border-destructive/40"
-          : "bg-slate-50 border-slate-200";
+          : "bg-gray-50 border-gray-200";
   return (
     <div className={`rounded-lg border p-3 ${bgClass}`}>
       <div className="mb-0.5 text-[11px] text-muted-foreground">{label}</div>
@@ -1179,7 +1179,7 @@ function ShedRow({ metrics, onTileClick, onShedClick }: ShedRowProps) {
             {m.ageWeeks !== null && ` · ${m.ageWeeks}w`}
           </div>
         </div>
-        <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-slate-300 group-hover:text-primary" />
+        <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-gray-300 group-hover:text-primary" />
       </button>
 
       <div
@@ -1187,7 +1187,7 @@ function ShedRow({ metrics, onTileClick, onShedClick }: ShedRowProps) {
       >
         {m.shed.type === "layer" && (
           <button
-            className={`rounded border px-1 py-1.5 text-center transition-transform active:scale-95 ${m.closingStock > 0 ? eggBg : "border-slate-200 bg-slate-50 text-muted-foreground"}`}
+            className={`rounded border px-1 py-1.5 text-center transition-transform active:scale-95 ${m.closingStock > 0 ? eggBg : "border-gray-200 bg-gray-50 text-muted-foreground"}`}
             onClick={(e) => {
               e.stopPropagation();
               onTileClick("eggs");
@@ -1236,7 +1236,7 @@ function ShedRow({ metrics, onTileClick, onShedClick }: ShedRowProps) {
         </button>
 
         <button
-          className={`rounded border px-1 py-1.5 text-center transition-transform active:scale-95 ${m.mortality > 0 ? "border-destructive/40 bg-destructive/10 text-destructive" : "border-slate-200 bg-slate-50 text-muted-foreground"}`}
+          className={`rounded border px-1 py-1.5 text-center transition-transform active:scale-95 ${m.mortality > 0 ? "border-destructive/40 bg-destructive/10 text-destructive" : "border-gray-200 bg-gray-50 text-muted-foreground"}`}
           onClick={(e) => {
             e.stopPropagation();
             onTileClick("birds");
