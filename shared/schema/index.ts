@@ -14,6 +14,7 @@ export * from "./breeds";
 export * from "./flocks";
 export * from "./health";
 export * from "./rollup";
+export * from "./owner-billing";
 export * from "./custom-fields";
 export * from "./banking";
 export * from "./sales";
