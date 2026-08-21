@@ -147,6 +147,14 @@ export async function dailyEggRate(
 
 export interface DraftLine {
   kind: "feed" | "birds" | "eggs";
+  /**
+   * When it happened, so the month reads as a ledger rather than a summary.
+   *
+   * Feed is dated by delivery and pullets by housing. An egg line covers a run
+   * of days at one rate, so it carries the first of them and says the span in
+   * its description.
+   */
+  date: string;
   description: string;
   qty: number;
   unit: string;
@@ -238,6 +246,7 @@ export async function draftMonth(tx: Conn, contactId: string, period: string): P
   // agreement may override it with a fixed rate.
   const feed = await tx
     .select({
+      day: feedTransfers.transferDate,
       itemId: feedTransfers.itemId,
       itemName: items.name,
       kg: sql<string>`sum(${feedTransfers.quantityKg})`,
@@ -254,7 +263,8 @@ export async function draftMonth(tx: Conn, contactId: string, period: string): P
         ne(feedTransfers.status, "void"),
       ),
     )
-    .groupBy(feedTransfers.itemId, items.name);
+    .groupBy(feedTransfers.transferDate, feedTransfers.itemId, items.name)
+    .orderBy(asc(feedTransfers.transferDate));
 
   for (const f of feed) {
     const kg = n(f.kg);
@@ -270,6 +280,7 @@ export async function draftMonth(tx: Conn, contactId: string, period: string): P
     if (problem && rate == null) problems.push(problem);
     feedLines.push({
       kind: "feed",
+      date: f.day,
       description: f.itemName,
       qty: kg,
       unit: "kg",
@@ -324,6 +335,7 @@ export async function draftMonth(tx: Conn, contactId: string, period: string): P
     if (problem) problems.push(problem);
     birdLines.push({
       kind: "birds",
+      date: a.day,
       description: `${a.flockCode} — ${a.qty.toLocaleString("en-IN")} pullets into ${codeOf.get(a.houseId)} at ${ageWeek} weeks`,
       qty: a.qty,
       unit: "birds",
@@ -391,9 +403,13 @@ export async function draftMonth(tx: Conn, contactId: string, period: string): P
         : `${b.days[0]} to ${b.days[b.days.length - 1]}`;
     eggLines.push({
       kind: "eggs",
+      date: b.days[0]!,
+      // The span is always said when the line covers more than one day. The
+      // row is dated by its FIRST day, so "Eggs from L4" against 01/08 with a
+      // month's eggs on it would read as one enormous morning.
       description:
-        buckets.size > theirs.length
-          ? `Eggs from ${codeOf.get(b.houseId)} — ${span}`
+        b.days.length > 1
+          ? `Eggs from ${codeOf.get(b.houseId)}, ${span}`
           : `Eggs from ${codeOf.get(b.houseId)}`,
       qty: b.qty,
       unit: "eggs",

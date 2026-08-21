@@ -18,6 +18,7 @@ import { ApiError, api } from "../api";
 
 interface DraftLine {
   kind: "feed" | "birds" | "eggs";
+  date: string;
   description: string;
   qty: number;
   unit: string;
@@ -57,6 +58,11 @@ function lastMonth() {
   d.setDate(0);
   return d.toISOString().slice(0, 7);
 }
+
+const dmy = (iso: string) => {
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y!.slice(2)}`;
+};
 
 const monthLabel = (p: string) =>
   new Date(`${p}-01T00:00:00`).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
@@ -207,38 +213,7 @@ export function OwnerBillingPage() {
                   a total nobody can take apart is a total nobody trusts. */}
               {(d.feedLines.length > 0 || d.birdLines.length > 0 || d.eggLines.length > 0) && (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-[13px]">
-                    <thead className="table-head">
-                      <tr>
-                        <th className="table-th">What</th>
-                        <th className="table-th text-right">Quantity</th>
-                        <th className="table-th text-right">Rate</th>
-                        <th className="table-th text-right">Amount</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {/* One block per document, so what is on the screen and
-                          what will be on the paper are the same shape. */}
-                      <Section
-                        title={`Feed invoice — Amino → ${d.owner.name}`}
-                        lines={d.feedLines}
-                        total={d.feedTotal}
-                        totalLabel="Feed invoice"
-                      />
-                      <Section
-                        title={`Pullet invoice — Amino → ${d.owner.name}`}
-                        lines={d.birdLines}
-                        total={d.birdTotal}
-                        totalLabel="Pullet invoice"
-                      />
-                      <Section
-                        title={`Egg bill — ${d.owner.name} → Amino`}
-                        lines={d.eggLines}
-                        total={d.eggTotal}
-                        totalLabel="Egg bill"
-                      />
-                    </tbody>
-                  </table>
+                  <Ledger draft={d} />
                 </div>
               )}
 
@@ -257,48 +232,72 @@ export function OwnerBillingPage() {
   );
 }
 
-function Section({
-  title,
-  lines,
-  total,
-  totalLabel,
-}: {
-  title: string;
-  lines: DraftLine[];
-  total: number;
-  totalLabel: string;
-}) {
-  if (!lines.length) return null;
+/**
+ * The month as a ledger.
+ *
+ * Debit is what the owner owes Amino — the feed and the pullets sold to them.
+ * Credit is what Amino owes the owner — the eggs bought back. Signed the way
+ * their account in the books is signed, so this page and their ledger read the
+ * same way round.
+ *
+ * One table in date order rather than three stacked by document type: the month
+ * happened in one sequence, and the document each row lands on is a column
+ * rather than a heading to scroll past.
+ */
+function Ledger({ draft }: { draft: Draft }) {
+  const rows = [
+    ...draft.feedLines.map((l) => ({ l, doc: "Feed invoice", side: "debit" as const })),
+    ...draft.birdLines.map((l) => ({ l, doc: "Pullet invoice", side: "debit" as const })),
+    ...draft.eggLines.map((l) => ({ l, doc: "Egg bill", side: "credit" as const })),
+  ].sort((a, b) => a.l.date.localeCompare(b.l.date));
+
+  const debit = draft.feedTotal + draft.birdTotal;
+  const credit = draft.eggTotal;
+
   return (
-    <>
-      <tr>
-        <td colSpan={4} className="bg-gray-50/60 px-3 py-1.5 text-[11px] uppercase tracking-wide text-gray-500">
-          {title}
-        </td>
-      </tr>
-      {lines.map((l, i) => (
-        <tr key={`${l.kind}-${i}`} className="table-row">
-          <td className="table-td">
-            {l.description}
-            {l.problem && <div className="text-[11px] text-amber-700">{l.problem}</div>}
-          </td>
-          <td className="table-td text-right tabular-nums">{qty(l.qty, l.unit)}</td>
-          <td className="table-td text-right tabular-nums">
-            {/* A dash, never a zero — an owner paid ₹0.00 an egg would not
-                notice until the quarter closed. */}
-            {l.rate == null ? <span className="text-gray-300">—</span> : `₹${l.rate.toFixed(4)}`}
-          </td>
-          <td className="table-td text-right tabular-nums">
-            {l.amount == null ? <span className="text-gray-300">—</span> : money(l.amount)}
-          </td>
+    <table className="w-full text-[13px]">
+      <thead className="table-head">
+        <tr>
+          <th className="table-th text-left">Date</th>
+          <th className="table-th text-left">Particulars</th>
+          <th className="table-th text-left">Document</th>
+          <th className="table-th text-right">Quantity</th>
+          <th className="table-th text-right">Rate</th>
+          <th className="table-th text-right">Debit</th>
+          <th className="table-th text-right">Credit</th>
         </tr>
-      ))}
-      <tr>
-        <td className="table-td text-right text-[12px] font-medium text-gray-500" colSpan={3}>
-          {totalLabel}
-        </td>
-        <td className="table-td text-right font-semibold tabular-nums">{money(total)}</td>
-      </tr>
-    </>
+      </thead>
+      <tbody>
+        {rows.map(({ l, doc, side }, i) => (
+          <tr key={`${l.kind}-${i}`} className="table-row">
+            <td className="table-td whitespace-nowrap text-gray-500">{dmy(l.date)}</td>
+            <td className="table-td">
+              {l.description}
+              {l.problem && <div className="text-[11px] text-amber-700">{l.problem}</div>}
+            </td>
+            <td className="table-td text-gray-500">{doc}</td>
+            <td className="table-td text-right tabular-nums text-gray-600">{qty(l.qty, l.unit)}</td>
+            <td className="table-td text-right tabular-nums text-gray-600">
+              {/* A dash, never a zero — an owner paid 0.00 an egg would not
+                  notice until the quarter closed. */}
+              {l.rate == null ? <span className="text-gray-300">—</span> : l.rate.toFixed(4)}
+            </td>
+            <td className="table-td text-right tabular-nums">
+              {side === "debit" && l.amount != null ? money(l.amount) : ""}
+            </td>
+            <td className="table-td text-right tabular-nums">
+              {side === "credit" && l.amount != null ? money(l.amount) : ""}
+            </td>
+          </tr>
+        ))}
+        <tr className="border-t border-gray-300">
+          <td className="table-td font-medium text-gray-500" colSpan={5}>
+            Total for the month
+          </td>
+          <td className="table-td text-right font-semibold tabular-nums">{money(debit)}</td>
+          <td className="table-td text-right font-semibold tabular-nums">{money(credit)}</td>
+        </tr>
+      </tbody>
+    </table>
   );
 }
