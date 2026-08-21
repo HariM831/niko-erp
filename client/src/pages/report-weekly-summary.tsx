@@ -248,7 +248,7 @@ export function WeeklySummaryPage() {
               {/* Wide by nature — the week column and the header both stay put,
                   because a figure in the middle of a 60-week batch is unreadable
                   once you cannot see which week or which column it is in. */}
-              <div className="relative max-h-[70vh] overflow-auto">
+              <div className="table-surface relative max-h-[70vh] overflow-auto">
                 <table className="min-w-full border-separate border-spacing-0 text-[12px]">
                   <thead className="table-head">
                     <tr>

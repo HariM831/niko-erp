@@ -623,7 +623,7 @@ export function GateInPage() {
         </p>
       </div>
 
-      <div className="card mb-4 overflow-hidden">
+      <div className="table-surface mb-4">
         <table className="w-full text-[13px]">
           <thead className="table-head">
             <tr>

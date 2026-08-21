@@ -60,6 +60,8 @@ interface BirdStock {
   batchNumber?: string;
   /** Not in the original shape — the row needs somewhere to link to. */
   flockId?: string;
+  /** The FLOCK's placed count — see the note in houses-board.ts. */
+  flockPlacedCount?: number;
   batchBirthDate?: string;
   sourceShedId?: string;
   breedId?: string;
@@ -343,6 +345,8 @@ function buildShedMetrics(
     waterFeedRatio,
     mortality,
     stdMortalityPct,
+    /** The guide's CUMULATIVE loss to this age — what liveability is judged on. */
+    stdCumMortalityPct: cumulativeMortThis,
     actualMortalityPct,
     weekAvgMortPct,
     hasRecord: !!dateRecord,
@@ -416,6 +420,120 @@ export function FarmsHousesPage() {
 
     return { totalEggs, totalBirds, totalFeedKg, totalMortality };
   }, [shedMetrics]);
+
+  /**
+   * The four performance tiles.
+   *
+   * Every one is derived from `shedMetrics` — the same numbers the table below
+   * is built from — so a tile and the Total row can never disagree. Reading
+   * them from anywhere else would put two answers to the same question on one
+   * screen, which is the bug this whole module was rebuilt to end.
+   *
+   * Bird-weighted throughout: averaging six sheds' percentages gives a shed of
+   * 400 birds the same say as one of 12,000.
+   *
+   * No cost figure here, deliberately. The people who work these sheds enter
+   * the daily records; the money lives in Reports, behind `reports.view`.
+   */
+  const performance = useMemo(() => {
+    const layers = shedMetrics.filter((m) => m.shed.type === "layer");
+
+    // Lay % and feed per egg are laying-house questions. A pullet shed dragged
+    // into the average would report the farm as catastrophically off-lay.
+    const layBirds = layers.reduce((s, m) => s + m.closingStock, 0);
+    const layEggs = layers.reduce((s, m) => s + m.eggs, 0);
+    const layFeedKg = layers.reduce((s, m) => s + m.feedKg, 0);
+    const layPct = layBirds > 0 ? (layEggs / layBirds) * 100 : null;
+    // The guide, weighted by the birds standing under it — the sheds are at
+    // different ages, so there is no single published number to quote.
+    const guideWeight = layers.reduce(
+      (s, m) => s + (m.stdEggPct > 0 ? m.closingStock : 0),
+      0,
+    );
+    const stdLayPct =
+      guideWeight > 0
+        ? layers.reduce((s, m) => s + m.stdEggPct * (m.stdEggPct > 0 ? m.closingStock : 0), 0) /
+          guideWeight
+        : null;
+
+    const feedPerEgg = layEggs > 0 ? (layFeedKg * 1000) / layEggs : null;
+    // What the guide implies: a bird eating its ration at its lay rate.
+    const stdFeedPerEgg =
+      guideWeight > 0
+        ? layers.reduce(
+            (s, m) =>
+              s +
+              (m.stdEggPct > 0 && m.stdFeedPerBirdG > 0
+                ? (m.stdFeedPerBirdG / (m.stdEggPct / 100)) * m.closingStock
+                : 0),
+            0,
+          ) / guideWeight
+        : null;
+
+    // Liveability spans the whole farm, pullets included — a chick lost in
+    // rearing is a hen that never lays.
+    const live = shedMetrics.filter((m) => m.closingStock > 0);
+    const alive = live.reduce((s, m) => s + m.closingStock, 0);
+    // Deduped by FLOCK: a batch split across two layer houses was placed once,
+    // and counting its chicks twice would halve the loss.
+    const placedByFlock = new Map<string, number>();
+    for (const m of live) {
+      for (const s of stocks[m.shed.id] ?? []) {
+        if (s.flockId && s.flockPlacedCount) placedByFlock.set(s.flockId, s.flockPlacedCount);
+      }
+    }
+    const placed = [...placedByFlock.values()].reduce((s, n) => s + n, 0);
+    const liveability = placed > 0 ? (alive / placed) * 100 : null;
+    // The guide's cumulative loss to each shed's age, turned the same way up.
+    const mortGuideWeight = live.reduce(
+      (s, m) => s + (m.stdCumMortalityPct > 0 ? m.closingStock : 0),
+      0,
+    );
+    const stdLiveability =
+      mortGuideWeight > 0
+        ? 100 -
+          live.reduce(
+            (s, m) => s + (m.stdCumMortalityPct > 0 ? m.stdCumMortalityPct * m.closingStock : 0),
+            0,
+          ) /
+            mortGuideWeight
+        : null;
+
+    // Water is the earliest warning there is: birds go off water a day or two
+    // before they go off feed, and well before anything shows in the mortality.
+    const waterBirds = shedMetrics.reduce(
+      (s, m) => s + (m.totalWaterL > 0 ? m.closingStock : 0),
+      0,
+    );
+    const waterL = shedMetrics.reduce((s, m) => s + m.totalWaterL, 0);
+    const waterPerBird = waterBirds > 0 ? (waterL / waterBirds) * 1000 : null;
+    const waterGuideWeight = shedMetrics.reduce(
+      (s, m) => s + (m.stdWaterMlPerBird > 0 && m.totalWaterL > 0 ? m.closingStock : 0),
+      0,
+    );
+    const stdWaterPerBird =
+      waterGuideWeight > 0
+        ? shedMetrics.reduce(
+            (s, m) =>
+              s +
+              (m.stdWaterMlPerBird > 0 && m.totalWaterL > 0
+                ? m.stdWaterMlPerBird * m.closingStock
+                : 0),
+            0,
+          ) / waterGuideWeight
+        : null;
+
+    return {
+      layPct,
+      stdLayPct,
+      feedPerEgg,
+      stdFeedPerEgg,
+      liveability,
+      stdLiveability,
+      waterPerBird,
+      stdWaterPerBird,
+    };
+  }, [shedMetrics, stocks]);
 
   const openModal = (shed: Shed, type: ModalType) => {
     setModalShed(shed);
@@ -552,6 +670,44 @@ export function FarmsHousesPage() {
         />
       </div>
 
+      {/* Against the guide — the four that say whether the day was any good.
+          The row above counts things; this one judges them. */}
+      <div
+        className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4"
+        data-testid="performance-tiles"
+      >
+        <GuideCard
+          label="Lay %"
+          value={performance.layPct}
+          guide={performance.stdLayPct}
+          suffix="%"
+          good="high"
+        />
+        <GuideCard
+          label="Feed / egg"
+          value={performance.feedPerEgg}
+          guide={performance.stdFeedPerEgg}
+          suffix="g"
+          dp={0}
+          good="low"
+        />
+        <GuideCard
+          label="Liveability"
+          value={performance.liveability}
+          guide={performance.stdLiveability}
+          suffix="%"
+          dp={2}
+          good="high"
+        />
+        <GuideCard
+          label="Water / bird"
+          value={performance.waterPerBird}
+          guide={performance.stdWaterPerBird}
+          suffix="mL"
+          dp={0}
+        />
+      </div>
+
       {/* ===== DESKTOP TABLE VIEW (hidden on mobile) ===== */}
       <div className="hidden md:block">
         {layerSheds.length > 0 && (
@@ -559,7 +715,7 @@ export function FarmsHousesPage() {
             <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Layers
             </div>
-            <div className="overflow-hidden rounded-lg bg-card shadow-sm">
+            <div className="table-surface">
               <table className="w-full text-sm">
                 <thead className="table-head">
                   <tr className="border-b border-primary/20">
@@ -649,7 +805,7 @@ export function FarmsHousesPage() {
             <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Pullets
             </div>
-            <div className="overflow-hidden rounded-lg bg-card shadow-sm">
+            <div className="table-surface">
               <table className="w-full text-sm">
                 <thead className="table-head">
                   <tr className="border-b border-primary/20">
@@ -1077,6 +1233,61 @@ function KpiCard({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * A tile that answers "is this good", not just "what is it".
+ *
+ * The guide sits under the figure and the figure takes its colour from the
+ * comparison — at-or-better green, worse red, with no tolerance band, matching
+ * the Weekly Management Summary so the two never disagree about what "good"
+ * means. A tile with no guide to compare against stays black rather than
+ * picking a colour it cannot justify.
+ */
+function GuideCard({
+  label,
+  value,
+  guide,
+  suffix,
+  dp = 1,
+  good,
+}: {
+  label: string;
+  value: number | null;
+  guide?: number | null;
+  suffix?: string;
+  dp?: number;
+  /** Which way is better. Feed per egg is better low; lay % is better high. */
+  good?: "high" | "low";
+}) {
+  const fmt = (v: number) =>
+    v.toLocaleString("en-IN", { minimumFractionDigits: dp, maximumFractionDigits: dp });
+  const tone =
+    value == null || guide == null || !good
+      ? "text-foreground"
+      : (good === "high" ? value >= guide : value <= guide)
+        ? "text-success"
+        : "text-destructive";
+
+  return (
+    <div className="rounded-lg bg-card p-3.5 shadow-sm transition-shadow hover:shadow-md">
+      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </p>
+      <p
+        className={`whitespace-nowrap text-lg font-bold leading-tight ${tone}`}
+        style={{ fontVariantNumeric: "tabular-nums" }}
+      >
+        {value == null ? "—" : fmt(value)}
+        {value != null && suffix && (
+          <span className="ml-0.5 text-[11px] font-medium">{suffix}</span>
+        )}
+      </p>
+      <p className="mt-0.5 text-[11px] text-muted-foreground">
+        {guide == null ? "no guide" : `guide ${fmt(guide)}${suffix ?? ""}`}
+      </p>
     </div>
   );
 }

@@ -772,7 +772,7 @@ export function GoodsReceiptsPage() {
         </div>
       )}
 
-      <div className="card overflow-hidden">
+      <div className="table-surface">
         <table className="w-full text-[13px]">
           <thead className="table-head">
             <tr>

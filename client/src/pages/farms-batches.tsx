@@ -111,7 +111,7 @@ export function FarmsBatchesPage() {
       )}
 
       {!!flocks?.length && (
-        <div className="card overflow-x-auto">
+        <div className="table-surface overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead className="table-head">
               <tr>
@@ -129,8 +129,10 @@ export function FarmsBatchesPage() {
               {flocks.map((f) => (
                 <tr key={f.id} className="border-b border-gray-100 hover:bg-gray-50">
                   <td className="px-3 py-2">
-                    <Link href={`/farms/flocks/${f.id}`}>
-                      <a className="font-medium text-blue-700 hover:underline">{f.code}</a>
+                    {/* wouter's Link IS the anchor — wrapping one inside it
+                        nests <a> in <a>, which React refuses to render. */}
+                    <Link href={`/farms/flocks/${f.id}`} className="s-link">
+                      {f.code}
                     </Link>
                   </td>
                   <td className="px-3 py-2 text-gray-600">{f.breedName}</td>

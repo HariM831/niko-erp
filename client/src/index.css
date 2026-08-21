@@ -124,6 +124,13 @@ body {
   color: #6c718a;
 }
 
+/* The white panel a table sits on. Rounded with a soft shadow and NO border —
+   `.card` is for a card; ringing a table in one makes a page of data read as a
+   stack of boxes. Add `overflow-x-auto` instead when the table is wide. */
+.table-surface {
+  @apply overflow-hidden rounded-lg bg-white shadow-sm;
+}
+
 /* A header cell. Right-align a numeric column by adding `text-right`. */
 .table-th {
   @apply whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider;

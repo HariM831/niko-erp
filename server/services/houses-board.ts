@@ -71,6 +71,15 @@ export async function housesBoard(tx: Tx) {
       openingCount: sql<number>`coalesce((
         SELECT sum(m.qty) FROM flock_movements m
         WHERE m.placement_id = ${flockPlacements.id} AND m.kind = 'place'), 0)::int`,
+      /**
+       * The chicks the FLOCK started with — not this placement's.
+       *
+       * Not in the original shape, and it has to come from the flock: a layer
+       * house that received a transfer has no `place` movement at all, so its
+       * `openingCount` is zero. Liveability computed from that reads above 100%
+       * for exactly the flocks that have been housed, which is most of them.
+       */
+      flockPlacedCount: flocks.placedCount,
     })
     .from(flockPlacements)
     .innerJoin(flocks, eq(flocks.id, flockPlacements.flockId))
@@ -88,6 +97,7 @@ export async function housesBoard(tx: Tx) {
       flockId: p.flockId,
       batchBirthDate: p.batchBirthDate,
       breedId: p.breedId,
+      flockPlacedCount: p.flockPlacedCount,
       isActive: p.status !== "depleted",
     });
   }
