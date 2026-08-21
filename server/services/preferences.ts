@@ -27,7 +27,7 @@ export const DEFAULT_PREFERENCES: Omit<Preferences, "id" | "updatedAt"> = {
   requireAccountCode: true,
   poOverDeliveryPct: "1.000",
   millMoistureRetention: "0.99",
-  millOverheadPerKg: "0.75",
+  millOverheadPerKg: "1.00",
 };
 
 /**

@@ -98,10 +98,10 @@ export const preferences = pgTable("preferences", {
   millMoistureRetention: numeric("mill_moisture_retention", { precision: 5, scale: 4 })
     .notNull()
     .default("0.99"),
-  /** Flat milling overhead added per finished kg — Amino's ₹750/ton. */
+  /** Flat milling overhead added per finished kg — Amino's ₹1,000/ton. */
   millOverheadPerKg: numeric("mill_overhead_per_kg", { precision: 8, scale: 4 })
     .notNull()
-    .default("0.75"),
+    .default("1.00"),
 
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

@@ -248,7 +248,24 @@ export async function produceOne(
   }
 
   const locationId = body.locationId ?? (await millLocation(tx));
-  const outputKg = Number(formula.batchSizeKg) * run.batchCount;
+  const prefs = await getPreferences(tx);
+
+  /**
+   * A batch yields less than went into it.
+   *
+   * Milling bakes off moisture and leaves feed in the auger, so 1,000 kg of
+   * raw material does not come out as 1,000 kg of feed. `millMoistureRetention`
+   * has said so all along and the formulator has always costed against it —
+   * production was the one place that ignored it and receipted input kg as
+   * output kg. That made every batch look 1% cheaper per kg than it was, and
+   * the understatement rode all the way through to the cost per egg.
+   *
+   * Derived from the lines rather than `batchSizeKg` so the two cannot drift
+   * apart: the input is what the mill actually consumes.
+   */
+  const inputKg = recipe.reduce((s, r) => s + Number(r.line.quantityKg), 0) * run.batchCount;
+  const retention = Number(prefs.millMoistureRetention);
+  const outputKg = inputKg * retention;
 
   /**
    * The mill cannot make what it does not hold.
@@ -282,7 +299,7 @@ export async function produceOne(
     inputValueP += valueP;
     return { r, kgTotal, rate, valueP };
   });
-  const prefs = await getPreferences(tx);
+  // Charged on what comes OUT, which is what gets transferred and sold.
   const overheadP = Math.round(outputKg * Number(prefs.millOverheadPerKg) * 100);
   const totalP = inputValueP + overheadP;
   const costPerKg = totalP / 100 / outputKg;
@@ -296,7 +313,8 @@ export async function produceOne(
       locationId,
       orderDate: body.orderDate,
       batchCount: run.batchCount,
-      plannedOutputKg: outputKg.toFixed(3),
+      /** What the recipe says the batch is; what the mill actually gets out. */
+      plannedOutputKg: inputKg.toFixed(3),
       actualOutputKg: outputKg.toFixed(3),
       status: "completed",
       inputValue: (inputValueP / 100).toFixed(2),
