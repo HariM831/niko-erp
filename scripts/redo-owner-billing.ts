@@ -65,7 +65,7 @@ for (const { run, name } of runs) {
   // The attachments first: they explain documents that are about to become
   // void, and a void invoice carrying a statement that still adds up is worse
   // than one carrying none.
-  const docIds = [run.invoiceId, run.billId].filter(Boolean) as string[];
+  const docIds = [run.feedInvoiceId, run.birdInvoiceId, run.billId].filter(Boolean) as string[];
   if (docIds.length) {
     const att = await db.select().from(attachments).where(inArray(attachments.entityId, docIds));
     for (const a of att) {
@@ -75,15 +75,21 @@ for (const { run, name } of runs) {
     if (att.length) console.log(`    removed ${att.length} attachment(s)`);
   }
 
-  if (run.invoiceId) {
-    const [inv] = await db.select().from(invoices).where(eq(invoices.id, run.invoiceId));
+  // Feed and pullets are separate invoices; both come off.
+  let blocked = false;
+  for (const [label, id] of [
+    ["feed", run.feedInvoiceId],
+    ["pullet", run.birdInvoiceId],
+  ] as const) {
+    if (!id) continue;
+    const [inv] = await db.select().from(invoices).where(eq(invoices.id, id));
     if (!inv) {
-      console.log("    invoice is already gone");
+      console.log(`    ${label} invoice is already gone`);
     } else if (inv.status === "void") {
-      console.log(`    invoice ${inv.number} was already void`);
+      console.log(`    ${label} invoice ${inv.number} was already void`);
     } else if (Number(inv.balanceDue) !== Number(inv.total)) {
       console.log(`    ! ${inv.number} has payments applied — unapply them first, skipping`);
-      continue;
+      blocked = true;
     } else {
       await db.transaction(async (tx) => {
         if (inv.journalEntryId) {
@@ -94,9 +100,10 @@ for (const { run, name } of runs) {
           .set({ status: "void", balanceDue: "0.00", updatedAt: new Date() })
           .where(eq(invoices.id, inv.id));
       });
-      console.log(`    voided invoice ${inv.number}`);
+      console.log(`    voided ${label} invoice ${inv.number}`);
     }
   }
+  if (blocked) continue;
 
   if (run.billId) {
     const [bl] = await db.select().from(bills).where(eq(bills.id, run.billId));

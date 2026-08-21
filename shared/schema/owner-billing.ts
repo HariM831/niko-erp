@@ -87,7 +87,14 @@ export const ownerBillingRuns = pgTable(
       .references(() => contacts.id),
     /** The first of the month covered — a month, not a range. */
     period: date("period").notNull(),
-    invoiceId: uuid("invoice_id"),
+    /**
+     * Feed and pullets get an invoice each: different trades on different
+     * terms, each carrying a statement of only its own transactions.
+     *
+     * On runs raised before the split, `feedInvoiceId` is the combined one.
+     */
+    feedInvoiceId: uuid("feed_invoice_id"),
+    birdInvoiceId: uuid("bird_invoice_id"),
     billId: uuid("bill_id"),
     feedKg: numeric("feed_kg", { precision: 14, scale: 3 }).notNull().default("0"),
     birds: integer("birds").notNull().default(0),

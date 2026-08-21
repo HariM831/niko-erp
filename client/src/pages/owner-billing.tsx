@@ -31,11 +31,18 @@ interface Draft {
   period: string;
   from: string;
   to: string;
-  invoiceLines: DraftLine[];
-  billLines: DraftLine[];
-  invoiceTotal: number;
-  billTotal: number;
-  billed: { invoiceId: string | null; billId: string | null; at: string } | null;
+  feedLines: DraftLine[];
+  birdLines: DraftLine[];
+  eggLines: DraftLine[];
+  feedTotal: number;
+  birdTotal: number;
+  eggTotal: number;
+  billed: {
+    feedInvoiceId: string | null;
+    birdInvoiceId: string | null;
+    billId: string | null;
+    at: string;
+  } | null;
   problems: string[];
 }
 
@@ -116,7 +123,7 @@ export function OwnerBillingPage() {
       <div className="space-y-5">
         {drafts.map((d) => {
           const blocked = d.problems.length > 0;
-          const nothing = !d.invoiceLines.length && !d.billLines.length;
+          const nothing = !d.feedLines.length && !d.birdLines.length && !d.eggLines.length;
           return (
             <div key={d.owner.id} className="table-surface">
               <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
@@ -131,41 +138,48 @@ export function OwnerBillingPage() {
                 </div>
 
                 <div className="flex items-center gap-5">
-                  {/* Two documents, two totals, no net.
-                      The invoice is a receivable and the bill is a payable, and
-                      each settles on its own terms. What the owner's account
-                      comes to is a LEDGER question — it moves with every
-                      payment and credit note on that contact — so it is read
-                      from their ledger, not asserted here from one month. */}
-                  <div className="text-right">
-                    <div className="text-[11px] uppercase tracking-wide text-gray-400">
-                      Invoice · receivable
+                  {/* Three documents, three totals, no net.
+                      Feed and pullets invoice out, eggs bill in, and each
+                      settles on its own terms. What the owner's account comes
+                      to is a LEDGER question — it moves with every payment and
+                      credit note on that contact — so it is read from their
+                      ledger, not asserted here from one month. */}
+                  {(
+                    [
+                      ["Feed · invoice", d.feedTotal],
+                      ["Pullets · invoice", d.birdTotal],
+                      ["Eggs · bill", d.eggTotal],
+                    ] as const
+                  ).map(([label, value]) => (
+                    <div key={label} className="text-right">
+                      <div className="text-[11px] uppercase tracking-wide text-gray-400">{label}</div>
+                      <div
+                        className={`text-[15px] font-semibold tabular-nums ${
+                          value > 0 ? "text-gray-900" : "text-gray-300"
+                        }`}
+                      >
+                        {value > 0 ? money(value) : "—"}
+                      </div>
                     </div>
-                    <div className="text-[15px] font-semibold tabular-nums text-gray-900">
-                      {money(d.invoiceTotal)}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-[11px] uppercase tracking-wide text-gray-400">
-                      Bill · payable
-                    </div>
-                    <div className="text-[15px] font-semibold tabular-nums text-gray-900">
-                      {money(d.billTotal)}
-                    </div>
-                  </div>
+                  ))}
 
                   {d.billed ? (
                     <div className="flex flex-col items-end gap-1 text-[12px]">
                       <span className="badge badge-green">Billed</span>
                       <span className="flex gap-2">
-                        {d.billed.invoiceId && (
-                          <Link href={`/sales/invoices/${d.billed.invoiceId}`} className="s-link">
-                            Invoice
+                        {d.billed.feedInvoiceId && (
+                          <Link href={`/sales/invoices/${d.billed.feedInvoiceId}`} className="s-link">
+                            Feed
+                          </Link>
+                        )}
+                        {d.billed.birdInvoiceId && (
+                          <Link href={`/sales/invoices/${d.billed.birdInvoiceId}`} className="s-link">
+                            Pullets
                           </Link>
                         )}
                         {d.billed.billId && (
                           <Link href={`/purchases/bills/${d.billed.billId}`} className="s-link">
-                            Bill
+                            Eggs
                           </Link>
                         )}
                       </span>
@@ -191,7 +205,7 @@ export function OwnerBillingPage() {
 
               {/* Every figure traces to a delivery, a housing or a day's lay —
                   a total nobody can take apart is a total nobody trusts. */}
-              {(d.invoiceLines.length > 0 || d.billLines.length > 0) && (
+              {(d.feedLines.length > 0 || d.birdLines.length > 0 || d.eggLines.length > 0) && (
                 <div className="overflow-x-auto">
                   <table className="w-full text-[13px]">
                     <thead className="table-head">
@@ -203,17 +217,25 @@ export function OwnerBillingPage() {
                       </tr>
                     </thead>
                     <tbody>
+                      {/* One block per document, so what is on the screen and
+                          what will be on the paper are the same shape. */}
                       <Section
-                        title={`Amino → ${d.owner.name}`}
-                        lines={d.invoiceLines}
-                        total={d.invoiceTotal}
-                        totalLabel="Invoice"
+                        title={`Feed invoice — Amino → ${d.owner.name}`}
+                        lines={d.feedLines}
+                        total={d.feedTotal}
+                        totalLabel="Feed invoice"
                       />
                       <Section
-                        title={`${d.owner.name} → Amino`}
-                        lines={d.billLines}
-                        total={d.billTotal}
-                        totalLabel="Bill"
+                        title={`Pullet invoice — Amino → ${d.owner.name}`}
+                        lines={d.birdLines}
+                        total={d.birdTotal}
+                        totalLabel="Pullet invoice"
+                      />
+                      <Section
+                        title={`Egg bill — ${d.owner.name} → Amino`}
+                        lines={d.eggLines}
+                        total={d.eggTotal}
+                        totalLabel="Egg bill"
                       />
                     </tbody>
                   </table>

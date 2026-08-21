@@ -16,7 +16,14 @@ import { db } from "../db";
 import { nextDocumentNumber } from "../lib/numbering";
 import { requirePermission } from "../lib/rbac";
 import { PostingError } from "../services/posting";
-import { draftAll, draftMonth, owners, raiseMonth } from "../services/owner-billing";
+import {
+  buildStatements,
+  draftAll,
+  draftMonth,
+  owners,
+  raiseMonth,
+  type StatementKind,
+} from "../services/owner-billing";
 
 export const ownerBillingRouter = Router();
 
@@ -66,25 +73,31 @@ ownerBillingRouter.get("/drafts/:contactId", requirePermission("sales", "view"),
  * `sales.create` rather than `view`: this posts to the ledger. The refusals all
  * live in the service, so the route does not get to decide what is billable.
  */
+/**
+ * Raise the month's documents.
+ *
+ * `sales.create` rather than `view`: this posts to the ledger. Every refusal
+ * lives in the service, so the route does not get to decide what is billable.
+ */
 ownerBillingRouter.post("/raise", requirePermission("sales", "create"), async (req, res) => {
   try {
-    const body = z
-      .object({ contactId: z.string().uuid(), period })
-      .parse(req.body);
+    const body = z.object({ contactId: z.string().uuid(), period }).parse(req.body);
     const out = await db.transaction((tx) =>
       raiseMonth(tx, body.contactId, body.period, req.session.user!.id),
     );
 
-    // Attached only once the documents are real. Writing the file inside the
-    // transaction would leave it on disk even when the posting rolled back.
-    const attached = await attachStatement(out, body.period, req.session.user!.id);
+    // Attached only once the documents are real. Rendering and writing files
+    // inside the posting transaction would leave them on disk after a rollback.
+    const attachments = await attachStatements(out, body.period, req.session.user!.id);
 
     res.status(201).json({
-      invoiceId: out.invoiceId,
+      feedInvoiceId: out.feedInvoiceId,
+      birdInvoiceId: out.birdInvoiceId,
       billId: out.billId,
-      attachments: attached,
-      invoiceTotal: out.draft.invoiceTotal,
-      billTotal: out.draft.billTotal,
+      feedTotal: out.draft.feedTotal,
+      birdTotal: out.draft.birdTotal,
+      eggTotal: out.draft.eggTotal,
+      attachments,
     });
   } catch (err) {
     if (err instanceof z.ZodError) return res.status(400).json({ error: err.errors[0]?.message });
@@ -93,65 +106,77 @@ ownerBillingRouter.post("/raise", requirePermission("sales", "create"), async (r
 });
 
 /**
- * Write the supporting statement and hang it off both documents.
+ * Build each document's statement and hang it on that document.
  *
- * A snapshot, not a live view: the deliveries and daily records behind a month
- * can be corrected afterwards, and a statement that quietly followed them would
- * stop explaining the invoice it is attached to.
+ * One statement per document, showing only its own trade: the feed invoice gets
+ * the feed, the pullet invoice gets the pullets, the bill gets the eggs. A
+ * statement covering all three would invite somebody to total the wrong column
+ * and query a figure that is not on the paper in front of them.
  *
  * Runs after the posting transaction has committed. A failure here leaves the
- * invoice and bill standing without their attachment, which is recoverable;
- * failing the posting because a file could not be written would not be.
+ * documents standing without their statements, which
+ * `scripts/attach-owner-statement.ts` can put right; failing the posting
+ * because a file could not be written would not be recoverable.
  */
-async function attachStatement(
-  out: { draft: { owner: { name: string } }; invoiceId: string | null; billId: string | null; statement: string },
+async function attachStatements(
+  out: {
+    draft: { owner: { id: string; name: string } };
+    feedInvoiceId: string | null;
+    birdInvoiceId: string | null;
+    billId: string | null;
+  },
   period: string,
   userId: string,
 ) {
-  const UPLOAD_DIR = path.resolve(process.cwd(), "uploads");
-  if (!existsSync(UPLOAD_DIR)) mkdirSync(UPLOAD_DIR, { recursive: true });
+  const built = await buildStatements(db, out.draft.owner.id, period);
+  const targets: Array<{ entityType: "invoice" | "bill"; entityId: string; kind: StatementKind }> = [];
+  if (out.feedInvoiceId) targets.push({ entityType: "invoice", entityId: out.feedInvoiceId, kind: "feed" });
+  if (out.birdInvoiceId) targets.push({ entityType: "invoice", entityId: out.birdInvoiceId, kind: "birds" });
+  if (out.billId) targets.push({ entityType: "bill", entityId: out.billId, kind: "eggs" });
 
-  const storedName = `${randomBytes(16).toString("hex")}.csv`;
-  const body = Buffer.from(out.statement, "utf8");
-  await writeFile(path.join(UPLOAD_DIR, storedName), body);
-
-  const safeOwner = out.draft.owner.name.replace(/[^\w -]/g, "").trim() || "owner";
-  const fileName = `${safeOwner} ${period.slice(0, 7)} statement.csv`;
-
-  const targets = [
-    ["invoice", out.invoiceId] as const,
-    ["bill", out.billId] as const,
-  ].filter((t): t is readonly ["invoice" | "bill", string] => !!t[1]);
-
-  const made: Array<{ id: string; entityType: string }> = [];
-  for (const [entityType, entityId] of targets) {
-    // One row and one file per document, even though the bytes are identical.
-    // `stored_name` is unique and the download route deletes the file with the
-    // row, so a shared file would vanish from the invoice the moment somebody
-    // tidied it off the bill.
-    const row = await db.transaction(async (tx) => {
-      const filingRef = await nextDocumentNumber(tx, "attachment");
-      const [created] = await tx
-        .insert(attachments)
-        .values({
-          filingRef,
-          entityType,
-          entityId,
-          fileName,
-          // Unique per row, so the second insert cannot collide on storedName.
-          storedName: made.length ? `${randomBytes(16).toString("hex")}.csv` : storedName,
-          mimeType: "text/csv",
-          sizeBytes: body.length,
-          uploadedBy: userId,
-        })
-        .returning();
-      return created!;
-    });
-    // The second row needs its own copy on disk, since storedName is unique.
-    if (row.storedName !== storedName) {
-      await writeFile(path.join(UPLOAD_DIR, row.storedName), body);
-    }
-    made.push({ id: row.id, entityType });
+  const made: Array<{ id: string; entityType: string; kind: string; bytes: number }> = [];
+  for (const t of targets) {
+    const doc = built[t.kind];
+    if (!doc) continue;
+    const row = await saveAttachment(t.entityType, t.entityId, doc.fileName, doc.pdf, userId);
+    made.push({ id: row.id, entityType: t.entityType, kind: t.kind, bytes: doc.pdf.length });
   }
   return made;
+}
+
+const UPLOAD_DIR = path.resolve(process.cwd(), "uploads");
+
+/**
+ * Write one statement to the uploads store and file it against a document.
+ *
+ * The file goes down first: an attachment row pointing at nothing shows the
+ * reader a paperclip that opens an error, whereas a file with no row is inert.
+ */
+async function saveAttachment(
+  entityType: "invoice" | "bill",
+  entityId: string,
+  fileName: string,
+  body: Buffer,
+  userId: string,
+) {
+  if (!existsSync(UPLOAD_DIR)) mkdirSync(UPLOAD_DIR, { recursive: true });
+  const storedName = `${randomBytes(16).toString("hex")}.pdf`;
+  await writeFile(path.join(UPLOAD_DIR, storedName), body);
+  return db.transaction(async (tx) => {
+    const filingRef = await nextDocumentNumber(tx, "attachment");
+    const [row] = await tx
+      .insert(attachments)
+      .values({
+        filingRef,
+        entityType,
+        entityId,
+        fileName,
+        storedName,
+        mimeType: "application/pdf",
+        sizeBytes: body.length,
+        uploadedBy: userId,
+      })
+      .returning();
+    return row!;
+  });
 }

@@ -42,6 +42,7 @@ import { createBill } from "./purchases";
 import { getPreferences } from "./preferences";
 import { nextDocumentNumber } from "../lib/numbering";
 import { computeDueDate, loadCustomer, postInvoiceJournal } from "../routes/sales";
+import { renderStatement } from "./owner-statement-pdf";
 
 type Tx = Parameters<Parameters<typeof Db.transaction>[0]>[0];
 type Conn = Tx | typeof Db;
@@ -161,12 +162,19 @@ export interface OwnerDraft {
   period: string;
   from: string;
   to: string;
-  /** Amino → owner. Feed and the pullets they were sold. */
-  invoiceLines: DraftLine[];
-  /** Owner → Amino. The eggs. */
-  billLines: DraftLine[];
-  invoiceTotal: number;
-  billTotal: number;
+  /**
+   * Three groups, because there are three documents.
+   *
+   * Feed and pullets both go OUT to the owner but on separate invoices: they
+   * are different trades on different terms, and each invoice carries a
+   * statement of only its own transactions. Eggs come back as a bill.
+   */
+  feedLines: DraftLine[];
+  birdLines: DraftLine[];
+  eggLines: DraftLine[];
+  feedTotal: number;
+  birdTotal: number;
+  eggTotal: number;
   /*
    * No net here, deliberately.
    *
@@ -177,7 +185,12 @@ export interface OwnerDraft {
    * two documents would be a different number wearing the same name.
    */
   /** Already billed — the run that did it. */
-  billed: { invoiceId: string | null; billId: string | null; at: Date } | null;
+  billed: {
+    feedInvoiceId: string | null;
+    birdInvoiceId: string | null;
+    billId: string | null;
+    at: Date;
+  } | null;
   problems: string[];
 }
 
@@ -214,8 +227,9 @@ export async function draftMonth(tx: Conn, contactId: string, period: string): P
 
   const agreement = await agreementOn(tx, contactId, to);
   const problems: string[] = [];
-  const invoiceLines: DraftLine[] = [];
-  const billLines: DraftLine[] = [];
+  const feedLines: DraftLine[] = [];
+  const birdLines: DraftLine[] = [];
+  const eggLines: DraftLine[] = [];
 
   /* ── Feed sold to them ────────────────────────────────────────────────── */
   //
@@ -254,7 +268,7 @@ export async function draftMonth(tx: Conn, contactId: string, period: string): P
           ? `${f.unpriced} ${f.itemName} transfer(s) had no value — the rate is an average of the rest`
           : undefined;
     if (problem && rate == null) problems.push(problem);
-    invoiceLines.push({
+    feedLines.push({
       kind: "feed",
       description: f.itemName,
       qty: kg,
@@ -308,7 +322,7 @@ export async function draftMonth(tx: Conn, contactId: string, period: string): P
     const rate = valuation ? n(valuation.rate) : null;
     const problem = rate == null ? `No bird valuation for week ${ageWeek} on ${a.day}` : undefined;
     if (problem) problems.push(problem);
-    invoiceLines.push({
+    birdLines.push({
       kind: "birds",
       description: `${a.flockCode} — ${a.qty.toLocaleString("en-IN")} pullets into ${codeOf.get(a.houseId)} at ${ageWeek} weeks`,
       qty: a.qty,
@@ -375,7 +389,7 @@ export async function draftMonth(tx: Conn, contactId: string, period: string): P
       b.days.length === 1
         ? b.days[0]!
         : `${b.days[0]} to ${b.days[b.days.length - 1]}`;
-    billLines.push({
+    eggLines.push({
       kind: "eggs",
       description:
         buckets.size > theirs.length
@@ -393,8 +407,9 @@ export async function draftMonth(tx: Conn, contactId: string, period: string): P
   }
 
   const sum = (ls: DraftLine[]) => ls.reduce((s, l) => s + (l.amount ?? 0), 0);
-  const invoiceTotal = sum(invoiceLines);
-  const billTotal = sum(billLines);
+  const feedTotal = sum(feedLines);
+  const birdTotal = sum(birdLines);
+  const eggTotal = sum(eggLines);
 
   const [run] = await tx
     .select()
@@ -406,11 +421,20 @@ export async function draftMonth(tx: Conn, contactId: string, period: string): P
     period: from,
     from,
     to,
-    invoiceLines,
-    billLines,
-    invoiceTotal,
-    billTotal,
-    billed: run ? { invoiceId: run.invoiceId, billId: run.billId, at: run.createdAt } : null,
+    feedLines,
+    birdLines,
+    eggLines,
+    feedTotal,
+    birdTotal,
+    eggTotal,
+    billed: run
+      ? {
+          feedInvoiceId: run.feedInvoiceId,
+          birdInvoiceId: run.birdInvoiceId,
+          billId: run.billId,
+          at: run.createdAt,
+        }
+      : null,
     problems: [...new Set(problems)],
   };
 }
@@ -446,17 +470,16 @@ export async function raiseMonth(
   userId: string,
 ): Promise<{
   draft: OwnerDraft;
-  invoiceId: string | null;
+  feedInvoiceId: string | null;
+  birdInvoiceId: string | null;
   billId: string | null;
-  /** The supporting statement, for the caller to attach once it has committed. */
-  statement: string;
 }> {
   const draft = await draftMonth(tx, contactId, period);
   const { from, to } = monthBounds(period);
 
   if (draft.billed) {
     throw new PostingError(
-      `${draft.owner.name} has already been billed for ${from.slice(0, 7)}. Void the invoice and the bill first if it needs redoing.`,
+      `${draft.owner.name} has already been billed for ${from.slice(0, 7)}. Void the documents first if it needs redoing.`,
     );
   }
   if (draft.problems.length) {
@@ -464,15 +487,15 @@ export async function raiseMonth(
       `${draft.owner.name}'s ${from.slice(0, 7)} cannot be billed yet — ${draft.problems.join("; ")}`,
     );
   }
-  if (!draft.invoiceLines.length && !draft.billLines.length) {
+  if (!draft.feedLines.length && !draft.birdLines.length && !draft.eggLines.length) {
     throw new PostingError(`Nothing passed between Amino and ${draft.owner.name} in ${from.slice(0, 7)}`);
   }
 
   const prefs = await getPreferences(tx);
-  if (draft.invoiceLines.some((l) => l.kind === "birds") && !prefs.birdSaleItemId) {
+  if (draft.birdLines.length && !prefs.birdSaleItemId) {
     throw new PostingError("Pullets were housed, but no bird item is set to bill them as");
   }
-  if (draft.billLines.length && !prefs.eggPurchaseItemId) {
+  if (draft.eggLines.length && !prefs.eggPurchaseItemId) {
     throw new PostingError("Eggs were collected, but no egg item is set to bill them as");
   }
 
@@ -480,18 +503,28 @@ export async function raiseMonth(
   // month, and dating it "today" would push December's feed into January.
   const docDate = to;
 
-  /* ── Amino → owner: feed and pullets ──────────────────────────────────── */
-  let invoiceId: string | null = null;
-  if (draft.invoiceLines.length) {
+  /**
+   * Raise one sales invoice.
+   *
+   * Feed and pullets each get their own, because each carries a statement of
+   * only its own transactions — one invoice holding both means one statement
+   * listing both, and a reader totting up the wrong column.
+   */
+  const raiseInvoice = async (
+    lines: DraftLine[],
+    itemFor: (l: DraftLine) => string | undefined,
+    note: string,
+  ): Promise<string | null> => {
+    if (!lines.length) return null;
     const customer = await loadCustomer(tx, contactId);
-    const lines: DocLineInput[] = draft.invoiceLines.map((l) => ({
-      itemId: l.kind === "feed" ? l.itemId : (prefs.birdSaleItemId ?? undefined),
+    const docLines: DocLineInput[] = lines.map((l) => ({
+      itemId: itemFor(l),
       name: l.description,
       quantity: l.qty.toFixed(3),
       unit: l.unit,
       rate: (l.rate ?? 0).toFixed(4),
     }));
-    const totals = await computeDocumentTotals(tx, lines, customer.placeOfSupplyState);
+    const totals = await computeDocumentTotals(tx, docLines, customer.placeOfSupplyState);
     const number = await nextDocumentNumber(tx, "invoice");
     const [inv] = await tx
       .insert(invoices)
@@ -511,7 +544,7 @@ export async function raiseMonth(
         roundOff: totals.roundOff,
         total: totals.total,
         balanceDue: totals.total,
-        customerNotes: `Feed and pullets supplied to ${draft.owner.name}'s sheds, ${from} to ${to}.`,
+        customerNotes: note,
         createdBy: userId,
       })
       .returning();
@@ -523,12 +556,26 @@ export async function raiseMonth(
       .update(invoices)
       .set({ status: "sent", journalEntryId: jeId })
       .where(eq(invoices.id, inv!.id));
-    invoiceId = inv!.id;
-  }
+    return inv!.id;
+  };
+
+  /* ── Amino → owner: the feed ──────────────────────────────────────────── */
+  const feedInvoiceId = await raiseInvoice(
+    draft.feedLines,
+    (l) => l.itemId,
+    `Feed supplied to ${draft.owner.name}'s sheds, ${from} to ${to}.`,
+  );
+
+  /* ── Amino → owner: the pullets ───────────────────────────────────────── */
+  const birdInvoiceId = await raiseInvoice(
+    draft.birdLines,
+    () => prefs.birdSaleItemId ?? undefined,
+    `Pullets housed into ${draft.owner.name}'s sheds, ${from} to ${to}.`,
+  );
 
   /* ── Owner → Amino: the eggs ──────────────────────────────────────────── */
   let billId: string | null = null;
-  if (draft.billLines.length) {
+  if (draft.eggLines.length) {
     const [vendor] = await tx.select().from(contacts).where(eq(contacts.id, contactId));
     if (!vendor) throw new PostingError("No such owner");
     if (!["vendor", "both"].includes(vendor.type)) {
@@ -541,7 +588,7 @@ export async function raiseMonth(
       billDate: docDate,
       reference: `Farm ${from.slice(0, 7)}`,
       notes: `Eggs bought from ${draft.owner.name}'s sheds, ${from} to ${to}.`,
-      lines: draft.billLines.map((l) => ({
+      lines: draft.eggLines.map((l) => ({
         itemId: prefs.eggPurchaseItemId ?? undefined,
         name: l.description,
         quantity: l.qty.toFixed(3),
@@ -559,22 +606,16 @@ export async function raiseMonth(
   await tx.insert(ownerBillingRuns).values({
     contactId,
     period: from,
-    invoiceId,
+    feedInvoiceId,
+    birdInvoiceId,
     billId,
-    feedKg: draft.invoiceLines
-      .filter((l) => l.kind === "feed")
-      .reduce((s, l) => s + l.qty, 0)
-      .toFixed(3),
-    birds: draft.invoiceLines.filter((l) => l.kind === "birds").reduce((s, l) => s + l.qty, 0),
-    eggs: draft.billLines.reduce((s, l) => s + l.qty, 0),
+    feedKg: draft.feedLines.reduce((s, l) => s + l.qty, 0).toFixed(3),
+    birds: draft.birdLines.reduce((s, l) => s + l.qty, 0),
+    eggs: draft.eggLines.reduce((s, l) => s + l.qty, 0),
     createdBy: userId,
   });
 
-  // Built LAST, from the same transaction, so it describes exactly what was
-  // billed. The caller writes it to disk after committing — a file written
-  // inside a transaction survives a rollback and leaves an orphan behind.
-  const statement = await monthStatement(tx, contactId, period);
-  return { draft, invoiceId, billId, statement };
+  return { draft, feedInvoiceId, birdInvoiceId, billId };
 }
 
 /* ── The supporting statement ─────────────────────────────────────────────── */
@@ -852,4 +893,388 @@ export async function monthStatement(
 
 
   return rows.map((r) => r.join(",")).join("\r\n");
+}
+
+/* ── Per-document statements ──────────────────────────────────────────────── */
+
+/**
+ * The three statements, each scoped to the document it explains.
+ *
+ * Separate because the documents are separate: feed on one invoice, pullets on
+ * another, eggs on the bill. A statement that also listed the other two would
+ * invite somebody to total the wrong column and query a figure that is not on
+ * the paper in front of them.
+ */
+export interface StatementData {
+  orgName: string;
+  ownerName: string;
+  sheds: string;
+  from: string;
+  to: string;
+}
+
+async function statementHeader(tx: Conn, contactId: string, period: string) {
+  const { from, to } = monthBounds(period);
+  const [owner] = await tx
+    .select({ name: contacts.displayName })
+    .from(contacts)
+    .where(eq(contacts.id, contactId));
+  const theirs = await tx
+    .select({ id: houses.id, code: houses.code })
+    .from(houses)
+    .where(eq(houses.ownerId, contactId));
+  const [org] = await tx.execute(`SELECT name FROM org_profile LIMIT 1`).then(
+    (r) => r.rows as Array<{ name: string }>,
+  );
+  return {
+    from,
+    to,
+    ownerName: owner?.name ?? "Owner",
+    orgName: org?.name ?? "Amino Farms",
+    houses: theirs,
+    codeOf: new Map(theirs.map((h) => [h.id, h.code])),
+  };
+}
+
+/**
+ * Feed, a row per DAY.
+ *
+ * Per day rather than per transfer because that is how the shed experiences it
+ * — two lorries on a Tuesday is one Tuesday's feed. Where a day's deliveries
+ * came at different rates the row carries the weighted rate, which is the rate
+ * that day's value actually realised, and the transfer numbers are listed so
+ * any row can be taken apart.
+ */
+export async function feedStatement(tx: Conn, contactId: string, period: string) {
+  const h = await statementHeader(tx, contactId, period);
+  const houseIds = h.houses.map((x) => x.id);
+  const rows = houseIds.length
+    ? await tx
+        .select({
+          day: feedTransfers.transferDate,
+          number: feedTransfers.number,
+          house: feedTransfers.toHouseId,
+          item: items.name,
+          kg: feedTransfers.quantityKg,
+          value: feedTransfers.value,
+        })
+        .from(feedTransfers)
+        .innerJoin(items, eq(items.id, feedTransfers.itemId))
+        .where(
+          and(
+            inArray(feedTransfers.toHouseId, houseIds),
+            gte(feedTransfers.transferDate, h.from),
+            lte(feedTransfers.transferDate, h.to),
+            ne(feedTransfers.status, "void"),
+          ),
+        )
+        .orderBy(asc(feedTransfers.transferDate), asc(feedTransfers.number))
+    : [];
+
+  const byDay = new Map<
+    string,
+    { kg: number; value: number; refs: string[]; houses: Set<string>; items: Set<string> }
+  >();
+  for (const r of rows) {
+    const d = byDay.get(r.day) ?? {
+      kg: 0,
+      value: 0,
+      refs: [],
+      houses: new Set<string>(),
+      items: new Set<string>(),
+    };
+    d.kg += n(r.kg);
+    d.value += n(r.value);
+    d.refs.push(r.number);
+    d.houses.add(h.codeOf.get(r.house ?? "") ?? "");
+    d.items.add(r.item);
+    byDay.set(r.day, d);
+  }
+
+  const out = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const totalKg = out.reduce((s, [, d]) => s + d.kg, 0);
+  const totalValue = out.reduce((s, [, d]) => s + d.value, 0);
+
+  return {
+    header: h,
+    rows: out.map(([day, d]) => [
+      day,
+      [...d.houses].sort().join(" "),
+      [...d.items].sort().join(", "),
+      d.refs.join(" "),
+      d.kg,
+      d.kg > 0 ? d.value / d.kg : 0,
+      d.value,
+    ]),
+    totalKg,
+    totalValue,
+    /** True when any day blended two rates — worth saying rather than hiding. */
+    blended: out.some(([, d]) => d.refs.length > 1),
+  };
+}
+
+/** Pullets, a row per housing. */
+export async function birdStatement(tx: Conn, contactId: string, period: string) {
+  const h = await statementHeader(tx, contactId, period);
+  const houseIds = h.houses.map((x) => x.id);
+  const arrivals = houseIds.length
+    ? await tx
+        .select({
+          day: flockMovements.eventDate,
+          qty: flockMovements.qty,
+          house: flockPlacements.houseId,
+          flock: flocks.code,
+          breedId: flocks.breedId,
+          hatchDate: flocks.hatchDate,
+          fromOwner: sql<string | null>`(
+            SELECT hh.owner_id::text FROM flock_placements fp
+            JOIN houses hh ON hh.id = fp.house_id
+            WHERE fp.id = ${flockMovements.counterpartPlacementId})`,
+          fromHouse: sql<string | null>`(
+            SELECT hh.code FROM flock_placements fp
+            JOIN houses hh ON hh.id = fp.house_id
+            WHERE fp.id = ${flockMovements.counterpartPlacementId})`,
+        })
+        .from(flockMovements)
+        .innerJoin(flockPlacements, eq(flockPlacements.id, flockMovements.placementId))
+        .innerJoin(flocks, eq(flocks.id, flockPlacements.flockId))
+        .where(
+          and(
+            inArray(flockPlacements.houseId, houseIds),
+            eq(flockMovements.kind, "transfer_in"),
+            gte(flockMovements.eventDate, h.from),
+            lte(flockMovements.eventDate, h.to),
+          ),
+        )
+        .orderBy(asc(flockMovements.eventDate))
+    : [];
+
+  // Only birds arriving from a house Amino owns are a sale.
+  const sold = arrivals.filter((a) => a.fromOwner === null);
+  const rows: Array<Array<string | number>> = [];
+  let totalBirds = 0;
+  let totalValue = 0;
+  for (const a of sold) {
+    const ageWeek =
+      Math.floor(
+        (Date.parse(`${a.day}T00:00:00Z`) - Date.parse(`${a.hatchDate}T00:00:00Z`)) / 86_400_000 / 7,
+      ) + 1;
+    const v = await birdRateOn(tx, a.breedId, ageWeek, a.day);
+    const rate = v ? n(v.rate) : 0;
+    totalBirds += a.qty;
+    totalValue += a.qty * rate;
+    rows.push([
+      a.day,
+      a.flock,
+      `${a.fromHouse ?? "—"} → ${h.codeOf.get(a.house) ?? "—"}`,
+      ageWeek,
+      a.qty,
+      rate,
+      a.qty * rate,
+    ]);
+  }
+  return { header: h, rows, totalBirds, totalValue };
+}
+
+/** Eggs, a row per day per house, at that day's rate. */
+export async function eggStatement(tx: Conn, contactId: string, period: string) {
+  const h = await statementHeader(tx, contactId, period);
+  const houseIds = h.houses.map((x) => x.id);
+  const days = houseIds.length
+    ? await tx
+        .select({
+          day: placementDays.day,
+          house: flockPlacements.houseId,
+          flock: flocks.code,
+          eggs: placementDays.eggsTotal,
+          cracked: placementDays.eggsCracked,
+        })
+        .from(placementDays)
+        .innerJoin(flockPlacements, eq(flockPlacements.id, placementDays.placementId))
+        .innerJoin(flocks, eq(flocks.id, flockPlacements.flockId))
+        .where(
+          and(
+            inArray(flockPlacements.houseId, houseIds),
+            gte(placementDays.day, h.from),
+            lte(placementDays.day, h.to),
+          ),
+        )
+        .orderBy(asc(placementDays.day), asc(flockPlacements.houseId))
+    : [];
+
+  const rateFor = await dailyEggRate(tx, contactId, h.from, h.to);
+  const rows: Array<Array<string | number>> = [];
+  let totalEggs = 0;
+  let totalValue = 0;
+  const ratesSeen = new Set<number>();
+  for (const d of days) {
+    const eggs = d.eggs ?? 0;
+    if (!eggs) continue;
+    const rate = rateFor(d.day);
+    totalEggs += eggs;
+    totalValue += rate == null ? 0 : eggs * rate;
+    if (rate != null) ratesSeen.add(rate);
+    rows.push([
+      d.day,
+      h.codeOf.get(d.house) ?? "",
+      d.flock,
+      eggs,
+      d.cracked ?? "",
+      rate ?? "",
+      rate == null ? "" : eggs * rate,
+    ]);
+  }
+  return { header: h, rows, totalEggs, totalValue, ratesSeen: [...ratesSeen].sort((a, b) => a - b) };
+}
+
+/* ── Rendering the three statements ───────────────────────────────────────── */
+
+export type StatementKind = "feed" | "birds" | "eggs";
+
+const inr = (v: number) =>
+  v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const qtyOf = (v: number, dp = 0) =>
+  v.toLocaleString("en-IN", { minimumFractionDigits: dp, maximumFractionDigits: dp });
+const asDmy = (iso: string) => iso.split("-").reverse().join("/");
+
+/**
+ * Render whichever statements the month has something to say about.
+ *
+ * Returns a PDF per kind, ready for the caller to attach to the matching
+ * document. A kind with no transactions is simply absent — an empty statement
+ * on an invoice is worse than none, because it looks like the data was lost.
+ */
+export async function buildStatements(
+  tx: Conn,
+  contactId: string,
+  period: string,
+): Promise<Partial<Record<StatementKind, { fileName: string; pdf: Buffer }>>> {
+  const out: Partial<Record<StatementKind, { fileName: string; pdf: Buffer }>> = {};
+  const stamp = period.slice(0, 7);
+
+  const feed = await feedStatement(tx, contactId, period);
+  const slug = feed.header.ownerName.replace(/[^\w -]/g, "").trim() || "owner";
+  const shedList = (hs: Array<{ code: string }>) => hs.map((h) => h.code).join(" ");
+
+  if (feed.rows.length) {
+    out.feed = {
+      fileName: `${slug} ${stamp} feed.pdf`,
+      pdf: await renderStatement({
+        title: "Feed supplied",
+        document: `the feed invoice for ${stamp}`,
+        orgName: feed.header.orgName,
+        ownerName: feed.header.ownerName,
+        direction: "Sold by / to",
+        from: feed.header.from,
+        to: feed.header.to,
+        sheds: shedList(feed.header.houses),
+        columns: [
+          { label: "Date", width: 58 },
+          { label: "Shed", width: 40 },
+          { label: "Feed", width: 150 },
+          { label: "Transfer", width: 78 },
+          { label: "Kg", width: 62, align: "right" },
+          { label: "Rate/kg", width: 55, align: "right" },
+          { label: "Value INR", width: 72, align: "right" },
+        ],
+        rows: feed.rows.map((r) => [
+          asDmy(String(r[0])),
+          String(r[1]),
+          String(r[2]),
+          String(r[3]),
+          qtyOf(Number(r[4]), 2),
+          qtyOf(Number(r[5]), 4),
+          inr(Number(r[6])),
+        ]),
+        total: ["Total", "", "", "", qtyOf(feed.totalKg, 2), "", inr(feed.totalValue)],
+        notes: [
+          "Charged at what the mill made the feed for: raw material plus the milling charge, over the yield that leaves the mill.",
+          ...(feed.blended
+            ? ["A day with more than one delivery shows the weighted rate; the transfer numbers are listed to take it apart."]
+            : []),
+        ],
+      }),
+    };
+  }
+
+  const birds = await birdStatement(tx, contactId, period);
+  if (birds.rows.length) {
+    out.birds = {
+      fileName: `${slug} ${stamp} pullets.pdf`,
+      pdf: await renderStatement({
+        title: "Pullets supplied",
+        document: `the pullet invoice for ${stamp}`,
+        orgName: birds.header.orgName,
+        ownerName: birds.header.ownerName,
+        direction: "Sold by / to",
+        from: birds.header.from,
+        to: birds.header.to,
+        sheds: shedList(birds.header.houses),
+        columns: [
+          { label: "Date", width: 64 },
+          { label: "Batch", width: 90 },
+          { label: "Moved", width: 110 },
+          { label: "Age (wk)", width: 55, align: "right" },
+          { label: "Birds", width: 66, align: "right" },
+          { label: "Rate/bird", width: 62, align: "right" },
+          { label: "Value INR", width: 78, align: "right" },
+        ],
+        rows: birds.rows.map((r) => [
+          asDmy(String(r[0])),
+          String(r[1]),
+          String(r[2]),
+          String(r[3]),
+          qtyOf(Number(r[4])),
+          inr(Number(r[5])),
+          inr(Number(r[6])),
+        ]),
+        total: ["Total", "", "", "", qtyOf(birds.totalBirds), "", inr(birds.totalValue)],
+        notes: ["Priced from the bird valuation curve at the flock's age in the week it was housed."],
+      }),
+    };
+  }
+
+  const eggs = await eggStatement(tx, contactId, period);
+  if (eggs.rows.length) {
+    out.eggs = {
+      fileName: `${slug} ${stamp} eggs.pdf`,
+      pdf: await renderStatement({
+        title: "Eggs purchased",
+        document: `the egg bill for ${stamp}`,
+        orgName: eggs.header.orgName,
+        ownerName: eggs.header.ownerName,
+        direction: "Bought by / from",
+        from: eggs.header.from,
+        to: eggs.header.to,
+        sheds: shedList(eggs.header.houses),
+        columns: [
+          { label: "Date", width: 64 },
+          { label: "Shed", width: 44 },
+          { label: "Batch", width: 96 },
+          { label: "Eggs", width: 70, align: "right" },
+          { label: "Cracked", width: 58, align: "right" },
+          { label: "Rate/egg", width: 62, align: "right" },
+          { label: "Value INR", width: 78, align: "right" },
+        ],
+        rows: eggs.rows.map((r) => [
+          asDmy(String(r[0])),
+          String(r[1]),
+          String(r[2]),
+          qtyOf(Number(r[3])),
+          r[4] === "" ? "" : qtyOf(Number(r[4])),
+          r[5] === "" ? "-" : qtyOf(Number(r[5]), 4),
+          r[6] === "" ? "-" : inr(Number(r[6])),
+        ]),
+        total: ["Total", "", "", qtyOf(eggs.totalEggs), "", "", inr(eggs.totalValue)],
+        notes: [
+          "Each day at that day's benchmark price plus the agreed spread — the rate is the one in force on the day the eggs were laid.",
+          eggs.ratesSeen.length > 1
+            ? `The benchmark moved during the month: ${eggs.ratesSeen.map((r) => qtyOf(r, 2)).join(", ")} per egg.`
+            : `Rate held at ${qtyOf(eggs.ratesSeen[0] ?? 0, 2)} per egg all month.`,
+        ],
+      }),
+    };
+  }
+
+  return out;
 }

@@ -112,7 +112,7 @@ try {
     const mid = `${period}-10`;
 
     const feedKgOf = (d: Awaited<ReturnType<typeof draftMonth>>, itemId?: string) =>
-      d.invoiceLines
+      d.feedLines
         .filter((l) => l.kind === "feed" && (!itemId || l.itemId === itemId))
         .reduce((s, l) => s + l.qty, 0);
 
@@ -165,7 +165,7 @@ try {
     /* ── The draft ────────────────────────────────────────────────────────── */
     const draft = await draftMonth(tx, luit.id, period);
     console.log(`\n  ${draft.owner.name}`);
-    for (const l of [...draft.invoiceLines, ...draft.billLines]) {
+    for (const l of [...draft.feedLines, ...draft.eggLines]) {
       console.log(
         `    ${l.kind.padEnd(6)} ${l.description.slice(0, 46).padEnd(46)} ` +
           `${l.qty.toLocaleString("en-IN").padStart(10)} ${l.unit.padEnd(6)} ` +
@@ -174,7 +174,7 @@ try {
       );
     }
     console.log(
-      `\n    invoice ${money(draft.invoiceTotal)}   bill ${money(draft.billTotal)}\n`,
+      `\n    invoice ${money(draft.feedTotal)}   bill ${money(draft.eggTotal)}\n`,
     );
     for (const p of draft.problems) console.log(`    ! ${p}`);
     if (draft.problems.length) console.log("");
@@ -187,7 +187,7 @@ try {
       `${added.toLocaleString("en-IN")} kg, not 19,999`,
     );
     // Only meaningful when nothing else muddied this item's average.
-    const mine = draft.invoiceLines.find((l) => l.kind === "feed" && l.itemId === feedItem!.id);
+    const mine = draft.feedLines.find((l) => l.kind === "feed" && l.itemId === feedItem!.id);
     ok(
       "feed is charged at what the mill made it for",
       !!mine && mine.rate != null && (baseKg > 0 || near(mine.rate, 31.5, 0.0001)),
@@ -196,7 +196,7 @@ try {
         : "",
     );
 
-    const eggLine = draft.billLines.find((l) => l.kind === "eggs");
+    const eggLine = draft.eggLines.find((l) => l.kind === "eggs");
     if (eggsRecorded) {
       ok("eggs are bought back", !!eggLine, eggLine ? `${eggLine.qty} eggs` : "");
       ok(
@@ -204,7 +204,7 @@ try {
         !!eggLine && eggLine.rate != null && near(eggLine.rate, 5.7, 0.0001),
         eggLine?.rate ? `₹${eggLine.rate.toFixed(2)} = 5.20 + 0.50` : "",
       );
-      ok("eggs are a BILL, not an invoice", !draft.invoiceLines.some((l) => l.kind === "eggs"));
+      ok("eggs are a BILL, not an invoice", !draft.feedLines.some((l) => l.kind === "eggs"));
     }
 
     ok("nothing is billed twice", draft.billed === null);
@@ -247,9 +247,7 @@ try {
     /* ── A move between the owner's own sheds is not a second sale ─────────── */
     if (theirs.length >= 2 && placement) {
       const [flock] = await tx.select().from(flocks).where(eq(flocks.id, placement.flockId));
-      const before = (await draftMonth(tx, luit.id, period)).invoiceLines.filter(
-        (l) => l.kind === "birds",
-      ).length;
+      const before = (await draftMonth(tx, luit.id, period)).birdLines.length;
       try {
         await setFlockTransfers(
           tx,
@@ -257,9 +255,7 @@ try {
           [{ eventDate: mid, fromHouseId: theirs[0]!.id, toHouseId: theirs[1]!.id, qty: 100 }],
           userId,
         );
-        const after = (await draftMonth(tx, luit.id, period)).invoiceLines.filter(
-          (l) => l.kind === "birds",
-        ).length;
+        const after = (await draftMonth(tx, luit.id, period)).birdLines.length;
         ok(
           "moving birds between the owner's own sheds raises no sale",
           after === before,
@@ -278,10 +274,10 @@ try {
     // closing rate would quietly restate every earlier day.
     {
       const before = await draftMonth(tx, luit.id, period);
-      const eggsBefore = before.billLines
+      const eggsBefore = before.eggLines
         .filter((l) => l.kind === "eggs")
         .reduce((s, l) => s + l.qty, 0);
-      const valueBefore = before.billTotal;
+      const valueBefore = before.eggTotal;
 
       // A rise part-way through the month.
       const midMonth = `${period}-15`;
@@ -294,7 +290,7 @@ try {
         });
 
       const after = await draftMonth(tx, luit.id, period);
-      const eggLines = after.billLines.filter((l) => l.kind === "eggs");
+      const eggLines = after.eggLines.filter((l) => l.kind === "eggs");
       const eggsAfter = eggLines.reduce((s, l) => s + l.qty, 0);
 
       ok(
@@ -315,13 +311,13 @@ try {
       );
       ok(
         "the later days cost more, so the month is dearer",
-        after.billTotal > valueBefore,
-        `${money(valueBefore)} → ${money(after.billTotal)}`,
+        after.eggTotal > valueBefore,
+        `${money(valueBefore)} → ${money(after.eggTotal)}`,
       );
       ok(
         "and NOT the whole month at the closing rate",
-        after.billTotal < eggsAfter * 6.7 - 1,
-        `${money(after.billTotal)} < ${money(eggsAfter * 6.7)}`,
+        after.eggTotal < eggsAfter * 6.7 - 1,
+        `${money(after.eggTotal)} < ${money(eggsAfter * 6.7)}`,
       );
 
       // Put the month back the way the rest of the script expects it.
@@ -350,15 +346,15 @@ try {
     }
 
     const raised = await raiseMonth(tx, luit.id, period, userId);
-    ok("an invoice is raised", !!raised.invoiceId);
+    ok("an invoice is raised", !!raised.feedInvoiceId);
     ok("a bill is raised", !!raised.billId);
 
-    if (raised.invoiceId) {
-      const [inv] = await tx.select().from(invoices).where(eq(invoices.id, raised.invoiceId));
+    if (raised.feedInvoiceId) {
+      const [inv] = await tx.select().from(invoices).where(eq(invoices.id, raised.feedInvoiceId));
       const invLines = await tx
         .select()
         .from(invoiceLines)
-        .where(eq(invoiceLines.invoiceId, raised.invoiceId));
+        .where(eq(invoiceLines.invoiceId, raised.feedInvoiceId));
       console.log(`
     invoice ${inv!.number}  ${inv!.invoiceDate}  ${money(Number(inv!.total))}  ${inv!.status}`);
       ok("the invoice is posted, not left in draft", inv!.status === "sent", inv!.status);
@@ -370,13 +366,13 @@ try {
       );
       ok(
         "its lines match the draft",
-        invLines.length === raised.draft.invoiceLines.length,
+        invLines.length === raised.draft.feedLines.length,
         `${invLines.length} line(s)`,
       );
       ok(
         "its total matches the draft",
-        near(Number(inv!.subTotal), raised.draft.invoiceTotal, 1),
-        `${money(Number(inv!.subTotal))} vs ${money(raised.draft.invoiceTotal)}`,
+        near(Number(inv!.subTotal), raised.draft.feedTotal, 1),
+        `${money(Number(inv!.subTotal))} vs ${money(raised.draft.feedTotal)}`,
       );
       if (inv!.journalEntryId) {
         const jl = await tx
@@ -401,8 +397,8 @@ try {
       ok("it carries a journal entry", !!bill!.journalEntryId);
       ok(
         "its total matches the draft",
-        near(Number(bill!.subTotal), raised.draft.billTotal, 1),
-        `${money(Number(bill!.subTotal))} vs ${money(raised.draft.billTotal)}`,
+        near(Number(bill!.subTotal), raised.draft.eggTotal, 1),
+        `${money(Number(bill!.subTotal))} vs ${money(raised.draft.eggTotal)}`,
       );
       if (bill!.journalEntryId) {
         const jl = await tx
@@ -425,13 +421,13 @@ try {
     /* ── An unpriceable line shows a dash, never a zero ────────────────────── */
     await tx.delete(eggBenchmarkPrices);
     const unpriced = await draftMonth(tx, luit.id, period);
-    const bad = unpriced.billLines.find((l) => l.kind === "eggs");
+    const bad = unpriced.eggLines.find((l) => l.kind === "eggs");
     if (bad) {
       ok("an egg line with no benchmark carries no amount", bad.amount === null && bad.rate === null);
       ok("and says why", !!bad.problem, bad.problem ?? "");
       ok(
         "the bill total does not silently become zero-rated revenue",
-        unpriced.billTotal === 0 && unpriced.problems.length > 0,
+        unpriced.eggTotal === 0 && unpriced.problems.length > 0,
         `${unpriced.problems.length} problem(s) reported`,
       );
     }
