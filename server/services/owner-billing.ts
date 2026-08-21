@@ -167,14 +167,15 @@ export interface OwnerDraft {
   billLines: DraftLine[];
   invoiceTotal: number;
   billTotal: number;
-  /**
-   * What AMINO owes: the eggs bought less the feed and pullets sold.
+  /*
+   * No net here, deliberately.
    *
-   * Signed this way round because that is the normal direction — a laying shed
-   * produces more value in eggs than it takes in feed, so the month usually
-   * ends with Amino paying the owner. A negative net means the other way.
+   * The invoice is a receivable and the bill is a payable; each stands on its
+   * own and settles on its own terms. What the two come to together is the
+   * owner's LEDGER position — it moves with every payment, credit note and
+   * other transaction on that contact, and a figure worked out from one month's
+   * two documents would be a different number wearing the same name.
    */
-  net: number;
   /** Already billed — the run that did it. */
   billed: { invoiceId: string | null; billId: string | null; at: Date } | null;
   problems: string[];
@@ -409,7 +410,6 @@ export async function draftMonth(tx: Conn, contactId: string, period: string): P
     billLines,
     invoiceTotal,
     billTotal,
-    net: billTotal - invoiceTotal,
     billed: run ? { invoiceId: run.invoiceId, billId: run.billId, at: run.createdAt } : null,
     problems: [...new Set(problems)],
   };
@@ -764,7 +764,6 @@ export async function monthStatement(
     "Eggs",
     "Rate/egg",
     "Eggs bought",
-    "Net (Amino owes)",
   );
   const totals = blank();
   for (const day of [...byDay.keys()].sort()) {
@@ -784,7 +783,6 @@ export async function monthStatement(
       r.eggs || "",
       r.rate?.toFixed(4) ?? "",
       r.eggValue ? r.eggValue.toFixed(2) : "",
-      (r.eggValue - r.feedValue - r.birdValue).toFixed(2),
     );
   }
   line(
@@ -796,7 +794,6 @@ export async function monthStatement(
     totals.eggs,
     "",
     totals.eggValue.toFixed(2),
-    (totals.eggValue - totals.feedValue - totals.birdValue).toFixed(2),
   );
   line();
 

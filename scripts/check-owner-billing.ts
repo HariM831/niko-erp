@@ -174,7 +174,7 @@ try {
       );
     }
     console.log(
-      `\n    invoice ${money(draft.invoiceTotal)}   bill ${money(draft.billTotal)}   net ${money(draft.net)}\n`,
+      `\n    invoice ${money(draft.invoiceTotal)}   bill ${money(draft.billTotal)}\n`,
     );
     for (const p of draft.problems) console.log(`    ! ${p}`);
     if (draft.problems.length) console.log("");
@@ -208,10 +208,12 @@ try {
     }
 
     ok("nothing is billed twice", draft.billed === null);
+    // No net is asserted anywhere: the invoice is a receivable, the bill is a
+    // payable, and what the two come to together is a ledger position rather
+    // than something a month's two documents get to decide.
     ok(
-      "the net is what Amino owes — eggs bought less feed sold",
-      near(draft.net, draft.billTotal - draft.invoiceTotal),
-      money(draft.net),
+      "the draft states no net",
+      !("net" in (draft as unknown as Record<string, unknown>)),
     );
 
     /* ── Amino's own sheds are billed to nobody ───────────────────────────── */

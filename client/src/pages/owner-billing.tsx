@@ -35,8 +35,6 @@ interface Draft {
   billLines: DraftLine[];
   invoiceTotal: number;
   billTotal: number;
-  /** What Amino owes: eggs bought less feed and pullets sold. */
-  net: number;
   billed: { invoiceId: string | null; billId: string | null; at: string } | null;
   problems: string[];
 }
@@ -125,20 +123,34 @@ export function OwnerBillingPage() {
                 <div>
                   <h2 className="text-[15px] font-semibold text-gray-900">{d.owner.name}</h2>
                   <p className="text-[12px] text-gray-500">
-                    {monthLabel(period)} · {d.from} to {d.to}
+                    {monthLabel(period)} · {d.from} to {d.to} ·{" "}
+                    <Link href={`/sales/customers/${d.owner.id}`} className="s-link">
+                      their ledger
+                    </Link>
                   </p>
                 </div>
 
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-5">
+                  {/* Two documents, two totals, no net.
+                      The invoice is a receivable and the bill is a payable, and
+                      each settles on its own terms. What the owner's account
+                      comes to is a LEDGER question — it moves with every
+                      payment and credit note on that contact — so it is read
+                      from their ledger, not asserted here from one month. */}
                   <div className="text-right">
-                    {/* Normally Amino owes: a laying shed produces more in eggs
-                        than it takes in feed. The other direction is possible
-                        and says so rather than showing a minus sign. */}
                     <div className="text-[11px] uppercase tracking-wide text-gray-400">
-                      {d.net >= 0 ? "Amino owes" : "Owes Amino"}
+                      Invoice · receivable
                     </div>
-                    <div className="text-[16px] font-semibold tabular-nums text-gray-900">
-                      {money(Math.abs(d.net))}
+                    <div className="text-[15px] font-semibold tabular-nums text-gray-900">
+                      {money(d.invoiceTotal)}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[11px] uppercase tracking-wide text-gray-400">
+                      Bill · payable
+                    </div>
+                    <div className="text-[15px] font-semibold tabular-nums text-gray-900">
+                      {money(d.billTotal)}
                     </div>
                   </div>
 

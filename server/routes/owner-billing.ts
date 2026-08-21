@@ -85,7 +85,6 @@ ownerBillingRouter.post("/raise", requirePermission("sales", "create"), async (r
       attachments: attached,
       invoiceTotal: out.draft.invoiceTotal,
       billTotal: out.draft.billTotal,
-      net: out.draft.net,
     });
   } catch (err) {
     if (err instanceof z.ZodError) return res.status(400).json({ error: err.errors[0]?.message });
