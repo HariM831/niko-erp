@@ -5,6 +5,7 @@ import { LoginPage } from "./pages/login";
 import { HomePage } from "./pages/home";
 import { ReportsPage, ReportViewPage } from "./pages/reports";
 import { WeeklySummaryPage } from "./pages/report-weekly-summary";
+import { OwnerBillingPage } from "./pages/owner-billing";
 import { ChartOfAccountsPage } from "./pages/chart-of-accounts";
 import { TransactionLockingPage } from "./pages/transaction-locking";
 import { BudgetDetailPage, BudgetNewPage, BudgetsPage } from "./pages/budgets";
@@ -175,6 +176,7 @@ export function App() {
             single-formula view, so its old path lands there. */}
         <Route path="/feed-mill/formulator">{() => <Redirect to="/feed-mill/formulas" />}</Route>
         <Route path="/feed-mill/production" component={FeedProductionPage} />
+        <Route path="/farms/owner-billing" component={OwnerBillingPage} />
         <Route path="/farms" component={FarmsHousesPage} />
         <Route path="/farms/batches" component={FarmsBatchesPage} />
         {/* The Houses screen moved up to /farms; keep the old path working. */}

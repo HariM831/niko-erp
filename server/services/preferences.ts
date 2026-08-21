@@ -28,6 +28,8 @@ export const DEFAULT_PREFERENCES: Omit<Preferences, "id" | "updatedAt"> = {
   poOverDeliveryPct: "1.000",
   millMoistureRetention: "0.99",
   millOverheadPerKg: "1.00",
+  eggPurchaseItemId: null,
+  birdSaleItemId: null,
 };
 
 /**

@@ -113,6 +113,9 @@ const NAV: NavItem[] = [
          lives in, so it is made and listed on its own screen. Houses report
          what they happen to be holding. */
       { label: "Batches", path: "/farms/batches" },
+      /* Two of the sheds belong to Nandamuri and two to Luit, so feed, pullets
+         and eggs are a trade between companies rather than an internal move. */
+      { label: "Owner billing", path: "/farms/owner-billing" },
     ],
   },
   {

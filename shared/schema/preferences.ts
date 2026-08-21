@@ -5,6 +5,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uuid,
   varchar,
 } from "drizzle-orm/pg-core";
 
@@ -102,6 +103,17 @@ export const preferences = pgTable("preferences", {
   millOverheadPerKg: numeric("mill_overhead_per_kg", { precision: 8, scale: 4 })
     .notNull()
     .default("1.00"),
+
+  /**
+   * What an owner's eggs and pullets are billed AS.
+   *
+   * Named rather than guessed: the item master holds several egg items and more
+   * than one bird item, and choosing at posting time means the answer moves
+   * when somebody adds an item. Feed needs no setting — a transfer already
+   * names the item it carried.
+   */
+  eggPurchaseItemId: uuid("egg_purchase_item_id"),
+  birdSaleItemId: uuid("bird_sale_item_id"),
 
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

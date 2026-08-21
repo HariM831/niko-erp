@@ -105,7 +105,7 @@ const paymentSchema = z.object({
 
 // ---------- Invoice helpers ----------
 
-async function loadCustomer(tx: Tx, id: string) {
+export async function loadCustomer(tx: Tx, id: string) {
   const [customer] = await tx
     .select()
     .from(contacts)
@@ -184,7 +184,7 @@ export async function postInvoiceJournal(
   });
 }
 
-function computeDueDate(invoiceDate: string, termsDays: number): string {
+export function computeDueDate(invoiceDate: string, termsDays: number): string {
   const d = new Date(`${invoiceDate}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + termsDays);
   return d.toISOString().slice(0, 10);
