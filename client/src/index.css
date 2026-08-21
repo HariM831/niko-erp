@@ -104,12 +104,42 @@ body {
   @apply mb-1 block text-xs font-semibold text-red-600;
 }
 
-/* Matches Zoho Books' live computed styles: #f9f9fb header bg, #6c718a
-   text, hairline #ebeaf2 dividers, no vertical grid lines anywhere. */
+/* ---------- Data tables ----------
+   THE one definition of table chrome. Every data table in the app wears these
+   classes and none of them names a colour of its own, so a change here is a
+   change everywhere — which is the point.
+
+   What the Farms screens settled on, now the rule for all of them:
+     · a FLAT header — a plain grey band, never a tinted or branded one;
+     · header text in the same grey as every other table, not the brand colour;
+     · NO outer border and no card around the table — a table is a table, and
+       ringing it makes the page look like a stack of boxes;
+     · horizontal hairline dividers only. No vertical grid lines, anywhere.
+
+   Matches Zoho Books' live computed styles: #f9f9fb header, #6c718a text,
+   #ebeaf2 hairlines. */
 .table-head {
   @apply text-left text-[11px] font-semibold uppercase;
   background-color: #f9f9fb;
   color: #6c718a;
+}
+
+/* A header cell. Right-align a numeric column by adding `text-right`. */
+.table-th {
+  @apply whitespace-nowrap px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider;
+  background-color: #f9f9fb;
+  color: #6c718a;
+}
+
+/* A body cell — the hairline is on the cell, not the row, so a sticky first
+   column keeps its divider when the table scrolls under it. */
+.table-td {
+  @apply px-3 py-2 text-[13px];
+  border-bottom: 0.7px solid #ebeaf2;
+}
+
+.table-row:hover {
+  background-color: #fafafc;
 }
 
 .row-hover {

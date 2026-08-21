@@ -805,7 +805,7 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
               <div className="mt-10 print:hidden">
                 <h3 className="mb-2 text-sm font-semibold">Payments Received</h3>
                 <table className="w-full text-[13px]">
-                  <thead className="text-left text-xs uppercase tracking-wide text-gray-500">
+                  <thead className="table-head">
                     <tr>
                       <th className="border-b border-[#ebeaf2] px-3 py-2">Payment #</th>
                       <th className="border-b border-[#ebeaf2] px-3 py-2">Date</th>

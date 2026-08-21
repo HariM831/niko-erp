@@ -1293,15 +1293,15 @@ export function HouseDetailPage() {
                                   <p className="text-sm font-medium mb-2">{bulkUploadData.length} records found in CSV:</p>
                                   <div className="max-h-64 overflow-auto border rounded">
                                     <table className="w-full text-xs">
-                                      <thead className="bg-gray-50 sticky top-0">
+                                      <thead className="table-head sticky top-0">
                                         <tr className="border-b border-primary/20">
-                                          <th className="p-2 text-left text-[11px] font-semibold uppercase tracking-wider text-primary">Date</th>
-                                          <th className="p-2 text-left text-[11px] font-semibold uppercase tracking-wider text-primary">Batch</th>
-                                          <th className="p-2 text-right text-[11px] font-semibold uppercase tracking-wider text-primary">Mortality</th>
-                                          {shed?.type !== 'layer' && <th className="p-2 text-right text-[11px] font-semibold uppercase tracking-wider text-primary">Male Birds</th>}
-                                          <th className="p-2 text-right text-[11px] font-semibold uppercase tracking-wider text-primary">Feed Intake</th>
-                                          <th className="p-2 text-right text-[11px] font-semibold uppercase tracking-wider text-primary">Water Upper</th>
-                                          {shed?.type === 'layer' && <th className="p-2 text-right text-[11px] font-semibold uppercase tracking-wider text-primary">Eggs</th>}
+                                          <th className="table-th">Date</th>
+                                          <th className="table-th">Batch</th>
+                                          <th className="table-th text-right">Mortality</th>
+                                          {shed?.type !== 'layer' && <th className="table-th text-right">Male Birds</th>}
+                                          <th className="table-th text-right">Feed Intake</th>
+                                          <th className="table-th text-right">Water Upper</th>
+                                          {shed?.type === 'layer' && <th className="table-th text-right">Eggs</th>}
                                         </tr>
                                       </thead>
                                       <tbody>
@@ -2041,15 +2041,15 @@ export function HouseDetailPage() {
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
-                          <thead className="bg-gray-50">
+                          <thead className="table-head">
                             <tr className="border-b border-primary/20">
-                              <th className="text-left py-3 px-2 text-[11px] font-semibold uppercase tracking-wider text-primary">Date</th>
-                              <th className="text-left py-3 px-2 text-[11px] font-semibold uppercase tracking-wider text-primary">Age</th>
-                              <th className="text-left py-3 px-2 text-[11px] font-semibold uppercase tracking-wider text-primary">Vaccine Name</th>
-                              <th className="text-left py-3 px-2 text-[11px] font-semibold uppercase tracking-wider text-primary">Batch No.</th>
-                              <th className="text-left py-3 px-2 text-[11px] font-semibold uppercase tracking-wider text-primary">Make</th>
-                              <th className="text-right py-3 px-2 text-[11px] font-semibold uppercase tracking-wider text-primary">Birds</th>
-                              {isAdmin && <th className="text-right py-3 px-2 text-[11px] font-semibold uppercase tracking-wider text-primary">Actions</th>}
+                              <th className="table-th">Date</th>
+                              <th className="table-th">Age</th>
+                              <th className="table-th">Vaccine Name</th>
+                              <th className="table-th">Batch No.</th>
+                              <th className="table-th">Make</th>
+                              <th className="table-th text-right">Birds</th>
+                              {isAdmin && <th className="table-th text-right">Actions</th>}
                             </tr>
                           </thead>
                           <tbody>

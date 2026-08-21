@@ -41,6 +41,7 @@ import {
 import { db } from "../server/db";
 import { createFlock } from "../server/services/flocks";
 import { saveDay } from "../server/services/daily";
+import { refreshFlockDay } from "../server/services/rollup";
 
 const CLEAR_ONLY = process.argv.includes("--clear");
 
@@ -217,16 +218,26 @@ async function seed() {
       }
 
       // ── Feed delivered from the mill ──
+      //
+      // Deliveries carry a rate, as the real ones raised by the mill do. Without
+      // one the FIFO layer has no cost basis, and the cost per egg on the
+      // Weekly Management Summary reads as a dash rather than a figure — which
+      // is correct behaviour but makes for a poor demonstration.
       if (feedItem && mill) {
         for (let w = 0; w < 4; w++) {
+          const kg = Math.round(p.birds * 0.115 * 7);
+          // Drifts week to week, so FIFO has different-priced layers to draw on.
+          const rate = 31.4 + w * 0.35;
           await tx.insert(feedTransfers).values({
             number: `DEMO-${String(transferNo++).padStart(4, "0")}`,
             transferDate: addDays(today, -21 + w * 7),
             itemId: feedItem.id,
-            quantityKg: String(Math.round(p.birds * 0.115 * 7)),
+            quantityKg: String(kg),
             fromLocationId: mill.id,
             toLocationId: shed.locationId,
             toHouseId: shed.id,
+            ratePerKg: rate.toFixed(6),
+            value: (kg * rate).toFixed(2),
           });
         }
       }
@@ -301,6 +312,11 @@ async function seed() {
         vaccinatorCount: 2,
         laboursCount: 6,
       });
+
+      // Weighings and deliveries went in as raw rows rather than through their
+      // services, so the rollup has not seen them. One rebuild at the end, after
+      // everything this batch owns exists.
+      await refreshFlockDay(tx, flock.id);
 
       console.log(
         `  ${p.code.padEnd(12)} ${p.house}  ${String(p.birds).padStart(6)} placed  ${String(alive).padStart(6)} now  ${p.ageWeeks}w${laying ? "  laying" : "  rearing"}`,

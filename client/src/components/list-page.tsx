@@ -227,7 +227,7 @@ export function ListPage<T>({
           </div>
         ) : (
           <table className="w-full border-separate border-spacing-0 text-[13px]">
-            <thead className="sticky top-0 z-10 bg-[#f9f9fb] text-left text-[11px] font-semibold uppercase text-[#6c718a]">
+            <thead className="table-head sticky top-0 z-10">
               <tr>
                 <th className={`w-9 border-b border-[#ebeaf2] ${cellPad}`}>
                   <input type="checkbox" checked={allSelected} onChange={toggleAll} className="accent-brand-500" />

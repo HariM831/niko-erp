@@ -286,7 +286,7 @@ export function FormulaSolver({
                       Materials considered
                     </div>
                     <table className="w-full text-[12px]">
-                      <thead className="text-gray-500">
+                      <thead className="table-head">
                         <tr className="border-b border-gray-100">
                           <th className="px-2 py-1 text-left font-medium">Material</th>
                           <th className="w-[52px] px-1 py-1 text-right font-medium">min %</th>
@@ -369,7 +369,7 @@ export function FormulaSolver({
                       )}
                     </div>
                     <table className="w-full text-[12px]">
-                      <thead className="text-gray-500">
+                      <thead className="table-head">
                         <tr className="border-b border-gray-100">
                           <th className="px-2 py-1 text-left font-medium">Nutrient</th>
                           <th className="w-[54px] px-1 py-1 text-right font-medium">min</th>
@@ -729,7 +729,7 @@ function SaveDialog({
         </div>
 
         <table className="w-full text-[13px]">
-          <thead className="text-gray-500">
+          <thead className="table-head">
             <tr className="border-b border-gray-200">
               <th className="px-2 py-1 text-left text-[12px] font-medium">Material</th>
               <th className="w-[70px] px-2 py-1 text-right text-[12px] font-medium">%</th>

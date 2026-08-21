@@ -82,6 +82,14 @@ const REPORTS: ReportDef[] = [
     period: "range",
   },
   { key: "gst-summary", label: "GSTR-3B Summary", category: "Taxes", period: "range" },
+  // Keyed on a batch and its age rather than on a date range, so it has its own
+  // page and its own chrome — see report-weekly-summary.tsx.
+  {
+    key: "weekly-management-summary",
+    label: "Weekly Management Summary",
+    category: "Farms",
+    period: "range",
+  },
 ];
 
 const CATEGORIES = [...new Set(REPORTS.map((r) => r.category))];

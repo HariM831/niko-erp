@@ -173,17 +173,24 @@ try {
     let layFeed = 0;
     let layMort = 0;
     let eggs = 0;
+    // Birds alive in each house, walked down as they die — a fixed egg count
+    // against a shrinking flock would drift the hen-day percentage upwards and
+    // the test would be measuring its own arithmetic rather than the rollup's.
+    const living = new Map([
+      [pa.id, 8_000],
+      [pb.id, alive - 8_000],
+    ]);
     for (let i = 0; i < 200; i++) {
       const day = addDay(moveDay, 3 + i);
-      for (const [p, share] of [
-        [pa, 8_000],
-        [pb, alive - 8_000],
-      ] as const) {
+      for (const p of [pa, pb]) {
+        const share = living.get(p.id)!;
         const kg = (share * 0.115).toFixed(2);
         layFeed += Number(kg);
-        const laid = i < 6 ? 0 : Math.round(share * 0.9);
+        // 90% of the average of opening and closing, which is what hen-day is.
+        const laid = i < 6 ? 0 : Math.round((share - 0.5) * 0.9);
         eggs += laid;
         layMort += 1;
+        living.set(p.id, share - 1);
         await saveDay(
           tx,
           {

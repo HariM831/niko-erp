@@ -584,7 +584,7 @@ function MovementTab({ flock }: { flock: Flock }) {
   return (
     <div className="card overflow-x-auto">
       <table className="w-full text-[13px]">
-        <thead className="border-b border-gray-200 bg-gray-50 text-left text-[11px] uppercase tracking-wide text-gray-500">
+        <thead className="table-head">
           <tr>
             <th className="px-3 py-2">Date</th>
             <th className="px-3 py-2">House</th>

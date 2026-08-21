@@ -477,7 +477,7 @@ function CurveDialog({
 
         <div className="max-h-[420px] overflow-auto rounded border border-gray-200 bg-white">
           <table className="text-[12px]">
-            <thead className="sticky top-0 bg-gray-50">
+            <thead className="table-head sticky top-0">
               <tr className="text-left text-[11px] uppercase tracking-wide text-gray-500">
                 <th className="sticky left-0 bg-gray-50 px-2 py-1.5">Wk</th>
                 {STANDARD_METRICS.map((m) => (

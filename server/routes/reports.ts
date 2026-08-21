@@ -1,10 +1,15 @@
 import { Router } from "express";
-import { and, asc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import {
   accounts,
   bills,
+  breeds,
   contacts,
+  flockPlacements,
+  flocks,
+  houses,
+  locations,
   expenses,
   invoices,
   journalEntries,
@@ -23,6 +28,7 @@ import {
 import { db } from "../db";
 import { buildTree, pruneEmpty } from "../services/report-tree";
 import { requirePermission } from "../lib/rbac";
+import { weeklySummary } from "../services/rollup";
 
 export const reportsRouter = Router();
 
@@ -1071,3 +1077,81 @@ function flattenLeaves(nodes: Array<Leaf & { children: unknown[] }>): Leaf[] {
   }
   return out;
 }
+
+/* ── Farms ────────────────────────────────────────────────────────────────── */
+
+/**
+ * The batch picker.
+ *
+ * This report is keyed on a flock rather than a date range, because a batch's
+ * age is what every benchmark is published against — comparing two batches over
+ * the same calendar month compares an 18-week bird with a 60-week one and calls
+ * the difference performance.
+ */
+reportsRouter.get("/farm-batches", requirePermission("reports", "view"), async (_req, res) => {
+  const rows = await db
+    .select({
+      id: flocks.id,
+      code: flocks.code,
+      status: flocks.status,
+      hatchDate: flocks.hatchDate,
+      placedCount: flocks.placedCount,
+      breed: breeds.name,
+      location: locations.name,
+      houses: sql<string>`string_agg(distinct ${houses.code}, ', ' order by ${houses.code})`,
+    })
+    .from(flocks)
+    .innerJoin(breeds, eq(breeds.id, flocks.breedId))
+    .innerJoin(locations, eq(locations.id, flocks.locationId))
+    .leftJoin(flockPlacements, eq(flockPlacements.flockId, flocks.id))
+    .leftJoin(houses, eq(houses.id, flockPlacements.houseId))
+    .groupBy(flocks.id, breeds.name, locations.name)
+    .orderBy(desc(flocks.hatchDate));
+  res.json({ batches: rows });
+});
+
+/**
+ * Weekly Management Summary — one row per age week for one batch.
+ *
+ * Rearing weeks are shown with the egg columns blank rather than filtered out:
+ * the pullet weeks are where a bad lay curve is decided, and a report that
+ * starts at week 18 hides the cause of what it is reporting.
+ *
+ * The cost column lives here and nowhere in the Farms module. `reports.view` is
+ * the gate — the people entering daily records have farms permissions, not this
+ * one, so nobody working a shed sees a rupee figure by accident.
+ */
+reportsRouter.get(
+  "/weekly-management-summary",
+  requirePermission("reports", "view"),
+  async (req, res) => {
+    const flockId = String(req.query.flockId ?? "");
+    if (!flockId) return res.status(400).json({ message: "Choose a batch" });
+
+    const [flock] = await db
+      .select({
+        id: flocks.id,
+        code: flocks.code,
+        status: flocks.status,
+        hatchDate: flocks.hatchDate,
+        placedCount: flocks.placedCount,
+        housedOn: flocks.housedOn,
+        layStartDate: flocks.layStartDate,
+        depletedOn: flocks.depletedOn,
+        breed: breeds.name,
+        location: locations.name,
+        houses: sql<string>`string_agg(distinct ${houses.code}, ', ' order by ${houses.code})`,
+      })
+      .from(flocks)
+      .innerJoin(breeds, eq(breeds.id, flocks.breedId))
+      .innerJoin(locations, eq(locations.id, flocks.locationId))
+      .leftJoin(flockPlacements, eq(flockPlacements.flockId, flocks.id))
+      .leftJoin(houses, eq(houses.id, flockPlacements.houseId))
+      .where(eq(flocks.id, flockId))
+      .groupBy(flocks.id, breeds.name, locations.name);
+    if (!flock) return res.status(404).json({ message: "No such batch" });
+
+    const weeks = await weeklySummary(db, flockId);
+    res.json({ flock, weeks });
+  },
+);

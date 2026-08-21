@@ -165,14 +165,29 @@ export async function refreshFlockDay(tx: Tx, flockId: string): Promise<number> 
   let cumEggs = 0;
   let cumFeed = 0;
   let cumFeedCost = 0;
+  /** Has any feed anywhere in this flock's life carried a price? */
+  let cumPriced = false;
   let cumMort = 0;
   let birdsAtLayStart: number | null = null;
   const rows: Array<Record<string, unknown>> = [];
 
+  // The last day a placement has anything recorded against it. A record is the
+  // authority on whether a day happened: a day someone saved must appear here,
+  // even if it sits past the placement's end date or past today — otherwise the
+  // figures they entered are simply invisible and nobody can tell why.
+  const recordedTo = new Map<string, string>();
+  const later = (id: string, day: string) => {
+    if (day > (recordedTo.get(id) ?? "")) recordedTo.set(id, day);
+  };
+  for (const r of days) later(r.placementId, r.day);
+  for (const m of movements) later(m.placementId, m.day);
+
   // Every (placement, day) the flock existed, oldest first.
   const timeline: Array<{ p: (typeof placements)[number]; day: string }> = [];
   for (const p of placements) {
-    const last = p.toDate ?? today;
+    let last = p.toDate ?? today;
+    const recorded = recordedTo.get(p.id);
+    if (recorded && recorded > last) last = recorded;
     for (let day = p.fromDate; day <= last; day = addDay(day, 1)) {
       timeline.push({ p, day });
     }
@@ -189,8 +204,12 @@ export async function refreshFlockDay(tx: Tx, flockId: string): Promise<number> 
     closingOf.set(p.id, closing);
 
     const avgBirds = (opening + closing) / 2;
+    // Age runs from the flock's bird-weighted average hatch date, so the chicks
+    // from the FIRST hatch are alive for a few days before day 0. They are real
+    // birds eating real feed, so their days are week 1 rather than week 0 or a
+    // negative one — the guide has nothing earlier to compare them against.
     const ageDays = epochDay(day) - epochDay(flock.hatchDate);
-    const ageWeek = Math.floor(ageDays / 7) + 1;
+    const ageWeek = Math.max(1, Math.floor(ageDays / 7) + 1);
     const laying = !!flock.layStartDate && day >= flock.layStartDate;
     // Hen-housed is per bird housed at the START of lay, so this is captured on
     // the first laying day the flock actually has a row for — not keyed to the
@@ -215,13 +234,17 @@ export async function refreshFlockDay(tx: Tx, flockId: string): Promise<number> 
       const layers = pool.get(p.houseId)!;
       let remaining = feedKg;
       let cost = 0;
+      let priced = false;
       let lastUnit: number | null = null;
       for (const layer of layers) {
         if (remaining <= 0) break;
         if (layer.day > day || layer.left <= 0) continue;
         const take = Math.min(remaining, layer.left);
         if (layer.unitCost == null) incomplete = true;
-        else cost += take * layer.unitCost;
+        else {
+          cost += take * layer.unitCost;
+          priced = true;
+        }
         lastUnit = layer.unitCost ?? lastUnit;
         layer.left -= take;
         remaining -= take;
@@ -230,11 +253,20 @@ export async function refreshFlockDay(tx: Tx, flockId: string): Promise<number> 
       if (remaining > 0) {
         // Eaten more than was ever delivered. Charge it at the last known rate
         // and flag the day rather than pretending the feed was free.
-        if (lastUnit != null) cost += remaining * lastUnit;
+        if (lastUnit != null) {
+          cost += remaining * lastUnit;
+          priced = true;
+        }
         incomplete = true;
       }
-      feedCost = cost;
-      cumFeedCost += cost;
+      // Nothing priced at all means there is no cost to report — not a cost of
+      // zero. A confident ₹0.00 per egg is worse than an honest dash, because
+      // somebody will believe it.
+      if (priced) {
+        feedCost = cost;
+        cumFeedCost += cost;
+        cumPriced = true;
+      }
     }
 
     // Two meters, one number downstream. Null only when neither was read — a
@@ -283,8 +315,8 @@ export async function refreshFlockDay(tx: Tx, flockId: string): Promise<number> 
       feedCostPerKg: feedCost != null && feedKg ? d4(feedCost / feedKg) : null,
       feedCostIncomplete: incomplete,
       cfpe: feedCost != null && eggs ? d4(feedCost / eggs) : null,
-      cumFeedCost: d2(cumFeedCost),
-      cumCfpe: cumEggs > 0 ? d4(cumFeedCost / cumEggs) : null,
+      cumFeedCost: cumPriced ? d2(cumFeedCost) : null,
+      cumCfpe: cumPriced && cumEggs > 0 ? d4(cumFeedCost / cumEggs) : null,
       waterL: d2(water),
       waterPerBirdMl: water != null && avgBirds > 0 ? d2((water * 1000) / avgBirds) : null,
       waterFeedRatio: water != null && feedKg ? d3(water / feedKg) : null,
@@ -327,8 +359,13 @@ export async function refreshHouse(tx: Tx, houseId: string) {
   for (const r of rows) await refreshFlockDay(tx, r.flockId);
 }
 
-/** The weekly management summary: one row per age week for one flock. */
-export async function weeklySummary(tx: Tx, flockId: string) {
+/**
+ * The weekly management summary: one row per age week for one flock.
+ *
+ * Read-only, so it takes the connection or a transaction — a report has no
+ * reason to open one and a check script has every reason to reuse its own.
+ */
+export async function weeklySummary(tx: Tx | typeof Db, flockId: string) {
   const rows = await tx.execute(sql`
     WITH d AS (SELECT * FROM flock_day WHERE flock_id = ${flockId})
     SELECT

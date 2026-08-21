@@ -561,7 +561,7 @@ export function FarmsHousesPage() {
             </div>
             <div className="overflow-hidden rounded-lg bg-card shadow-sm">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50">
+                <thead className="table-head">
                   <tr className="border-b border-primary/20">
                     <Th align="left">Shed</Th>
                     <Th>Birds</Th>
@@ -651,7 +651,7 @@ export function FarmsHousesPage() {
             </div>
             <div className="overflow-hidden rounded-lg bg-card shadow-sm">
               <table className="w-full text-sm">
-                <thead className="bg-gray-50">
+                <thead className="table-head">
                   <tr className="border-b border-primary/20">
                     <Th align="left">Shed</Th>
                     <Th>Birds</Th>
@@ -1035,11 +1035,9 @@ function Th({
   align?: "left";
 }) {
   return (
-    <th
-      className={`px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-primary ${
-        align === "left" ? "text-left" : "text-right"
-      }`}
-    >
+    // `.table-th` and nothing else — the colour and weight live in index.css so
+    // this header changes when every other header in the app changes.
+    <th className={`table-th ${align === "left" ? "text-left" : "text-right"}`}>
       {children}
     </th>
   );

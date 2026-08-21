@@ -4,6 +4,7 @@ import { AppLayout } from "./components/layout";
 import { LoginPage } from "./pages/login";
 import { HomePage } from "./pages/home";
 import { ReportsPage, ReportViewPage } from "./pages/reports";
+import { WeeklySummaryPage } from "./pages/report-weekly-summary";
 import { ChartOfAccountsPage } from "./pages/chart-of-accounts";
 import { TransactionLockingPage } from "./pages/transaction-locking";
 import { BudgetDetailPage, BudgetNewPage, BudgetsPage } from "./pages/budgets";
@@ -212,6 +213,7 @@ export function App() {
         </Route>
         <Route path="/inventory/adjustments" component={InventoryAdjustmentsPage} />
         <Route path="/inventory/stock" component={StockPage} />
+        <Route path="/reports/weekly-management-summary" component={WeeklySummaryPage} />
         <Route path="/reports/:key">{(p) => <ReportViewPage reportKey={p.key!} />}</Route>
         <Route path="/reports" component={ReportsPage} />
         <Route path="/activity-log" component={ActivityLogPage} />
