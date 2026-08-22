@@ -313,6 +313,14 @@ export async function pollOnce(): Promise<PollResult> {
       result.readings += kept;
     }
 
+    // Retention rides the poll cycle, as it did in Amino — a prune that waits
+    // for somebody to remember it is a prune that never runs. Almost always a
+    // single cheap probe finding nothing old enough.
+    const pruned = await pruneHistory();
+    if (pruned.deleted) {
+      result.skipped.push(`pruned ${pruned.deleted} history row(s) older than ${pruned.cutoff}`);
+    }
+
     await db
       .update(iotPollLog)
       .set({
@@ -420,3 +428,40 @@ export async function recentPolls(limit = 10) {
 }
 
 
+
+/**
+ * Trim raw history that the day summaries have already absorbed.
+ *
+ * `iot_history` is a working buffer, not an archive. It exists so the day
+ * summaries can be rebuilt and so a recent night can be inspected reading by
+ * reading — but at a five-minute poll over a few hundred live tags it grows by
+ * roughly 170,000 rows a day, and nothing anyone asks of a six-month-old
+ * Tuesday needs more than the day summary that was folded from it. Amino's
+ * copy of this table reached the point where creating an index on it crashed
+ * deployments; the pruning is ported from there along with the lesson.
+ *
+ * Deleted in batches so one run never holds a long lock against a table this
+ * size — each batch is its own statement, and a run that finds nothing to
+ * delete costs one cheap probe.
+ *
+ * The day summaries are NEVER pruned. Six rows a day is the price of being
+ * able to answer for any day the farm has ever run, and it is worth paying
+ * forever.
+ */
+export async function pruneHistory(
+  retentionDays = Number(process.env.IOT_HISTORY_RETENTION_DAYS ?? 365),
+): Promise<{ deleted: number; cutoff: string }> {
+  const cutoff = new Date(Date.now() - retentionDays * 86_400_000);
+  let deleted = 0;
+  for (;;) {
+    const r = await db.execute(sql`
+      DELETE FROM iot_history WHERE ctid IN (
+        SELECT ctid FROM iot_history WHERE recorded_at < ${cutoff.toISOString()} LIMIT 50000
+      )
+    `);
+    const batch = r.rowCount ?? 0;
+    deleted += batch;
+    if (batch < 50_000) break;
+  }
+  return { deleted, cutoff: cutoff.toISOString().slice(0, 10) };
+}

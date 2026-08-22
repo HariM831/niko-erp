@@ -17,7 +17,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { houses, iotHistory, iotHouseDay, iotReadings } from "@shared/schema";
 import { db } from "../server/db";
 import { SINGLE_TAGS, tokenExpiry, type BhTagValue } from "../server/services/iot/bhfarm";
-import { saveReadings, writeDay } from "../server/services/iot/store";
+import { pruneHistory, saveReadings, writeDay } from "../server/services/iot/store";
 
 let failures = 0;
 const ok = (label: string, cond: boolean, detail = "") => {
@@ -156,6 +156,49 @@ try {
       `${fz?.siloKg} kg — the stale tag says 17,078`,
     );
 
+    /* ── Old raw history is pruned; the day summary survives it ───────────── */
+    //
+    // The optimisation under test: raw readings are a working buffer with a
+    // retention window, the day summaries are forever. A prune must take the
+    // old raw rows and NOTHING else.
+    {
+      const OLD = "2024-01-15";
+      await saveReadings(house.id, [
+        { tagId: `${DEV}.${SINGLE_TAGS.tempC}`, value: "19", quality: 0, unit: "°C", recordedAt: `${OLD} 09:00:00` },
+        // A recent row saved in the same breath, to prove the prune's cutoff
+        // discriminates rather than emptying the table.
+        { tagId: `${DEV}.${SINGLE_TAGS.tempC}`, value: "23", quality: 0, unit: "°C", recordedAt: `${DAY} 09:00:00` },
+      ]);
+      await writeDay(house.id, OLD, [
+        [{ tagId: `${DEV}.${SINGLE_TAGS.tempC}`, value: "19", quality: 0, unit: "°C", recordedAt: `${OLD} 09:00:00` }],
+      ]);
+
+      const pruned = await pruneHistory(365);
+      ok("readings past the retention window are pruned", pruned.deleted >= 1, `${pruned.deleted} removed`);
+
+      const [oldRaw] = await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(iotHistory)
+        .where(and(eq(iotHistory.houseId, house.id), sql`${iotHistory.recordedAt} < '2025-01-01'`));
+      ok("no raw rows older than the window remain", oldRaw!.n === 0);
+
+      const [oldDay] = await db
+        .select()
+        .from(iotHouseDay)
+        .where(and(eq(iotHouseDay.houseId, house.id), eq(iotHouseDay.day, OLD)));
+      ok(
+        "the day summary from before the window SURVIVES the prune",
+        !!oldDay && Number(oldDay.tempAvg) === 19,
+        oldDay ? `${OLD} still answers: ${oldDay.tempAvg}°C` : "GONE — the archive tier was deleted",
+      );
+
+      const [recent] = await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(iotHistory)
+        .where(eq(iotHistory.houseId, house.id));
+      ok("recent raw history is untouched", recent!.n > 0, `${recent!.n} row(s) kept`);
+    }
+
     /* ── History is written once ──────────────────────────────────────────── */
     const first = await saveReadings(house.id, polls.flat());
     const again = await saveReadings(house.id, polls.flat());
@@ -166,7 +209,8 @@ try {
     ok("history is stored", first > 0, `${first} row(s)`);
     ok(
       "running the backfill twice adds nothing",
-      again === 0 && count!.n === first,
+      // first + 1: the prune block above left one recent survivor behind.
+      again === 0 && count!.n === first + 1,
       `${again} added on the second pass, ${count!.n} total`,
     );
 
