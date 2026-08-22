@@ -52,6 +52,20 @@ interface Shed {
   breedId?: string;
 }
 
+/** What the Houses tables can be ordered by. */
+type SortKey = "shed" | "age";
+
+/**
+ * The number inside a shed code, for ordering.
+ *
+ * "L10" must come after "L9", which string comparison gets backwards, and the
+ * farm will have L6 through L10 at Panbari before long.
+ */
+function shedNumber(code: string): number {
+  const m = code.match(/(\d+)/);
+  return m ? Number(m[1]) : Number.MAX_SAFE_INTEGER;
+}
+
 interface BirdStock {
   id: string;
   shedId: string;
@@ -365,6 +379,7 @@ export function FarmsHousesPage() {
     [],
   );
   const [isLoading, setIsLoading] = useState(true);
+  const [sortBy, setSortBy] = useState<SortKey>("shed");
   const [modalShed, setModalShed] = useState<Shed | null>(null);
   const [modalType, setModalType] = useState<ModalType>(null);
   const [displayDate, setDisplayDate] = useState<string>(() => getSmartDate());
@@ -586,8 +601,29 @@ export function FarmsHousesPage() {
     }
   };
 
-  const layerSheds = shedMetrics.filter((m) => m.shed.type === "layer");
-  const pulletSheds = shedMetrics.filter((m) => m.shed.type === "pullet");
+  /**
+   * Shed order, always, unless the reader asks otherwise.
+   *
+   * A farm walks its houses in order and reads them in order, so L2 comes
+   * before L10 — which means comparing the NUMBER in the code rather than the
+   * string, or the list runs L10, L2, L3. Clicking Age sorts by age instead,
+   * oldest first, since the question that makes somebody re-sort is usually
+   * "which batch is closest to the end of lay".
+   */
+  const inOrder = (rows: typeof shedMetrics) =>
+    [...rows].sort((a, b) => {
+      if (sortBy === "age") {
+        // Total age, not `ageDays` — that column holds the days WITHIN the week
+        // (it is a % 7), so sorting on it alone orders sheds by remainder.
+        const age = (m: (typeof rows)[number]) =>
+          m.ageWeeks == null ? -1 : m.ageWeeks * 7 + (m.ageDays ?? 0);
+        return age(b) - age(a) || shedNumber(a.shed.name) - shedNumber(b.shed.name);
+      }
+      return shedNumber(a.shed.name) - shedNumber(b.shed.name) || a.shed.name.localeCompare(b.shed.name);
+    });
+
+  const layerSheds = inOrder(shedMetrics.filter((m) => m.shed.type === "layer"));
+  const pulletSheds = inOrder(shedMetrics.filter((m) => m.shed.type === "pullet"));
 
   const computeAggregate = (group: typeof shedMetrics) => {
     const totalBirds = group.reduce((s, m) => s + m.closingStock, 0);
@@ -719,9 +755,13 @@ export function FarmsHousesPage() {
               <table className="w-full text-sm">
                 <thead className="table-head">
                   <tr className="border-b border-primary/20">
-                    <Th align="left">Shed</Th>
+                    <Th align="left" sort="shed" active={sortBy} onSort={setSortBy}>
+                      Shed
+                    </Th>
                     <Th>Birds</Th>
-                    <Th>Age</Th>
+                    <Th sort="age" active={sortBy} onSort={setSortBy}>
+                      Age
+                    </Th>
                     <Th>Eggs %</Th>
                     <Th>Feed (g/b)</Th>
                     <Th>Water (ml/b)</Th>
@@ -809,9 +849,13 @@ export function FarmsHousesPage() {
               <table className="w-full text-sm">
                 <thead className="table-head">
                   <tr className="border-b border-primary/20">
-                    <Th align="left">Shed</Th>
+                    <Th align="left" sort="shed" active={sortBy} onSort={setSortBy}>
+                      Shed
+                    </Th>
                     <Th>Birds</Th>
-                    <Th>Age</Th>
+                    <Th sort="age" active={sortBy} onSort={setSortBy}>
+                      Age
+                    </Th>
                     <Th>Feed (g/b)</Th>
                     <Th>Water (ml/b)</Th>
                     <Th>Mort</Th>
@@ -1186,15 +1230,33 @@ export function FarmsHousesPage() {
 function Th({
   children,
   align,
+  sort,
+  active,
+  onSort,
 }: {
   children: React.ReactNode;
   align?: "left";
+  /** Naming a key makes the header a button that sorts by it. */
+  sort?: SortKey;
+  active?: SortKey;
+  onSort?: (k: SortKey) => void;
 }) {
+  // `.table-th` and nothing else — the colour and weight live in index.css so
+  // this header changes when every other header in the app changes.
+  const cls = `table-th ${align === "left" ? "text-left" : "text-right"}`;
+  if (!sort || !onSort) return <th className={cls}>{children}</th>;
+  const on = active === sort;
   return (
-    // `.table-th` and nothing else — the colour and weight live in index.css so
-    // this header changes when every other header in the app changes.
-    <th className={`table-th ${align === "left" ? "text-left" : "text-right"}`}>
-      {children}
+    <th className={cls}>
+      <button
+        onClick={() => onSort(sort)}
+        className={`inline-flex items-center gap-1 ${on ? "text-foreground" : "hover:text-foreground"}`}
+      >
+        {children}
+        {/* The arrow only shows on the column doing the sorting — a row of
+            them invites the reader to work out which one is live. */}
+        <span className={on ? "opacity-70" : "opacity-0"}>▾</span>
+      </button>
     </th>
   );
 }

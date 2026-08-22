@@ -53,7 +53,7 @@ export const flockDay = pgTable(
     eggsCracked: integer("eggs_cracked"),
     eggsDirty: integer("eggs_dirty"),
     /** Hen-day: eggs over the average of opening and closing birds. */
-    hdPct: numeric("hd_pct", { precision: 6, scale: 2 }),
+    hdPct: numeric("hd_pct", { precision: 10, scale: 2 }),
     /** Runs over the FLOCK, across every house — not the placement. */
     cumEggs: bigint("cum_eggs", { mode: "number" }).notNull().default(0),
     eggsPerHenHoused: numeric("eggs_per_hen_housed", { precision: 8, scale: 2 }),
@@ -61,23 +61,23 @@ export const flockDay = pgTable(
     feedKg: numeric("feed_kg", { precision: 10, scale: 2 }),
     feedDeliveredKg: numeric("feed_delivered_kg", { precision: 10, scale: 2 }).notNull().default("0"),
     feedClosingKg: numeric("feed_closing_kg", { precision: 10, scale: 2 }),
-    feedPerBirdG: numeric("feed_per_bird_g", { precision: 8, scale: 2 }),
-    feedGPerEgg: numeric("feed_g_per_egg", { precision: 8, scale: 2 }),
+    feedPerBirdG: numeric("feed_per_bird_g", { precision: 14, scale: 2 }),
+    feedGPerEgg: numeric("feed_g_per_egg", { precision: 14, scale: 2 }),
     cumFeedKg: numeric("cum_feed_kg", { precision: 12, scale: 2 }).notNull().default("0"),
-    cumFeedKgPerBird: numeric("cum_feed_kg_per_bird", { precision: 8, scale: 3 }),
+    cumFeedKgPerBird: numeric("cum_feed_kg_per_bird", { precision: 14, scale: 3 }),
 
     itemId: uuid("item_id"),
     feedCost: numeric("feed_cost", { precision: 14, scale: 2 }),
     /** The rate the day actually realised — an output of FIFO, not an input. */
     feedCostPerKg: numeric("feed_cost_per_kg", { precision: 10, scale: 4 }),
     feedCostIncomplete: boolean("feed_cost_incomplete").notNull().default(false),
-    cfpe: numeric("cfpe", { precision: 10, scale: 4 }),
+    cfpe: numeric("cfpe", { precision: 14, scale: 4 }),
     cumFeedCost: numeric("cum_feed_cost", { precision: 14, scale: 2 }),
-    cumCfpe: numeric("cum_cfpe", { precision: 10, scale: 4 }),
+    cumCfpe: numeric("cum_cfpe", { precision: 14, scale: 4 }),
 
     waterL: numeric("water_l", { precision: 10, scale: 2 }),
-    waterPerBirdMl: numeric("water_per_bird_ml", { precision: 10, scale: 2 }),
-    waterFeedRatio: numeric("water_feed_ratio", { precision: 8, scale: 3 }),
+    waterPerBirdMl: numeric("water_per_bird_ml", { precision: 14, scale: 2 }),
+    waterFeedRatio: numeric("water_feed_ratio", { precision: 14, scale: 3 }),
 
     cumMortality: integer("cum_mortality").notNull().default(0),
     cumMortalityPct: numeric("cum_mortality_pct", { precision: 6, scale: 3 }),

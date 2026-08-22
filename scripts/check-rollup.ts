@@ -76,6 +76,15 @@ try {
     console.log(`\n  ${flock.code} — 10,000 into ${pullet.code}, split to ${layers[0]!.code} / ${layers[1]!.code}\n`);
 
     // ── Feed deliveries, one per house, at a known rate ──
+    //
+    // The borrowed houses carry REAL deliveries now — the Amino import put a
+    // year of them there — and FIFO pools per house, so the test's arithmetic
+    // only holds against a pool it built itself. Cleared inside the rolled-back
+    // transaction: the real rows come back the moment the check ends.
+    await tx
+      .delete(feedTransfers)
+      .where(inArray(feedTransfers.toHouseId, [pullet.id, layers[0]!.id, layers[1]!.id]));
+
     const deliver = async (houseId: string, day: string, kg: number, rate: number, n: string) => {
       const house = [pullet, ...layers].find((h) => h.id === houseId)!;
       await tx.insert(feedTransfers).values({

@@ -50,6 +50,7 @@ import { saveDay } from "../server/services/daily";
 import { createFlock, setFlockTransfers } from "../server/services/flocks";
 import { mainStore, postInventoryMovement } from "../server/services/inventory";
 import { pdfText } from "../server/services/pdf-text";
+import { refreshFlockDay } from "../server/services/rollup";
 import { PostingError } from "../server/services/posting";
 import { getPreferences } from "../server/services/preferences";
 import {
@@ -119,6 +120,27 @@ try {
           lte(feedTransfers.transferDate, to),
         ),
       );
+
+    // The Amino import put REAL daily records in this month, and the test
+    // asserts that the eggs billed are the eggs it stages — so the month is
+    // emptied for the owner's houses first, and the flocks it touched are
+    // re-rolled so flock_day agrees. All of it comes back at rollback.
+    const realPlacements = await tx
+      .select({ id: flockPlacements.id, flockId: flockPlacements.flockId })
+      .from(flockPlacements)
+      .where(inArray(flockPlacements.houseId, theirIds));
+    if (realPlacements.length) {
+      await tx.delete(placementDays).where(
+        and(
+          inArray(placementDays.placementId, realPlacements.map((p) => p.id)),
+          gte(placementDays.day, from),
+          lte(placementDays.day, to),
+        ),
+      );
+      for (const flockId of new Set(realPlacements.map((p) => p.flockId))) {
+        await refreshFlockDay(tx, flockId);
+      }
+    }
 
     /* ═══ 2. Mill a batch ═══════════════════════════════════════════════ */
     heading("The mill makes feed");

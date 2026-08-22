@@ -42,6 +42,9 @@ const overheadPerWeek = Number(arg("overhead") ?? 1.5);
 /** The last week a bird is valued on what it cost. */
 const lastWeek = Number(arg("to") ?? 18);
 const effectiveFrom = arg("from") ?? new Date().toISOString().slice(0, 10);
+/** Only this breed (matched on name), so a derived curve can fill one gap
+ *  without touching curves that came from real data. */
+const onlyBreed = arg("breed");
 
 if ([chickCost, overheadPerWeek, lastWeek].some((v) => !Number.isFinite(v) || v < 0)) {
   console.log("\n  --chick, --overhead and --to must be positive numbers\n");
@@ -72,6 +75,7 @@ console.log(`  effective from ${effectiveFrom}\n`);
 
 let wrote = 0;
 for (const breed of await db.select().from(breeds)) {
+  if (onlyBreed && !breed.name.toLowerCase().includes(onlyBreed.toLowerCase())) continue;
   const [set] = await db
     .select()
     .from(standardSets)

@@ -16,6 +16,7 @@ import {
   contacts,
   eggBenchmarkPrices,
   feedTransfers,
+  flockMovements,
   flockPlacements,
   flocks,
   houses,
@@ -27,6 +28,8 @@ import {
   ownerBillingRuns,
 } from "@shared/schema";
 import { db } from "../server/db";
+
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 import {
   buildStatements,
   draftMonth,
@@ -34,7 +37,7 @@ import {
   owners,
   raiseMonth,
 } from "../server/services/owner-billing";
-import { setFlockTransfers } from "../server/services/flocks";
+import { placementCount, setFlockTransfers } from "../server/services/flocks";
 import { saveDay } from "../server/services/daily";
 import { getPreferences } from "../server/services/preferences";
 import { PostingError } from "../server/services/posting";
@@ -61,6 +64,40 @@ const refuses = async (label: string, fn: () => Promise<unknown>) => {
 const money = (v: number) => `₹${v.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 
 class Rollback extends Error {}
+
+/**
+ * A flock's existing transfers, in the shape setFlockTransfers takes.
+ *
+ * setFlockTransfers REPLACES the whole set, which was fine when the tests ran
+ * against demo flocks with no history. The flocks are the real imported ones
+ * now, each carrying its actual housings — so a test that wants to add a move
+ * must hand back everything that already happened plus its own line, or the
+ * spine will (rightly) refuse to erase a January housing the ledger depends on.
+ */
+async function existingTransfers(tx: Tx, flockId: string) {
+  const rows = await tx
+    .select({
+      eventDate: flockMovements.eventDate,
+      qty: flockMovements.qty,
+      toHouseId: flockPlacements.houseId,
+      counterpart: flockMovements.counterpartPlacementId,
+    })
+    .from(flockMovements)
+    .innerJoin(flockPlacements, eq(flockPlacements.id, flockMovements.placementId))
+    .where(and(eq(flockPlacements.flockId, flockId), eq(flockMovements.kind, "transfer_in")));
+  const out: Array<{ eventDate: string; fromHouseId: string; toHouseId: string; qty: number }> = [];
+  for (const r of rows) {
+    if (!r.counterpart) continue;
+    const [src] = await tx
+      .select({ houseId: flockPlacements.houseId })
+      .from(flockPlacements)
+      .where(eq(flockPlacements.id, r.counterpart));
+    if (src) out.push({ eventDate: r.eventDate, fromHouseId: src.houseId, toHouseId: r.toHouseId, qty: r.qty });
+  }
+  return out.sort((a, b) => a.eventDate.localeCompare(b.eventDate));
+}
+
+
 
 try {
   await db.transaction(async (tx) => {
@@ -265,7 +302,7 @@ try {
       const layer = theirs.find((h) => h.purpose === "layer");
       const [rearing] = pullet
         ? await tx
-            .select({ flockId: flockPlacements.flockId })
+            .select({ id: flockPlacements.id, flockId: flockPlacements.flockId })
             .from(flockPlacements)
             .where(
               and(eq(flockPlacements.houseId, pullet.id), sql`${flockPlacements.toDate} IS NULL`),
@@ -275,10 +312,23 @@ try {
       if (pullet && layer && rearing) {
         const [flock] = await tx.select().from(flocks).where(eq(flocks.id, rearing.flockId));
         const housedOn = `${period}-12`;
+        // Move what the house actually holds. The pullet house has a real
+        // flock's TAIL in it now — a few thousand birds, not a test's round
+        // number — and the spine refuses a move the house cannot cover.
+        const available = await placementCount(tx, rearing.id, housedOn);
+        const qty = Math.min(available, 5_000);
+        if (qty <= 0) {
+          console.log("  · pullet house is empty on the staged date — pullet sale not exercised");
+        } else {
+        // The month already holds REAL housings — B160426 went into L5 over six
+        // August days — so every assertion is about the STAGED line, found by
+        // its date and quantity, never about the count of lines.
+        const beforeStage = await draftMonth(tx, luit.id, period);
+        const already = await existingTransfers(tx, flock!.id);
         await setFlockTransfers(
           tx,
           flock!.id,
-          [{ eventDate: housedOn, fromHouseId: pullet.id, toHouseId: layer.id, qty: 5_000 }],
+          [...already, { eventDate: housedOn, fromHouseId: pullet.id, toHouseId: layer.id, qty }],
           userId,
         );
 
@@ -312,9 +362,15 @@ try {
           });
 
         const withBirds = await draftMonth(tx, luit.id, period);
-        ok("housing pullets raises a bird sale", withBirds.birdLines.length === 1);
+        ok(
+          "housing pullets raises a bird sale",
+          withBirds.birdLines.length === beforeStage.birdLines.length + 1,
+          `${beforeStage.birdLines.length} → ${withBirds.birdLines.length} line(s)`,
+        );
 
-        const line = withBirds.birdLines[0];
+        const line = withBirds.birdLines.find(
+          (l) => l.date === housedOn && l.qty === qty,
+        );
         const [expected] = await tx
           .select()
           .from(birdValuationRates)
@@ -337,7 +393,7 @@ try {
         );
         ok(
           "and the line is worth qty times that rate",
-          !!line && line.amount != null && near(line.amount, 5_000 * (line.rate ?? 0), 0.5),
+          !!line && line.amount != null && near(line.amount, qty * (line.rate ?? 0), 0.5),
           line?.amount ? money(line.amount) : "",
         );
         ok("a priceable housing raises no problem", !withBirds.problems.length, withBirds.problems.join("; "));
@@ -378,7 +434,8 @@ try {
 
         // Put the month back for the rest of the script.
         await tx.delete(ownerBillingRuns).where(eq(ownerBillingRuns.period, from));
-        await setFlockTransfers(tx, flock!.id, [], userId);
+        await setFlockTransfers(tx, flock!.id, already, userId);
+        }
       } else {
         console.log("  · no Amino pullet house with a live batch — pullet sale not exercised");
       }
@@ -389,10 +446,11 @@ try {
       const [flock] = await tx.select().from(flocks).where(eq(flocks.id, placement.flockId));
       const before = (await draftMonth(tx, luit.id, period)).birdLines.length;
       try {
+        const keep = await existingTransfers(tx, flock!.id);
         await setFlockTransfers(
           tx,
           flock!.id,
-          [{ eventDate: mid, fromHouseId: theirs[0]!.id, toHouseId: theirs[1]!.id, qty: 100 }],
+          [...keep, { eventDate: mid, fromHouseId: theirs[0]!.id, toHouseId: theirs[1]!.id, qty: 100 }],
           userId,
         );
         const after = (await draftMonth(tx, luit.id, period)).birdLines.length;
