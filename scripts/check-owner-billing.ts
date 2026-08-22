@@ -11,6 +11,7 @@
  */
 import { and, eq, inArray, sql } from "drizzle-orm";
 import {
+  birdValuationRates,
   bills,
   contacts,
   eggBenchmarkPrices,
@@ -26,7 +27,13 @@ import {
   ownerBillingRuns,
 } from "@shared/schema";
 import { db } from "../server/db";
-import { draftMonth, monthBounds, owners, raiseMonth } from "../server/services/owner-billing";
+import {
+  buildStatements,
+  draftMonth,
+  monthBounds,
+  owners,
+  raiseMonth,
+} from "../server/services/owner-billing";
 import { setFlockTransfers } from "../server/services/flocks";
 import { saveDay } from "../server/services/daily";
 import { getPreferences } from "../server/services/preferences";
@@ -242,6 +249,139 @@ try {
         near(totalAfter, beforeAmino, 0.5),
         `${beforeAmino.toLocaleString("en-IN")} → ${totalAfter.toLocaleString("en-IN")} kg across every owner`,
       );
+    }
+
+    /* ── Housing pullets into an owner's shed sells them the birds ────────── */
+    //
+    // Housing happens a few times a year, so most months have none. One is
+    // staged here — inside the same rolled-back transaction as everything else
+    // — because the pullet invoice is otherwise never exercised, and a code
+    // path nothing runs is a code path nobody knows is broken.
+    {
+      const [pullet] = await tx
+        .select()
+        .from(houses)
+        .where(and(eq(houses.purpose, "pullet"), sql`${houses.ownerId} IS NULL`));
+      const layer = theirs.find((h) => h.purpose === "layer");
+      const [rearing] = pullet
+        ? await tx
+            .select({ flockId: flockPlacements.flockId })
+            .from(flockPlacements)
+            .where(
+              and(eq(flockPlacements.houseId, pullet.id), sql`${flockPlacements.toDate} IS NULL`),
+            )
+        : [];
+
+      if (pullet && layer && rearing) {
+        const [flock] = await tx.select().from(flocks).where(eq(flocks.id, rearing.flockId));
+        const housedOn = `${period}-12`;
+        await setFlockTransfers(
+          tx,
+          flock!.id,
+          [{ eventDate: housedOn, fromHouseId: pullet.id, toHouseId: layer.id, qty: 5_000 }],
+          userId,
+        );
+
+        const ageWeek =
+          Math.floor(
+            (Date.parse(`${housedOn}T00:00:00Z`) - Date.parse(`${flock!.hatchDate}T00:00:00Z`)) /
+              86_400_000 /
+              7,
+          ) + 1;
+
+        // A rate in force ON THE HOUSING DATE. The real curve may start later
+        // than the month being tested — an effective-dated rate does not reach
+        // backwards, and that is the point of it — so the check brings its own.
+        await tx
+          .insert(birdValuationRates)
+          .values({
+            breedId: flock!.breedId,
+            ageWeek,
+            rate: "135.30",
+            effectiveFrom: from,
+            note: "check",
+            createdBy: userId,
+          })
+          .onConflictDoUpdate({
+            target: [
+              birdValuationRates.breedId,
+              birdValuationRates.ageWeek,
+              birdValuationRates.effectiveFrom,
+            ],
+            set: { rate: "135.30" },
+          });
+
+        const withBirds = await draftMonth(tx, luit.id, period);
+        ok("housing pullets raises a bird sale", withBirds.birdLines.length === 1);
+
+        const line = withBirds.birdLines[0];
+        const [expected] = await tx
+          .select()
+          .from(birdValuationRates)
+          .where(
+            and(
+              eq(birdValuationRates.breedId, flock!.breedId),
+              eq(birdValuationRates.ageWeek, ageWeek),
+              eq(birdValuationRates.effectiveFrom, from),
+            ),
+          );
+        ok(
+          "the valuation curve has a rate for that age",
+          !!expected,
+          expected ? `week ${ageWeek} = ₹${expected.rate}` : `week ${ageWeek} MISSING`,
+        );
+        ok(
+          "the birds price off the curve at their age",
+          !!line && !!expected && near(line.rate ?? 0, Number(expected.rate), 0.005),
+          line?.rate ? `₹${line.rate.toFixed(2)}/bird` : "unpriced",
+        );
+        ok(
+          "and the line is worth qty times that rate",
+          !!line && line.amount != null && near(line.amount, 5_000 * (line.rate ?? 0), 0.5),
+          line?.amount ? money(line.amount) : "",
+        );
+        ok("a priceable housing raises no problem", !withBirds.problems.length, withBirds.problems.join("; "));
+
+        // ── And it becomes its own invoice, separate from the feed one ──
+        await tx.delete(ownerBillingRuns).where(eq(ownerBillingRuns.period, from));
+        const three = await raiseMonth(tx, luit.id, period, userId);
+        ok("a feed invoice is raised", !!three.feedInvoiceId);
+        ok("a SEPARATE pullet invoice is raised", !!three.birdInvoiceId);
+        ok(
+          "they are two different documents",
+          three.feedInvoiceId !== three.birdInvoiceId,
+          `${three.feedInvoiceId?.slice(0, 8)} vs ${three.birdInvoiceId?.slice(0, 8)}`,
+        );
+        if (three.birdInvoiceId) {
+          const [inv] = await tx.select().from(invoices).where(eq(invoices.id, three.birdInvoiceId));
+          const lines = await tx
+            .select()
+            .from(invoiceLines)
+            .where(eq(invoiceLines.invoiceId, three.birdInvoiceId));
+          console.log(`\n    pullet invoice ${inv!.number}  ${money(Number(inv!.total))}  ${inv!.status}`);
+          ok(
+            "the pullet invoice carries only the pullets",
+            lines.length === withBirds.birdLines.length,
+            `${lines.length} line(s)`,
+          );
+          ok(
+            "its total is the pullet total, not the feed one",
+            near(Number(inv!.subTotal), withBirds.birdTotal, 1),
+            `${money(Number(inv!.subTotal))} vs feed ${money(withBirds.feedTotal)}`,
+          );
+        }
+
+        // The statement on it must show the pullets and nothing else.
+        const built = await buildStatements(tx, luit.id, period);
+        ok("a pullet statement is built", !!built.birds, built.birds?.fileName ?? "");
+        ok("it is a PDF", built.birds?.pdf.subarray(0, 5).toString() === "%PDF-");
+
+        // Put the month back for the rest of the script.
+        await tx.delete(ownerBillingRuns).where(eq(ownerBillingRuns.period, from));
+        await setFlockTransfers(tx, flock!.id, [], userId);
+      } else {
+        console.log("  · no Amino pullet house with a live batch — pullet sale not exercised");
+      }
     }
 
     /* ── A move between the owner's own sheds is not a second sale ─────────── */
