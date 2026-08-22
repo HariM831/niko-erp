@@ -77,8 +77,13 @@ if (mode === "backfill") {
   // older, so this is the once chance to capture what came before EGGSY.
   console.log("  pulling the vendor's stored history — this takes a while\n");
   const r = await backfill(42);
-  console.log(`  ${r.houses} house(s), ${num(r.readings)} reading(s) kept, from ${r.from}\n`);
-  process.exit(0);
+  console.log(`  ${r.houses} house(s), ${num(r.readings)} sample(s) kept, from ${r.from}`);
+  // Said out loud rather than swallowed: a window the vendor would not answer
+  // is a stretch of history that is gone in six weeks, and it is worth another
+  // run today rather than a discovery in November.
+  for (const f of r.failed) console.log(`  ! ${f}`);
+  console.log("");
+  process.exit(r.failed.length ? 1 : 0);
 }
 
 const r = await pollOnce();

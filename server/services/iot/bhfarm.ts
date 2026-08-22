@@ -173,17 +173,43 @@ function check(res: Response, method: string, url: string, text: string): never 
   throw new BhError(`bhfarm ${method} ${url.replace(BASE, "")} → ${res.status}: ${text.slice(0, 200)}`);
 }
 
-async function get<T>(url: string): Promise<T> {
-  const res = await fetch(url, { method: "GET", headers: headers() });
-  if (!res.ok) check(res, "GET", url, await res.text());
-  return (await res.json()) as T;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Retry the vendor's own bad days, but never its refusals.
+ *
+ * The history endpoint answers 504 through its nginx when a query asks for more
+ * than it can gather in time, and the same query put again a moment later
+ * usually succeeds. A 401 is the opposite: the credential is dead and no number
+ * of attempts will revive it, so `check` throws straight through.
+ */
+const TRANSIENT = new Set([408, 429, 500, 502, 503, 504]);
+
+async function send<T>(method: "GET" | "POST", url: string, body?: unknown): Promise<T> {
+  let last: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt) await sleep(attempt * 4000);
+    try {
+      const res = await fetch(url, {
+        method,
+        headers: headers(body !== undefined),
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
+      if (res.ok) return (await res.json()) as T;
+      const text = await res.text();
+      if (!TRANSIENT.has(res.status)) check(res, method, url, text);
+      last = new BhError(`bhfarm ${method} ${url.replace(BASE, "")} → ${res.status}: ${text.slice(0, 200)}`);
+    } catch (e) {
+      // A dead credential is not worth a second attempt.
+      if (e instanceof BhAuthError) throw e;
+      last = e;
+    }
+  }
+  throw last;
 }
 
-async function post<T>(url: string, body: unknown): Promise<T> {
-  const res = await fetch(url, { method: "POST", headers: headers(true), body: JSON.stringify(body) });
-  if (!res.ok) check(res, "POST", url, await res.text());
-  return (await res.json()) as T;
-}
+const get = <T>(url: string): Promise<T> => send<T>("GET", url);
+const post = <T>(url: string, body: unknown): Promise<T> => send<T>("POST", url, body);
 
 /**
  * When the token dies. Read out of the JWT rather than configured, because a
@@ -424,7 +450,7 @@ function guessUnit(tagId: string): string {
 export const nameOf = (tagId: string) => tagId.split(".").pop() ?? "";
 
 /**
- * The tags worth KEEPING A HISTORY of.
+ * The tags worth KEEPING A HISTORY of — and the column each one is stored in.
  *
  * Every tag the controller reports lands in `iot_readings`, which is one row
  * per tag overwritten in place and therefore costs nothing to hold. History is
@@ -433,24 +459,66 @@ export const nameOf = (tagId: string) => tagId.split(".").pop() ?? "";
  * year. Nobody will ever plot the opening angle of curtain 2 on fan bank 14.
  *
  * So history keeps the readings a person might actually chart: the conditions,
- * the consumption, and the per-line tags the aggregates are built from. That is
- * roughly thirty tags a house and about 7.6 GB a year, which the 365-day prune
- * then caps.
+ * the consumption, and the per-line tags the aggregates are built from.
  *
- * Adding a tag here starts its history from that day. Nothing recovers the
- * period before — which is the argument for keeping the list a little wider
- * than today's screens strictly need.
+ * These are COLUMNS, not rows. `iot_house_sample` holds one row per house per
+ * instant with a column each, which is the difference between 126 MB a year and
+ * 4.9 GB: a tall table re-states the house, the instant and the tag name for
+ * every single measurement, then indexes all three again — 288 bytes of
+ * bookkeeping around 4 bytes of reading. A wide row pays that once per instant.
+ * It is also the shape the vendor's own history endpoint answers in.
+ *
+ * The order here IS the column order of the insert, and the keys ARE the column
+ * names in `iot_house_sample`. Adding one means a migration and a schema entry;
+ * its history starts that day, and nothing recovers the period before — which is
+ * the argument for keeping the list a little wider than today's screens need.
  */
-export const HISTORY_TAGS: ReadonlySet<string> = new Set<string>([
-  ...Object.values(SINGLE_TAGS),
-  ...Object.values(METRIC_TAGS).flatMap((m) => [m.total, ...m.lines]),
-  // Worth a history even though nothing plots them yet: they are what a vet or
-  // an engineer asks for after the fact, and after the fact is too late.
-  "当前日龄",
-  "通风级别",
-  "通风量",
-  "新增死淘",
-]);
+export const SAMPLE_COLUMNS = {
+  temp_c: SINGLE_TAGS.tempC,
+  target_temp_c: SINGLE_TAGS.targetTempC,
+  humidity_pct: SINGLE_TAGS.humidityPct,
+  co2_ppm: SINGLE_TAGS.co2Ppm,
+  pressure_pa: SINGLE_TAGS.pressurePa,
+  bird_count: SINGLE_TAGS.birdCount,
+  bird_age_days: SINGLE_TAGS.birdAgeDays,
+  feed_per_bird_g: SINGLE_TAGS.feedPerBirdG,
+  water_per_bird_ml: SINGLE_TAGS.waterPerBirdMl,
+
+  // The aggregates, and the per-line tags they are built from. Both are stored:
+  // the aggregate is what gets read, the lines are what diagnoses it when a
+  // silo sensor dies and the aggregate quietly drops by a quarter.
+  silo_kg: METRIC_TAGS.siloKg.total,
+  silo_kg_1: METRIC_TAGS.siloKg.lines[0],
+  silo_kg_2: METRIC_TAGS.siloKg.lines[1],
+  silo_kg_3: METRIC_TAGS.siloKg.lines[2],
+  silo_kg_4: METRIC_TAGS.siloKg.lines[3],
+  feed_kg: METRIC_TAGS.feedKg.total,
+  feed_kg_1: METRIC_TAGS.feedKg.lines[0],
+  feed_kg_2: METRIC_TAGS.feedKg.lines[1],
+  feed_kg_3: METRIC_TAGS.feedKg.lines[2],
+  feed_kg_4: METRIC_TAGS.feedKg.lines[3],
+  water_l: METRIC_TAGS.waterL.total,
+  water_l_1: METRIC_TAGS.waterL.lines[0],
+  water_l_2: METRIC_TAGS.waterL.lines[1],
+  water_l_3: METRIC_TAGS.waterL.lines[2],
+  water_l_4: METRIC_TAGS.waterL.lines[3],
+
+  // Worth keeping even though nothing plots them yet: they are what a vet or an
+  // engineer asks for after the fact, and after the fact is too late.
+  vent_level: "通风级别",
+  vent_rate: "通风量",
+  mortality_today: "新增死淘",
+} as const;
+
+/** The column order used by every insert and by the migration's pivot. */
+export const SAMPLE_COLUMN_NAMES = Object.keys(SAMPLE_COLUMNS) as (keyof typeof SAMPLE_COLUMNS)[];
+
+/** Tag name → the column it lands in. One tag, one column. */
+export const COLUMN_OF_TAG: ReadonlyMap<string, string> = new Map(
+  Object.entries(SAMPLE_COLUMNS).map(([column, tag]) => [tag, column]),
+);
+
+export const HISTORY_TAGS: ReadonlySet<string> = new Set(Object.values(SAMPLE_COLUMNS));
 
 /** Is this reading one to keep beyond "the current value"? */
 export const keepHistory = (tagId: string) => HISTORY_TAGS.has(nameOf(tagId));

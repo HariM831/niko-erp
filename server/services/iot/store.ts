@@ -9,17 +9,19 @@
  * wrote on the sheet and what the instrument measured are two different claims
  * about the same day, and the day they disagree is the day you want both.
  */
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import {
   houses,
-  iotHistory,
   iotHouseDay,
+  iotHouseSample,
   iotPollLog,
   iotReadings,
 } from "@shared/schema";
 import { db } from "../../db";
 import {
+  COLUMN_OF_TAG,
   METRIC_TAGS,
+  SAMPLE_COLUMN_NAMES,
   SINGLE_TAGS,
   discoverDevices,
   fetchCurrentValues,
@@ -111,41 +113,106 @@ export async function saveReadings(
           unit: sql`excluded.unit`,
           fetchedAt: sql`excluded.fetched_at`,
         },
+        /**
+         * Only ever forwards.
+         *
+         * The dedupe above keeps the newest reading within ONE call, which is
+         * not the same as keeping the newest overall: a backfill run after a
+         * live poll hands over a month whose last instant is older than now,
+         * and without this the dial on the wall would tick backwards to it.
+         */
+        setWhere: sql`excluded.fetched_at >= "iot_readings"."fetched_at"`,
       });
   }
 
   /**
-   * History, for the tags worth keeping one of.
+   * History: one row per instant, the charted tags as columns.
    *
    * Everything reached `iot_readings` above; only a charted few reach here.
-   * Storing all 3,469 live tags would write a million rows a day for the sake
-   * of the opening angle of a curtain nobody will ever plot.
+   * Storing all 3,469 live tags a row apiece would write a million rows a day
+   * for the sake of the opening angle of a curtain nobody will ever plot.
    *
-   * The same instant twice is the same reading, whichever way it arrived, so a
-   * backfill re-run adds nothing rather than doubling a month.
+   * Grouped by instant because that is what a row IS now. A live poll hands
+   * over one instant and produces one row; a backfill hands over a month and
+   * produces one row per five minutes of it.
    */
-  const worth = readings.filter((r) => keepHistory(r.tagId));
-  let kept = 0;
-  for (let i = 0; i < worth.length; i += 200) {
-    const slice = worth.slice(i, i + 200);
-    const rows = await db
-      .insert(iotHistory)
-      .values(
-        slice.map((r) => ({
-          houseId,
-          tagId: r.tagId,
-          value: r.value,
-          quality: r.quality,
-          unit: r.unit,
-          recordedAt: r.recordedAt ? new Date(r.recordedAt) : at,
-        })),
-      )
-      .onConflictDoNothing()
-      .returning({ id: iotHistory.id });
-    kept += rows.length;
+  const byInstant = new Map<string, BhTagValue[]>();
+  for (const r of readings) {
+    if (!keepHistory(r.tagId)) continue;
+    const key = r.recordedAt ?? at.toISOString();
+    const bucket = byInstant.get(key) ?? [];
+    byInstant.set(key, bucket);
+    bucket.push(r);
   }
+  return writeSamples(houseId, byInstant);
+}
 
-  return kept;
+/** Quoted identifiers, from our own literal column list — never from input. */
+const COLS = SAMPLE_COLUMN_NAMES.map((c) => `"${c}"`).join(", ");
+
+/**
+ * A poll's readings reduced to the sample row's columns.
+ *
+ * Keyed on the tag's LAST segment: a live poll carries the full
+ * `category.subcategory.name` path and the vendor's wide history rows carry
+ * only the name, and the names are unique within the controller template.
+ */
+function sampleValues(readings: BhTagValue[]): (number | null)[] | null {
+  const byColumn = new Map<string, number>();
+  for (const r of readings) {
+    // A reading the instrument does not stand behind is not a reading.
+    if (r.quality !== 0 && r.quality !== 1) continue;
+    const column = COLUMN_OF_TAG.get(nameOf(r.tagId));
+    if (!column) continue;
+    const v = num(r.value);
+    if (v != null) byColumn.set(column, v);
+  }
+  if (!byColumn.size) return null;
+  return SAMPLE_COLUMN_NAMES.map((c) => byColumn.get(c) ?? null);
+}
+
+/**
+ * Write one wide row per instant.
+ *
+ * A conflicting row is merged rather than replaced, column by column. The two
+ * writers disagree about how much they know: the vendor's history rows carry
+ * roughly what the live poll does but not always the same set, and a later pass
+ * that happens to be missing a tag must not blank out a value an earlier one
+ * had. `coalesce(excluded, existing)` is the whole rule.
+ */
+export async function writeSamples(
+  houseId: string,
+  byInstant: Map<string, BhTagValue[]>,
+): Promise<number> {
+  const rows: { at: string; values: (number | null)[] }[] = [];
+  for (const [instant, readings] of byInstant) {
+    const values = sampleValues(readings);
+    if (values) rows.push({ at: instant, values });
+  }
+  if (!rows.length) return 0;
+
+  const set = SAMPLE_COLUMN_NAMES.map(
+    (c) => `"${c}" = coalesce(excluded."${c}", "iot_house_sample"."${c}")`,
+  ).join(", ");
+
+  let written = 0;
+  for (let i = 0; i < rows.length; i += 500) {
+    const slice = rows.slice(i, i + 500);
+    const tuples = slice.map(
+      (r) =>
+        sql`(${houseId}::uuid, ${r.at}::timestamptz, ${sql.join(
+          r.values.map((v) => sql`${v}::real`),
+          sql`, `,
+        )})`,
+    );
+    await db.execute(sql`
+      INSERT INTO "iot_house_sample" ("house_id", "at", ${sql.raw(COLS)})
+      VALUES ${sql.join(tuples, sql`, `)}
+      ON CONFLICT ("house_id", "at") DO UPDATE SET ${sql.raw(set)}
+    `);
+    written += slice.length;
+  }
+  return written;
 }
 
 /** One poll's worth of readings, reduced to the figures the day cares about. */
@@ -330,14 +397,15 @@ export async function pollOnce(): Promise<PollResult> {
     }
 
     /**
-     * Retention rides the poll cycle — a prune that waits to be remembered
-     * never runs — but at most once a day. Scanning for expired rows every
-     * five minutes costs a table scan 288 times over to delete what one pass
-     * would have taken.
+     * Retention rides the poll cycle — a thinning that waits to be remembered
+     * never runs — but at most once a day. Scanning for aged rows every five
+     * minutes costs a table scan 288 times over to do what one pass would.
      */
-    const pruned = await pruneHistory(undefined, { atMostOncePerDay: true });
-    if (pruned.deleted) {
-      result.skipped.push(`pruned ${pruned.deleted} history row(s) older than ${pruned.cutoff}`);
+    const thin = await thinSamples(undefined, { atMostOncePerDay: true });
+    if (thin.deleted || thin.thinned) {
+      result.skipped.push(
+        `thinned ${thin.thinned} aged sample(s), dropped ${thin.deleted} older than ${thin.cutoff}`,
+      );
     }
 
     await db
@@ -369,49 +437,79 @@ export async function pollOnce(): Promise<PollResult> {
  * stops working for anything older than about six weeks, which is why it is
  * worth running early and often rather than once it is convenient.
  */
-export async function backfill(days = 42): Promise<{ houses: number; readings: number; from: string }> {
+export async function backfill(
+  days = 42,
+  windowDays = Number(process.env.IOT_BACKFILL_WINDOW_DAYS ?? 7),
+): Promise<{ houses: number; readings: number; from: string; failed: string[] }> {
   const byDevice = await housesByDevice();
   const to = new Date();
   const from = new Date(to.getTime() - days * 86_400_000);
   let houseCount = 0;
   let readings = 0;
+  const failed: string[] = [];
+
   for (const device of await discoverDevices()) {
     const house = byDevice.get(device.houseCode);
     if (!house) continue;
 
-    const rows = await fetchHistoryRows({ houseCode: device.houseCode, from, to });
-    if (!rows.length) continue;
-
     /**
-     * Wide rows unpacked into readings, then grouped by day AND by instant.
+     * A window at a time, and each house's failures kept to itself.
      *
-     * One instant is one sample. Folding a whole day as a single sample would
-     * report its last reading as the day's average — a bug that looks entirely
-     * plausible on a chart and is wrong every single day.
+     * Asking for all six weeks at once made the vendor's gateway answer 504,
+     * and because that threw out of the whole loop, every house after the first
+     * big one silently got nothing — which is exactly how four of six sheds
+     * came to have no history at all. Smaller queries succeed, and a house that
+     * still fails is reported rather than taking the rest down with it.
      */
-    const byDay = new Map<string, Map<string, BhTagValue[]>>();
-    const flat: BhTagValue[] = [];
-    for (const row of rows) {
-      const unpacked = unpackHistoryRow(device.houseCode, row);
-      for (const r of unpacked) {
-        flat.push(r);
-        if (!r.recordedAt) continue;
-        const d = dayOf(new Date(r.recordedAt));
-        const instants = byDay.get(d) ?? new Map<string, BhTagValue[]>();
-        byDay.set(d, instants);
-        const at = instants.get(r.recordedAt) ?? [];
-        instants.set(r.recordedAt, at);
-        at.push(r);
+    let got = 0;
+    for (let cursor = from; cursor < to; ) {
+      const until = new Date(Math.min(cursor.getTime() + windowDays * 86_400_000, to.getTime()));
+      let rows: Array<Record<string, unknown>>;
+      try {
+        rows = await fetchHistoryRows({ houseCode: device.houseCode, from: cursor, to: until });
+      } catch (e) {
+        failed.push(
+          `${house.code} ${cursor.toISOString().slice(0, 10)}..${until.toISOString().slice(0, 10)}: ` +
+            (e instanceof Error ? e.message.slice(0, 120) : String(e)),
+        );
+        cursor = until;
+        continue;
+      }
+      cursor = until;
+      if (!rows.length) continue;
+
+      /**
+       * Wide rows unpacked into readings, then grouped by day AND by instant.
+       *
+       * One instant is one sample. Folding a whole day as a single sample would
+       * report its last reading as the day's average — a bug that looks
+       * entirely plausible on a chart and is wrong every single day.
+       */
+      const byDay = new Map<string, Map<string, BhTagValue[]>>();
+      const flat: BhTagValue[] = [];
+      for (const row of rows) {
+        for (const r of unpackHistoryRow(device.houseCode, row)) {
+          flat.push(r);
+          if (!r.recordedAt) continue;
+          const d = dayOf(new Date(r.recordedAt));
+          const instants = byDay.get(d) ?? new Map<string, BhTagValue[]>();
+          byDay.set(d, instants);
+          const at = instants.get(r.recordedAt) ?? [];
+          instants.set(r.recordedAt, at);
+          at.push(r);
+        }
+      }
+
+      got += await saveReadings(house.id, flat);
+      for (const [day, instants] of byDay) {
+        await writeDay(house.id, day, [...instants.values()]);
       }
     }
 
-    readings += await saveReadings(house.id, flat);
-    for (const [day, instants] of byDay) {
-      await writeDay(house.id, day, [...instants.values()]);
-    }
-    houseCount++;
+    readings += got;
+    if (got) houseCount++;
   }
-  return { houses: houseCount, readings, from: from.toISOString().slice(0, 10) };
+  return { houses: houseCount, readings, from: from.toISOString().slice(0, 10), failed };
 }
 
 /** The latest reading per tag for a house, for the shed screen. */
@@ -421,6 +519,26 @@ export async function latestFor(houseId: string) {
     .from(iotReadings)
     .where(eq(iotReadings.houseId, houseId))
     .orderBy(iotReadings.tagId);
+}
+
+/**
+ * A house's readings over a stretch of time, oldest first.
+ *
+ * Served straight off the primary key, which leads with the house and then
+ * orders by instant — so this is a range scan whatever the table has grown to.
+ */
+export async function houseSamples(houseId: string, from: Date, to = new Date()) {
+  return db
+    .select()
+    .from(iotHouseSample)
+    .where(
+      and(
+        eq(iotHouseSample.houseId, houseId),
+        gte(iotHouseSample.at, from),
+        lte(iotHouseSample.at, to),
+      ),
+    )
+    .orderBy(iotHouseSample.at);
 }
 
 /** The day summaries, newest first. */
@@ -445,45 +563,113 @@ export async function recentPolls(limit = 10) {
 
 
 /**
- * Trim raw history that the day summaries have already absorbed.
+ * How much detail a sample keeps, by how old it is.
  *
- * `iot_history` is a working buffer, not an archive. It exists so the day
- * summaries can be rebuilt and so a recent night can be inspected reading by
- * reading — but at a five-minute poll over a few hundred live tags it grows by
- * roughly 170,000 rows a day, and nothing anyone asks of a six-month-old
- * Tuesday needs more than the day summary that was folded from it. Amino's
- * copy of this table reached the point where creating an index on it crashed
- * deployments; the pruning is ported from there along with the lesson.
+ * Five-minute resolution is worth having for the week you spend chasing a
+ * ventilation fault. Nobody plots five-minute CO2 from March, and the day
+ * summaries — which are never thinned — already answer the questions anyone
+ * actually asks of a six-month-old Tuesday.
  *
- * Deleted in batches so one run never holds a long lock against a table this
- * size — each batch is its own statement, and a run that finds nothing to
- * delete costs one cheap probe.
+ *   0-7 days      every poll        12,096 rows
+ *   8-60 days     one per 15 min    27,984
+ *   61-365 days   one per hour      43,920
+ *   older         gone
+ *                                   ~84,000 rows in steady state, ~17 MB
  *
- * The day summaries are NEVER pruned. Six rows a day is the price of being
+ * Thinning rather than averaging into buckets: every row that survives is a
+ * real reading taken at a real instant, so "at 03:00 on 12 March it was 24.1"
+ * stays a true sentence. The peaks that thinning drops are the one thing worth
+ * keeping from the gaps, and `iot_house_day` already holds them forever.
+ *
+ * Amino's equivalent table reached the point where creating an index on it
+ * crashed deployments. That is the lesson this tier ladder is paying forward.
+ */
+const TIERS = [
+  { afterDays: 7, everySeconds: 900 },
+  { afterDays: 60, everySeconds: 3600 },
+] as const;
+
+/**
+ * Thin aged samples, and delete what is past the window entirely.
+ *
+ * Deleted in batches so one run never holds a long lock against the table, and
+ * oldest tier first so a row is only ever examined by the coarsest rule that
+ * applies to it.
+ *
+ * The day summaries are NEVER touched. Six rows a day is the price of being
  * able to answer for any day the farm has ever run, and it is worth paying
  * forever.
  */
-let lastPruneAt = 0;
+let lastThinAt = 0;
 
-export async function pruneHistory(
-  retentionDays = Number(process.env.IOT_HISTORY_RETENTION_DAYS ?? 365),
-  opts: { atMostOncePerDay?: boolean } = {},
-): Promise<{ deleted: number; cutoff: string }> {
-  const cutoff = new Date(Date.now() - retentionDays * 86_400_000);
-  if (opts.atMostOncePerDay && Date.now() - lastPruneAt < 86_400_000) {
-    return { deleted: 0, cutoff: cutoff.toISOString().slice(0, 10) };
+export async function thinSamples(
+  retentionDays = Number(process.env.IOT_SAMPLE_RETENTION_DAYS ?? 365),
+  opts: { atMostOncePerDay?: boolean; onlyHouseId?: string } = {},
+): Promise<{ deleted: number; thinned: number; cutoff: string }> {
+  const ago = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
+  const cutoff = ago(retentionDays);
+  if (opts.atMostOncePerDay && Date.now() - lastThinAt < 86_400_000) {
+    return { deleted: 0, thinned: 0, cutoff: cutoff.slice(0, 10) };
   }
-  lastPruneAt = Date.now();
+  lastThinAt = Date.now();
+
+  /**
+   * One house, or all of them.
+   *
+   * The scheduler wants all; a check wants only the house it made up, and a
+   * check that quietly applied retention to the whole farm would be a strange
+   * thing to run.
+   */
+  const only = opts.onlyHouseId
+    ? sql` AND "house_id" = ${opts.onlyHouseId}::uuid`
+    : sql``;
+
+  /** Past the window: gone outright. */
   let deleted = 0;
   for (;;) {
     const r = await db.execute(sql`
-      DELETE FROM iot_history WHERE ctid IN (
-        SELECT ctid FROM iot_history WHERE recorded_at < ${cutoff.toISOString()} LIMIT 50000
+      DELETE FROM "iot_house_sample" WHERE ctid IN (
+        SELECT ctid FROM "iot_house_sample" WHERE "at" < ${cutoff}${only} LIMIT 50000
       )
     `);
     const batch = r.rowCount ?? 0;
     deleted += batch;
     if (batch < 50_000) break;
   }
-  return { deleted, cutoff: cutoff.toISOString().slice(0, 10) };
+
+  /**
+   * Inside the window: keep the first row of each interval and drop the rest.
+   *
+   * Bucketed by floored epoch rather than by the clock, because polls do not
+   * land on tidy boundaries — 17:12:14 and 17:17:14 are a real pair of them —
+   * and a rule keyed on the minute would keep everything or nothing.
+   */
+  let thinned = 0;
+  const coarsestFirst = [...TIERS].reverse();
+  for (const [i, tier] of coarsestFirst.entries()) {
+    // Each tier owns the stretch between its own age and the next-finer one.
+    const older = i === 0 ? cutoff : ago(coarsestFirst[i - 1]!.afterDays);
+    const newer = ago(tier.afterDays);
+    for (;;) {
+      const r = await db.execute(sql`
+        DELETE FROM "iot_house_sample" WHERE ctid IN (
+          SELECT ctid FROM (
+            SELECT ctid, row_number() OVER (
+              PARTITION BY "house_id", floor(extract(epoch FROM "at") / ${tier.everySeconds})
+              ORDER BY "at"
+            ) AS rn
+            FROM "iot_house_sample"
+            WHERE "at" >= ${older} AND "at" < ${newer}${only}
+          ) ranked
+          WHERE rn > 1
+          LIMIT 50000
+        )
+      `);
+      const batch = r.rowCount ?? 0;
+      thinned += batch;
+      if (batch < 50_000) break;
+    }
+  }
+
+  return { deleted, thinned, cutoff: cutoff.slice(0, 10) };
 }

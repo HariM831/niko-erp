@@ -18,9 +18,9 @@ import {
   numeric,
   pgTable,
   primaryKey,
+  real,
   text,
   timestamp,
-  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import { houses } from "./farms";
@@ -42,28 +42,68 @@ export const iotReadings = pgTable(
   (t) => [primaryKey({ columns: [t.houseId, t.tagId] })],
 );
 
-/** Every reading, kept. This is the table the six-week window is about. */
-export const iotHistory = pgTable(
-  "iot_history",
+/**
+ * Every reading kept, one row per house per instant.
+ *
+ * Wide, not tall. The tall shape this replaced stored one row per measurement
+ * and cost 288 bytes to record 4 bytes of reading: the house id, the instant
+ * and the tag name were re-stated for every value and then indexed together on
+ * top. A year came to 4.9 GB. Paying that bookkeeping once per instant instead
+ * of once per reading brings the same year to about 126 MB, and the age-based
+ * thinning in `thinSamples` takes it to roughly 17 MB in steady state.
+ *
+ * It is also the shape the vendor answers history requests in, so a backfill
+ * row maps across almost as it arrives.
+ *
+ * The columns are declared by `SAMPLE_COLUMNS` in `server/services/iot/bhfarm.ts`
+ * and must stay in step with it; adding a tag is a migration, which is the
+ * price of not storing its name a hundred thousand times a day.
+ */
+export const iotHouseSample = pgTable(
+  "iot_house_sample",
   {
-    id: bigserial("id", { mode: "number" }).primaryKey(),
     houseId: uuid("house_id")
       .notNull()
       .references(() => houses.id, { onDelete: "cascade" }),
-    tagId: text("tag_id").notNull(),
-    value: text("value"),
-    quality: integer("quality").notNull().default(0),
-    unit: text("unit").notNull().default(""),
-    recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().defaultNow(),
+    at: timestamp("at", { withTimezone: true }).notNull(),
+
+    tempC: real("temp_c"),
+    targetTempC: real("target_temp_c"),
+    humidityPct: real("humidity_pct"),
+    co2Ppm: real("co2_ppm"),
+    pressurePa: real("pressure_pa"),
+    birdCount: real("bird_count"),
+    birdAgeDays: real("bird_age_days"),
+    feedPerBirdG: real("feed_per_bird_g"),
+    waterPerBirdMl: real("water_per_bird_ml"),
+
+    siloKg: real("silo_kg"),
+    siloKg1: real("silo_kg_1"),
+    siloKg2: real("silo_kg_2"),
+    siloKg3: real("silo_kg_3"),
+    siloKg4: real("silo_kg_4"),
+    feedKg: real("feed_kg"),
+    feedKg1: real("feed_kg_1"),
+    feedKg2: real("feed_kg_2"),
+    feedKg3: real("feed_kg_3"),
+    feedKg4: real("feed_kg_4"),
+    waterL: real("water_l"),
+    waterL1: real("water_l_1"),
+    waterL2: real("water_l_2"),
+    waterL3: real("water_l_3"),
+    waterL4: real("water_l_4"),
+
+    ventLevel: real("vent_level"),
+    ventRate: real("vent_rate"),
+    mortalityToday: real("mortality_today"),
   },
   (t) => [
-    // The same instant twice is the same reading, however it arrived. Without
-    // this, running the backfill twice doubles the history.
-    uniqueIndex("uq_iot_history").on(t.houseId, t.tagId, t.recordedAt),
-    index("ix_iot_history_house_time").on(t.houseId, t.recordedAt),
-    // No index on tag alone: it was never once read and cost 189 MB. And the
-    // prune's index is BRIN, declared in migration 0070 — Drizzle has no
-    // spelling for it, and a btree there would cost more than it saves.
+    // House and instant identify the row, so the key does the de-duplication a
+    // separate unique index used to — running the backfill twice adds nothing.
+    // No secondary index: every read is "this house, this stretch of time",
+    // which is exactly what the key's own order serves. The thinning's index is
+    // BRIN on `at`, declared in migration 0071 — Drizzle has no spelling for it.
+    primaryKey({ columns: [t.houseId, t.at] }),
   ],
 );
 

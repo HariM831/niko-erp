@@ -9,7 +9,7 @@ import { houses, iotHouseDay, iotReadings } from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { SINGLE_TAGS, METRIC_TAGS, nameOf, tokenExpiry } from "../services/iot/bhfarm";
-import { recentPolls } from "../services/iot/store";
+import { houseSamples, recentPolls } from "../services/iot/store";
 
 export const iotRouter = Router();
 
@@ -125,6 +125,20 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
       : null,
     tokenExpires: exp ? exp.toISOString().slice(0, 10) : null,
   });
+});
+
+/**
+ * A house's readings over a stretch of hours, for plotting.
+ *
+ * Capped at 14 days because the samples thin with age — past a week the rows
+ * are a quarter-hour apart and past two months an hour, so a longer window
+ * would draw a chart whose resolution changes halfway across it without saying
+ * so. Anything older is a question for the day summaries.
+ */
+iotRouter.get("/house/:id/samples", requirePermission("farms", "view"), async (req, res) => {
+  const hours = Math.min(Math.max(Number(req.query.hours ?? 24), 1), 24 * 14);
+  const from = new Date(Date.now() - hours * 3_600_000);
+  res.json({ from: from.toISOString(), samples: await houseSamples(req.params.id!, from) });
 });
 
 /** A house's day summaries, for its own page. */

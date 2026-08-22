@@ -14,10 +14,17 @@
  * Run: npx tsx scripts/check-iot.ts
  */
 import { and, eq, sql } from "drizzle-orm";
-import { houses, iotHistory, iotHouseDay, iotReadings } from "@shared/schema";
+import {
+  houses,
+  iotHouseDay,
+  iotHouseSample,
+  iotReadings,
+  locations,
+  stockLocations,
+} from "@shared/schema";
 import { db } from "../server/db";
 import { SINGLE_TAGS, tokenExpiry, type BhTagValue } from "../server/services/iot/bhfarm";
-import { pruneHistory, saveReadings, writeDay } from "../server/services/iot/store";
+import { saveReadings, thinSamples, writeDay } from "../server/services/iot/store";
 
 let failures = 0;
 const ok = (label: string, cond: boolean, detail = "") => {
@@ -49,18 +56,44 @@ const poll = (device: string, at: string, v: Partial<Record<keyof typeof SINGLE_
   return out;
 };
 
+/**
+ * A shed that exists only for this run.
+ *
+ * Not one of the farm's own: the store's writes and its retention pass are not
+ * transactional, so testing against a real house would apply retention to real
+ * readings and then delete the rest on the way out. The house is removed at the
+ * end and the IoT rows cascade with it.
+ */
+async function scratchHouse() {
+  const [site] = await db.select().from(locations).limit(1);
+  if (!site) throw new Error("no locations to hang a test house on");
+  const [stock] = await db
+    .insert(stockLocations)
+    .values({ locationId: site.id, code: "ZZCHK", name: "check-iot scratch", kind: "house" })
+    .returning();
+  const [house] = await db
+    .insert(houses)
+    .values({
+      locationId: site.id,
+      stockLocationId: stock!.id,
+      code: "ZZ-CHECK",
+      purpose: "layer",
+      isActive: false,
+      displayOrder: 9999,
+    })
+    .returning();
+  return { house: house!, stockLocationId: stock!.id };
+}
+
+let scratch: { house: typeof houses.$inferSelect; stockLocationId: string } | null = null;
+
 try {
   await db.transaction(async (tx) => {
     void tx;
-    const [house] = await db.select().from(houses).limit(1);
-    if (!house) throw new Error("no houses to test against");
+    scratch = await scratchHouse();
+    const house = scratch.house;
     const DEV = "e2e-device";
     const DAY = "2026-05-11";
-
-    // Clean slate for this house and day only.
-    await db.delete(iotHouseDay).where(and(eq(iotHouseDay.houseId, house.id), eq(iotHouseDay.day, DAY)));
-    await db.delete(iotHistory).where(eq(iotHistory.houseId, house.id));
-    await db.delete(iotReadings).where(eq(iotReadings.houseId, house.id));
 
     console.log(`\n  ${house.code}  ·  ${DAY}\n`);
 
@@ -156,73 +189,137 @@ try {
       `${fz?.siloKg} kg — the stale tag says 17,078`,
     );
 
-    /* ── Old raw history is pruned; the day summary survives it ───────────── */
+    /* ── One wide row per instant, merged rather than replaced ────────────── */
     //
-    // The optimisation under test: raw readings are a working buffer with a
-    // retention window, the day summaries are forever. A prune must take the
-    // old raw rows and NOTHING else.
+    // The storage optimisation: 27 charted tags are 27 COLUMNS of one row, not
+    // 27 rows. What has to hold is that a second pass carrying fewer tags fills
+    // gaps instead of blanking what the first pass knew.
     {
+      await db.delete(iotHouseSample).where(eq(iotHouseSample.houseId, house.id));
+
+      const first = await saveReadings(house.id, polls.flat());
+      const [afterFirst] = await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(iotHouseSample)
+        .where(eq(iotHouseSample.houseId, house.id));
+      ok("four instants become four rows, not four hundred", afterFirst!.n === 4, `${afterFirst!.n} row(s) from ${polls.flat().length} readings`);
+      ok("the write reports what it wrote", first === 4, `${first}`);
+
+      await saveReadings(house.id, polls.flat());
+      const [afterSecond] = await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(iotHouseSample)
+        .where(eq(iotHouseSample.houseId, house.id));
+      ok("running the backfill twice adds nothing", afterSecond!.n === 4, `${afterSecond!.n} row(s)`);
+
+      // A later, thinner pass at an instant already recorded.
+      await saveReadings(house.id, [
+        { tagId: `${DEV}.${SINGLE_TAGS.co2Ppm}`, value: "1234", quality: 0, unit: "ppm", recordedAt: `${DAY} 06:00:00` },
+      ]);
+      const [merged] = await db
+        .select()
+        .from(iotHouseSample)
+        .where(and(eq(iotHouseSample.houseId, house.id), sql`${iotHouseSample.at} = ${`${DAY} 06:00:00`}::timestamptz`));
+      ok("a later partial pass updates the column it carries", merged?.co2Ppm === 1234, `CO2 ${merged?.co2Ppm}`);
+      ok(
+        "and does NOT blank the columns it is silent about",
+        merged?.tempC === 20 && merged?.humidityPct === 60,
+        `temp ${merged?.tempC}, humidity ${merged?.humidityPct} — both still from the first pass`,
+      );
+      ok("the aggregate columns carry too", merged?.waterL === 400, `${merged?.waterL} L`);
+      ok("as do the per-line ones", merged?.siloKg1 === 1000 && merged?.siloKg2 === 1000, `${merged?.siloKg1} + ${merged?.siloKg2}`);
+    }
+
+    /* ── Detail thins with age; the day summary never does ────────────────── */
+    //
+    // Five-minute resolution for the week you are chasing a fault, a quarter of
+    // an hour for the next two months, an hour for the rest of the year, and
+    // nothing beyond it. What must NOT thin is `iot_house_day` — six rows a day
+    // is the price of being able to answer for any day the farm has ever run.
+    {
+      await db.delete(iotHouseSample).where(eq(iotHouseSample.houseId, house.id));
+
+      /** Three hours of five-minute samples, `daysAgo` old. */
+      const spread = async (daysAgo: number) => {
+        const base = Date.now() - daysAgo * 86_400_000;
+        for (let i = 0; i < 36; i++) {
+          const at = new Date(base + i * 300_000).toISOString();
+          await saveReadings(house.id, [
+            { tagId: `${DEV}.${SINGLE_TAGS.tempC}`, value: String(20 + i / 10), quality: 0, unit: "°C", recordedAt: at },
+          ]);
+        }
+      };
+      await spread(2); //  inside the fine window
+      await spread(30); // the quarter-hour tier
+      await spread(90); // the hourly tier
+
       const OLD = "2024-01-15";
       await saveReadings(house.id, [
         { tagId: `${DEV}.${SINGLE_TAGS.tempC}`, value: "19", quality: 0, unit: "°C", recordedAt: `${OLD} 09:00:00` },
-        // A recent row saved in the same breath, to prove the prune's cutoff
-        // discriminates rather than emptying the table.
-        { tagId: `${DEV}.${SINGLE_TAGS.tempC}`, value: "23", quality: 0, unit: "°C", recordedAt: `${DAY} 09:00:00` },
       ]);
       await writeDay(house.id, OLD, [
         [{ tagId: `${DEV}.${SINGLE_TAGS.tempC}`, value: "19", quality: 0, unit: "°C", recordedAt: `${OLD} 09:00:00` }],
       ]);
 
-      const pruned = await pruneHistory(365);
-      ok("readings past the retention window are pruned", pruned.deleted >= 1, `${pruned.deleted} removed`);
+      // Scoped to the scratch house: retention on the real farm is the
+      // scheduler's business, not a check's.
+      const thin = await thinSamples(365, { onlyHouseId: house.id });
+      ok("samples past the retention window are dropped", thin.deleted >= 1, `${thin.deleted} dropped`);
+      ok("aged samples are thinned", thin.thinned > 0, `${thin.thinned} thinned`);
 
-      const [oldRaw] = await db
+      const kept = async (daysAgo: number) => {
+        const from = new Date(Date.now() - daysAgo * 86_400_000 - 60_000).toISOString();
+        const to = new Date(Date.now() - daysAgo * 86_400_000 + 4 * 3_600_000).toISOString();
+        const [r] = await db
+          .select({ n: sql<number>`count(*)::int` })
+          .from(iotHouseSample)
+          .where(
+            and(
+              eq(iotHouseSample.houseId, house.id),
+              sql`${iotHouseSample.at} >= ${from}::timestamptz`,
+              sql`${iotHouseSample.at} < ${to}::timestamptz`,
+            ),
+          );
+        return r!.n;
+      };
+
+      ok("this week keeps every poll", (await kept(2)) === 36, `${await kept(2)} of 36`);
+      // Three hours bucketed by a quarter of an hour is twelve buckets, by an
+      // hour is three — give or take one, since the run does not start on a
+      // bucket boundary.
+      const mid = await kept(30);
+      ok("last month keeps one per quarter-hour", mid >= 12 && mid <= 13, `${mid} of 36`);
+      const old = await kept(90);
+      ok("last quarter keeps one per hour", old >= 3 && old <= 4, `${old} of 36`);
+
+      const [nothingLeft] = await db
         .select({ n: sql<number>`count(*)::int` })
-        .from(iotHistory)
-        .where(and(eq(iotHistory.houseId, house.id), sql`${iotHistory.recordedAt} < '2025-01-01'`));
-      ok("no raw rows older than the window remain", oldRaw!.n === 0);
+        .from(iotHouseSample)
+        .where(and(eq(iotHouseSample.houseId, house.id), sql`${iotHouseSample.at} < '2025-01-01'`));
+      ok("no samples older than the window remain", nothingLeft!.n === 0);
 
       const [oldDay] = await db
         .select()
         .from(iotHouseDay)
         .where(and(eq(iotHouseDay.houseId, house.id), eq(iotHouseDay.day, OLD)));
       ok(
-        "the day summary from before the window SURVIVES the prune",
+        "the day summary from before the window SURVIVES",
         !!oldDay && Number(oldDay.tempAvg) === 19,
         oldDay ? `${OLD} still answers: ${oldDay.tempAvg}°C` : "GONE — the archive tier was deleted",
       );
 
-      const [recent] = await db
-        .select({ n: sql<number>`count(*)::int` })
-        .from(iotHistory)
-        .where(eq(iotHistory.houseId, house.id));
-      ok("recent raw history is untouched", recent!.n > 0, `${recent!.n} row(s) kept`);
+      // The dial on the wall is the newest reading, whatever the thinning did
+      // to the history behind it — the two tiers answer different questions.
+      const latest = await db
+        .select()
+        .from(iotReadings)
+        .where(and(eq(iotReadings.houseId, house.id), eq(iotReadings.tagId, `${DEV}.${SINGLE_TAGS.tempC}`)));
+      ok(
+        "the latest-value table still holds the newest reading",
+        near(Number(latest[0]?.value), 23.5),
+        `${latest[0]?.value}°C`,
+      );
     }
-
-    /* ── History is written once ──────────────────────────────────────────── */
-    const first = await saveReadings(house.id, polls.flat());
-    const again = await saveReadings(house.id, polls.flat());
-    const [count] = await db
-      .select({ n: sql<number>`count(*)::int` })
-      .from(iotHistory)
-      .where(eq(iotHistory.houseId, house.id));
-    ok("history is stored", first > 0, `${first} row(s)`);
-    ok(
-      "running the backfill twice adds nothing",
-      // first + 1: the prune block above left one recent survivor behind.
-      again === 0 && count!.n === first + 1,
-      `${again} added on the second pass, ${count!.n} total`,
-    );
-
-    const latest = await db
-      .select()
-      .from(iotReadings)
-      .where(and(eq(iotReadings.houseId, house.id), eq(iotReadings.tagId, `${DEV}.${SINGLE_TAGS.tempC}`)));
-    ok(
-      "the latest-value table holds the last reading",
-      latest[0]?.value === "24",
-      `${latest[0]?.value}°C`,
-    );
 
     throw new Rollback();
   });
@@ -233,13 +330,13 @@ try {
   }
 }
 
-// The transaction wrapper is for symmetry with the other checks; this one
-// touches only its own house's IoT rows, so it tidies up after itself.
-const [house] = await db.select().from(houses).limit(1);
-if (house) {
-  await db.delete(iotHouseDay).where(eq(iotHouseDay.houseId, house.id));
-  await db.delete(iotHistory).where(eq(iotHistory.houseId, house.id));
-  await db.delete(iotReadings).where(eq(iotReadings.houseId, house.id));
+// The transaction wrapper is for symmetry with the other checks; the store's
+// writes do not join it, so the scratch house is what actually gets cleaned up.
+// Its readings, samples and day rows go with it on the cascade.
+if (scratch) {
+  const { house, stockLocationId } = scratch as { house: { id: string }; stockLocationId: string };
+  await db.delete(houses).where(eq(houses.id, house.id));
+  await db.delete(stockLocations).where(eq(stockLocations.id, stockLocationId));
 }
 
 console.log(failures ? `\n  ${failures} failed\n` : "\n  all good\n");

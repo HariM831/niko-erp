@@ -498,6 +498,13 @@
       "when": 1786971904135,
       "tag": "0070_iot_history_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1786971964135,
+      "tag": "0071_iot_wide_samples",
+      "breakpoints": true
     }
   ]
 }
