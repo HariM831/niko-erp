@@ -33,6 +33,7 @@ import { feedProductionRouter } from "./routes/feed-production";
 import { bankingRouter } from "./routes/banking";
 import { reportsRouter } from "./routes/reports";
 import { ownerBillingRouter } from "./routes/owner-billing";
+import { startIotPolling } from "./services/iot/scheduler";
 import { settingsRouter } from "./routes/settings";
 import { attachmentsRouter } from "./routes/attachments";
 import { commentsRouter } from "./routes/comments";
@@ -146,4 +147,8 @@ process.on("unhandledRejection", (reason) => {
 });
 
 const port = Number(process.env.PORT ?? 3000);
-app.listen(port, () => console.log(`eggsy server listening on :${port}`));
+app.listen(port, () => {
+  console.log(`eggsy server listening on :${port}`);
+  // The sheds' instruments — reads every five minutes while the server is up.
+  startIotPolling();
+});
