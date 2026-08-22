@@ -15,3 +15,7 @@ fixtures/bills/_stamped/
 # script and never committed. Same rule as .zoho-dump.
 feed-mill-export.json
 tmp-statements/
+
+# The Amino export: real farm records and photographs of the sheds.
+farm-export/
+farm-export.tgz
