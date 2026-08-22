@@ -22,11 +22,11 @@ import {
   METRIC_TAGS,
   SINGLE_TAGS,
   discoverDevices,
-  discoverTags,
   fetchCurrentValues,
-  fetchHistory,
+  fetchHistoryRows,
   nameOf,
-  leafOf,
+  tagIdsFor,
+  unpackHistoryRow,
   type BhTagValue,
 } from "./bhfarm";
 
@@ -154,29 +154,35 @@ interface Sample {
 }
 
 function toSample(readings: BhTagValue[]): Sample | null {
+  /**
+   * Keyed on the tag's LAST segment.
+   *
+   * A live poll carries the full `category.subcategory.name` path; the vendor's
+   * wide history rows carry only the name. The names are unique within the
+   * controller template, so the last segment is the one grain both agree on —
+   * and matching on anything longer means history silently measures nothing.
+   */
   const byName = new Map<string, number>();
-  const byLeaf = new Map<string, number>();
   for (const r of readings) {
     // A zero-quality reading is one the instrument does not stand behind.
     if (r.quality !== 0 && r.quality !== 1) continue;
     const v = num(r.value);
     if (v == null) continue;
     byName.set(nameOf(r.tagId), v);
-    byLeaf.set(leafOf(r.tagId), v);
   }
   if (!byName.size) return null;
   return {
-    temp: byLeaf.get(SINGLE_TAGS.tempC) ?? null,
-    humidity: byLeaf.get(SINGLE_TAGS.humidityPct) ?? null,
-    co2: byLeaf.get(SINGLE_TAGS.co2Ppm) ?? null,
-    pressure: byLeaf.get(SINGLE_TAGS.pressurePa) ?? null,
+    temp: byName.get(SINGLE_TAGS.tempC) ?? null,
+    humidity: byName.get(SINGLE_TAGS.humidityPct) ?? null,
+    co2: byName.get(SINGLE_TAGS.co2Ppm) ?? null,
+    pressure: byName.get(SINGLE_TAGS.pressurePa) ?? null,
     waterL: resolveMetric(byName, METRIC_TAGS.waterL),
     feedKg: resolveMetric(byName, METRIC_TAGS.feedKg),
     siloKg: resolveMetric(byName, METRIC_TAGS.siloKg),
-    waterPerBird: byLeaf.get(SINGLE_TAGS.waterPerBirdMl) ?? null,
-    feedPerBird: byLeaf.get(SINGLE_TAGS.feedPerBirdG) ?? null,
-    birdCount: byLeaf.get(SINGLE_TAGS.birdCount) ?? null,
-    birdAge: byLeaf.get(SINGLE_TAGS.birdAgeDays) ?? null,
+    waterPerBird: byName.get(SINGLE_TAGS.waterPerBirdMl) ?? null,
+    feedPerBird: byName.get(SINGLE_TAGS.feedPerBirdG) ?? null,
+    birdCount: byName.get(SINGLE_TAGS.birdCount) ?? null,
+    birdAge: byName.get(SINGLE_TAGS.birdAgeDays) ?? null,
   };
 }
 
@@ -289,16 +295,16 @@ export async function pollOnce(): Promise<PollResult> {
     if (!byDevice.size) throw new Error("no house names a bh_device_id — nothing to poll");
 
     const devices = await discoverDevices();
-    const seen = new Set(devices.map((d) => d.deviceId));
+    const seen = new Set(devices.map((d) => d.houseCode));
     for (const [device, house] of byDevice) {
       if (!seen.has(device)) result.skipped.push(`${house.code} (${device}) not visible to the account`);
     }
 
     for (const device of devices) {
-      const house = byDevice.get(device.deviceId);
+      const house = byDevice.get(device.houseCode);
       if (!house) continue;
 
-      const tags = await discoverTags(device.deviceId);
+      const tags = await tagIdsFor(device.houseCode);
       if (!tags.length) {
         result.skipped.push(`${house.code} reported no tags`);
         continue;
@@ -354,46 +360,42 @@ export async function backfill(days = 42): Promise<{ houses: number; readings: n
   const byDevice = await housesByDevice();
   const to = new Date();
   const from = new Date(to.getTime() - days * 86_400_000);
-  const fmt = (d: Date) => d.toISOString().slice(0, 19).replace("T", " ");
-
   let houseCount = 0;
   let readings = 0;
   for (const device of await discoverDevices()) {
-    const house = byDevice.get(device.deviceId);
+    const house = byDevice.get(device.houseCode);
     if (!house) continue;
-    const tags = await discoverTags(device.deviceId);
-    if (!tags.length) continue;
 
-    const rows = await fetchHistory({
-      deviceId: device.deviceId,
-      tagIds: tags,
-      from: fmt(from),
-      to: fmt(to),
-    });
-    readings += await saveReadings(house.id, rows);
+    const rows = await fetchHistoryRows({ houseCode: device.houseCode, from, to });
+    if (!rows.length) continue;
 
     /**
-     * Rebuild the day summaries the backfill just filled in.
+     * Wide rows unpacked into readings, then grouped by day AND by instant.
      *
-     * Grouped by day AND by instant, because one instant is one sample. Folding
-     * a whole day as a single sample would report its last reading as the day's
-     * average - the shape of bug that looks entirely plausible on a chart and
-     * is wrong every single day.
+     * One instant is one sample. Folding a whole day as a single sample would
+     * report its last reading as the day's average — a bug that looks entirely
+     * plausible on a chart and is wrong every single day.
      */
     const byDay = new Map<string, Map<string, BhTagValue[]>>();
-    for (const r of rows) {
-      if (!r.recordedAt) continue;
-      const day = dayOf(new Date(r.recordedAt));
-      const instants = byDay.get(day) ?? new Map<string, BhTagValue[]>();
-      byDay.set(day, instants);
-      const at = instants.get(r.recordedAt) ?? [];
-      instants.set(r.recordedAt, at);
-      at.push(r);
+    const flat: BhTagValue[] = [];
+    for (const row of rows) {
+      const unpacked = unpackHistoryRow(device.houseCode, row);
+      for (const r of unpacked) {
+        flat.push(r);
+        if (!r.recordedAt) continue;
+        const d = dayOf(new Date(r.recordedAt));
+        const instants = byDay.get(d) ?? new Map<string, BhTagValue[]>();
+        byDay.set(d, instants);
+        const at = instants.get(r.recordedAt) ?? [];
+        instants.set(r.recordedAt, at);
+        at.push(r);
+      }
     }
+
+    readings += await saveReadings(house.id, flat);
     for (const [day, instants] of byDay) {
       await writeDay(house.id, day, [...instants.values()]);
     }
-
     houseCount++;
   }
   return { houses: houseCount, readings, from: from.toISOString().slice(0, 10) };
