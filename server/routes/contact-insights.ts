@@ -26,53 +26,56 @@ contactInsightsRouter.get(
     const contact = await loadContact(req.params.id!);
     if (!contact) return res.status(404).json({ error: "Contact not found" });
 
-    if (contact.type === "customer") {
-      const [inv] = await db
-        .select({
-          outstanding: sql<string>`COALESCE(SUM(${invoices.balanceDue}), 0)::numeric(14,2)`,
-        })
-        .from(invoices)
-        .where(
-          and(
-            eq(invoices.customerId, contact.id),
-            inArray(invoices.status, ["sent", "partially_paid"]),
-          ),
-        );
-      const [credits] = await db
-        .select({
-          unused: sql<string>`COALESCE(SUM(${creditNotes.balance}), 0)::numeric(14,2)`,
-        })
-        .from(creditNotes)
-        .where(and(eq(creditNotes.customerId, contact.id), eq(creditNotes.status, "open")));
-      const [advances] = await db
-        .select({
-          unapplied: sql<string>`COALESCE(SUM(${customerPayments.unappliedAmount}), 0)::numeric(14,2)`,
-        })
-        .from(customerPayments)
-        .where(eq(customerPayments.customerId, contact.id));
-      return res.json({
-        outstanding: inv?.outstanding ?? "0.00",
-        unusedCredits: (
-          Number(credits?.unused ?? 0) + Number(advances?.unapplied ?? 0)
-        ).toFixed(2),
-      });
-    }
+    /**
+     * Both sides, always.
+     *
+     * A contact of type "both" is a customer AND a vendor — a shed owner buys
+     * feed from Amino and sells eggs back — so answering with one figure would
+     * describe half of them, and the half it picked would be an accident of
+     * which branch ran first.
+     */
+    const [inv] = await db
+      .select({ outstanding: sql<string>`COALESCE(SUM(${invoices.balanceDue}), 0)::numeric(14,2)` })
+      .from(invoices)
+      .where(
+        and(eq(invoices.customerId, contact.id), inArray(invoices.status, ["sent", "partially_paid"])),
+      );
+    const [credits] = await db
+      .select({ unused: sql<string>`COALESCE(SUM(${creditNotes.balance}), 0)::numeric(14,2)` })
+      .from(creditNotes)
+      .where(and(eq(creditNotes.customerId, contact.id), eq(creditNotes.status, "open")));
+    const [advances] = await db
+      .select({
+        unapplied: sql<string>`COALESCE(SUM(${customerPayments.unappliedAmount}), 0)::numeric(14,2)`,
+      })
+      .from(customerPayments)
+      .where(eq(customerPayments.customerId, contact.id));
 
     const [billAgg] = await db
-      .select({
-        outstanding: sql<string>`COALESCE(SUM(${bills.balanceDue}), 0)::numeric(14,2)`,
-      })
+      .select({ outstanding: sql<string>`COALESCE(SUM(${bills.balanceDue}), 0)::numeric(14,2)` })
       .from(bills)
       .where(and(eq(bills.vendorId, contact.id), inArray(bills.status, ["open", "partially_paid"])));
     const [vc] = await db
-      .select({
-        unused: sql<string>`COALESCE(SUM(${vendorCredits.balance}), 0)::numeric(14,2)`,
-      })
+      .select({ unused: sql<string>`COALESCE(SUM(${vendorCredits.balance}), 0)::numeric(14,2)` })
       .from(vendorCredits)
       .where(and(eq(vendorCredits.vendorId, contact.id), eq(vendorCredits.status, "open")));
+
+    const receivable = inv?.outstanding ?? "0.00";
+    const receivableCredits = (
+      Number(credits?.unused ?? 0) + Number(advances?.unapplied ?? 0)
+    ).toFixed(2);
+    const payable = billAgg?.outstanding ?? "0.00";
+    const payableCredits = vc?.unused ?? "0.00";
+
     res.json({
-      outstanding: billAgg?.outstanding ?? "0.00",
-      unusedCredits: vc?.unused ?? "0.00",
+      // `outstanding` keeps its old meaning, so the existing page is undisturbed.
+      outstanding: contact.type === "customer" ? receivable : payable,
+      unusedCredits: contact.type === "customer" ? receivableCredits : payableCredits,
+      receivable,
+      receivableCredits,
+      payable,
+      payableCredits,
+      showBoth: contact.type === "both",
     });
   },
 );
@@ -85,7 +88,11 @@ contactInsightsRouter.get(
     const contact = await loadContact(req.params.id!);
     if (!contact) return res.status(404).json({ error: "Contact not found" });
 
-    if (contact.type === "customer") {
+    // A contact that trades both ways gets both sets; the screen decides which
+    // sections to show.
+    const wantsSales = contact.type === "customer" || contact.type === "both";
+    const wantsPurchases = contact.type === "vendor" || contact.type === "both";
+    if (wantsSales && !wantsPurchases) {
       const [inv, pay, cn] = await Promise.all([
         db.select().from(invoices).where(eq(invoices.customerId, contact.id)).orderBy(desc(invoices.invoiceDate)).limit(100),
         db.select().from(customerPayments).where(eq(customerPayments.customerId, contact.id)).orderBy(desc(customerPayments.paymentDate)).limit(100),
@@ -99,7 +106,27 @@ contactInsightsRouter.get(
       db.select().from(vendorPayments).where(eq(vendorPayments.vendorId, contact.id)).orderBy(desc(vendorPayments.paymentDate)).limit(100),
       db.select().from(vendorCredits).where(eq(vendorCredits.vendorId, contact.id)).orderBy(desc(vendorCredits.creditDate)).limit(100),
     ]);
-    res.json({ bills: billRows, payments: pay, vendorCredits: vc });
+    if (!wantsSales) {
+      return res.json({ bills: billRows, payments: pay, vendorCredits: vc });
+    }
+
+    // Trades both ways: the sales side as well, under its own keys so the two
+    // sets of payments do not collide.
+    const [inv, custPay, cn] = await Promise.all([
+      db.select().from(invoices).where(eq(invoices.customerId, contact.id)).orderBy(desc(invoices.invoiceDate)).limit(100),
+      db.select().from(customerPayments).where(eq(customerPayments.customerId, contact.id)).orderBy(desc(customerPayments.paymentDate)).limit(100),
+      db.select().from(creditNotes).where(eq(creditNotes.customerId, contact.id)).orderBy(desc(creditNotes.creditNoteDate)).limit(100),
+    ]);
+    res.json({
+      invoices: inv,
+      creditNotes: cn,
+      customerPayments: custPay,
+      bills: billRows,
+      vendorPayments: pay,
+      vendorCredits: vc,
+      // Kept so a caller reading `payments` on a vendor still finds them.
+      payments: pay,
+    });
   },
 );
 
@@ -118,58 +145,80 @@ contactInsightsRouter.get(
     start.setMonth(start.getMonth() - (months - 1));
     const startStr = start.toISOString().slice(0, 10);
 
-    let rows: Array<{ month: string; total: string }>;
-    if (contact.type === "customer") {
-      rows =
-        basis === "accrual"
-          ? await db.execute(sql`
-              SELECT to_char(date_trunc('month', invoice_date), 'YYYY-MM-01') AS month,
-                     SUM(sub_total - discount_total)::numeric(14,2) AS total
-              FROM invoices
-              WHERE customer_id = ${contact.id} AND status NOT IN ('draft', 'void') AND invoice_date >= ${startStr}
-              GROUP BY 1
-            `).then((r) => r.rows as Array<{ month: string; total: string }>)
-          : await db.execute(sql`
-              SELECT to_char(date_trunc('month', payment_date), 'YYYY-MM-01') AS month,
-                     SUM(amount)::numeric(14,2) AS total
-              FROM customer_payments
-              WHERE customer_id = ${contact.id} AND payment_date >= ${startStr}
-              GROUP BY 1
-            `).then((r) => r.rows as Array<{ month: string; total: string }>);
-    } else {
-      rows =
-        basis === "accrual"
-          ? await db.execute(sql`
-              SELECT to_char(date_trunc('month', bill_date), 'YYYY-MM-01') AS month,
-                     SUM(sub_total - discount_total)::numeric(14,2) AS total
-              FROM bills
-              WHERE vendor_id = ${contact.id} AND status NOT IN ('draft', 'void') AND bill_date >= ${startStr}
-              GROUP BY 1
-            `).then((r) => r.rows as Array<{ month: string; total: string }>)
-          : await db.execute(sql`
-              SELECT to_char(date_trunc('month', payment_date), 'YYYY-MM-01') AS month,
-                     SUM(amount)::numeric(14,2) AS total
-              FROM vendor_payments
-              WHERE vendor_id = ${contact.id} AND payment_date >= ${startStr}
-              GROUP BY 1
-            `).then((r) => r.rows as Array<{ month: string; total: string }>);
-    }
-    const byMonth = new Map(rows.map((r) => [r.month, Number(r.total)]));
+    /**
+     * Both sides, always.
+     *
+     * An owner of a shed is a customer AND a vendor — Amino sells them feed and
+     * buys their eggs — so one series cannot describe them. Both are computed
+     * and the caller decides what to draw; a contact that only ever trades one
+     * way simply has a flat zero for the other.
+     */
+    const monthly = async (q: ReturnType<typeof sql>) =>
+      new Map(
+        (await db.execute(q).then((r) => r.rows as Array<{ month: string; total: string }>)).map(
+          (r) => [r.month, Number(r.total)],
+        ),
+      );
 
-    const periods: Array<{ month: string; total: number }> = [];
+    // Debit: what they were invoiced, or what they actually paid.
+    const debit = await monthly(
+      basis === "accrual"
+        ? sql`
+            SELECT to_char(date_trunc('month', invoice_date), 'YYYY-MM-01') AS month,
+                   SUM(sub_total - discount_total)::numeric(14,2) AS total
+            FROM invoices
+            WHERE customer_id = ${contact.id} AND status NOT IN ('draft', 'void') AND invoice_date >= ${startStr}
+            GROUP BY 1`
+        : sql`
+            SELECT to_char(date_trunc('month', payment_date), 'YYYY-MM-01') AS month,
+                   SUM(amount)::numeric(14,2) AS total
+            FROM customer_payments
+            WHERE customer_id = ${contact.id} AND payment_date >= ${startStr}
+            GROUP BY 1`,
+    );
+
+    // Credit: what they billed Amino, or what Amino actually paid them.
+    const credit = await monthly(
+      basis === "accrual"
+        ? sql`
+            SELECT to_char(date_trunc('month', bill_date), 'YYYY-MM-01') AS month,
+                   SUM(sub_total - discount_total)::numeric(14,2) AS total
+            FROM bills
+            WHERE vendor_id = ${contact.id} AND status NOT IN ('draft', 'void') AND bill_date >= ${startStr}
+            GROUP BY 1`
+        : sql`
+            SELECT to_char(date_trunc('month', payment_date), 'YYYY-MM-01') AS month,
+                   SUM(amount)::numeric(14,2) AS total
+            FROM vendor_payments
+            WHERE vendor_id = ${contact.id} AND payment_date >= ${startStr}
+            GROUP BY 1`,
+    );
+
+    const periods: Array<{ month: string; total: number; debit: number; credit: number }> = [];
     const cursor = new Date(start);
     for (let i = 0; i < months; i++) {
       const key = cursor.toISOString().slice(0, 10).replace(/-\d\d$/, "-01");
-      periods.push({ month: key, total: byMonth.get(key) ?? 0 });
+      const d = debit.get(key) ?? 0;
+      const c = credit.get(key) ?? 0;
+      // `total` keeps its old meaning so the single-series chart is undisturbed.
+      periods.push({ month: key, total: contact.type === "customer" ? d : c, debit: d, credit: c });
       cursor.setMonth(cursor.getMonth() + 1);
     }
+
+    const sum = (pick: (p: (typeof periods)[number]) => number) =>
+      periods.reduce((s, p) => s + pick(p), 0);
 
     res.json({
       basis,
       months,
-      label: contact.type === "customer" ? "Income" : "Expense",
+      label:
+        contact.type === "both" ? "Trade" : contact.type === "customer" ? "Income" : "Expense",
+      /** Draw two bars rather than one when they trade in both directions. */
+      showBoth: contact.type === "both",
       periods,
-      total: periods.reduce((s, p) => s + p.total, 0),
+      total: sum((p) => p.total),
+      debitTotal: sum((p) => p.debit),
+      creditTotal: sum((p) => p.credit),
     });
   },
 );
@@ -192,8 +241,24 @@ contactInsightsRouter.get(
     if (!contact) return res.status(404).json({ error: "Contact not found" });
     const { from, to } = req.query as Record<string, string | undefined>;
 
+    /**
+     * Everything, both directions, in one ledger.
+     *
+     * A statement of account is the whole relationship — what they were
+     * invoiced, what they billed, and every payment either way. Branching on
+     * customer-or-vendor showed a contact that trades both ways only half of
+     * its own account, which is exactly the half that makes the balance
+     * inexplicable.
+     *
+     * Signed from AMINO's side: a debit increases what the contact owes Amino,
+     * a credit increases what Amino owes them. So an invoice and a payment made
+     * both debit; a bill and a payment received both credit.
+     */
     const rows: StatementRow[] = [];
-    if (contact.type === "customer") {
+    const sales = contact.type === "customer" || contact.type === "both";
+    const purchases = contact.type === "vendor" || contact.type === "both";
+
+    if (sales) {
       const inv = await db
         .select()
         .from(invoices)
@@ -208,7 +273,9 @@ contactInsightsRouter.get(
         .where(and(eq(creditNotes.customerId, contact.id), inArray(creditNotes.status, ["open", "closed"])))
         .orderBy(asc(creditNotes.creditNoteDate));
       for (const r of cn) rows.push({ id: r.id, date: r.creditNoteDate, type: "Credit Note", number: r.number, debit: 0, credit: Number(r.total) });
-    } else {
+    }
+
+    if (purchases) {
       const billRows = await db
         .select()
         .from(bills)

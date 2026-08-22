@@ -114,7 +114,16 @@ export function ContactDetailPage({ id }: { id: string }) {
   });
   const { data: summary } = useQuery({
     queryKey: ["contact-summary", id],
-    queryFn: () => api<{ outstanding: string; unusedCredits: string }>(`/api/contacts/${id}/summary`),
+    queryFn: () =>
+      api<{
+        outstanding: string;
+        unusedCredits: string;
+        receivable?: string;
+        receivableCredits?: string;
+        payable?: string;
+        payableCredits?: string;
+        showBoth?: boolean;
+      }>(`/api/contacts/${id}/summary`),
   });
 
   if (isLoading) return <div className="p-8 text-sm text-gray-500">Loading…</div>;
@@ -132,7 +141,19 @@ export function ContactDetailPage({ id }: { id: string }) {
     }
     await qc.invalidateQueries();
   };
-  const newTxnItems = isCustomer
+  const sales = [
+    { label: "Invoice", path: "/sales/invoices/new" },
+    { label: "Payment", path: "/sales/payments/new" },
+    { label: "Credit Note", path: "/sales/credit-notes/new" },
+  ];
+  const newTxnItems = contact.type === "both"
+    ? [
+        ...sales,
+        { label: "Bill", path: "/purchases/bills/new" },
+        { label: "Payment Made", path: "/purchases/payments/new" },
+        { label: "Vendor Credit", path: "/purchases/vendor-credits/new" },
+      ]
+    : isCustomer
     ? [
         { label: "Invoice", path: "/sales/invoices/new" },
         { label: "Payment", path: "/sales/payments/new" },
@@ -231,7 +252,7 @@ export function ContactDetailPage({ id }: { id: string }) {
             <CommentsTimeline entityType="contact" entityId={contact.id} />
           </div>
         )}
-        {tab === "transactions" && <TransactionsTab id={id} isCustomer={isCustomer} navigate={navigate} />}
+        {tab === "transactions" && <TransactionsTab id={id} kind={contact.type} navigate={navigate} />}
         {tab === "statement" && <StatementTab id={id} />}
       </div>
     </div>
@@ -239,14 +260,22 @@ export function ContactDetailPage({ id }: { id: string }) {
   );
 }
 
-function OverviewTab({
+export function OverviewTab({
   contact,
   summary,
   isCustomer,
   navigate,
 }: {
   contact: Contact;
-  summary?: { outstanding: string; unusedCredits: string };
+  summary?: {
+    outstanding: string;
+    unusedCredits: string;
+    receivable?: string;
+    receivableCredits?: string;
+    payable?: string;
+    payableCredits?: string;
+    showBoth?: boolean;
+  };
   isCustomer: boolean;
   navigate: (p: string) => void;
 }) {
@@ -335,27 +364,46 @@ function OverviewTab({
           </div>
         </div>
 
-        <h3 className="mb-2 text-sm font-semibold">{isCustomer ? "Receivables" : "Payables"}</h3>
-        <table className="w-full max-w-lg text-[13px]">
-          <thead className="table-head">
-            <tr>
-              <th className="border-b border-[#ebeaf2] px-3 py-2">Currency</th>
-              <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">
-                Outstanding {isCustomer ? "Receivables" : "Payables"}
-              </th>
-              <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Unused Credits</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="border-b border-[#ebeaf2]">
-              <td className="px-3 py-2.5">INR — Indian Rupee</td>
-              <td className="px-3 py-2.5 text-right font-medium tabular-nums">
-                {formatMoney(summary?.outstanding ?? 0)}
-              </td>
-              <td className="px-3 py-2.5 text-right tabular-nums">{formatMoney(summary?.unusedCredits ?? 0)}</td>
-            </tr>
-          </tbody>
-        </table>
+        {/* A contact that trades both ways gets both tables. One heading would
+            have to pick a side, and the side it picked would be wrong half the
+            time — a shed owner owes Amino for feed AND is owed for eggs. */}
+        {(summary?.showBoth
+          ? ([
+              ["Receivables", summary.receivable, summary.receivableCredits],
+              ["Payables", summary.payable, summary.payableCredits],
+            ] as const)
+          : ([
+              [
+                isCustomer ? "Receivables" : "Payables",
+                summary?.outstanding ?? 0,
+                summary?.unusedCredits ?? 0,
+              ],
+            ] as const)
+        ).map(([heading, outstanding, credits]) => (
+          <div key={heading} className="mb-5">
+            <h3 className="mb-2 text-sm font-semibold">{heading}</h3>
+            <table className="w-full max-w-lg text-[13px]">
+              <thead className="table-head">
+                <tr>
+                  <th className="border-b border-[#ebeaf2] px-3 py-2">Currency</th>
+                  <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">
+                    Outstanding {heading}
+                  </th>
+                  <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Unused Credits</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-[#ebeaf2]">
+                  <td className="px-3 py-2.5">INR — Indian Rupee</td>
+                  <td className="px-3 py-2.5 text-right font-medium tabular-nums">
+                    {formatMoney(outstanding)}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums">{formatMoney(credits)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        ))}
         <div className="mt-2">
           <button
             onClick={() => navigate(`${isCustomer ? "/sales/customers" : "/purchases/vendors"}/${contact.id}/edit`)}
@@ -389,15 +437,32 @@ function compactMoney(v: number) {
 
 const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-function IncomeChart({ contactId, label }: { contactId: string; label: string }) {
+/**
+ * The month-by-month bar chart.
+ *
+ * A contact that both buys and sells gets TWO bars a month rather than one —
+ * what they were invoiced beside what they billed — because a single series
+ * would have to pick a side and would then describe half the relationship. An
+ * owner of a shed is exactly that case: Amino sells them feed and pullets, and
+ * buys their eggs back.
+ *
+ * Paired rather than stacked. Stacking would add a receivable to a payable and
+ * draw a total that means nothing.
+ */
+export function IncomeChart({ contactId, label }: { contactId: string; label: string }) {
   const [basis, setBasis] = useState<"accrual" | "cash">("accrual");
   const [months, setMonths] = useState(6);
   const { data } = useQuery({
     queryKey: ["contact-income-chart", contactId, basis, months],
     queryFn: () =>
-      api<{ periods: Array<{ month: string; total: number }>; total: number }>(
-        `/api/contacts/${contactId}/income-chart?basis=${basis}&months=${months}`,
-      ),
+      api<{
+        periods: Array<{ month: string; total: number; debit: number; credit: number }>;
+        total: number;
+        debitTotal: number;
+        creditTotal: number;
+        showBoth: boolean;
+        label: string;
+      }>(`/api/contacts/${contactId}/income-chart?basis=${basis}&months=${months}`),
   });
 
   const width = 480;
@@ -405,13 +470,22 @@ function IncomeChart({ contactId, label }: { contactId: string; label: string })
   const padL = 44;
   const padB = 18;
   const periods = data?.periods ?? [];
-  const max = Math.max(...periods.map((p) => p.total), 1);
-  const barW = periods.length ? (width - padL - 10) / periods.length : 0;
+  const both = data?.showBoth ?? false;
+  const heading = data?.label ?? label;
+
+  const max = Math.max(
+    ...periods.map((p) => (both ? Math.max(p.debit, p.credit) : p.total)),
+    1,
+  );
+  const slot = periods.length ? (width - padL - 10) / periods.length : 0;
+
+  const DEBIT = "#4f8ef7";
+  const CREDIT = "#65c366";
 
   return (
     <div className="mt-8 max-w-2xl">
       <div className="mb-1 flex items-center justify-between">
-        <h3 className="text-sm font-semibold">{label}</h3>
+        <h3 className="text-sm font-semibold">{heading}</h3>
         <div className="flex items-center gap-2 text-[13px]">
           <select value={basis} onChange={(e) => setBasis(e.target.value as "accrual" | "cash")} className="input w-auto py-1">
             <option value="accrual">Accrual</option>
@@ -425,6 +499,19 @@ function IncomeChart({ contactId, label }: { contactId: string; label: string })
       </div>
       <p className="mb-2 text-xs text-gray-400">This chart is displayed in the organization's base currency.</p>
 
+      {both && (
+        <div className="mb-1 flex items-center gap-4 text-[11px] text-gray-500">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: DEBIT }} />
+            Invoiced to them (debit)
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: CREDIT }} />
+            Billed by them (credit)
+          </span>
+        </div>
+      )}
+
       <svg viewBox={`0 0 ${width} ${height}`} className="h-40 w-full">
         {[0, 0.25, 0.5, 0.75, 1].map((f) => (
           <g key={f}>
@@ -435,23 +522,54 @@ function IncomeChart({ contactId, label }: { contactId: string; label: string })
           </g>
         ))}
         {periods.map((p, i) => {
-          const h = (p.total / max) * (height - padB - 10);
-          const x = padL + i * barW + barW * 0.2;
+          const plot = height - padB - 10;
           const [y = "", m = "1"] = p.month.split("-");
+          const label = `${MONTHS_SHORT[Number(m) - 1]}${y.slice(2)}`;
+          const x0 = padL + i * slot;
+
+          if (!both) {
+            const h = (p.total / max) * plot;
+            return (
+              <g key={p.month}>
+                <rect x={x0 + slot * 0.2} y={height - padB - h} width={slot * 0.6} height={h} fill={CREDIT} rx={2} />
+                <text x={x0 + slot / 2} y={height - 4} fontSize={9} fill="#9ca3af" textAnchor="middle">
+                  {label}
+                </text>
+              </g>
+            );
+          }
+
+          // Two bars sharing the month's slot, with a hair of air between them.
+          const barW = slot * 0.32;
+          const dh = (p.debit / max) * plot;
+          const ch = (p.credit / max) * plot;
           return (
             <g key={p.month}>
-              <rect x={x} y={height - padB - h} width={barW * 0.6} height={h} fill="#65c366" rx={2} />
-              <text x={x + (barW * 0.6) / 2} y={height - 4} fontSize={9} fill="#9ca3af" textAnchor="middle">
-                {MONTHS_SHORT[Number(m) - 1]}{y.slice(2)}
+              <rect x={x0 + slot * 0.13} y={height - padB - dh} width={barW} height={dh} fill={DEBIT} rx={2}>
+                <title>{`${label} invoiced ${formatMoney(p.debit)}`}</title>
+              </rect>
+              <rect x={x0 + slot * 0.13 + barW + slot * 0.04} y={height - padB - ch} width={barW} height={ch} fill={CREDIT} rx={2}>
+                <title>{`${label} billed ${formatMoney(p.credit)}`}</title>
+              </rect>
+              <text x={x0 + slot / 2} y={height - 4} fontSize={9} fill="#9ca3af" textAnchor="middle">
+                {label}
               </text>
             </g>
           );
         })}
       </svg>
 
-      <p className="mt-1 text-[13px] font-medium text-gray-700">
-        Total {label} ( Last {months} Months ) - {formatMoney(data?.total ?? 0)}
-      </p>
+      {both ? (
+        <p className="mt-1 text-[13px] text-gray-700">
+          Last {months} months — invoiced{" "}
+          <b>{formatMoney(data?.debitTotal ?? 0)}</b>, billed{" "}
+          <b>{formatMoney(data?.creditTotal ?? 0)}</b>
+        </p>
+      ) : (
+        <p className="mt-1 text-[13px] font-medium text-gray-700">
+          Total {heading} ( Last {months} Months ) - {formatMoney(data?.total ?? 0)}
+        </p>
+      )}
     </div>
   );
 }
@@ -470,22 +588,36 @@ const TXN_SECTIONS: Record<
     { key: "payments", label: "Payments Made", dateKey: "paymentDate", basePath: "/purchases/payments", amountKey: "amount" },
     { key: "vendorCredits", label: "Vendor Credits", dateKey: "creditDate", basePath: "/purchases/vendor-credits", balanceKey: "balance" },
   ],
+  /**
+   * A contact that trades both ways — a shed owner buys feed and sells eggs —
+   * gets every section. The two payment lists are keyed apart, because
+   * "payments" would otherwise mean whichever direction was written last.
+   */
+  both: [
+    { key: "invoices", label: "Invoices", dateKey: "invoiceDate", basePath: "/sales/invoices", balanceKey: "balanceDue" },
+    { key: "customerPayments", label: "Payments Received", dateKey: "paymentDate", basePath: "/sales/payments", amountKey: "amount" },
+    { key: "creditNotes", label: "Credit Notes", dateKey: "creditNoteDate", basePath: "/sales/credit-notes", balanceKey: "balance" },
+    { key: "bills", label: "Bills", dateKey: "billDate", basePath: "/purchases/bills", balanceKey: "balanceDue" },
+    { key: "vendorPayments", label: "Payments Made", dateKey: "paymentDate", basePath: "/purchases/payments", amountKey: "amount" },
+    { key: "vendorCredits", label: "Vendor Credits", dateKey: "creditDate", basePath: "/purchases/vendor-credits", balanceKey: "balance" },
+  ],
 };
 
-function TransactionsTab({
+export function TransactionsTab({
   id,
-  isCustomer,
+  kind,
   navigate,
 }: {
   id: string;
-  isCustomer: boolean;
+  /** "customer" | "vendor" | "both" — which sections this contact has. */
+  kind: string;
   navigate: (p: string) => void;
 }) {
   const { data } = useQuery({
     queryKey: ["contact-txns", id],
     queryFn: () => api<Record<string, DocRow[]>>(`/api/contacts/${id}/transactions`),
   });
-  const sections = TXN_SECTIONS[isCustomer ? "customer" : "vendor"]!;
+  const sections = TXN_SECTIONS[kind] ?? TXN_SECTIONS.vendor!;
 
   return (
     <div className="p-6">
@@ -550,7 +682,7 @@ const STATEMENT_PATHS: Record<string, string> = {
   "Vendor Credit": "/purchases/vendor-credits",
 };
 
-function StatementTab({ id }: { id: string }) {
+export function StatementTab({ id }: { id: string }) {
   const [, navigate] = useLocation();
   const fyStart = () => {
     const now = new Date();
