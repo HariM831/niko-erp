@@ -24,6 +24,7 @@ import {
   discoverDevices,
   fetchCurrentValues,
   fetchHistoryRows,
+  keepHistory,
   nameOf,
   tagIdsFor,
   unpackHistoryRow,
@@ -113,11 +114,20 @@ export async function saveReadings(
       });
   }
 
-  // History: the same instant twice is the same reading, whichever way it
-  // arrived, so a backfill re-run adds nothing rather than doubling a month.
+  /**
+   * History, for the tags worth keeping one of.
+   *
+   * Everything reached `iot_readings` above; only a charted few reach here.
+   * Storing all 3,469 live tags would write a million rows a day for the sake
+   * of the opening angle of a curtain nobody will ever plot.
+   *
+   * The same instant twice is the same reading, whichever way it arrived, so a
+   * backfill re-run adds nothing rather than doubling a month.
+   */
+  const worth = readings.filter((r) => keepHistory(r.tagId));
   let kept = 0;
-  for (let i = 0; i < readings.length; i += 200) {
-    const slice = readings.slice(i, i + 200);
+  for (let i = 0; i < worth.length; i += 200) {
+    const slice = worth.slice(i, i + 200);
     const rows = await db
       .insert(iotHistory)
       .values(
@@ -319,10 +329,13 @@ export async function pollOnce(): Promise<PollResult> {
       result.readings += kept;
     }
 
-    // Retention rides the poll cycle, as it did in Amino — a prune that waits
-    // for somebody to remember it is a prune that never runs. Almost always a
-    // single cheap probe finding nothing old enough.
-    const pruned = await pruneHistory();
+    /**
+     * Retention rides the poll cycle — a prune that waits to be remembered
+     * never runs — but at most once a day. Scanning for expired rows every
+     * five minutes costs a table scan 288 times over to delete what one pass
+     * would have taken.
+     */
+    const pruned = await pruneHistory(undefined, { atMostOncePerDay: true });
     if (pruned.deleted) {
       result.skipped.push(`pruned ${pruned.deleted} history row(s) older than ${pruned.cutoff}`);
     }
@@ -450,10 +463,17 @@ export async function recentPolls(limit = 10) {
  * able to answer for any day the farm has ever run, and it is worth paying
  * forever.
  */
+let lastPruneAt = 0;
+
 export async function pruneHistory(
   retentionDays = Number(process.env.IOT_HISTORY_RETENTION_DAYS ?? 365),
+  opts: { atMostOncePerDay?: boolean } = {},
 ): Promise<{ deleted: number; cutoff: string }> {
   const cutoff = new Date(Date.now() - retentionDays * 86_400_000);
+  if (opts.atMostOncePerDay && Date.now() - lastPruneAt < 86_400_000) {
+    return { deleted: 0, cutoff: cutoff.toISOString().slice(0, 10) };
+  }
+  lastPruneAt = Date.now();
   let deleted = 0;
   for (;;) {
     const r = await db.execute(sql`

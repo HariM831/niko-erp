@@ -119,6 +119,30 @@ interface FormulaTransfer {
   date: string;
 }
 
+/** What the sheds' own instruments say, as of the last poll. */
+interface IotRow {
+  houseId: string;
+  code: string;
+  purpose: string;
+  device: string | null;
+  fetchedAt: string | null;
+  tempC: number | null;
+  targetTempC: number | null;
+  humidityPct: number | null;
+  co2Ppm: number | null;
+  pressurePa: number | null;
+  siloKg: number | null;
+  waterL: number | null;
+  feedKg: number | null;
+  birdCount: number | null;
+}
+
+interface IotBoard {
+  board: IotRow[];
+  poll: { at: string; ok: boolean; houses: number; readings: number; error: string | null } | null;
+  tokenExpires: string | null;
+}
+
 interface BoardData {
   sheds: Shed[];
   stocks: Record<string, BirdStock[]>;
@@ -380,6 +404,7 @@ export function FarmsHousesPage() {
   );
   const [isLoading, setIsLoading] = useState(true);
   const [sortBy, setSortBy] = useState<SortKey>("shed");
+  const [iot, setIot] = useState<IotBoard | null>(null);
   const [modalShed, setModalShed] = useState<Shed | null>(null);
   const [modalType, setModalType] = useState<ModalType>(null);
   const [displayDate, setDisplayDate] = useState<string>(() => getSmartDate());
@@ -398,6 +423,12 @@ export function FarmsHousesPage() {
       setRecords(data.records);
       setBreedStandards(data.breedStandards);
       setFormulaTransfers(data.formulaTransfers);
+
+      // The instruments, fetched separately: they answer in milliseconds from a
+      // small table, and a farm with no controllers should still get its board.
+      api<IotBoard>("/api/farms/iot/board")
+        .then(setIot)
+        .catch(() => setIot(null));
     } catch (error) {
       console.error("Failed to fetch data:", error);
     } finally {
@@ -919,6 +950,101 @@ export function FarmsHousesPage() {
           </div>
         )}
       </div>
+
+      {/* ===== WHAT THE INSTRUMENTS SAY ===== */}
+      {/* Kept as its own section rather than columns on the tables above: what a
+          person wrote on the sheet and what a sensor measured are two different
+          claims, and mixing them in one row invites the reader to treat them as
+          one. */}
+      {iot && iot.board.some((r) => r.tempC != null) && (
+        <div className="mt-6">
+          <div className="mb-1 flex items-baseline justify-between">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Shed conditions
+            </div>
+            <div className="text-[11px] text-muted-foreground">
+              {iot.poll?.at
+                ? `read ${new Date(iot.poll.at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`
+                : "never read"}
+              {iot.poll && !iot.poll.ok && <span className="ml-1 text-destructive">· last poll failed</span>}
+            </div>
+          </div>
+          <div className="table-surface overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="table-head">
+                <tr>
+                  <Th align="left">Shed</Th>
+                  <Th>Temp</Th>
+                  <Th>Target</Th>
+                  <Th>Humidity</Th>
+                  <Th>CO₂</Th>
+                  <Th>Pressure</Th>
+                  <Th>Silo</Th>
+                  <Th>Water today</Th>
+                  <Th>Feed today</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...iot.board]
+                  .sort(
+                    (a, b) =>
+                      a.purpose.localeCompare(b.purpose) || shedNumber(a.code) - shedNumber(b.code),
+                  )
+                  .map((r) => {
+                    // Off-target by more than a degree is worth seeing without
+                    // reading the number; the controller is chasing a setpoint.
+                    const off =
+                      r.tempC != null && r.targetTempC != null
+                        ? Math.abs(r.tempC - r.targetTempC)
+                        : null;
+                    return (
+                      <tr key={r.houseId} className="border-b border-border/60 last:border-0">
+                        <td className="px-3 py-2 font-medium">{r.code}</td>
+                        <td
+                          className={`px-3 py-2 text-right tabular-nums ${
+                            off != null && off > 1 ? "font-semibold text-warning" : ""
+                          }`}
+                        >
+                          {r.tempC == null ? "—" : `${r.tempC.toFixed(1)}°`}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                          {r.targetTempC == null ? "—" : `${r.targetTempC.toFixed(1)}°`}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {r.humidityPct == null ? "—" : `${r.humidityPct.toFixed(0)}%`}
+                        </td>
+                        <td
+                          className={`px-3 py-2 text-right tabular-nums ${
+                            (r.co2Ppm ?? 0) > 3000 ? "font-semibold text-destructive" : ""
+                          }`}
+                        >
+                          {r.co2Ppm == null ? "—" : fmtNum(r.co2Ppm)}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                          {r.pressurePa == null ? "—" : fmtNum(r.pressurePa)}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {r.siloKg == null ? "—" : `${fmtNum(r.siloKg)} kg`}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {r.waterL == null ? "—" : `${fmtNum(r.waterL)} L`}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {r.feedKg == null ? "—" : `${fmtNum(r.feedKg)} kg`}
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Straight from the controllers, not from the daily sheet. Water and feed are
+            the controller's own running totals for today.
+            {iot.tokenExpires && ` Access expires ${iot.tokenExpires}.`}
+          </p>
+        </div>
+      )}
 
       {/* ===== MOBILE CARD VIEW (hidden on desktop) ===== */}
       <div className="md:hidden">

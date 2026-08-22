@@ -422,3 +422,35 @@ function guessUnit(tagId: string): string {
 
 /** The last path segment — the join key everything matches tags on. */
 export const nameOf = (tagId: string) => tagId.split(".").pop() ?? "";
+
+/**
+ * The tags worth KEEPING A HISTORY of.
+ *
+ * Every tag the controller reports lands in `iot_readings`, which is one row
+ * per tag overwritten in place and therefore costs nothing to hold. History is
+ * different: at 3,469 live tags across six houses, polled every five minutes,
+ * storing all of them writes 999,072 rows a day — 0.4 GB a day, about 146 GB a
+ * year. Nobody will ever plot the opening angle of curtain 2 on fan bank 14.
+ *
+ * So history keeps the readings a person might actually chart: the conditions,
+ * the consumption, and the per-line tags the aggregates are built from. That is
+ * roughly thirty tags a house and about 7.6 GB a year, which the 365-day prune
+ * then caps.
+ *
+ * Adding a tag here starts its history from that day. Nothing recovers the
+ * period before — which is the argument for keeping the list a little wider
+ * than today's screens strictly need.
+ */
+export const HISTORY_TAGS: ReadonlySet<string> = new Set<string>([
+  ...Object.values(SINGLE_TAGS),
+  ...Object.values(METRIC_TAGS).flatMap((m) => [m.total, ...m.lines]),
+  // Worth a history even though nothing plots them yet: they are what a vet or
+  // an engineer asks for after the fact, and after the fact is too late.
+  "当前日龄",
+  "通风级别",
+  "通风量",
+  "新增死淘",
+]);
+
+/** Is this reading one to keep beyond "the current value"? */
+export const keepHistory = (tagId: string) => HISTORY_TAGS.has(nameOf(tagId));

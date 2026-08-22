@@ -61,7 +61,9 @@ export const iotHistory = pgTable(
     // this, running the backfill twice doubles the history.
     uniqueIndex("uq_iot_history").on(t.houseId, t.tagId, t.recordedAt),
     index("ix_iot_history_house_time").on(t.houseId, t.recordedAt),
-    index("ix_iot_history_tag_time").on(t.tagId, t.recordedAt),
+    // No index on tag alone: it was never once read and cost 189 MB. And the
+    // prune's index is BRIN, declared in migration 0070 — Drizzle has no
+    // spelling for it, and a btree there would cost more than it saves.
   ],
 );
 
