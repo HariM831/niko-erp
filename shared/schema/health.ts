@@ -17,8 +17,10 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  varchar,
 } from "drizzle-orm/pg-core";
 import { users } from "./auth";
+import { houses } from "./farms";
 import { flockPlacements } from "./flocks";
 
 export const birdWeighings = pgTable(
@@ -80,4 +82,43 @@ export const vaccinationEvents = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [index("ix_vaccination_events_placement").on(t.placementId, t.eventDate)],
+);
+
+/**
+ * Dr EGGSY: a field observation sent for diagnosis.
+ *
+ * A worker photographs what they found — a post-mortem, wet litter, a bird
+ * that looks wrong — and the observation goes to a model along with the
+ * flock's own numbers for a first opinion. The photos live in `attachments`
+ * under entity_type 'ai_observation'; this row is the observation itself and
+ * what the model said.
+ *
+ * Keyed to the HOUSE, not the placement: the person in the shed knows which
+ * shed they are standing in and nothing else. The analyze step resolves which
+ * placement held birds there that day and builds the clinical context from its
+ * flock_day rows.
+ */
+export const aiObservations = pgTable(
+  "ai_observations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    houseId: uuid("house_id")
+      .notNull()
+      .references(() => houses.id),
+    observedOn: date("observed_on").notNull(),
+    /** What the person saw, in their own words. The model gets it too. */
+    note: text("note"),
+    /** The model's answer, verbatim. */
+    aiRemark: text("ai_remark"),
+    /** Who answered — recorded per row so a change in behaviour stays attributable. */
+    aiModel: text("ai_model"),
+    analyzedAt: timestamp("analyzed_at", { withTimezone: true }),
+    submittedBy: uuid("submitted_by")
+      .notNull()
+      .references(() => users.id),
+    /** Amino's observation id, so the import can run twice without doubling. */
+    legacyId: varchar("legacy_id", { length: 40 }).unique(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("ix_ai_observations_house").on(t.houseId, t.observedOn)],
 );

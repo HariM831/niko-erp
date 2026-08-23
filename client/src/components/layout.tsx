@@ -116,6 +116,10 @@ const NAV: NavItem[] = [
       /* Two of the sheds belong to Nandamuri and two to Luit, so feed, pullets
          and eggs are a trade between companies rather than an internal move. */
       { label: "Owner billing", path: "/farms/owner-billing" },
+      /* The same core inventory, seen and handled at the farm gate. */
+      { label: "Farm store", path: "/farms/store" },
+      /* Field photos sent for a model's first opinion, with the flock record. */
+      { label: "Dr EGGSY", path: "/farms/dr-eggsy" },
     ],
   },
   {

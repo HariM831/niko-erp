@@ -15,6 +15,8 @@ import { FeedProductionPage } from "./pages/feed-production";
 import { FarmsHousesPage } from "./pages/farms-houses";
 import { FarmsBatchesPage } from "./pages/farms-batches";
 import { ShedConditionsPage } from "./pages/shed-conditions";
+import { FarmStorePage } from "./pages/farm-store";
+import { DrEggsyPage } from "./pages/dr-eggsy";
 import { HouseDetailPage } from "./pages/house-detail";
 import { FlockDetailPage } from "./pages/flock-detail";
 import {
@@ -178,6 +180,8 @@ export function App() {
         <Route path="/feed-mill/formulator">{() => <Redirect to="/feed-mill/formulas" />}</Route>
         <Route path="/feed-mill/production" component={FeedProductionPage} />
         <Route path="/farms/owner-billing" component={OwnerBillingPage} />
+        <Route path="/farms/store" component={FarmStorePage} />
+        <Route path="/farms/dr-eggsy" component={DrEggsyPage} />
         <Route path="/farms" component={FarmsHousesPage} />
         <Route path="/farms/batches" component={FarmsBatchesPage} />
         {/* The Houses screen moved up to /farms; keep the old path working. */}

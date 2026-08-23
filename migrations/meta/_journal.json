@@ -505,6 +505,13 @@
       "when": 1786971964135,
       "tag": "0071_iot_wide_samples",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1786972024135,
+      "tag": "0072_dr_eggsy",
+      "breakpoints": true
     }
   ]
 }

@@ -155,6 +155,20 @@ export const ENTITIES: EntityDef[] = [
     numbered: false,
     lookupTarget: false,
   },
+  {
+    /**
+     * A Dr EGGSY field observation — photos of what somebody found in a shed,
+     * sent for diagnosis. Registered so the photos ride the same attachments
+     * machinery as every other file. Not numbered: an observation is known by
+     * its shed and its date, not by a serial.
+     */
+    key: "ai_observation",
+    label: "Observation",
+    plural: "Observations",
+    module: "farms",
+    numbered: false,
+    lookupTarget: false,
+  },
 ];
 
 const BY_KEY = new Map(ENTITIES.map((e) => [e.key, e]));
