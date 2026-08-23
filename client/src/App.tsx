@@ -14,6 +14,7 @@ import { FeedFormulasPage } from "./pages/feed-formulas";
 import { FeedProductionPage } from "./pages/feed-production";
 import { FarmsHousesPage } from "./pages/farms-houses";
 import { FarmsBatchesPage } from "./pages/farms-batches";
+import { ShedConditionsPage } from "./pages/shed-conditions";
 import { HouseDetailPage } from "./pages/house-detail";
 import { FlockDetailPage } from "./pages/flock-detail";
 import {
@@ -181,6 +182,9 @@ export function App() {
         <Route path="/farms/batches" component={FarmsBatchesPage} />
         {/* The Houses screen moved up to /farms; keep the old path working. */}
         <Route path="/farms/daily">{() => <Redirect to="/farms" />}</Route>
+        {/* The controller's own readings, drawn. Its own screen rather than a
+            tab on the house: a sensor and a tally sheet are two claims. */}
+        <Route path="/farms/conditions/:id" component={ShedConditionsPage} />
         <Route path="/farms/houses/:id" component={HouseDetailPage} />
         <Route path="/farms/flocks/:id" component={FlockDetailPage} />
         {/* Feed transfer is weighed on the same platform, so it lives with the

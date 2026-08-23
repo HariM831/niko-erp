@@ -998,8 +998,12 @@ export function FarmsHousesPage() {
                         ? Math.abs(r.tempC - r.targetTempC)
                         : null;
                     return (
-                      <tr key={r.houseId} className="border-b border-border/60 last:border-0">
-                        <td className="px-3 py-2 font-medium">{r.code}</td>
+                      <tr
+                        key={r.houseId}
+                        onClick={() => setLocation(`/farms/conditions/${r.houseId}`)}
+                        className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-muted/50"
+                      >
+                        <td className="px-3 py-2 font-medium text-primary">{r.code}</td>
                         <td
                           className={`px-3 py-2 text-right tabular-nums ${
                             off != null && off > 1 ? "font-semibold text-warning" : ""
@@ -1040,7 +1044,7 @@ export function FarmsHousesPage() {
           </div>
           <p className="mt-1 text-[11px] text-muted-foreground">
             Straight from the controllers, not from the daily sheet. Water and feed are
-            the controller's own running totals for today.
+            the controller's own running totals for today. Click a shed for its charts.
             {iot.tokenExpires && ` Access expires ${iot.tokenExpires}.`}
           </p>
         </div>
