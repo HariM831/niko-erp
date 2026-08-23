@@ -24,7 +24,7 @@ import {
 } from "@shared/schema";
 import { db } from "../server/db";
 import { SINGLE_TAGS, tokenExpiry, type BhTagValue } from "../server/services/iot/bhfarm";
-import { saveReadings, thinSamples, writeDay } from "../server/services/iot/store";
+import { findSampleGaps, saveReadings, thinSamples, writeDay } from "../server/services/iot/store";
 
 let failures = 0;
 const ok = (label: string, cond: boolean, detail = "") => {
@@ -80,6 +80,9 @@ async function scratchHouse() {
       purpose: "layer",
       isActive: false,
       displayOrder: 9999,
+      // Named, because the gap finder only looks at houses with a controller —
+      // without this every gap assertion below would pass by examining nothing.
+      bhDeviceId: "zz-check-device",
     })
     .returning();
   return { house: house!, stockLocationId: stock!.id };
@@ -306,6 +309,59 @@ try {
         "the day summary from before the window SURVIVES",
         !!oldDay && Number(oldDay.tempAvg) === 19,
         oldDay ? `${OLD} still answers: ${oldDay.tempAvg}°C` : "GONE — the archive tier was deleted",
+      );
+
+      /* ── Thinned history must not read as missing history ───────────────── */
+      //
+      // The trap this guards: the gap finder looks for stretches worth asking
+      // the vendor about, and the thinning above deliberately spaces old
+      // readings out. A finder that did not know the ladder would call every
+      // thinned day a gap, refetch it at five minutes, and watch the next
+      // thinning delete it again — for ever, every six hours, until the token
+      // died. So a 15-minute stretch at 30 days old is CORRECT, not a hole.
+      /**
+       * Gaps strictly inside one stretch of readings.
+       *
+       * The three test islands sit weeks apart, and the empty weeks between
+       * them are real gaps that the finder is right to report. What is under
+       * test is what it says INSIDE a stretch that has readings, so the edges
+       * are excluded rather than the assertion being loosened.
+       */
+      const inside = async (daysAgo: number) => {
+        const lo = Date.now() - daysAgo * 86_400_000;
+        const hi = lo + 36 * 300_000;
+        return (await findSampleGaps(120)).filter(
+          (g) => g.houseId === house.id && g.from.getTime() >= lo && g.to.getTime() <= hi,
+        );
+      };
+
+      const thinned = await inside(30);
+      ok(
+        "thinned stretches are not mistaken for gaps",
+        thinned.length === 0,
+        thinned.length
+          ? thinned.map((g) => `${g.minutes} min`).join(", ")
+          : "a quarter-hour spacing at 30 days reads as intended, not as missing",
+      );
+
+      // A real hole, though, has to be found. Two hours removed from the middle
+      // of the freshest stretch, which is still at five-minute spacing.
+      const cutFrom = new Date(Date.now() - 2 * 86_400_000 + 3 * 300_000);
+      const cutTo = new Date(cutFrom.getTime() + 2 * 3_600_000);
+      await db
+        .delete(iotHouseSample)
+        .where(
+          and(
+            eq(iotHouseSample.houseId, house.id),
+            sql`${iotHouseSample.at} >= ${cutFrom.toISOString()}::timestamptz`,
+            sql`${iotHouseSample.at} < ${cutTo.toISOString()}::timestamptz`,
+          ),
+        );
+      const hole = await inside(2);
+      ok(
+        "a real hole IS found",
+        hole.length === 1 && hole[0]!.minutes >= 100,
+        hole.length ? `${hole[0]!.minutes} min` : "not found — an outage would go unrepaired",
       );
 
       // The dial on the wall is the newest reading, whatever the thinning did

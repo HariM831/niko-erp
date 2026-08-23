@@ -8,10 +8,23 @@
  *
  *   npx tsx scripts/iot-poll.ts               one poll, now
  *   npx tsx scripts/iot-poll.ts --backfill    pull the vendor's stored history
+ *   npx tsx scripts/iot-poll.ts --gaps        list the stretches EGGSY missed
+ *   npx tsx scripts/iot-poll.ts --fill        fetch just those stretches
  *   npx tsx scripts/iot-poll.ts --status      the last polls and the token
+ *
+ * `--gaps` and `--fill` take an optional number of days to look back, e.g.
+ * `--fill 14`. The default is seven — the stretch still held at full
+ * five-minute detail. Anything older is a job for --backfill.
  */
 import { tokenExpiry } from "../server/services/iot/bhfarm";
-import { backfill, housesByDevice, pollOnce, recentPolls } from "../server/services/iot/store";
+import {
+  backfill,
+  fillGaps,
+  findSampleGaps,
+  housesByDevice,
+  pollOnce,
+  recentPolls,
+} from "../server/services/iot/store";
 
 const num = (v: number) => v.toLocaleString("en-IN");
 
@@ -44,9 +57,21 @@ function tokenReport(): boolean {
 
 const mode = process.argv.includes("--backfill")
   ? "backfill"
-  : process.argv.includes("--status")
-    ? "status"
-    : "poll";
+  : process.argv.includes("--gaps")
+    ? "gaps"
+    : process.argv.includes("--fill")
+      ? "fill"
+      : process.argv.includes("--status")
+        ? "status"
+        : "poll";
+
+/** The bare number after the flag, if there is one. */
+const days = (() => {
+  const n = Number(process.argv.find((a) => /^\d+$/.test(a)));
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+})();
+
+const when = (d: Date) => d.toISOString().slice(0, 16).replace("T", " ");
 
 console.log("");
 if (mode === "status") {
@@ -70,7 +95,40 @@ if (mode === "status") {
   process.exit(0);
 }
 
+if (mode === "gaps") {
+  // Reads only — safe to run whenever a chart looks wrong, and the first thing
+  // worth doing before assuming a sensor died.
+  const gaps = await findSampleGaps(days ?? 7);
+  if (!gaps.length) {
+    console.log(`  no gaps in the last ${days ?? 7} day(s) — every house is complete\n`);
+    process.exit(0);
+  }
+  console.log(`  ${gaps.length} gap(s) in the last ${days ?? 7} day(s)\n`);
+  for (const g of gaps) {
+    console.log(`   ${g.code.padEnd(4)} ${when(g.from)} → ${when(g.to)}  ${num(g.minutes)} min`);
+  }
+  console.log("\n  run with --fill to fetch them\n");
+  process.exit(0);
+}
+
 if (!tokenReport()) process.exit(1);
+
+if (mode === "fill") {
+  const r = await fillGaps(days);
+  if (!r.gaps) {
+    console.log("  no gaps to fill\n");
+    process.exit(0);
+  }
+  console.log(`  ${r.gaps} gap(s), ${r.filled} filled, ${num(r.readings)} sample(s) recovered`);
+  // A gap the vendor cannot answer for is one its own window has closed on, or
+  // a controller that really was offline. Either way it is not coming back.
+  if (r.filled < r.gaps) {
+    console.log(`  ${r.gaps - r.filled} gap(s) the vendor had nothing for`);
+  }
+  for (const f of r.failed) console.log(`  ! ${f}`);
+  console.log("");
+  process.exit(r.failed.length ? 1 : 0);
+}
 
 if (mode === "backfill") {
   // The operation the six-week window is about: the vendor discards anything

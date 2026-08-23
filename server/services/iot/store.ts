@@ -512,6 +512,155 @@ export async function backfill(
   return { houses: houseCount, readings, from: from.toISOString().slice(0, 10), failed };
 }
 
+/**
+ * How far apart samples of a given age are SUPPOSED to be.
+ *
+ * The ladder in `thinSamples` deliberately spaces old readings out, so a naive
+ * gap-finder would see every thinned stretch as a hole, refetch it at five
+ * minutes, and watch the next thinning delete it again — for ever. Anything
+ * looking for gaps has to know what spacing to expect at that age.
+ */
+function expectedSpacingMs(ageDays: number): number {
+  if (ageDays > 60) return 3_600_000;
+  if (ageDays > 7) return 900_000;
+  return 300_000;
+}
+
+export interface SampleGap {
+  houseId: string;
+  code: string;
+  device: string;
+  from: Date;
+  to: Date;
+  minutes: number;
+}
+
+/**
+ * Stretches where a house recorded nothing.
+ *
+ * Includes the run from `since` up to the first sample and from the last one to
+ * now, because a house that has never reported and a house that stopped
+ * yesterday are both holes and neither shows up as a gap between two rows.
+ *
+ * A gap counts only when it is more than three times the spacing expected at
+ * that age — see `expectedSpacingMs`. A missed poll or two is not worth a
+ * request to the vendor; a missed night is.
+ */
+export async function findSampleGaps(sinceDays = 7): Promise<SampleGap[]> {
+  const since = new Date(Date.now() - sinceDays * 86_400_000);
+  const byDevice = await housesByDevice();
+  const gaps: SampleGap[] = [];
+
+  for (const [device, house] of byDevice) {
+    const rows = await db
+      .select({ at: iotHouseSample.at })
+      .from(iotHouseSample)
+      .where(and(eq(iotHouseSample.houseId, house.id), gte(iotHouseSample.at, since)))
+      .orderBy(iotHouseSample.at);
+
+    const times = [since, ...rows.map((r) => r.at), new Date()];
+    for (let i = 1; i < times.length; i++) {
+      const from = times[i - 1]!;
+      const to = times[i]!;
+      const ageDays = (Date.now() - from.getTime()) / 86_400_000;
+      const delta = to.getTime() - from.getTime();
+      if (delta <= expectedSpacingMs(ageDays) * 3) continue;
+      gaps.push({
+        houseId: house.id,
+        code: house.code,
+        device,
+        from,
+        to,
+        minutes: Math.round(delta / 60_000),
+      });
+    }
+  }
+  return gaps;
+}
+
+/**
+ * Fetch the vendor's history for the stretches EGGSY missed.
+ *
+ * The poller only runs while the server does, so any restart, crash or deploy
+ * leaves a hole. The vendor keeps roughly six weeks, which makes those holes
+ * recoverable — but only until they age out, and only if somebody notices.
+ * This is what stops it being a matter of noticing.
+ *
+ * Deliberately narrower than `backfill`: it asks only for the windows that are
+ * actually empty, so the daily run is usually zero requests and never
+ * re-downloads a month to repair an hour.
+ *
+ * The default look-back is a week, which is the stretch still held at full
+ * five-minute detail. An outage longer than that is a job for `backfill`, not
+ * something to heal quietly in the background.
+ */
+export async function fillGaps(
+  sinceDays = Number(process.env.IOT_GAP_FILL_DAYS ?? 7),
+): Promise<{ gaps: number; filled: number; readings: number; failed: string[] }> {
+  const gaps = await findSampleGaps(sinceDays);
+  if (!gaps.length) return { gaps: 0, filled: 0, readings: 0, failed: [] };
+
+  let filled = 0;
+  let readings = 0;
+  const failed: string[] = [];
+
+  for (const gap of gaps) {
+    // Padded on both sides: the vendor's rows land on its own five-minute grid,
+    // and asking from exactly the last reading can miss the one after it.
+    const from = new Date(gap.from.getTime() - 600_000);
+    const to = new Date(gap.to.getTime() + 600_000);
+
+    let rows: Array<Record<string, unknown>>;
+    try {
+      rows = await fetchHistoryRows({ houseCode: gap.device, from, to });
+    } catch (e) {
+      failed.push(`${gap.code} ${gap.from.toISOString().slice(0, 16)}: ${e instanceof Error ? e.message.slice(0, 100) : e}`);
+      continue;
+    }
+    if (!rows.length) continue;
+
+    const byDay = new Map<string, Map<string, BhTagValue[]>>();
+    const flat: BhTagValue[] = [];
+    for (const row of rows) {
+      for (const r of unpackHistoryRow(gap.device, row)) {
+        flat.push(r);
+        if (!r.recordedAt) continue;
+        const d = dayOf(new Date(r.recordedAt));
+        const instants = byDay.get(d) ?? new Map<string, BhTagValue[]>();
+        byDay.set(d, instants);
+        const at = instants.get(r.recordedAt) ?? [];
+        instants.set(r.recordedAt, at);
+        at.push(r);
+      }
+    }
+
+    /**
+     * The latest-value table is left alone.
+     *
+     * `saveReadings` would also touch `iot_readings`, and a gap fill carries
+     * readings from the past. Its own guard would refuse to move the dial
+     * backwards, but writing history through a function whose other job is
+     * "what is true right now" is asking for the next person to be surprised.
+     */
+    readings += await writeSamples(gap.houseId, mergeInstants(byDay));
+    for (const [day, instants] of byDay) {
+      await writeDay(gap.houseId, day, [...instants.values()]);
+    }
+    filled++;
+  }
+
+  return { gaps: gaps.length, filled, readings, failed };
+}
+
+/** Every instant from every day, flattened back into one map. */
+function mergeInstants(byDay: Map<string, Map<string, BhTagValue[]>>): Map<string, BhTagValue[]> {
+  const all = new Map<string, BhTagValue[]>();
+  for (const instants of byDay.values()) {
+    for (const [at, readings] of instants) all.set(at, readings);
+  }
+  return all;
+}
+
 /** The latest reading per tag for a house, for the shed screen. */
 export async function latestFor(houseId: string) {
   return db
