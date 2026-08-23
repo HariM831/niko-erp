@@ -294,7 +294,7 @@ try {
     /* ══ 7. Spot orders: book, void, load, unwind ════════════════════════ */
     const [spot] = await tx
       .insert(eggSpotOrders)
-      .values({ customerId: customer.id, orderDate: TUE, boxes: 20, createdBy: uid })
+      .values({ customerId: customer.id, orderDate: TUE, boxes: 20, large: 20, createdBy: uid })
       .returning();
     lines = await dayOrders(tx, TUE);
     ok("a booked spot derives on its day", mine(lines).some((l) => l.kind === "spot" && l.boxes === 20 && !l.voided));

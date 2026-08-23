@@ -19,6 +19,7 @@ interface DayLine {
   customerId: string;
   customerName: string;
   boxes: number;
+  sizes: Partial<Record<string, number>> | null;
   spreadPerEgg: string;
   exception: { kind: string } | null;
   voided: boolean;
@@ -180,7 +181,11 @@ export function EggLoadingPage() {
                     </div>
                     <div className="text-right">
                       <div className="text-lg font-semibold tabular-nums">{l.boxes}</div>
-                      <div className="text-[10px] text-muted-foreground">boxes</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {l.sizes && Object.keys(l.sizes).length
+                          ? SIZES.filter((s) => l.sizes?.[s]).map((s) => `${l.sizes?.[s]} ${SIZE_LABEL[s]?.[0] ?? ""}`).join(" · ")
+                          : "boxes"}
+                      </div>
                     </div>
                   </div>
                   <button
@@ -277,7 +282,11 @@ function LoadDialog({
   onDone: () => void;
 }) {
   const [customerId, setCustomerId] = useState(line?.customerId ?? customers[0]?.id ?? "");
-  const [qty, setQty] = useState<Record<string, string>>({});
+  // A spot order was booked per size, so the dialog starts from it; the bay
+  // corrects to what actually went on the truck.
+  const [qty, setQty] = useState<Record<string, string>>(
+    Object.fromEntries(SIZES.map((s) => [s, line?.sizes?.[s] ? String(line.sizes[s]) : ""])),
+  );
   const [driver, setDriver] = useState("");
   const [vehicle, setVehicle] = useState("");
   const [notes, setNotes] = useState("");

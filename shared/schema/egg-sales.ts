@@ -101,7 +101,15 @@ export const eggSpotOrders = pgTable(
       .notNull()
       .references(() => contacts.id),
     orderDate: date("order_date").notNull(),
+    /** The total, maintained by the service as the sum of the sizes below. */
     boxes: integer("boxes").notNull(),
+    /** Booked per size, as the trade orders: "200 Large and 50 Medium". */
+    small: integer("small").notNull().default(0),
+    medium: integer("medium").notNull().default(0),
+    large: integer("large").notNull().default(0),
+    xl: integer("xl").notNull().default(0),
+    jumbo: integer("jumbo").notNull().default(0),
+    dirty: integer("dirty").notNull().default(0),
     /** Null means: the customer's standing spread if they have one, else zero. */
     spreadPerEgg: numeric("spread_per_egg", { precision: 10, scale: 4 }),
     notes: text("notes"),

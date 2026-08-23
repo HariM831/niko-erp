@@ -96,7 +96,11 @@ export interface DayOrderLine {
   sourceId: string;
   customerId: string;
   customerName: string;
+  /** Where they are, for the bay's eye — the default billing city. */
+  city: string | null;
   boxes: number;
+  /** Spot orders are booked per size; a standing order is a box count. */
+  sizes: Partial<Record<EggSize, number>> | null;
   spreadPerEgg: string;
   notes: string | null;
   /** Set when the line was reduced or came from an exception. */
@@ -113,6 +117,13 @@ export interface DayOrderLine {
   } | null;
 }
 
+/** The customer's default billing city, for the bay's eye. */
+const cityOf = sql<string | null>`(
+  SELECT a.city FROM contact_addresses a
+  WHERE a.contact_id = ${contacts.id}
+  ORDER BY (a.kind = 'billing') DESC, a.is_default DESC LIMIT 1
+)`;
+
 /**
  * The order book for one day — the derivation the whole module rests on.
  *
@@ -128,6 +139,7 @@ export async function dayOrders(tx: Conn, on: string): Promise<DayOrderLine[]> {
       id: eggAgreements.id,
       customerId: eggAgreements.customerId,
       customerName: contacts.displayName,
+      city: cityOf,
       schedule: eggAgreements.schedule,
       daysOfWeek: eggAgreements.daysOfWeek,
       boxes: eggAgreements.boxes,
@@ -167,7 +179,14 @@ export async function dayOrders(tx: Conn, on: string): Promise<DayOrderLine[]> {
       id: eggSpotOrders.id,
       customerId: eggSpotOrders.customerId,
       customerName: contacts.displayName,
+      city: cityOf,
       boxes: eggSpotOrders.boxes,
+      small: eggSpotOrders.small,
+      medium: eggSpotOrders.medium,
+      large: eggSpotOrders.large,
+      xl: eggSpotOrders.xl,
+      jumbo: eggSpotOrders.jumbo,
+      dirty: eggSpotOrders.dirty,
       spreadPerEgg: eggSpotOrders.spreadPerEgg,
       notes: eggSpotOrders.notes,
       status: eggSpotOrders.status,
@@ -204,7 +223,9 @@ export async function dayOrders(tx: Conn, on: string): Promise<DayOrderLine[]> {
         sourceId: a.id,
         customerId: a.customerId,
         customerName: a.customerName,
+        city: a.city,
         boxes: 0,
+        sizes: null,
         spreadPerEgg: a.spreadPerEgg,
         notes: a.notes,
         exception: { kind: "skip", reason: ex.reason },
@@ -219,7 +240,9 @@ export async function dayOrders(tx: Conn, on: string): Promise<DayOrderLine[]> {
       sourceId: a.id,
       customerId: a.customerId,
       customerName: a.customerName,
+      city: a.city,
       boxes: ex?.kind === "qty_override" ? (ex.boxes ?? a.boxes) : a.boxes,
+      sizes: null,
       spreadPerEgg: a.spreadPerEgg,
       notes: a.notes,
       exception: ex ? { kind: ex.kind, reason: ex.reason } : null,
@@ -242,7 +265,9 @@ export async function dayOrders(tx: Conn, on: string): Promise<DayOrderLine[]> {
       sourceId: s.id,
       customerId: s.customerId,
       customerName: s.customerName,
+      city: s.city,
       boxes: s.boxes,
+      sizes: Object.fromEntries(EGG_SIZES.filter((z) => s[z] > 0).map((z) => [z, s[z]])),
       spreadPerEgg: s.spreadPerEgg ?? "0",
       notes: s.notes,
       exception: null,
@@ -298,6 +323,78 @@ export async function actualBoxesOn(tx: Conn, from: string, to: string) {
     .where(and(gte(placementDays.day, from), lte(placementDays.day, to)))
     .groupBy(placementDays.day);
   return new Map(rows.map((r) => [r.day, Math.round(Number(r.eggs) / prefs.eggsPerBox)]));
+}
+
+/* ── Supply: what can actually be sold on a day ────────────────────────────
+ *
+ * The shelf plus the lay, carried day to day:
+ *   opening(d) = closing(d−1)
+ *   supply(d)  = opening(d) + production(d)   graded sheet if in, else forecast
+ *   closing(d) = supply(d) − committed(d)     assuming orders load
+ * Past days rebuild their opening from the ledger (stock now − movements
+ * since); today's is the same arithmetic; tomorrow's is projected.
+ */
+export interface SupplyDay {
+  date: string;
+  committed: number;
+  standing: number;
+  spot: number;
+  skipped: number;
+  dispatched: number;
+  production: number | null;
+  productionSource: "actual" | "forecast" | "none";
+  opening: number | null;
+  supply: number | null;
+  closing: number | null;
+}
+
+export async function supplyCascade(tx: Conn, from: string, to: string): Promise<SupplyDay[]> {
+  const today = new Date().toISOString().slice(0, 10);
+  const graded = await gradedBoxesByDay(tx, from, to);
+  const expected = await expectedGradedBoxesPerDay(tx);
+  const held = await stockBySize(tx);
+  const stockNow = EGG_SIZES.reduce((a, s) => a + held[s], 0);
+  const moves = await netMovesByDay(tx, from);
+  const openingFromLedger = (on: string) => {
+    let since = 0;
+    for (const [day, q] of moves) if (day >= on) since += q;
+    return stockNow - since;
+  };
+
+  const out: SupplyDay[] = [];
+  let carried: number | null = null;
+  for (let d = new Date(`${from}T00:00:00Z`); d.toISOString().slice(0, 10) <= to; d.setUTCDate(d.getUTCDate() + 1)) {
+    const on = d.toISOString().slice(0, 10);
+    const lines = await dayOrders(tx, on);
+    const standing = lines.filter((l) => l.kind === "standing" && !l.exception).reduce((a, l) => a + l.boxes, 0);
+    const overridden = lines
+      .filter((l) => l.kind === "standing" && l.exception?.kind === "qty_override")
+      .reduce((a, l) => a + l.boxes, 0);
+    const spot = lines.filter((l) => l.kind === "spot" && !l.voided).reduce((a, l) => a + l.boxes, 0);
+    const dispatched = lines.reduce((a, l) => a + (l.dispatch?.loadedBoxes ?? 0), 0);
+    const committed = standing + overridden + spot;
+
+    const hasSheet = graded.has(on);
+    const production = hasSheet ? graded.get(on)! : on >= today ? expected : null;
+    const opening: number | null = on <= today ? openingFromLedger(on) : carried;
+    const supply: number | null = opening != null && production != null ? opening + production : null;
+    const closing: number | null = supply != null ? supply - committed : null;
+    carried = closing;
+    out.push({
+      date: on,
+      committed,
+      standing: standing + overridden,
+      spot,
+      skipped: lines.filter((l) => l.exception?.kind === "skip").length,
+      dispatched,
+      production,
+      productionSource: hasSheet ? "actual" : production != null ? "forecast" : "none",
+      opening,
+      supply,
+      closing,
+    });
+  }
+  return out;
 }
 
 /* ── Egg stock, by size ────────────────────────────────────────────────────
@@ -555,6 +652,12 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
         customerId: input.customerId,
         orderDate: input.dispatchDate,
         boxes: totalBoxes,
+        small: qty("small"),
+        medium: qty("medium"),
+        large: qty("large"),
+        xl: qty("xl"),
+        jumbo: qty("jumbo"),
+        dirty: qty("dirty"),
         notes: "Walk-in, booked at the bay",
         createdBy: userId,
       })

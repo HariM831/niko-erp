@@ -24,13 +24,11 @@ import { validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
 import {
   EGG_SIZES,
-  expectedGradedBoxesPerDay,
-  gradedBoxesByDay,
   ledgerAvailable,
-  netMovesByDay,
   saveGrading,
   sizeItems,
   stockBySize,
+  supplyCascade,
   benchmarkHistory,
   benchmarkOn,
   dayOrders,
@@ -217,28 +215,92 @@ eggSalesRouter.delete("/agreements/:id/exceptions/:date", create, async (req, re
 
 /* ── Spot orders ─────────────────────────────────────────────────────────── */
 
+const sizeBoxes = z.object(
+  Object.fromEntries(EGG_SIZES.map((s) => [s, z.coerce.number().int().min(0).default(0)])) as Record<
+    (typeof EGG_SIZES)[number],
+    z.ZodDefault<z.ZodNumber>
+  >,
+);
+
 const spotBody = z.object({
   customerId: z.string().uuid(),
   orderDate: dateStr,
-  boxes: z.coerce.number().int().positive(),
+  sizes: sizeBoxes,
   spreadPerEgg: spread.nullish(),
   notes: z.string().max(500).optional(),
 });
 
+const sumSizes = (s: Record<string, number>) => EGG_SIZES.reduce((a, z) => a + (s[z] ?? 0), 0);
+
 eggSalesRouter.post("/spot-orders", create, validateBody(spotBody), async (req, res) => {
   const b = req.body as z.infer<typeof spotBody>;
+  const total = sumSizes(b.sizes);
+  if (total <= 0) return res.status(422).json({ error: "Book at least one box of some size" });
   const [row] = await db
     .insert(eggSpotOrders)
     .values({
       customerId: b.customerId,
       orderDate: b.orderDate,
-      boxes: b.boxes,
+      boxes: total,
+      ...b.sizes,
       spreadPerEgg: b.spreadPerEgg == null ? null : b.spreadPerEgg.toFixed(4),
       notes: b.notes || null,
       createdBy: req.session.user!.id,
     })
     .returning();
   res.status(201).json(row);
+});
+
+const spotPatch = z.object({
+  sizes: sizeBoxes.optional(),
+  spreadPerEgg: spread.nullish(),
+  notes: z.string().max(500).nullish(),
+});
+
+/** Edit a booking that has not been loaded. A loaded one is answered by its invoice. */
+eggSalesRouter.patch("/spot-orders/:id", create, validateBody(spotPatch), async (req, res) => {
+  const b = req.body as z.infer<typeof spotPatch>;
+  const [spot] = await db.select().from(eggSpotOrders).where(eq(eggSpotOrders.id, req.params.id!));
+  if (!spot) return res.status(404).json({ error: "No such spot order" });
+  if (spot.status === "voided") return res.status(422).json({ error: "Voided — book a fresh one" });
+  const [loaded] = await db
+    .select({ id: eggDispatches.id })
+    .from(eggDispatches)
+    .where(and(eq(eggDispatches.spotOrderId, spot.id), sql`${eggDispatches.status} != 'void'`));
+  if (loaded) return res.status(422).json({ error: "Already loaded and invoiced — the invoice is the document now" });
+  if (b.sizes && sumSizes(b.sizes) <= 0) return res.status(422).json({ error: "Book at least one box of some size" });
+  const [row] = await db
+    .update(eggSpotOrders)
+    .set({
+      ...(b.sizes && { ...b.sizes, boxes: sumSizes(b.sizes) }),
+      ...(b.spreadPerEgg !== undefined && { spreadPerEgg: b.spreadPerEgg == null ? null : b.spreadPerEgg.toFixed(4) }),
+      ...(b.notes !== undefined && { notes: b.notes }),
+    })
+    .where(eq(eggSpotOrders.id, spot.id))
+    .returning();
+  res.json(row);
+});
+
+/**
+ * The spread to pre-fill for a customer: their last spot order's, else their
+ * standing agreement's, else nothing. A number the phone conversation starts
+ * from, not a rule.
+ */
+eggSalesRouter.get("/customers/:id/last-spread", view, async (req, res) => {
+  const [spot] = await db
+    .select({ spread: eggSpotOrders.spreadPerEgg })
+    .from(eggSpotOrders)
+    .where(and(eq(eggSpotOrders.customerId, req.params.id!), sql`${eggSpotOrders.spreadPerEgg} IS NOT NULL`))
+    .orderBy(desc(eggSpotOrders.createdAt))
+    .limit(1);
+  if (spot?.spread != null) return res.json({ spread: spot.spread, from: "spot" });
+  const [ag] = await db
+    .select({ spread: eggAgreements.spreadPerEgg })
+    .from(eggAgreements)
+    .where(and(eq(eggAgreements.customerId, req.params.id!), eq(eggAgreements.status, "active")))
+    .orderBy(desc(eggAgreements.startDate))
+    .limit(1);
+  res.json({ spread: ag?.spread ?? null, from: ag ? "agreement" : null });
 });
 
 eggSalesRouter.post(
@@ -360,83 +422,20 @@ eggSalesRouter.get("/calendar/:month", view, async (req, res) => {
   if (!m) return res.status(400).json({ error: "Month must be YYYY-MM" });
   const [year, month] = [Number(m[1]), Number(m[2])];
   const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
-  const dayStr = (d: number) => `${m[1]}-${m[2]}-${String(d).padStart(2, "0")}`;
-  const from = dayStr(1);
-  const to = dayStr(daysInMonth);
-  const today = new Date().toISOString().slice(0, 10);
+  const from = `${m[1]}-${m[2]}-01`;
+  const to = `${m[1]}-${m[2]}-${String(daysInMonth).padStart(2, "0")}`;
 
-  /**
-   * What can actually be sold on a day is the shelf PLUS the lay, and the
-   * shelf is yesterday's closing. So supply is a cascade, not a per-day
-   * figure:
-   *
-   *   opening(d)  = closing(d−1)
-   *   supply(d)   = opening(d) + production(d)     production = graded sheet
-   *                                                 where one exists, else the
-   *                                                 seven-day average
-   *   closing(d)  = supply(d) − committed(d)       assuming orders load
-   *
-   * Past days rebuild their opening from the ledger (stock now − movements
-   * since); today's opening is the same arithmetic; tomorrow's is projected.
-   */
-  const graded = await gradedBoxesByDay(db, from, to);
-  const expected = await expectedGradedBoxesPerDay(db);
-  const held = await stockBySize(db);
-  const stockNow = EGG_SIZES.reduce((a, s) => a + held[s], 0);
-  const moves = await netMovesByDay(db, from);
-
-  // opening(d) for d ≤ today: stock now minus every movement dated on/after d.
-  const openingFromLedger = (on: string) => {
-    let sinceP = 0;
-    for (const [day, q] of moves) if (day >= on) sinceP += q;
-    return stockNow - sinceP;
-  };
-
-  const benchmarks = await db
-    .select({ effectiveFrom: eggBenchmarkPrices.effectiveFrom, ratePerEgg: eggBenchmarkPrices.ratePerEgg })
-    .from(eggBenchmarkPrices)
-    .where(and(gte(eggBenchmarkPrices.effectiveFrom, from), lte(eggBenchmarkPrices.effectiveFrom, to)));
+  const [cascade, benchmarks] = await Promise.all([
+    supplyCascade(db, from, to),
+    db
+      .select({ effectiveFrom: eggBenchmarkPrices.effectiveFrom, ratePerEgg: eggBenchmarkPrices.ratePerEgg })
+      .from(eggBenchmarkPrices)
+      .where(and(gte(eggBenchmarkPrices.effectiveFrom, from), lte(eggBenchmarkPrices.effectiveFrom, to))),
+  ]);
   const bmOf = new Map(benchmarks.map((b) => [b.effectiveFrom, b.ratePerEgg]));
-
-  const days = [];
-  let carried: number | null = null; // closing of the previous projected day
-  for (let d = 1; d <= daysInMonth; d++) {
-    const on = dayStr(d);
-    const lines = await dayOrders(db, on);
-    const standing = lines
-      .filter((l) => l.kind === "standing" && !l.exception)
-      .reduce((a, l) => a + l.boxes, 0);
-    const overridden = lines
-      .filter((l) => l.kind === "standing" && l.exception?.kind === "qty_override")
-      .reduce((a, l) => a + l.boxes, 0);
-    const spot = lines.filter((l) => l.kind === "spot" && !l.voided).reduce((a, l) => a + l.boxes, 0);
-    const dispatched = lines.reduce((a, l) => a + (l.dispatch?.loadedBoxes ?? 0), 0);
-    const committed = standing + overridden + spot;
-
-    const production = graded.get(on) ?? (on >= today ? expected : null);
-    const opening: number | null = on <= today ? openingFromLedger(on) : carried;
-    const supply: number | null = opening != null && production != null ? opening + production : null;
-    // Committed already counts the loaded lines (a dispatch answers its line,
-    // a walk-in books its own spot), so this is right for past days too.
-    const closing: number | null = supply != null ? supply - committed : null;
-    carried = closing;
-
-    days.push({
-      date: on,
-      committed,
-      standing: standing + overridden,
-      spot,
-      skipped: lines.filter((l) => l.exception?.kind === "skip").length,
-      dispatched,
-      production,
-      graded: graded.has(on),
-      opening,
-      supply,
-      closing,
-      benchmark: bmOf.get(on) ?? null,
-    });
-  }
-  res.json({ days, expected, stockNow });
+  res.json({
+    days: cascade.map((d) => ({ ...d, graded: d.productionSource === "actual", benchmark: bmOf.get(d.date) ?? null })),
+  });
 });
 
 /** One day's order book, fully resolved — the calendar's drill-down. */
@@ -453,9 +452,17 @@ eggSalesRouter.get("/day/:date", view, async (req, res) => {
   /** What the pile holds right now, by size — the bay's own headroom. */
   const held = await stockBySize(db);
 
+  /**
+   * The capacity breakdown: run the cascade from the first of the month so
+   * a projected day's opening is the carried closing, not a guess.
+   */
+  const cascade = await supplyCascade(db, `${on.slice(0, 7)}-01`, on);
+  const capacity = cascade[cascade.length - 1] ?? null;
+
   res.json({
     stockBySize: held,
     stockBoxes: EGG_SIZES.reduce((a, s) => a + held[s], 0),
+    capacity,
     date: on,
     lines,
     benchmark: bm ? { ratePerEgg: bm.ratePerEgg, setFor: bm.effectiveFrom } : null,

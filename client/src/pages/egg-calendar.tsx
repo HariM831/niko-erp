@@ -9,9 +9,9 @@
  * graded boxes (the seven-day average until the sheet is in), carried forward
  * day to day — what can actually be sold, not just what the sheds lay.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
-import { ChevronLeft, ChevronRight, Loader2, Plus, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { api } from "../api";
 
 interface CalDay {
@@ -32,8 +32,11 @@ interface CalDay {
 interface DayLine {
   kind: "standing" | "spot";
   sourceId: string;
+  customerId: string;
   customerName: string;
+  city: string | null;
   boxes: number;
+  sizes: Partial<Record<"small" | "medium" | "large" | "xl" | "jumbo" | "dirty", number>> | null;
   spreadPerEgg: string;
   exception: { kind: string; reason: string | null } | null;
   voided: boolean;
@@ -179,7 +182,34 @@ export function EggCalendarPage() {
 }
 
 const inputCls = "h-9 w-full rounded-md border border-border bg-background px-2 text-sm";
+const SIZES = ["small", "medium", "large", "xl", "jumbo", "dirty"] as const;
+type Size = (typeof SIZES)[number];
+const SIZE_LABEL: Record<Size, string> = {
+  small: "Small",
+  medium: "Medium",
+  large: "Large",
+  xl: "XL",
+  jumbo: "Jumbo",
+  dirty: "Dirty",
+};
+const fmtBoxes = (n: number) => n.toLocaleString("en-IN");
 
+interface Capacity {
+  opening: number | null;
+  production: number | null;
+  productionSource: "actual" | "forecast" | "none";
+  supply: number | null;
+  committed: number;
+  dispatched: number;
+  closing: number | null;
+}
+
+/**
+ * The day, opened: the capacity breakdown first — shelf + lay = available,
+ * minus committed = can still sell — then the orders as the bay will see
+ * them, per size, with the per-day void (skip) for standing and edit/void for
+ * spot. The same panel Amino's schedule had, on EGGSY's ledger.
+ */
 function DayDrawer({
   date,
   onClose,
@@ -191,30 +221,31 @@ function DayDrawer({
   onChanged: () => void;
   goLoad: () => void;
 }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const past = date < today;
   const [lines, setLines] = useState<DayLine[]>([]);
+  const [capacity, setCapacity] = useState<Capacity | null>(null);
   const [benchmark, setBenchmark] = useState<{ ratePerEgg: string; setFor: string } | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
-  const [adding, setAdding] = useState(false);
-  const [spotCustomer, setSpotCustomer] = useState("");
-  const [spotBoxes, setSpotBoxes] = useState("");
+  const [form, setForm] = useState<{ id: string | null; customerId: string; sizes: Record<Size, string>; spread: string; notes: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const emptySizes = () => Object.fromEntries(SIZES.map((s) => [s, ""])) as Record<Size, string>;
+
   const load = () =>
-    api<{ lines: DayLine[]; benchmark: typeof benchmark }>(`/api/sales/eggs/day/${date}`)
+    api<{ lines: DayLine[]; benchmark: typeof benchmark; capacity: Capacity | null }>(`/api/sales/eggs/day/${date}`)
       .then((d) => {
         setLines(d.lines);
         setBenchmark(d.benchmark);
+        setCapacity(d.capacity);
       })
       .finally(() => setLoading(false));
 
   useEffect(() => {
     load();
-    api<{ customers: Customer[] }>("/api/sales/eggs/customers").then((d) => {
-      setCustomers(d.customers);
-      if (d.customers[0]) setSpotCustomer(d.customers[0].id);
-    });
+    api<{ customers: Customer[] }>("/api/sales/eggs/customers").then((d) => setCustomers(d.customers));
   }, [date]);
 
   const act = async (fn: () => Promise<unknown>) => {
@@ -231,44 +262,62 @@ function DayDrawer({
     }
   };
 
-  const addSpot = () =>
+  /** Opening the form pre-fills the spread the customer last took. */
+  const openNew = async () => {
+    const first = customers[0]?.id ?? "";
+    setForm({ id: null, customerId: first, sizes: emptySizes(), spread: "", notes: "" });
+    if (first) pickCustomer(first);
+  };
+  const pickCustomer = async (customerId: string) => {
+    const r = await api<{ spread: string | null }>(`/api/sales/eggs/customers/${customerId}/last-spread`).catch(() => null);
+    setForm((f) => (f ? { ...f, customerId, spread: r?.spread != null ? Number(r.spread).toFixed(2) : "" } : f));
+  };
+  const openEdit = (l: DayLine) =>
+    setForm({
+      id: l.sourceId,
+      customerId: l.customerId,
+      sizes: Object.fromEntries(SIZES.map((s) => [s, l.sizes?.[s] ? String(l.sizes[s]) : ""])) as Record<Size, string>,
+      spread: Number(l.spreadPerEgg) ? Number(l.spreadPerEgg).toFixed(2) : "",
+      notes: "",
+    });
+
+  const submitForm = () =>
     act(async () => {
-      await api("/api/sales/eggs/spot-orders", {
-        method: "POST",
-        body: { customerId: spotCustomer, orderDate: date, boxes: Number(spotBoxes) },
-      });
-      setAdding(false);
-      setSpotBoxes("");
+      if (!form) return;
+      const sizes = Object.fromEntries(SIZES.map((s) => [s, Number(form.sizes[s]) || 0]));
+      const body = { sizes, spreadPerEgg: form.spread === "" ? null : Number(form.spread), notes: form.notes || undefined };
+      if (form.id) await api(`/api/sales/eggs/spot-orders/${form.id}`, { method: "PATCH", body });
+      else await api("/api/sales/eggs/spot-orders", { method: "POST", body: { customerId: form.customerId, orderDate: date, ...body } });
+      setForm(null);
     });
 
   const skip = (agreementId: string) => {
     const reason = prompt("Skip this delivery — why? (optional)") ?? undefined;
     return act(() =>
-      api(`/api/sales/eggs/agreements/${agreementId}/exceptions`, {
-        method: "POST",
-        body: { onDate: date, kind: "skip", reason },
-      }),
+      api(`/api/sales/eggs/agreements/${agreementId}/exceptions`, { method: "POST", body: { onDate: date, kind: "skip", reason } }),
     );
   };
-
   const unskip = (agreementId: string) =>
     act(() => api(`/api/sales/eggs/agreements/${agreementId}/exceptions/${date}`, { method: "DELETE" }));
-
   const voidSpot = (id: string) => {
     const reason = prompt("Void this spot order — why? (optional)") ?? undefined;
     return act(() => api(`/api/sales/eggs/spot-orders/${id}/void`, { method: "POST", body: { reason } }));
   };
 
-  const pretty = new Date(`${date}T00:00:00`).toLocaleDateString("en-IN", {
-    weekday: "long",
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+  const pretty = new Date(`${date}T00:00:00`).toLocaleDateString("en-IN", { weekday: "long", day: "2-digit", month: "short", year: "numeric" });
+  const live = lines.filter((l) => !l.voided && l.exception?.kind !== "skip");
+  const formTotal = form ? SIZES.reduce((a, s) => a + (Number(form.sizes[s]) || 0), 0) : 0;
+
+  const Row = ({ label, value, cls = "", top = false }: { label: ReactNode; value: ReactNode; cls?: string; top?: boolean }) => (
+    <div className={`flex items-center justify-between ${top ? "mt-1 border-t border-border/60 pt-1" : ""} ${cls}`}>
+      <span>{label}</span>
+      <span className="tabular-nums">{value}</span>
+    </div>
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={onClose}>
-      <div className="mt-8 w-full max-w-lg rounded-lg bg-background p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="mt-6 w-full max-w-2xl rounded-lg bg-background p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-1 flex items-center justify-between">
           <h2 className="text-lg font-semibold">{pretty}</h2>
           <button onClick={onClose} className="rounded-md p-2 text-muted-foreground hover:text-foreground">
@@ -286,93 +335,211 @@ function DayDrawer({
         {loading ? (
           <div className="py-8 text-center text-sm text-muted-foreground">reading…</div>
         ) : (
-          <div className="space-y-1.5">
-            {lines.map((l) => (
-              <div
-                key={`${l.kind}-${l.sourceId}`}
-                className={`flex items-center justify-between rounded-md border border-border/60 px-3 py-2 text-sm ${
-                  l.voided || l.exception?.kind === "skip" ? "opacity-50" : ""
-                }`}
-              >
-                <div>
-                  <span className={l.voided ? "line-through" : ""}>{l.customerName}</span>
-                  <span className="ml-2 text-xs text-muted-foreground">
-                    {l.kind === "standing" ? "standing" : "spot"}
-                    {l.exception?.kind === "skip" && " · skipped"}
-                    {l.exception?.kind === "qty_override" && " · adjusted"}
-                    {l.voided && " · voided"}
-                  </span>
-                  {l.dispatch && (
-                    <span className="ml-2 text-xs text-success">
-                      loaded {l.dispatch.loadedBoxes} · {l.dispatch.invoiceNumber}
-                    </span>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-[15rem_1fr]">
+            {/* ── Capacity breakdown ── */}
+            <div className="table-surface h-fit p-3 text-sm">
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Capacity</div>
+              {capacity ? (
+                <div className="space-y-1">
+                  <Row
+                    label={<span className="text-muted-foreground">Opening stock{past ? "" : date === today ? "" : " (projected)"}</span>}
+                    value={capacity.opening != null ? `${fmtBoxes(capacity.opening)} boxes` : "—"}
+                  />
+                  <Row
+                    label={
+                      <span className="text-muted-foreground">
+                        + Production
+                        {capacity.productionSource === "actual" && <span className="ml-1 rounded-full bg-success/10 px-1.5 text-[10px] text-success">graded</span>}
+                        {capacity.productionSource === "forecast" && <span className="ml-1 rounded-full bg-info/10 px-1.5 text-[10px] text-info">forecast</span>}
+                      </span>
+                    }
+                    value={capacity.production != null ? `${fmtBoxes(capacity.production)} boxes` : "—"}
+                  />
+                  <Row label="= Available" value={capacity.supply != null ? `${fmtBoxes(capacity.supply)} boxes` : "—"} cls="font-medium" top />
+                  <Row
+                    label={<span className="text-destructive">− Committed{past ? " (dispatched)" : ""}</span>}
+                    value={<span className="text-destructive">{fmtBoxes(past ? capacity.dispatched : capacity.committed)} boxes</span>}
+                  />
+                  <Row
+                    label={past ? "= Closing" : "Can still sell"}
+                    value={capacity.closing != null ? `${fmtBoxes(capacity.closing)} boxes` : "—"}
+                    cls={`font-semibold ${capacity.closing != null && capacity.closing <= 0 ? "text-destructive" : "text-success"}`}
+                    top
+                  />
+                  {!past && capacity.dispatched > 0 && (
+                    <p className="pt-1 text-[11px] text-muted-foreground">{fmtBoxes(capacity.dispatched)} of the committed already loaded.</p>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="tabular-nums">{l.exception?.kind === "skip" ? "—" : `${l.boxes} boxes`}</span>
-                  {!l.dispatch && !l.voided && l.kind === "standing" && (
-                    l.exception?.kind === "skip" ? (
-                      <button onClick={() => unskip(l.sourceId)} disabled={busy} className="text-xs text-primary hover:underline">
-                        restore
-                      </button>
-                    ) : (
-                      <button onClick={() => skip(l.sourceId)} disabled={busy} className="text-xs text-destructive hover:underline">
-                        skip
-                      </button>
-                    )
-                  )}
-                  {!l.dispatch && !l.voided && l.kind === "spot" && (
-                    <button onClick={() => voidSpot(l.sourceId)} disabled={busy} className="text-xs text-destructive hover:underline">
-                      void
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
-            {!lines.length && (
-              <p className="py-4 text-center text-sm text-muted-foreground">Nothing due this day.</p>
-            )}
-          </div>
-        )}
+              ) : (
+                <p className="text-xs text-muted-foreground">No stock figures for this day.</p>
+              )}
+            </div>
 
-        {adding ? (
-          <div className="mt-3 flex items-end gap-2">
-            <div className="flex-1">
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">Customer</label>
-              <select value={spotCustomer} onChange={(e) => setSpotCustomer(e.target.value)} className={inputCls}>
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+            {/* ── Orders ── */}
+            <div>
+              <div className="mb-1 flex items-center justify-between">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Orders ({live.length})</div>
+                {!past && !form && (
+                  <button onClick={openNew} className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
+                    <Plus className="h-3.5 w-3.5" /> Spot order
+                  </button>
+                )}
+              </div>
+
+              {form && (
+                <div className="mb-3 rounded-md border border-dashed border-primary/40 bg-primary/5 p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-sm font-medium">{form.id ? "Edit spot order" : "New spot order"}</span>
+                    <button onClick={() => setForm(null)} className="text-muted-foreground hover:text-foreground">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  {!form.id && (
+                    <div className="mb-2">
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">Customer</label>
+                      <select value={form.customerId} onChange={(e) => pickCustomer(e.target.value)} className={inputCls}>
+                        {customers.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div className="mb-2 grid grid-cols-3 gap-2">
+                    {SIZES.map((s) => (
+                      <div key={s}>
+                        <label className="mb-0.5 block text-[10px] text-muted-foreground">{SIZE_LABEL[s]} (boxes)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={form.sizes[s]}
+                          onChange={(e) => setForm({ ...form, sizes: { ...form.sizes, [s]: e.target.value } })}
+                          className={inputCls}
+                          placeholder="0"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mb-2 grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="mb-0.5 block text-[10px] text-muted-foreground">Spread over benchmark (₹/egg)</label>
+                      <input type="number" step="0.01" value={form.spread} onChange={(e) => setForm({ ...form, spread: e.target.value })} className={inputCls} placeholder="0.00" />
+                    </div>
+                    <div>
+                      <label className="mb-0.5 block text-[10px] text-muted-foreground">Notes</label>
+                      <input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className={inputCls} />
+                    </div>
+                  </div>
+                  <button
+                    onClick={submitForm}
+                    disabled={busy || formTotal <= 0 || !form.customerId}
+                    className="w-full rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                  >
+                    {busy ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : form.id ? `Save ${fmtBoxes(formTotal)} boxes` : `Book ${fmtBoxes(formTotal)} boxes`}
+                  </button>
+                </div>
+              )}
+
+              {!lines.length ? (
+                <p className="table-surface px-3 py-4 text-center text-sm text-muted-foreground">Nothing due this day.</p>
+              ) : (
+                <div className="table-surface overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="table-head">
+                      <tr>
+                        <th className="table-th text-left">Customer</th>
+                        <th className="table-th text-left">Type</th>
+                        <th className="table-th text-left">Size</th>
+                        <th className="table-th text-right">Boxes</th>
+                        <th className="table-th text-right">Spread</th>
+                        <th className="table-th" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {lines.map((l) => {
+                        const sizeRows: Array<[string, number]> =
+                          l.sizes && Object.keys(l.sizes).length
+                            ? SIZES.filter((s) => l.sizes![s]).map((s) => [SIZE_LABEL[s], l.sizes![s]!])
+                            : [["Any", l.boxes]];
+                        const dead = l.voided || l.exception?.kind === "skip";
+                        return sizeRows.map(([sizeName, qty], i) => (
+                          <tr key={`${l.kind}-${l.sourceId}-${sizeName}`} className={`${i === sizeRows.length - 1 ? "border-b border-border/60" : ""} last:border-0 ${dead ? "opacity-50" : ""}`}>
+                            {i === 0 && (
+                              <td rowSpan={sizeRows.length} className="px-3 py-1.5 align-top">
+                                <div className={`font-medium ${l.voided ? "line-through" : ""}`}>{l.customerName}</div>
+                                {l.city && <div className="text-[11px] text-muted-foreground">{l.city}</div>}
+                                {l.dispatch && (
+                                  <div className="text-[11px] text-success">
+                                    loaded {l.dispatch.loadedBoxes} · {l.dispatch.invoiceNumber}
+                                  </div>
+                                )}
+                              </td>
+                            )}
+                            {i === 0 && (
+                              <td rowSpan={sizeRows.length} className="px-3 py-1.5 align-top">
+                                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${l.kind === "standing" ? "bg-info/10 text-info" : "bg-warning/10 text-warning"}`}>
+                                  {l.kind === "standing" ? "Standing" : "Spot"}
+                                </span>
+                                {l.exception?.kind === "skip" && <div className="mt-0.5 text-[10px] text-muted-foreground">skipped</div>}
+                                {l.exception?.kind === "qty_override" && <div className="mt-0.5 text-[10px] text-muted-foreground">adjusted</div>}
+                                {l.voided && <div className="mt-0.5 text-[10px] text-muted-foreground">voided</div>}
+                              </td>
+                            )}
+                            <td className="px-3 py-1.5 text-xs">{dead && l.exception?.kind === "skip" ? "—" : sizeName}</td>
+                            <td className="px-3 py-1.5 text-right tabular-nums">{dead && l.exception?.kind === "skip" ? "—" : fmtBoxes(qty)}</td>
+                            {i === 0 && (
+                              <td rowSpan={sizeRows.length} className="px-3 py-1.5 text-right align-top text-xs text-muted-foreground tabular-nums">
+                                {Number(l.spreadPerEgg) ? `+₹${Number(l.spreadPerEgg).toFixed(2)}` : "–"}
+                              </td>
+                            )}
+                            {i === 0 && (
+                              <td rowSpan={sizeRows.length} className="px-2 py-1.5 text-right align-top">
+                                {!l.dispatch && !l.voided && !past && (
+                                  <div className="flex justify-end gap-1">
+                                    {l.kind === "standing" ? (
+                                      l.exception?.kind === "skip" ? (
+                                        <button onClick={() => unskip(l.sourceId)} disabled={busy} className="text-xs text-primary hover:underline">
+                                          restore
+                                        </button>
+                                      ) : (
+                                        <button onClick={() => skip(l.sourceId)} disabled={busy} title="Skip delivery for this date" className="rounded p-1 text-destructive hover:bg-destructive/10">
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </button>
+                                      )
+                                    ) : (
+                                      <>
+                                        <button onClick={() => openEdit(l)} disabled={busy} title="Edit" className="rounded p-1 text-muted-foreground hover:bg-muted">
+                                          <Pencil className="h-3.5 w-3.5" />
+                                        </button>
+                                        <button onClick={() => voidSpot(l.sourceId)} disabled={busy} title="Void" className="rounded p-1 text-destructive hover:bg-destructive/10">
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                )}
+                              </td>
+                            )}
+                          </tr>
+                        ));
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {!past && (
+                <div className="mt-2 text-right">
+                  <button onClick={goLoad} className="text-sm text-primary hover:underline">
+                    Loading bay →
+                  </button>
+                </div>
+              )}
+              {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
             </div>
-            <div className="w-24">
-              <label className="mb-1 block text-xs font-medium text-muted-foreground">Boxes</label>
-              <input type="number" min="1" value={spotBoxes} onChange={(e) => setSpotBoxes(e.target.value)} className={inputCls} />
-            </div>
-            <button
-              onClick={addSpot}
-              disabled={busy || !spotBoxes}
-              className="h-9 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground disabled:opacity-50"
-            >
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Book"}
-            </button>
-          </div>
-        ) : (
-          <div className="mt-3 flex justify-between">
-            <button
-              onClick={() => setAdding(true)}
-              className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
-            >
-              <Plus className="h-3.5 w-3.5" /> Spot order
-            </button>
-            <button onClick={goLoad} className="text-sm text-primary hover:underline">
-              Loading bay →
-            </button>
           </div>
         )}
-        {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
       </div>
     </div>
   );

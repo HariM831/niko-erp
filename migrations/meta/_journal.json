@@ -547,6 +547,13 @@
       "when": 1786972324135,
       "tag": "0077_house_display_order",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1786972384135,
+      "tag": "0078_spot_orders_by_size",
+      "breakpoints": true
     }
   ]
 }
