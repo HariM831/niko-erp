@@ -218,13 +218,16 @@ export async function dayOrders(tx: Conn, on: string): Promise<DayOrderLine[]> {
   for (const a of due) {
     const ex = exceptionOf.get(a.id);
     if (ex?.kind === "skip") {
+      // The count stays on the line so the record says what was skipped;
+      // every consumer excludes skipped lines from the day's totals by the
+      // exception, never by the number.
       lines.push({
         kind: "standing",
         sourceId: a.id,
         customerId: a.customerId,
         customerName: a.customerName,
         city: a.city,
-        boxes: 0,
+        boxes: a.boxes,
         sizes: null,
         spreadPerEgg: a.spreadPerEgg,
         notes: a.notes,

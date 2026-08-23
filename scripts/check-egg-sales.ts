@@ -206,7 +206,7 @@ try {
     await tx.insert(eggAgreementExceptions).values({ agreementId: ag!.id, onDate: MON, kind: "skip", reason: "test", createdBy: uid });
     lines = await dayOrders(tx, MON);
     let line = mine(lines).find((l) => l.kind === "standing")!;
-    ok("a skipped day derives 0 boxes, flagged", line.boxes === 0 && line.exception?.kind === "skip");
+    ok("a skipped day keeps its count but is flagged skipped", line.boxes === 50 && line.exception?.kind === "skip");
     lines = await dayOrders(tx, WED);
     ok("the NEXT scheduled day is untouched by the skip", mine(lines).some((l) => l.kind === "standing" && l.boxes === 50));
 

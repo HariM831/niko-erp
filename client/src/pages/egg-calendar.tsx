@@ -13,6 +13,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { ChevronLeft, ChevronRight, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { api } from "../api";
+import { EggOrdersTable, EGG_SIZES as SIZES, EGG_SIZE_LABEL as SIZE_LABEL, isStruck, type EggSize as Size, type OrderLine } from "../components/egg-orders-table";
 
 interface CalDay {
   date: string;
@@ -29,19 +30,7 @@ interface CalDay {
   benchmark: string | null;
 }
 
-interface DayLine {
-  kind: "standing" | "spot";
-  sourceId: string;
-  customerId: string;
-  customerName: string;
-  city: string | null;
-  boxes: number;
-  sizes: Partial<Record<"small" | "medium" | "large" | "xl" | "jumbo" | "dirty", number>> | null;
-  spreadPerEgg: string;
-  exception: { kind: string; reason: string | null } | null;
-  voided: boolean;
-  dispatch: { invoiceNumber: string; loadedBoxes: number } | null;
-}
+type DayLine = OrderLine;
 
 interface Customer {
   id: string;
@@ -182,16 +171,6 @@ export function EggCalendarPage() {
 }
 
 const inputCls = "h-9 w-full rounded-md border border-border bg-background px-2 text-sm";
-const SIZES = ["small", "medium", "large", "xl", "jumbo", "dirty"] as const;
-type Size = (typeof SIZES)[number];
-const SIZE_LABEL: Record<Size, string> = {
-  small: "Small",
-  medium: "Medium",
-  large: "Large",
-  xl: "XL",
-  jumbo: "Jumbo",
-  dirty: "Dirty",
-};
 const fmtBoxes = (n: number) => n.toLocaleString("en-IN");
 
 interface Capacity {
@@ -430,142 +409,38 @@ function DayDrawer({
               )}
 
                 {(() => {
-                  /* Sizes as columns, like the sheet — but only the columns the
-                     day's orders actually use, so a day of Large and Medium
-                     is not six columns of dashes. Unsized standing orders get
-                     one column of their own. */
-                  const struck = lines.filter((l) => l.voided || l.exception?.kind === "skip");
-                  const used = SIZES.filter((s) => live.some((l) => l.sizes?.[s]));
-                  const anyUnsized = live.some((l) => !l.sizes || !Object.keys(l.sizes).length);
-                  const cols: Array<{ key: string; label: string }> = [
-                    ...(anyUnsized ? [{ key: "any", label: "Unsized" }] : []),
-                    ...used.map((s) => ({ key: s, label: SIZE_LABEL[s] })),
-                  ];
-                  const cell = (l: DayLine, key: string): number =>
-                    key === "any" ? (!l.sizes || !Object.keys(l.sizes).length ? l.boxes : 0) : (l.sizes?.[key as Size] ?? 0);
-                  const colTotal = (key: string) => live.reduce((a, l) => a + cell(l, key), 0);
-                  const grand = live.reduce((a, l) => a + l.boxes, 0);
-                  const num = "px-2 py-2.5 text-right tabular-nums";
-
+                  const struck = lines.filter(isStruck);
+                  const rowActions = (l: OrderLine) =>
+                    !l.dispatch && !past ? (
+                      <div className="flex justify-end gap-0.5">
+                        {l.kind === "spot" && (
+                          <button onClick={() => openEdit(l as DayLine)} disabled={busy} title="Edit" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => (l.kind === "standing" ? skip(l.sourceId) : voidSpot(l.sourceId))}
+                          disabled={busy}
+                          title={l.kind === "standing" ? "Skip this delivery" : "Void this order"}
+                          className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ) : null;
+                  const struckActions = (l: OrderLine) =>
+                    l.kind === "standing" && l.exception?.kind === "skip" && !past ? (
+                      <button onClick={() => unskip(l.sourceId)} disabled={busy} className="text-xs text-primary hover:underline">
+                        restore
+                      </button>
+                    ) : null;
                   return (
                     <>
-                      {live.length === 0 ? (
-                        <p className="table-surface px-3 py-4 text-center text-sm text-muted-foreground">Nothing due this day.</p>
-                      ) : (
-                        <div className="table-surface overflow-x-auto">
-                          <table className="w-full text-sm">
-                            <thead className="table-head">
-                              <tr>
-                                <th className="table-th text-left">Customer</th>
-                                {cols.map((c) => (
-                                  <th key={c.key} className="table-th w-[4.5rem] text-right">
-                                    {c.label}
-                                  </th>
-                                ))}
-                                <th className="table-th w-20 text-right">Total</th>
-                                <th className="table-th w-20 text-right">Spread</th>
-                                <th className="table-th w-14" />
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {live.map((l) => (
-                                <tr key={`${l.kind}-${l.sourceId}`} className="border-b border-border/60 last:border-0">
-                                  <td className="px-3 py-2.5">
-                                    <div className="flex items-center gap-2">
-                                      <span className="whitespace-nowrap font-medium">{l.customerName}</span>
-                                      <span
-                                        className={`rounded-full px-1.5 py-px text-[10px] font-semibold ${
-                                          l.kind === "standing" ? "bg-info/10 text-info" : "bg-warning/10 text-warning"
-                                        }`}
-                                      >
-                                        {l.kind === "standing" ? "Standing" : "Spot"}
-                                      </span>
-                                      {l.exception?.kind === "qty_override" && (
-                                        <span className="rounded-full bg-warning/10 px-1.5 py-px text-[10px] font-semibold text-warning">Adjusted</span>
-                                      )}
-                                    </div>
-                                    <div className="text-[11px] leading-tight text-muted-foreground">
-                                      {l.city ?? ""}
-                                      {l.dispatch && (
-                                        <span className="text-success">
-                                          {l.city ? " · " : ""}loaded {fmtBoxes(l.dispatch.loadedBoxes)} · {l.dispatch.invoiceNumber}
-                                        </span>
-                                      )}
-                                    </div>
-                                  </td>
-                                  {cols.map((c) => {
-                                    const v = cell(l, c.key);
-                                    return (
-                                      <td key={c.key} className={`${num} ${v ? "" : "text-muted-foreground/40"}`}>
-                                        {v ? fmtBoxes(v) : "·"}
-                                      </td>
-                                    );
-                                  })}
-                                  <td className={`${num} font-semibold`}>{fmtBoxes(l.boxes)}</td>
-                                  <td className={`${num} text-xs text-muted-foreground`}>
-                                    {Number(l.spreadPerEgg) ? `+${Number(l.spreadPerEgg).toFixed(2)}` : "–"}
-                                  </td>
-                                  <td className="px-2 py-2.5 text-right">
-                                    {!l.dispatch && !past && (
-                                      <div className="flex justify-end gap-0.5">
-                                        {l.kind === "spot" && (
-                                          <button onClick={() => openEdit(l)} disabled={busy} title="Edit" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
-                                            <Pencil className="h-3.5 w-3.5" />
-                                          </button>
-                                        )}
-                                        <button
-                                          onClick={() => (l.kind === "standing" ? skip(l.sourceId) : voidSpot(l.sourceId))}
-                                          disabled={busy}
-                                          title={l.kind === "standing" ? "Skip this delivery" : "Void this order"}
-                                          className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                                        >
-                                          <Trash2 className="h-3.5 w-3.5" />
-                                        </button>
-                                      </div>
-                                    )}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                            <tfoot>
-                              <tr className="border-t-2 border-border bg-muted/40 font-semibold">
-                                <td className="px-3 py-2.5 text-xs uppercase tracking-wide text-muted-foreground">
-                                  Total · {live.length} order{live.length === 1 ? "" : "s"}
-                                </td>
-                                {cols.map((c) => (
-                                  <td key={c.key} className={num}>
-                                    {colTotal(c.key) ? fmtBoxes(colTotal(c.key)) : "·"}
-                                  </td>
-                                ))}
-                                <td className={`${num} text-base`}>{fmtBoxes(grand)}</td>
-                                <td colSpan={2} />
-                              </tr>
-                            </tfoot>
-                          </table>
-                        </div>
-                      )}
-
-                      {/* What was struck off today, kept for the record but out
-                          of the way of the live book. */}
+                      <EggOrdersTable lines={live} title="Total" empty="Nothing due this day." actions={rowActions} />
                       {struck.length > 0 && (
-                        <div className="mt-2 space-y-1 px-1">
-                          {struck.map((l) => (
-                            <div key={`${l.kind}-${l.sourceId}`} className="flex items-center justify-between text-xs text-muted-foreground">
-                              <span>
-                                <span className="line-through">{l.customerName}</span>
-                                {" · "}
-                                {l.kind === "standing" ? "standing" : `spot ${fmtBoxes(l.boxes)}`}
-                                {" · "}
-                                {l.voided ? "voided" : "skipped"}
-                                {l.exception?.reason && <span className="italic"> — {l.exception.reason}</span>}
-                              </span>
-                              {l.kind === "standing" && l.exception?.kind === "skip" && !past && (
-                                <button onClick={() => unskip(l.sourceId)} disabled={busy} className="text-primary hover:underline">
-                                  restore
-                                </button>
-                              )}
-                            </div>
-                          ))}
+                        <div className="mt-3">
+                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Skipped & voided</div>
+                          <EggOrdersTable lines={struck} title="Struck off" muted actions={struckActions} />
                         </div>
                       )}
                     </>

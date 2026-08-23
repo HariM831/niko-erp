@@ -12,19 +12,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Loader2, Truck, X } from "lucide-react";
 import { api, formatMoney } from "../api";
+import { EggOrdersTable, isStruck, type OrderLine } from "../components/egg-orders-table";
 
-interface DayLine {
-  kind: "standing" | "spot";
-  sourceId: string;
-  customerId: string;
-  customerName: string;
-  boxes: number;
-  sizes: Partial<Record<string, number>> | null;
-  spreadPerEgg: string;
-  exception: { kind: string } | null;
-  voided: boolean;
-  dispatch: { invoiceNumber: string; loadedBoxes: number } | null;
-}
+type DayLine = OrderLine;
 
 interface DayData {
   stockBoxes: number | null;
@@ -160,45 +150,31 @@ export function EggLoadingPage() {
       ) : (
         <>
           <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Due ({due.length})
+            Due
           </div>
-          {!due.length ? (
-            <div className="table-surface px-4 py-6 text-sm text-muted-foreground">
-              Nothing waiting. Walk-ins load with the button above.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {due.map((l) => (
-                <div key={`${l.kind}-${l.sourceId}`} className="table-surface p-3">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="font-medium">{l.customerName}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {l.kind === "standing" ? "standing order" : "spot order"}
-                        {Number(l.spreadPerEgg) !== 0 &&
-                          ` · spread ₹${Number(l.spreadPerEgg).toFixed(2)}`}
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-lg font-semibold tabular-nums">{l.boxes}</div>
-                      <div className="text-[10px] text-muted-foreground">
-                        {l.sizes && Object.keys(l.sizes).length
-                          ? SIZES.filter((s) => l.sizes?.[s]).map((s) => `${l.sizes?.[s]} ${SIZE_LABEL[s]?.[0] ?? ""}`).join(" · ")
-                          : "boxes"}
-                      </div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setLoadingLine(l)}
-                    disabled={!data?.benchmark}
-                    className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-                  >
-                    <Truck className="h-4 w-4" /> Load
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
+          <EggOrdersTable
+            lines={due}
+            title="To load"
+            empty="Nothing waiting. Walk-ins load with the button above."
+            actions={(l) => (
+              <button
+                onClick={() => setLoadingLine(l)}
+                disabled={!data?.benchmark}
+                className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                <Truck className="h-3.5 w-3.5" /> Load
+              </button>
+            )}
+          />
+          {(() => {
+            const struck = (data?.lines ?? []).filter(isStruck);
+            return struck.length > 0 ? (
+              <div className="mt-4">
+                <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Skipped & voided</div>
+                <EggOrdersTable lines={struck} title="Struck off" muted />
+              </div>
+            ) : null;
+          })()}
 
           <div className="mb-1 mt-6 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Loaded today
