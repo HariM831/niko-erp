@@ -308,16 +308,9 @@ function DayDrawer({
   const live = lines.filter((l) => !l.voided && l.exception?.kind !== "skip");
   const formTotal = form ? SIZES.reduce((a, s) => a + (Number(form.sizes[s]) || 0), 0) : 0;
 
-  const Row = ({ label, value, cls = "", top = false }: { label: ReactNode; value: ReactNode; cls?: string; top?: boolean }) => (
-    <div className={`flex items-center justify-between ${top ? "mt-1 border-t border-border/60 pt-1" : ""} ${cls}`}>
-      <span>{label}</span>
-      <span className="tabular-nums">{value}</span>
-    </div>
-  );
-
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={onClose}>
-      <div className="mt-6 w-full max-w-2xl rounded-lg bg-background p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="mt-6 w-full max-w-4xl rounded-lg bg-background p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="mb-1 flex items-center justify-between">
           <h2 className="text-lg font-semibold">{pretty}</h2>
           <button onClick={onClose} className="rounded-md p-2 text-muted-foreground hover:text-foreground">
@@ -335,45 +328,40 @@ function DayDrawer({
         {loading ? (
           <div className="py-8 text-center text-sm text-muted-foreground">reading…</div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-[15rem_1fr]">
-            {/* ── Capacity breakdown ── */}
-            <div className="table-surface h-fit p-3 text-sm">
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Capacity</div>
-              {capacity ? (
-                <div className="space-y-1">
-                  <Row
-                    label={<span className="text-muted-foreground">Opening stock{past ? "" : date === today ? "" : " (projected)"}</span>}
-                    value={capacity.opening != null ? `${fmtBoxes(capacity.opening)} boxes` : "—"}
-                  />
-                  <Row
-                    label={
-                      <span className="text-muted-foreground">
-                        + Production
-                        {capacity.productionSource === "actual" && <span className="ml-1 rounded-full bg-success/10 px-1.5 text-[10px] text-success">graded</span>}
-                        {capacity.productionSource === "forecast" && <span className="ml-1 rounded-full bg-info/10 px-1.5 text-[10px] text-info">forecast</span>}
-                      </span>
-                    }
-                    value={capacity.production != null ? `${fmtBoxes(capacity.production)} boxes` : "—"}
-                  />
-                  <Row label="= Available" value={capacity.supply != null ? `${fmtBoxes(capacity.supply)} boxes` : "—"} cls="font-medium" top />
-                  <Row
-                    label={<span className="text-destructive">− Committed{past ? " (dispatched)" : ""}</span>}
-                    value={<span className="text-destructive">{fmtBoxes(past ? capacity.dispatched : capacity.committed)} boxes</span>}
-                  />
-                  <Row
-                    label={past ? "= Closing" : "Can still sell"}
-                    value={capacity.closing != null ? `${fmtBoxes(capacity.closing)} boxes` : "—"}
-                    cls={`font-semibold ${capacity.closing != null && capacity.closing <= 0 ? "text-destructive" : "text-success"}`}
-                    top
-                  />
-                  {!past && capacity.dispatched > 0 && (
-                    <p className="pt-1 text-[11px] text-muted-foreground">{fmtBoxes(capacity.dispatched)} of the committed already loaded.</p>
-                  )}
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">No stock figures for this day.</p>
-              )}
-            </div>
+          <div className="space-y-4">
+            {/* ── Capacity: the arithmetic, left to right ── */}
+            {capacity && (
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                <Tile
+                  label={date > today ? "Opening (projected)" : "Opening stock"}
+                  value={capacity.opening}
+                />
+                <Tile
+                  label="+ Production"
+                  value={capacity.production}
+                  badge={
+                    capacity.productionSource === "actual"
+                      ? { text: "graded", cls: "bg-success/10 text-success" }
+                      : capacity.productionSource === "forecast"
+                        ? { text: "forecast", cls: "bg-info/10 text-info" }
+                        : undefined
+                  }
+                />
+                <Tile label="= Available" value={capacity.supply} strong />
+                <Tile
+                  label={past ? "− Dispatched" : "− Committed"}
+                  value={past ? capacity.dispatched : capacity.committed}
+                  tone="text-destructive"
+                  hint={!past && capacity.dispatched > 0 ? `${fmtBoxes(capacity.dispatched)} already loaded` : undefined}
+                />
+                <Tile
+                  label={past ? "= Closing" : "Can still sell"}
+                  value={capacity.closing}
+                  strong
+                  tone={capacity.closing != null && capacity.closing <= 0 ? "text-destructive" : "text-success"}
+                />
+              </div>
+            )}
 
             {/* ── Orders ── */}
             <div>
@@ -448,57 +436,65 @@ function DayDrawer({
                   <table className="w-full text-sm">
                     <thead className="table-head">
                       <tr>
-                        <th className="table-th text-left">Customer</th>
-                        <th className="table-th text-left">Type</th>
+                        <th className="table-th w-[14rem] text-left">Customer</th>
+                        <th className="table-th w-24 text-left">Type</th>
                         <th className="table-th text-left">Size</th>
-                        <th className="table-th text-right">Boxes</th>
-                        <th className="table-th text-right">Spread</th>
-                        <th className="table-th" />
+                        <th className="table-th w-24 text-right">Boxes</th>
+                        <th className="table-th w-24 text-right">Spread</th>
+                        <th className="table-th w-20" />
                       </tr>
                     </thead>
                     <tbody>
-                      {lines.map((l) => {
+                      {lines.map((l, idx) => {
                         const sizeRows: Array<[string, number]> =
                           l.sizes && Object.keys(l.sizes).length
                             ? SIZES.filter((s) => l.sizes![s]).map((s) => [SIZE_LABEL[s], l.sizes![s]!])
                             : [["Any", l.boxes]];
                         const dead = l.voided || l.exception?.kind === "skip";
-                        return sizeRows.map(([sizeName, qty], i) => (
-                          <tr key={`${l.kind}-${l.sourceId}-${sizeName}`} className={`${i === sizeRows.length - 1 ? "border-b border-border/60" : ""} last:border-0 ${dead ? "opacity-50" : ""}`}>
+                        const skipped = l.exception?.kind === "skip";
+                        const multi = sizeRows.length > 1;
+                        const span = sizeRows.length + (multi ? 1 : 0);
+                        const rows = sizeRows.map(([sizeName, qty], i) => (
+                          <tr
+                            key={`${l.kind}-${l.sourceId}-${sizeName}`}
+                            className={`${idx > 0 && i === 0 ? "border-t border-border" : i > 0 ? "border-t border-border/30" : ""} ${dead ? "opacity-50" : ""}`}
+                          >
                             {i === 0 && (
-                              <td rowSpan={sizeRows.length} className="px-3 py-1.5 align-top">
-                                <div className={`font-medium ${l.voided ? "line-through" : ""}`}>{l.customerName}</div>
+                              <td rowSpan={span} className="px-3 py-2 align-top">
+                                <div className={`whitespace-nowrap font-medium ${l.voided ? "line-through" : ""}`}>{l.customerName}</div>
                                 {l.city && <div className="text-[11px] text-muted-foreground">{l.city}</div>}
                                 {l.dispatch && (
                                   <div className="text-[11px] text-success">
-                                    loaded {l.dispatch.loadedBoxes} · {l.dispatch.invoiceNumber}
+                                    loaded {fmtBoxes(l.dispatch.loadedBoxes)} · {l.dispatch.invoiceNumber}
                                   </div>
                                 )}
                               </td>
                             )}
                             {i === 0 && (
-                              <td rowSpan={sizeRows.length} className="px-3 py-1.5 align-top">
+                              <td rowSpan={span} className="px-3 py-2 align-top">
                                 <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${l.kind === "standing" ? "bg-info/10 text-info" : "bg-warning/10 text-warning"}`}>
                                   {l.kind === "standing" ? "Standing" : "Spot"}
                                 </span>
-                                {l.exception?.kind === "skip" && <div className="mt-0.5 text-[10px] text-muted-foreground">skipped</div>}
+                                {skipped && <div className="mt-0.5 text-[10px] text-muted-foreground">skipped</div>}
                                 {l.exception?.kind === "qty_override" && <div className="mt-0.5 text-[10px] text-muted-foreground">adjusted</div>}
                                 {l.voided && <div className="mt-0.5 text-[10px] text-muted-foreground">voided</div>}
                               </td>
                             )}
-                            <td className="px-3 py-1.5 text-xs">{dead && l.exception?.kind === "skip" ? "—" : sizeName}</td>
-                            <td className="px-3 py-1.5 text-right tabular-nums">{dead && l.exception?.kind === "skip" ? "—" : fmtBoxes(qty)}</td>
+                            <td className={`px-3 py-2 text-xs ${multi ? "text-muted-foreground" : ""}`}>{skipped ? "—" : sizeName}</td>
+                            <td className={`px-3 py-2 text-right tabular-nums ${multi ? "text-muted-foreground" : "font-medium"}`}>
+                              {skipped ? "—" : fmtBoxes(qty)}
+                            </td>
                             {i === 0 && (
-                              <td rowSpan={sizeRows.length} className="px-3 py-1.5 text-right align-top text-xs text-muted-foreground tabular-nums">
+                              <td rowSpan={span} className="px-3 py-2 text-right align-top text-xs tabular-nums text-muted-foreground">
                                 {Number(l.spreadPerEgg) ? `+₹${Number(l.spreadPerEgg).toFixed(2)}` : "–"}
                               </td>
                             )}
                             {i === 0 && (
-                              <td rowSpan={sizeRows.length} className="px-2 py-1.5 text-right align-top">
+                              <td rowSpan={span} className="px-2 py-2 text-right align-top">
                                 {!l.dispatch && !l.voided && !past && (
                                   <div className="flex justify-end gap-1">
                                     {l.kind === "standing" ? (
-                                      l.exception?.kind === "skip" ? (
+                                      skipped ? (
                                         <button onClick={() => unskip(l.sourceId)} disabled={busy} className="text-xs text-primary hover:underline">
                                           restore
                                         </button>
@@ -523,8 +519,50 @@ function DayDrawer({
                             )}
                           </tr>
                         ));
+                        /* A multi-size order closes with its own total, so
+                           the eye does not have to add the column. */
+                        if (multi) {
+                          rows.push(
+                            <tr key={`${l.kind}-${l.sourceId}-total`} className={`border-t border-border/30 ${dead ? "opacity-50" : ""}`}>
+                              <td className="px-3 py-1.5 text-xs font-medium">Order total</td>
+                              <td className="px-3 py-1.5 text-right font-semibold tabular-nums">{fmtBoxes(l.boxes)}</td>
+                            </tr>,
+                          );
+                        }
+                        return rows;
                       })}
                     </tbody>
+                    {(() => {
+                      /* Totals over what is actually due: voided and skipped
+                         lines are shown above for the record, not counted. */
+                      const bySize = new Map<string, number>();
+                      let total = 0;
+                      for (const l of live) {
+                        total += l.boxes;
+                        const split: Array<[string, number]> =
+                          l.sizes && Object.keys(l.sizes).length
+                            ? SIZES.filter((s) => l.sizes![s]).map((s) => [SIZE_LABEL[s], l.sizes![s]!])
+                            : [["Any", l.boxes]];
+                        for (const [n, q] of split) bySize.set(n, (bySize.get(n) ?? 0) + q);
+                      }
+                      const order = ["Any", ...SIZES.map((s) => SIZE_LABEL[s])];
+                      return (
+                        <tfoot>
+                          <tr className="border-t-2 border-border bg-muted/40">
+                            <td className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground" colSpan={2}>
+                              Total due
+                            </td>
+                            <td className="px-3 py-2 text-xs text-muted-foreground">
+                              {order.filter((n) => bySize.get(n)).map((n) => `${n} ${fmtBoxes(bySize.get(n)!)}`).join(" · ")}
+                            </td>
+                            <td className="px-3 py-2 text-right text-base font-semibold tabular-nums">{fmtBoxes(total)}</td>
+                            <td colSpan={2} className="px-3 py-2 text-right text-xs text-muted-foreground">
+                              {live.length} order{live.length === 1 ? "" : "s"}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      );
+                    })()}
                   </table>
                 </div>
               )}
@@ -541,6 +579,37 @@ function DayDrawer({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/** One figure of the capacity arithmetic. */
+function Tile({
+  label,
+  value,
+  strong,
+  tone = "",
+  badge,
+  hint,
+}: {
+  label: string;
+  value: number | null;
+  strong?: boolean;
+  tone?: string;
+  badge?: { text: string; cls: string };
+  hint?: string;
+}) {
+  return (
+    <div className="table-surface px-3 py-2">
+      <div className="flex items-center gap-1.5 whitespace-nowrap text-[11px] text-muted-foreground">
+        {label}
+        {badge && <span className={`rounded-full px-1.5 text-[10px] font-medium ${badge.cls}`}>{badge.text}</span>}
+      </div>
+      <div className={`whitespace-nowrap text-lg tabular-nums ${strong ? "font-semibold" : "font-medium"} ${tone}`}>
+        {value != null ? fmtBoxes(value) : "—"}
+        <span className="ml-1 text-xs font-normal text-muted-foreground">boxes</span>
+      </div>
+      {hint && <div className="text-[10px] text-muted-foreground">{hint}</div>}
     </div>
   );
 }
