@@ -25,12 +25,13 @@ import {
   eggSpotOrders,
   invoiceLines,
   invoices,
+  paymentApplications,
   placementDays,
   users,
 } from "@shared/schema";
 import type { db as Db } from "../db";
-import { PostingError } from "./posting";
-import { applyDefaultSalesAccounts, computeDocumentTotals, type DocLineInput } from "./documents";
+import { PostingError, postJournal } from "./posting";
+import { applyDefaultSalesAccounts, computeDocumentTotals, fromPaise, toPaise, type DocLineInput } from "./documents";
 import { nextDocumentNumber } from "../lib/numbering";
 import { computeDueDate, loadCustomer, postInvoiceJournal } from "../routes/sales";
 import { mainStore, moveStock } from "./inventory";
@@ -510,6 +511,12 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
   const jeId = await postInvoiceJournal(tx, inv!, customer.displayName, userId);
   await tx.update(invoices).set({ status: "sent", journalEntryId: jeId }).where(eq(invoices.id, inv!.id));
 
+  /**
+   * The funds the gate just checked settle the invoice on the spot: the truck
+   * leaves with a PAID invoice, not a due one the accountant must chase.
+   */
+  await applyAdvancesToInvoice(tx, inv!.id, userId);
+
   const [dispatch] = await tx
     .insert(eggDispatches)
     .values({
@@ -556,6 +563,121 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
   }
 
   return { dispatch: dispatch!, invoiceId: inv!.id, invoiceNumber: number };
+}
+
+/**
+ * Settle a fresh invoice from the customer's advances, oldest money first.
+ *
+ * The bay runs payment-first, so by the time an invoice is born the funds are
+ * sitting in `customer_advances`. Leaving them there would show the customer
+ * owing an invoice they have already paid for; this moves the money the rest
+ * of the way — application rows, the payments' unapplied balances, the
+ * invoice's own balance, and one journal shifting the liability into the
+ * receivable (DR advances / CR AR).
+ *
+ * Applies what advances can cover and leaves any remainder due — credit notes
+ * count toward the loading gate but are not consumed here, so an invoice
+ * riding on a credit note comes out partially paid rather than wrongly whole.
+ */
+export async function applyAdvancesToInvoice(tx: Tx, invoiceId: string, userId: string): Promise<string> {
+  const [inv] = await tx.select().from(invoices).where(eq(invoices.id, invoiceId));
+  if (!inv || !["sent", "partially_paid"].includes(inv.status)) return "0.00";
+
+  const open = await tx
+    .select()
+    .from(customerPayments)
+    .where(
+      and(
+        eq(customerPayments.customerId, inv.customerId),
+        sql`${customerPayments.unappliedAmount}::numeric > 0`,
+      ),
+    )
+    .orderBy(asc(customerPayments.paymentDate), asc(customerPayments.createdAt));
+
+  let remainingP = toPaise(inv.balanceDue);
+  let appliedP = 0;
+  for (const p of open) {
+    if (remainingP <= 0) break;
+    const takeP = Math.min(toPaise(p.unappliedAmount), remainingP);
+    if (takeP <= 0) continue;
+    await tx.insert(paymentApplications).values({
+      paymentId: p.id,
+      invoiceId: inv.id,
+      amountApplied: fromPaise(takeP),
+    });
+    await tx
+      .update(customerPayments)
+      .set({ unappliedAmount: fromPaise(toPaise(p.unappliedAmount) - takeP) })
+      .where(eq(customerPayments.id, p.id));
+    remainingP -= takeP;
+    appliedP += takeP;
+  }
+  if (appliedP > 0) {
+    await tx
+      .update(invoices)
+      .set({
+        balanceDue: fromPaise(remainingP),
+        status: remainingP === 0 ? "paid" : "partially_paid",
+        updatedAt: new Date(),
+      })
+      .where(eq(invoices.id, inv.id));
+    await postJournal(tx, {
+      entryDate: inv.invoiceDate,
+      narration: `Advance applied to ${inv.number}`,
+      sourceType: "advance_application",
+      sourceId: inv.id,
+      postedBy: userId,
+      lines: [
+        { systemKey: "customer_advances", debit: fromPaise(appliedP) },
+        { systemKey: "ar", credit: fromPaise(appliedP) },
+      ],
+    });
+  }
+  return fromPaise(appliedP);
+}
+
+/**
+ * The inverse, for the void path: hand every applied payment back to the
+ * customer's advances so the invoice can be voided at full balance. The
+ * reversing journal is dated to the void, not backdated to the application.
+ */
+export async function unapplyInvoicePayments(tx: Tx, invoiceId: string, on: string, userId: string): Promise<void> {
+  const [inv] = await tx.select().from(invoices).where(eq(invoices.id, invoiceId));
+  if (!inv) return;
+  const apps = await tx
+    .select()
+    .from(paymentApplications)
+    .where(eq(paymentApplications.invoiceId, invoiceId));
+  if (!apps.length) return;
+
+  let returnedP = 0;
+  for (const a of apps) {
+    const [p] = await tx.select().from(customerPayments).where(eq(customerPayments.id, a.paymentId));
+    if (!p) continue;
+    await tx
+      .update(customerPayments)
+      .set({ unappliedAmount: fromPaise(toPaise(p.unappliedAmount) + toPaise(a.amountApplied)) })
+      .where(eq(customerPayments.id, p.id));
+    returnedP += toPaise(a.amountApplied);
+  }
+  await tx.delete(paymentApplications).where(eq(paymentApplications.invoiceId, invoiceId));
+  await tx
+    .update(invoices)
+    .set({ balanceDue: inv.total, status: "sent", updatedAt: new Date() })
+    .where(eq(invoices.id, invoiceId));
+  if (returnedP > 0) {
+    await postJournal(tx, {
+      entryDate: on,
+      narration: `Advance returned on void of ${inv.number}`,
+      sourceType: "advance_application",
+      sourceId: inv.id,
+      postedBy: userId,
+      lines: [
+        { systemKey: "ar", debit: fromPaise(returnedP) },
+        { systemKey: "customer_advances", credit: fromPaise(returnedP) },
+      ],
+    });
+  }
 }
 
 /**

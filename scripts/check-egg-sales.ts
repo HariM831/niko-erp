@@ -36,6 +36,7 @@ import {
   eggPrefs,
   ledgerAvailable,
   loadAndInvoice,
+  unapplyInvoicePayments,
   voidDispatchForInvoice,
 } from "../server/services/egg-sales";
 import { reverseJournal } from "../server/services/posting";
@@ -68,6 +69,8 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
  * the route itself was exercised live; this keeps the matrix deterministic.
  */
 async function voidInvoice(tx: Tx, invoiceId: string, on: string, userId: string) {
+  // Auto-applied advances walk back first, exactly as the route does.
+  await unapplyInvoicePayments(tx, invoiceId, on, userId);
   const [inv] = await tx.select().from(invoices).where(eq(invoices.id, invoiceId));
   if (inv?.journalEntryId) await reverseJournal(tx, inv.journalEntryId, on, userId);
   const moved = await tx
@@ -231,6 +234,11 @@ try {
     // small: 10×210×(5.00−0.50+0.20)=9,870 ; large: 60×210×(5.00+0.50+0.20)=71,820
     const expected = 10 * 210 * 4.7 + 60 * 210 * 5.7;
     ok("the invoice prices at benchmark + offset + spread", Number(inv1!.subTotal) === expected, `₹${inv1!.subTotal} = ₹${expected}`);
+    ok(
+      "the invoice settles itself from the advances — PAID, zero due",
+      inv1!.status === "paid" && Number(inv1!.balanceDue) === 0,
+      `${inv1!.status}, due ₹${inv1!.balanceDue}`,
+    );
     ok("stock fell by exactly the eggs loaded", (await stock()) === stockAtStart - 70 * 210, `−${70 * 210}`);
     ok(
       "the load consumed ledger headroom",
@@ -292,6 +300,7 @@ try {
     // its 0.20 spread must carry to the spot's pricing.
     const [inv3] = await tx.select().from(invoices).where(eq(invoices.id, r3.invoiceId));
     ok("a spot with no spread inherits the standing spread", Number(inv3!.subTotal) === 20 * 210 * 5.7, `₹${inv3!.subTotal}`);
+    ok("the spot's invoice is also born paid", inv3!.status === "paid", inv3!.status);
     await refuses("loading the same spot twice → refused", () =>
       loadAndInvoice(tx, { dispatchDate: TUE, customerId: customer.id, spotOrderId: spot!.id, loaded: { large: 1 }, driverName: "T", vehicleNumber: "V" }, uid),
     );

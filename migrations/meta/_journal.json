@@ -519,6 +519,13 @@
       "when": 1786972084135,
       "tag": "0073_egg_sales",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1786972144135,
+      "tag": "0074_advance_application_source",
+      "breakpoints": true
     }
   ]
 }

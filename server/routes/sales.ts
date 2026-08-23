@@ -3,6 +3,7 @@ import { and, asc, desc, eq, getTableColumns, gte, inArray, lte, ne, sql } from 
 import { z } from "zod";
 import {
   bankAccounts,
+  eggDispatches,
   contacts,
   customerPayments,
   inventoryTransactions,
@@ -17,7 +18,7 @@ import { validateBody } from "../lib/validate";
 import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, postJournal, reverseJournal } from "../services/posting";
 import { moveStock } from "../services/inventory";
-import { voidDispatchForInvoice } from "../services/egg-sales";
+import { unapplyInvoicePayments, voidDispatchForInvoice } from "../services/egg-sales";
 import { advancedSearch, listLimit, quickSearch } from "../services/document-search";
 import { customerPaymentSearch, invoiceSearch } from "../services/search-specs";
 import { getPreferences } from "../services/preferences";
@@ -516,7 +517,26 @@ salesRouter.post(
         });
         if (!inv) throw new PostingError("Invoice not found");
         if (inv.status === "void") throw new PostingError("Invoice is already void");
-        if (toPaise(inv.balanceDue) !== toPaise(inv.total)) {
+
+        /**
+         * A loading-bay invoice settles itself from advances the moment it is
+         * born, so "unapply first" would make every one of them unvoidable by
+         * hand. For those, the applications walk themselves back into the
+         * customer's advances here; a hand-raised invoice keeps the guard —
+         * its applications were somebody's deliberate act.
+         */
+        const [bayDispatch] = await tx
+          .select({ id: eggDispatches.id })
+          .from(eggDispatches)
+          .where(and(eq(eggDispatches.invoiceId, inv.id), ne(eggDispatches.status, "void")));
+        if (bayDispatch) {
+          await unapplyInvoicePayments(tx, inv.id, req.body.voidDate, req.session.user!.id);
+        }
+
+        const fresh = bayDispatch
+          ? (await tx.query.invoices.findFirst({ where: eq(invoices.id, inv.id) }))!
+          : inv;
+        if (toPaise(fresh.balanceDue) !== toPaise(fresh.total)) {
           throw new PostingError(
             "Invoice has payments or credits applied — unapply them first",
           );
