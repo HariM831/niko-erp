@@ -8,6 +8,7 @@ import { z } from "zod";
 import {
   contacts,
   eggAgreementExceptions,
+  inventoryTransactions,
   eggAgreements,
   eggBenchmarkPrices,
   eggDispatches,
@@ -22,6 +23,7 @@ import { PostingError } from "../services/posting";
 import {
   EGG_SIZES,
   actualBoxesOn,
+  ledgerAvailable,
   benchmarkHistory,
   benchmarkOn,
   dayOrders,
@@ -404,7 +406,23 @@ eggSalesRouter.get("/day/:date", view, async (req, res) => {
     sizeOffsetsOn(db, on),
     eggPrefs(db),
   ]);
+
+  /**
+   * What the store holds right now, in boxes — the bay's own headroom figure.
+   * Summed from the ledger like every stock number: production in, invoices
+   * out, voids back.
+   */
+  let stockBoxes: number | null = null;
+  if (prefs.eggItemId) {
+    const [held] = await db
+      .select({ eggs: sql<string>`coalesce(sum(${inventoryTransactions.quantity}), 0)` })
+      .from(inventoryTransactions)
+      .where(eq(inventoryTransactions.itemId, prefs.eggItemId));
+    stockBoxes = Math.floor(Number(held?.eggs ?? 0) / prefs.eggsPerBox);
+  }
+
   res.json({
+    stockBoxes,
     date: on,
     lines,
     benchmark: bm ? { ratePerEgg: bm.ratePerEgg, setFor: bm.effectiveFrom } : null,
@@ -483,16 +501,11 @@ eggSalesRouter.get("/dispatches/:date", view, async (req, res) => {
   res.json({ dispatches: rows });
 });
 
-/** What the customer owes across all their unpaid invoices — the bay's warning. */
-eggSalesRouter.get("/customers/:id/outstanding", view, async (req, res) => {
-  const [row] = await db
-    .select({ due: sql<string>`coalesce(sum(${invoices.balanceDue}), 0)` })
-    .from(invoices)
-    .where(
-      and(
-        eq(invoices.customerId, req.params.id!),
-        sql`${invoices.status} NOT IN ('void', 'draft')`,
-      ),
-    );
-  res.json({ outstanding: row?.due ?? "0" });
+/**
+ * The bay's gate figure: what the customer's ledger can pay for right now.
+ * The server enforces the same number at invoice birth — this is the screen's
+ * copy, not the check.
+ */
+eggSalesRouter.get("/customers/:id/ledger", view, async (req, res) => {
+  res.json({ available: (await ledgerAvailable(db, req.params.id!)).toFixed(2) });
 });

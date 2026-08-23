@@ -14,6 +14,8 @@
 import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import {
   contacts,
+  creditNotes,
+  customerPayments,
   eggAgreementExceptions,
   eggAgreements,
   eggBenchmarkPrices,
@@ -392,6 +394,26 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
   } else if (input.agreementId) {
     const [ag] = await tx.select().from(eggAgreements).where(eq(eggAgreements.id, input.agreementId));
     if (!ag) throw new PostingError("No such agreement");
+    /**
+     * A skipped day said "no delivery" — loading against the agreement anyway
+     * would quietly un-say it. If the truck turned up regardless, that is a
+     * walk-in, and booking it as one keeps the skip's story intact.
+     */
+    const [skipped] = await tx
+      .select({ id: eggAgreementExceptions.id })
+      .from(eggAgreementExceptions)
+      .where(
+        and(
+          eq(eggAgreementExceptions.agreementId, ag.id),
+          eq(eggAgreementExceptions.onDate, input.dispatchDate),
+          eq(eggAgreementExceptions.kind, "skip"),
+        ),
+      );
+    if (skipped) {
+      throw new PostingError(
+        "This day was skipped for the agreement — restore it on the calendar, or load as a walk-in",
+      );
+    }
     const already = await tx
       .select({ id: eggDispatches.id })
       .from(eggDispatches)
@@ -439,6 +461,21 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
   }));
 
   const totals = await computeDocumentTotals(tx, docLines, customer.placeOfSupplyState);
+
+  /**
+   * Payment first, truck second. The invoice is only raised against funds the
+   * ledger actually holds — Amino's gate rule, enforced where the invoice is
+   * born so no screen can slip past it.
+   */
+  const available = await ledgerAvailable(tx, input.customerId);
+  if (Number(totals.total) > available + 0.005) {
+    throw new PostingError(
+      `${customer.displayName}'s ledger holds ₹${available.toLocaleString("en-IN", { maximumFractionDigits: 2 })} ` +
+        `against a load of ₹${Number(totals.total).toLocaleString("en-IN", { maximumFractionDigits: 2 })} — ` +
+        `record their payment first`,
+    );
+  }
+
   const number = await nextDocumentNumber(tx, "invoice");
   const benchNote =
     bm.effectiveFrom === input.dispatchDate
@@ -519,6 +556,30 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
   }
 
   return { dispatch: dispatch!, invoiceId: inv!.id, invoiceNumber: number };
+}
+
+/**
+ * What the customer's ledger can pay for right now.
+ *
+ * Money in hand (unapplied payments, open credit notes) minus what they
+ * already owe (unpaid invoice balances). The trade runs payment-first: the
+ * customer transfers, then the truck loads — so an invoice may only be raised
+ * against funds that are actually there.
+ */
+export async function ledgerAvailable(tx: Conn, customerId: string): Promise<number> {
+  const [advances] = await tx
+    .select({ v: sql<string>`coalesce(sum(${customerPayments.unappliedAmount}), 0)` })
+    .from(customerPayments)
+    .where(eq(customerPayments.customerId, customerId));
+  const [credits] = await tx
+    .select({ v: sql<string>`coalesce(sum(${creditNotes.balance}), 0)` })
+    .from(creditNotes)
+    .where(and(eq(creditNotes.customerId, customerId), sql`${creditNotes.status} NOT IN ('void', 'draft')`));
+  const [dues] = await tx
+    .select({ v: sql<string>`coalesce(sum(${invoices.balanceDue}), 0)` })
+    .from(invoices)
+    .where(and(eq(invoices.customerId, customerId), sql`${invoices.status} NOT IN ('void', 'draft')`));
+  return Number(advances!.v) + Number(credits!.v) - Number(dues!.v);
 }
 
 /** The customer's standing spread, if they hold an agreement alive on the day. */

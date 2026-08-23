@@ -26,6 +26,7 @@ interface DayLine {
 }
 
 interface DayData {
+  stockBoxes: number | null;
   lines: DayLine[];
   benchmark: { ratePerEgg: string; setFor: string } | null;
   offsets: Record<string, string> | null;
@@ -112,6 +113,31 @@ export function EggLoadingPage() {
           </button>
         </div>
       </div>
+
+      {!loading && data && data.stockBoxes != null && (
+        <div className="mb-3 flex flex-wrap items-center gap-4 text-sm">
+          <span>
+            In store: <strong className="tabular-nums">{data.stockBoxes.toLocaleString("en-IN")}</strong>{" "}
+            <span className="text-muted-foreground">boxes</span>
+          </span>
+          {(() => {
+            const dueBoxes = (data.lines ?? [])
+              .filter((l) => !l.voided && l.exception?.kind !== "skip" && !l.dispatch)
+              .reduce((a, l) => a + l.boxes, 0);
+            const short = dueBoxes - data.stockBoxes!;
+            return (
+              <span className="text-muted-foreground">
+                due {dueBoxes.toLocaleString("en-IN")}
+                {short > 0 && (
+                  <span className="ml-1 font-medium text-warning">
+                    — {short.toLocaleString("en-IN")} short of stock
+                  </span>
+                )}
+              </span>
+            );
+          })()}
+        </div>
+      )}
 
       {!loading && data && !data.benchmark && (
         <div className="mb-3 flex items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
@@ -249,13 +275,13 @@ function LoadDialog({
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [outstanding, setOutstanding] = useState<string | null>(null);
+  const [available, setAvailable] = useState<number | null>(null);
 
   useEffect(() => {
     if (!customerId) return;
-    api<{ outstanding: string }>(`/api/sales/eggs/customers/${customerId}/outstanding`)
-      .then((d) => setOutstanding(d.outstanding))
-      .catch(() => setOutstanding(null));
+    api<{ available: string }>(`/api/sales/eggs/customers/${customerId}/ledger`)
+      .then((d) => setAvailable(Number(d.available)))
+      .catch(() => setAvailable(null));
   }, [customerId]);
 
   const totalBoxes = SIZES.reduce((a, s) => a + (Number(qty[s]) || 0), 0);
@@ -328,9 +354,14 @@ function LoadDialog({
           </div>
         )}
 
-        {outstanding && Number(outstanding) > 0 && (
-          <p className="mb-3 rounded-md bg-warning/10 px-3 py-2 text-xs text-warning">
-            This customer already owes {formatMoney(outstanding)} across unpaid invoices.
+        {available != null && (
+          <p
+            className={`mb-3 rounded-md px-3 py-2 text-xs ${
+              available > 0 ? "bg-muted text-muted-foreground" : "bg-destructive/10 text-destructive"
+            }`}
+          >
+            Ledger holds {formatMoney(available)}. Payment first, truck second — the invoice
+            refuses to exceed this.
           </p>
         )}
 
@@ -376,6 +407,11 @@ function LoadDialog({
           <p className="mb-2 text-sm">
             Invoice will come to about <span className="font-semibold">{formatMoney(estimate)}</span>
             <span className="text-xs text-muted-foreground"> before tax</span>
+            {available != null && estimate > available && (
+              <span className="ml-2 font-medium text-destructive">
+                — exceeds the ledger by {formatMoney(estimate - available)}
+              </span>
+            )}
           </p>
         )}
         {error && <p className="mb-2 text-sm text-destructive">{error}</p>}
@@ -386,7 +422,13 @@ function LoadDialog({
           </button>
           <button
             onClick={submit}
-            disabled={saving || totalBoxes <= 0 || !driver || !vehicle}
+            disabled={
+              saving ||
+              totalBoxes <= 0 ||
+              !driver ||
+              !vehicle ||
+              (available != null && estimate != null && estimate > available)
+            }
             className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
