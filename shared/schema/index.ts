@@ -25,3 +25,4 @@ export * from "./feedmill";
 export * from "./attachments";
 export * from "./comments";
 export * from "./migration";
+export * from "./egg-sales";

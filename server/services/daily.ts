@@ -30,6 +30,7 @@ import {
 } from "@shared/schema";
 import type { db as Db } from "../db";
 import { PostingError } from "./posting";
+import { syncEggProduction } from "./egg-sales";
 import { ageOn, placementCounts } from "./flocks";
 import { refreshFlockDay } from "./rollup";
 
@@ -315,6 +316,10 @@ export async function saveDay(tx: Tx, input: DayInput, userId: string) {
       })),
     );
   }
+
+  // The egg store rises with the day-end record — and a correction to the
+  // record corrects the stock movement rather than adding a second one.
+  await syncEggProduction(tx, placement.id, input.day, input.eggsTotal ?? null);
 
   // The reporting surface is rebuilt inside the same transaction, so it either
   // agrees with the ledger or neither of them happened.

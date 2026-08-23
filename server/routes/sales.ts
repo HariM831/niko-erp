@@ -5,6 +5,7 @@ import {
   bankAccounts,
   contacts,
   customerPayments,
+  inventoryTransactions,
   invoiceLines,
   invoices,
   paymentApplications,
@@ -15,6 +16,8 @@ import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, postJournal, reverseJournal } from "../services/posting";
+import { moveStock } from "../services/inventory";
+import { voidDispatchForInvoice } from "../services/egg-sales";
 import { advancedSearch, listLimit, quickSearch } from "../services/document-search";
 import { customerPaymentSearch, invoiceSearch } from "../services/search-specs";
 import { getPreferences } from "../services/preferences";
@@ -521,6 +524,46 @@ salesRouter.post(
         if (inv.journalEntryId) {
           await reverseJournal(tx, inv.journalEntryId, req.body.voidDate, req.session.user!.id);
         }
+
+        /**
+         * Stock the invoice moved comes back. Only egg dispatches write stock
+         * against an invoice today, but the reversal is by source rather than
+         * by module so the next thing that does needs no second void path.
+         */
+        const moved = await tx
+          .select({
+            itemId: inventoryTransactions.itemId,
+            stockLocationId: inventoryTransactions.stockLocationId,
+            qty: sql<string>`sum(${inventoryTransactions.quantity})`,
+            value: sql<string>`sum(${inventoryTransactions.value})`,
+          })
+          .from(inventoryTransactions)
+          .where(
+            and(
+              eq(inventoryTransactions.sourceType, "invoice"),
+              eq(inventoryTransactions.sourceId, inv.id),
+            ),
+          )
+          .groupBy(inventoryTransactions.itemId, inventoryTransactions.stockLocationId);
+        if (moved.length) {
+          await moveStock(tx, {
+            movements: moved.map((m) => ({
+              itemId: m.itemId,
+              stockLocationId: m.stockLocationId,
+              quantity: (-Number(m.qty)).toFixed(3),
+              value: (-Number(m.value)).toFixed(2),
+              notes: `Void of invoice ${inv.number}`,
+            })),
+            transactionDate: req.body.voidDate,
+            sourceType: "invoice_void",
+            sourceId: inv.id,
+          });
+        }
+
+        // A voided egg invoice takes its dispatch with it; the day's order
+        // line derives back to "due" on the loading bay.
+        await voidDispatchForInvoice(tx, inv.id);
+
         const [updated] = await tx
           .update(invoices)
           .set({ status: "void", balanceDue: "0.00", updatedAt: new Date() })

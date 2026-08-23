@@ -28,6 +28,7 @@ import type { db as Db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { PostingError } from "../services/posting";
 import { DAILY_KINDS, saveDay } from "../services/daily";
+import { syncEggProduction } from "../services/egg-sales";
 import { createFlock } from "../services/flocks";
 import { refreshFromPlacement } from "../services/rollup";
 
@@ -187,6 +188,8 @@ farmsCompatRouter.delete("/daily-records/:id", manage, async (req, res) => {
       await tx
         .delete(placementDays)
         .where(and(eq(placementDays.placementId, placementId), eq(placementDays.day, d)));
+      // The egg stock the record put in goes with it.
+      await syncEggProduction(tx, placementId, d, null);
       // The day's losses go with it — they were entered on the same form.
       await tx.delete(flockMovements).where(
         and(

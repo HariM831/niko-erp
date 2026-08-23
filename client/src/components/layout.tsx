@@ -54,6 +54,12 @@ const NAV: NavItem[] = [
     label: "Sales",
     icon: Banknote,
     children: [
+      /* The egg trade: the order book derives from agreements; the bay
+         invoices what actually left. */
+      { label: "Egg Calendar", path: "/sales/egg-calendar" },
+      { label: "Loading Bay", path: "/sales/egg-loading" },
+      { label: "Agreements", path: "/sales/egg-agreements" },
+      { label: "Benchmark", path: "/sales/egg-benchmark" },
       { label: "Customers", path: "/sales/customers" },
       { label: "Invoices", path: "/sales/invoices" },
       { label: "Payments Received", path: "/sales/payments" },

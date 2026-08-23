@@ -17,6 +17,10 @@ import { FarmsBatchesPage } from "./pages/farms-batches";
 import { ShedConditionsPage } from "./pages/shed-conditions";
 import { FarmStorePage } from "./pages/farm-store";
 import { DrEggsyPage } from "./pages/dr-eggsy";
+import { EggAgreementsPage } from "./pages/egg-agreements";
+import { EggCalendarPage } from "./pages/egg-calendar";
+import { EggBenchmarkPage } from "./pages/egg-benchmark";
+import { EggLoadingPage } from "./pages/egg-loading";
 import { HouseDetailPage } from "./pages/house-detail";
 import { FlockDetailPage } from "./pages/flock-detail";
 import {
@@ -120,6 +124,10 @@ export function App() {
         <Route path="/sales/invoices/:id/edit">{(p) => <TransactionNewPage kind="invoice" editId={p.id!} />}</Route>
         <Route path="/sales/invoices/:id">{(p) => <SplitDetail kind="invoice" id={p.id!} />}</Route>
         <Route path="/sales/invoices" component={InvoicesPage} />
+        <Route path="/sales/egg-calendar" component={EggCalendarPage} />
+        <Route path="/sales/egg-agreements" component={EggAgreementsPage} />
+        <Route path="/sales/egg-benchmark" component={EggBenchmarkPage} />
+        <Route path="/sales/egg-loading" component={EggLoadingPage} />
         <Route path="/sales/payments/new">{() => <PaymentNewPage side="customer" />}</Route>
         <Route path="/sales/payments/:id/edit">{(p) => <PaymentNewPage side="customer" editId={p.id!} />}</Route>
         <Route path="/sales/payments/:id">{(p) => <PaymentDetailPage side="customer" id={p.id!} />}</Route>
