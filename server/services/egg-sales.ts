@@ -776,12 +776,14 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
     }
   }
 
+  // Invoiced in boxes, like the items and the stock and every Zoho invoice
+  // before it — so a report can sum the lines. The per-egg rate is named.
   const docLines: DocLineInput[] = EGG_SIZES.filter((s) => qty(s) > 0).map((s) => ({
     itemId: map.get(s),
-    name: `Eggs — ${SIZE_LABEL[s]} (${qty(s)} box × ${prefs.eggsPerBox})`,
-    quantity: String(qty(s) * prefs.eggsPerBox),
-    unit: "eggs",
-    rate: perEgg(s).toFixed(4),
+    name: `Eggs — ${SIZE_LABEL[s]} (${prefs.eggsPerBox}/box @ ₹${perEgg(s).toFixed(2)}/egg)`,
+    quantity: String(qty(s)),
+    unit: "boxes",
+    rate: (perEgg(s) * prefs.eggsPerBox).toFixed(4),
   }));
 
   const totals = await computeDocumentTotals(tx, docLines, customer.placeOfSupplyState);
