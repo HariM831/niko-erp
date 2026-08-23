@@ -27,6 +27,13 @@ interface Row {
   purpose: string;
   boxes: Record<Size, number>;
   entered: boolean;
+  /** The shed's previous evening count, and when it was taken. */
+  opening: Record<Size, number> | null;
+  openingFrom: string | null;
+  closing: Record<Size, number> | null;
+  counted: boolean;
+  /** opening + graded − counted: what left the shed. */
+  lifted: Record<Size, number> | null;
 }
 
 interface Summary {
@@ -41,6 +48,9 @@ interface Sheet {
   date: string;
   rows: Row[];
   summary: Record<Size, Summary>;
+  countedTotal: Record<Size, number> | null;
+  /** Counted minus the ledger's closing, per size. */
+  variance: Record<Size, number> | null;
   bands: { smallMaxKg: string; mediumMaxKg: string; largeMaxKg: string };
   stockFrom: string;
 }
@@ -58,6 +68,9 @@ export function EggGradingPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [closingDraft, setClosingDraft] = useState<Record<string, Record<Size, string>>>({});
+  const [savingClosing, setSavingClosing] = useState(false);
+  const [closingSaved, setClosingSaved] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -72,6 +85,14 @@ export function EggGradingPage() {
             ]),
           ),
         );
+        setClosingDraft(
+          Object.fromEntries(
+            s.rows.map((r) => [
+              r.houseId,
+              Object.fromEntries(SIZES.map((z) => [z, r.closing?.[z] ? String(r.closing[z]) : ""])) as Record<Size, string>,
+            ]),
+          ),
+        );
       })
       .finally(() => setLoading(false));
   };
@@ -80,6 +101,34 @@ export function EggGradingPage() {
   const set = (houseId: string, size: Size, v: string) => {
     setSaved(false);
     setDraft({ ...draft, [houseId]: { ...draft[houseId]!, [size]: v } });
+  };
+
+  const setClosing = (houseId: string, size: Size, v: string) => {
+    setClosingSaved(false);
+    setClosingDraft({ ...closingDraft, [houseId]: { ...closingDraft[houseId]!, [size]: v } });
+  };
+
+  const saveClosing = async () => {
+    setSavingClosing(true);
+    setError(null);
+    try {
+      await api("/api/sales/eggs/closing", {
+        method: "POST",
+        body: {
+          countedOn: date,
+          rows: Object.entries(closingDraft).map(([houseId, boxes]) => ({
+            houseId,
+            boxes: Object.fromEntries(SIZES.map((z) => [z, Number(boxes[z]) || 0])),
+          })),
+        },
+      });
+      setClosingSaved(true);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save count");
+    } finally {
+      setSavingClosing(false);
+    }
   };
 
   const colTotal = (size: Size) =>
@@ -213,6 +262,116 @@ export function EggGradingPage() {
             </div>
           </div>
 
+          <div className="mb-1 mt-6 flex items-baseline justify-between">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Closing count by shed
+            </div>
+            <div className="text-[11px] text-muted-foreground">
+              The evening count in each shed's room. What left the shed is derived: opening + graded − counted.
+            </div>
+          </div>
+          <div className="table-surface overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="table-head">
+                <tr>
+                  <th className="table-th text-left">Shed</th>
+                  {SIZES.map((z) => (
+                    <th key={z} className="table-th text-right">
+                      {LABEL[z]}
+                    </th>
+                  ))}
+                  <th className="table-th text-right">Total</th>
+                  <th className="table-th text-right">Lifted</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => {
+                  const total = SIZES.reduce((a, z) => a + (Number(closingDraft[r.houseId]?.[z]) || 0), 0);
+                  const liftedTotal = r.lifted ? SIZES.reduce((a, z) => a + (r.lifted![z] ?? 0), 0) : null;
+                  return (
+                    <tr key={r.houseId} className="border-b border-border/60 last:border-0">
+                      <td className="px-3 py-1.5">
+                        <div className="font-medium">{r.code}</div>
+                        {r.opening && (
+                          <div className="text-[10px] text-muted-foreground">
+                            opened {num(SIZES.reduce((a, z) => a + (r.opening![z] ?? 0), 0))} · counted {r.openingFrom}
+                          </div>
+                        )}
+                      </td>
+                      {SIZES.map((z) => (
+                        <td key={z} className="px-2 py-1.5">
+                          <input
+                            type="number"
+                            min="0"
+                            value={closingDraft[r.houseId]?.[z] ?? ""}
+                            onChange={(e) => setClosing(r.houseId, z, e.target.value)}
+                            className={inputCls}
+                            placeholder="—"
+                          />
+                        </td>
+                      ))}
+                      <td className="px-3 py-1.5 text-right font-medium tabular-nums">{total ? num(total) : "—"}</td>
+                      <td className={`px-3 py-1.5 text-right tabular-nums ${liftedTotal != null && liftedTotal < 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                        {liftedTotal != null ? num(liftedTotal) : "—"}
+                      </td>
+                    </tr>
+                  );
+                })}
+                <tr className="bg-muted/40 font-semibold">
+                  <td className="px-3 py-2">Counted</td>
+                  {SIZES.map((z) => {
+                    const v = Object.values(closingDraft).reduce((a, r) => a + (Number(r[z]) || 0), 0);
+                    return (
+                      <td key={z} className="px-3 py-2 text-right tabular-nums">
+                        {v ? num(v) : "—"}
+                      </td>
+                    );
+                  })}
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {num(SIZES.reduce((a, z) => a + Object.values(closingDraft).reduce((b, r) => b + (Number(r[z]) || 0), 0), 0))}
+                  </td>
+                  <td />
+                </tr>
+                {sheet.variance && (
+                  <tr className="border-t border-border text-xs">
+                    <td className="px-3 py-1.5 text-muted-foreground">vs ledger closing</td>
+                    {SIZES.map((z) => {
+                      const v = sheet.variance![z] ?? 0;
+                      return (
+                        <td key={z} className={`px-3 py-1.5 text-right tabular-nums ${v === 0 ? "text-muted-foreground" : v < 0 ? "text-destructive" : "text-warning"}`}>
+                          {v === 0 ? "·" : `${v > 0 ? "+" : ""}${num(v)}`}
+                        </td>
+                      );
+                    })}
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {(() => {
+                        const v = SIZES.reduce((a, z) => a + (sheet.variance![z] ?? 0), 0);
+                        return <span className={v === 0 ? "text-success" : v < 0 ? "text-destructive" : "text-warning"}>{v === 0 ? "agrees" : `${v > 0 ? "+" : ""}${num(v)}`}</span>;
+                      })()}
+                    </td>
+                    <td />
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-3 flex items-center justify-between">
+            <p className="text-[11px] text-muted-foreground">
+              A count, not a stock movement. Where it disagrees with the ledger, post the difference as an
+              inventory adjustment — that is what the variance line is pointing at.
+            </p>
+            <div className="flex items-center gap-3">
+              {closingSaved && <span className="text-xs text-success">saved</span>}
+              <button
+                onClick={saveClosing}
+                disabled={savingClosing}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50"
+              >
+                {savingClosing && <Loader2 className="h-4 w-4 animate-spin" />}
+                Save count
+              </button>
+            </div>
+          </div>
           <div className="mb-1 mt-6 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             Stock summary
           </div>
@@ -269,9 +428,7 @@ export function EggGradingPage() {
             </table>
           </div>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            Opening is yesterday's closing; sales are what the bay invoiced. If the physical count
-            disagrees with closing, post the difference as an inventory adjustment — that is what
-            adjustments are for.
+            Opening is yesterday's closing; sales are what the bay invoiced.
           </p>
         </>
       )}

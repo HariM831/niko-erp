@@ -9,6 +9,7 @@ import {
   contacts,
   eggAgreementExceptions,
   eggGrading,
+  eggHouseClosing,
   houses,
   inventoryTransactions,
   eggAgreements,
@@ -526,7 +527,7 @@ async function stockSummaryOn(on: string) {
   return out;
 }
 
-/** The sheet for one day: every laying house, what was graded, and the stock summary. */
+/** The sheet for one day: every laying house, what was graded, the evening count, and the stock summary. */
 eggSalesRouter.get("/grading/:date", view, async (req, res) => {
   const on = req.params.date!;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(on)) return res.status(400).json({ error: "Bad date" });
@@ -538,16 +539,70 @@ eggSalesRouter.get("/grading/:date", view, async (req, res) => {
     .orderBy(houses.displayOrder, houses.code);
   const entries = await db.select().from(eggGrading).where(eq(eggGrading.gradedOn, on));
   const byHouse = new Map(entries.map((e) => [e.houseId, e]));
-  res.json({
-    date: on,
-    rows: houseRows.map((h) => ({
+
+  /**
+   * The evening count, and the shed's opening — which is simply the previous
+   * count taken for that shed, however many days back. A shed with no count
+   * on record opens at nothing known.
+   */
+  const counts = await db.select().from(eggHouseClosing).where(eq(eggHouseClosing.countedOn, on));
+  const countOf = new Map(counts.map((c) => [c.houseId, c]));
+  const previous = await db
+    .selectDistinctOn([eggHouseClosing.houseId])
+    .from(eggHouseClosing)
+    .where(sql`${eggHouseClosing.countedOn} < ${on}`)
+    .orderBy(eggHouseClosing.houseId, desc(eggHouseClosing.countedOn));
+  const prevOf = new Map(previous.map((c) => [c.houseId, c]));
+
+  const sized = (row: Record<string, unknown> | undefined) =>
+    Object.fromEntries(EGG_SIZES.map((s) => [s, Number(row?.[s] ?? 0)])) as Record<(typeof EGG_SIZES)[number], number>;
+
+  const rows = houseRows.map((h) => {
+    const graded = sized(byHouse.get(h.id));
+    const opening = prevOf.has(h.id) ? sized(prevOf.get(h.id)) : null;
+    const closing = countOf.has(h.id) ? sized(countOf.get(h.id)) : null;
+    // What left the shed: opening + graded − counted. Only meaningful once
+    // both ends of the day are known.
+    const lifted =
+      opening && closing
+        ? (Object.fromEntries(EGG_SIZES.map((s) => [s, opening[s] + graded[s] - closing[s]])) as Record<string, number>)
+        : null;
+    return {
       houseId: h.id,
       code: h.code,
       purpose: h.purpose,
-      boxes: Object.fromEntries(EGG_SIZES.map((s) => [s, byHouse.get(h.id)?.[s] ?? 0])),
+      boxes: graded,
       entered: byHouse.has(h.id),
-    })),
-    summary: await stockSummaryOn(on),
+      opening,
+      openingFrom: prevOf.get(h.id)?.countedOn ?? null,
+      closing,
+      counted: countOf.has(h.id),
+      lifted,
+    };
+  });
+
+  const summary = await stockSummaryOn(on);
+
+  /**
+   * The variance: the ledger's closing against the sum of the sheds' counts.
+   * Zero means the sheets, the bay and the rooms all agree; anything else is
+   * the day's question, and an adjustment's job to answer.
+   */
+  const countedTotal = rows.some((r) => r.counted)
+    ? (Object.fromEntries(
+        EGG_SIZES.map((s) => [s, rows.reduce((a, r) => a + (r.closing?.[s] ?? 0), 0)]),
+      ) as Record<string, number>)
+    : null;
+  const variance = countedTotal
+    ? (Object.fromEntries(EGG_SIZES.map((s) => [s, countedTotal[s]! - (summary[s]?.closing ?? 0)])) as Record<string, number>)
+    : null;
+
+  res.json({
+    date: on,
+    rows,
+    summary,
+    countedTotal,
+    variance,
     bands: {
       smallMaxKg: prefs.bandSmallMaxKg,
       mediumMaxKg: prefs.bandMediumMaxKg,
@@ -555,6 +610,41 @@ eggSalesRouter.get("/grading/:date", view, async (req, res) => {
     },
     stockFrom: prefs.stockFrom,
   });
+});
+
+const closingBody = z.object({
+  countedOn: dateStr,
+  rows: z
+    .array(
+      z.object({
+        houseId: z.string().uuid(),
+        boxes: z.object(
+          Object.fromEntries(EGG_SIZES.map((s) => [s, z.coerce.number().int().min(0).default(0)])) as Record<
+            (typeof EGG_SIZES)[number],
+            z.ZodDefault<z.ZodNumber>
+          >,
+        ),
+      }),
+    )
+    .min(1)
+    .max(50),
+});
+
+/** The evening count, saved in place. A count, not a stock movement. */
+eggSalesRouter.post("/closing", requirePermission("farms", "create"), validateBody(closingBody), async (req, res) => {
+  const b = req.body as z.infer<typeof closingBody>;
+  await db.transaction(async (tx) => {
+    for (const r of b.rows) {
+      await tx
+        .insert(eggHouseClosing)
+        .values({ houseId: r.houseId, countedOn: b.countedOn, ...r.boxes, recordedBy: req.session.user!.id })
+        .onConflictDoUpdate({
+          target: [eggHouseClosing.houseId, eggHouseClosing.countedOn],
+          set: { ...r.boxes, recordedBy: req.session.user!.id, updatedAt: new Date() },
+        });
+    }
+  });
+  res.status(201).json({ ok: true });
 });
 
 const gradingBody = z.object({

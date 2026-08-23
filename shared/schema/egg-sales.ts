@@ -230,6 +230,37 @@ export const eggGrading = pgTable(
   ],
 );
 
+/**
+ * The evening count, per shed — the one figure the ledger cannot derive.
+ * Recorded as a count, never written into stock by itself; a difference
+ * against the ledger is posted as an adjustment, where a difference belongs.
+ */
+export const eggHouseClosing = pgTable(
+  "egg_house_closing",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    countedOn: date("counted_on").notNull(),
+    houseId: uuid("house_id")
+      .notNull()
+      .references(() => houses.id),
+    small: integer("small").notNull().default(0),
+    medium: integer("medium").notNull().default(0),
+    large: integer("large").notNull().default(0),
+    xl: integer("xl").notNull().default(0),
+    jumbo: integer("jumbo").notNull().default(0),
+    dirty: integer("dirty").notNull().default(0),
+    recordedBy: uuid("recorded_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("uq_egg_house_closing_day").on(t.houseId, t.countedOn),
+    index("ix_egg_house_closing_day").on(t.countedOn),
+  ],
+);
+
 /** The stock item behind each size — data the service iterates, not code. */
 export const eggSizeItems = pgTable("egg_size_items", {
   size: varchar("size", { length: 10 }).primaryKey(),
