@@ -128,6 +128,95 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
 });
 
 /**
+ * Everything the controller says about one house RIGHT NOW, for the drawings.
+ *
+ * The board above answers "how is the farm"; this answers "show me the shed" —
+ * the per-probe temperatures the house drawing lays out, the 22 fan groups the
+ * fan wall lights up, the curtains and the cooling pump. All of it is already
+ * in `iot_readings`, because that table keeps every tag the controller
+ * reports; only the charted few get history, but "now" costs nothing.
+ */
+iotRouter.get("/house/:id/live", requirePermission("farms", "view"), async (req, res) => {
+  const rows = await db
+    .select()
+    .from(iotReadings)
+    .where(eq(iotReadings.houseId, req.params.id!));
+
+  /**
+   * One value per tag NAME, newest fetch wins.
+   *
+   * The same tag sits in this table twice — the live poll writes the full
+   * `category.subcategory.name` path and the backfill's wide rows write the
+   * bare name — and the two can disagree by hours. The reader wants the tag,
+   * not the spelling.
+   */
+  const newest = new Map<string, { value: string | null; at: Date }>();
+  for (const r of rows) {
+    const name = nameOf(r.tagId);
+    const held = newest.get(name);
+    if (!held || r.fetchedAt > held.at) newest.set(name, { value: r.value, at: r.fetchedAt });
+  }
+  const num = (name: string): number | null => {
+    const v = newest.get(name)?.value;
+    if (v == null || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  const str = (name: string): string | null => newest.get(name)?.value ?? null;
+  const metric = (spec: { total: string; lines: readonly string[] }) => {
+    const total = num(spec.total);
+    if (total != null) return total;
+    const parts = spec.lines.map(num).filter((x): x is number => x != null);
+    return parts.length ? parts.reduce((a, b) => a + b, 0) : null;
+  };
+
+  /** The 13 numbered probes the house drawing lays out. */
+  const temps: Record<string, number> = {};
+  for (let i = 1; i <= 13; i++) {
+    const id = String(i).padStart(2, "0");
+    const v = num(`温度${id}`);
+    if (v != null) temps[id] = v;
+  }
+
+  /** The controller reports each fan group as its own boolean-ish tag. */
+  const fanStatus: Record<string, boolean> = {};
+  for (let i = 1; i <= 22; i++) {
+    const id = String(i).padStart(2, "0");
+    const v = str(`风机组${id}`) ?? "";
+    fanStatus[id] = v === "1" || v.toLowerCase() === "true" || v.toLowerCase() === "on";
+  }
+
+  let fetchedAt: Date | null = null;
+  for (const { at } of newest.values()) {
+    if (!fetchedAt || at > fetchedAt) fetchedAt = at;
+  }
+
+  res.json({
+    temps,
+    fanStatus,
+    tempC: num(SINGLE_TAGS.tempC),
+    targetTempC: num(SINGLE_TAGS.targetTempC),
+    humidityPct: num(SINGLE_TAGS.humidityPct),
+    co2Ppm: num(SINGLE_TAGS.co2Ppm),
+    pressurePa: num(SINGLE_TAGS.pressurePa),
+    birdCount: num(SINGLE_TAGS.birdCount),
+    birdAgeDays: num(SINGLE_TAGS.birdAgeDays),
+    waterPerBirdMl: num(SINGLE_TAGS.waterPerBirdMl),
+    feedPerBirdG: num(SINGLE_TAGS.feedPerBirdG),
+    siloKg: metric(METRIC_TAGS.siloKg),
+    ventLevel: num("通风级别"),
+    ventMin: num("当前最小通风级别"),
+    ventMax: num("当前最大通风级别"),
+    airVolume: num("通风量"),
+    speedFanPct: num("调速风机"),
+    curtain1: num("幕帘1开启角度"),
+    curtain2: num("幕帘2开启角度"),
+    coolingPump: str("冷却水泵1"),
+    fetchedAt,
+  });
+});
+
+/**
  * A house's readings over a stretch of hours, for plotting.
  *
  * Capped at 14 days because the samples thin with age — past a week the rows

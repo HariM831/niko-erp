@@ -28,6 +28,7 @@ import {
   YAxis,
 } from "recharts";
 import { api } from "../api";
+import { FanWall, type LiveShed } from "../components/iot-widgets";
 
 /** recharts 3 types the tooltip callbacks tighter than these call sites want. */
 const Tooltip = RechartsTooltip as unknown as (props: Record<string, unknown>) => ReactElement;
@@ -84,6 +85,27 @@ export function ShedConditionsPage() {
   const [samples, setSamples] = useState<Sample[]>([]);
   const [houses, setHouses] = useState<BoardRow[]>([]);
   const [loading, setLoading] = useState(true);
+  /** The controller's picture of right now, for the fan wall. */
+  const [live, setLive] = useState<LiveShed | null>(null);
+
+  useEffect(() => {
+    if (!houseId) return;
+    let stop = false;
+    const load = () =>
+      api<LiveShed>(`/api/farms/iot/house/${houseId}/live`)
+        .then((d) => {
+          if (!stop) setLive(d.fetchedAt ? d : null);
+        })
+        .catch(() => {
+          if (!stop) setLive(null);
+        });
+    load();
+    const t = setInterval(load, 5 * 60_000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  }, [houseId]);
 
   useEffect(() => {
     api<{ board: BoardRow[] }>("/api/farms/iot/board")
@@ -278,6 +300,15 @@ export function ShedConditionsPage() {
               warn={gaps > 0}
             />
           </div>
+
+          {/* The fan wall — which groups are pushing air RIGHT NOW, laid out
+              as they physically hang. Live state, so it sits above the
+              history: "is the shed breathing" comes before "how did it go". */}
+          {live && (
+            <div className="mb-4">
+              <FanWall live={live} purpose={house?.purpose ?? "layer"} />
+            </div>
+          )}
 
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             <Panel

@@ -34,6 +34,8 @@ import {
  */
 const Tooltip = RechartsTooltip as unknown as (props: Record<string, unknown>) => ReactElement;
 import { getAgeRefStock, isBatchActive } from "@/lib/bird-batches";
+import { BhHouseCard, type LiveShed } from "@/components/iot-widgets";
+import { api } from "@/api";
 
 /** Whole calendar days between two dates. India keeps no daylight saving, so
  *  UTC arithmetic and local arithmetic agree. */
@@ -153,6 +155,8 @@ export function HouseDetailPage() {
   const [weights, setWeights] = useState<WeeklyWeight[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  /** What the shed's controller says right now, for the house drawing. */
+  const [live, setLive] = useState<LiveShed | null>(null);
   
   // Batch history for analytics (fetched but not used for filtering in shed view)
   const [batchHistory, setBatchHistory] = useState<{
@@ -413,6 +417,30 @@ export function HouseDetailPage() {
 
   useEffect(() => {
     fetchData();
+  }, [shedId]);
+
+  useEffect(() => {
+    // The controller's own picture, refreshed on the poller's cadence. A shed
+    // with no controller (or a dead API) simply shows no card.
+    if (!shedId) return;
+    let stop = false;
+    // The real HTTP helper, NOT apiRequest — apiRequest in this file is the
+    // adapter that translates the ported page's legacy URLs, and it would
+    // shred this one trying.
+    const load = () =>
+      api<LiveShed>(`/api/farms/iot/house/${shedId}/live`)
+        .then((d) => {
+          if (!stop) setLive(d.fetchedAt ? d : null);
+        })
+        .catch(() => {
+          if (!stop) setLive(null);
+        });
+    load();
+    const t = setInterval(load, 5 * 60_000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
   }, [shedId]);
 
   const availableBatches = useMemo(() => {
@@ -1075,6 +1103,15 @@ export function HouseDetailPage() {
                 data-testid="text-age"
               />
             </div>
+
+            {/* The bhfarm-style house drawing — the controller's own picture of
+                the shed, in the layout the staff already read on bhfarm.net.
+                Only when the shed has a reporting controller. */}
+            {live && (
+              <div className="mb-6 max-w-md">
+                <BhHouseCard name={shed.name} live={live} />
+              </div>
+            )}
 
             {chartData.length > 0 && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
