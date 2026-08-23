@@ -27,6 +27,7 @@ import {
   EGG_SIZES,
   ledgerAvailable,
   saveGrading,
+  settleCountAgainstLedger,
   sizeItems,
   stockBySize,
   supplyCascade,
@@ -630,21 +631,30 @@ const closingBody = z.object({
     .max(50),
 });
 
-/** The evening count, saved in place. A count, not a stock movement. */
+/**
+ * The evening count, saved in place — and then the ledger is brought to it.
+ * The count is what is on the shelves; the adjustment it posts is the record
+ * of the ledger having been wrong by that much.
+ */
 eggSalesRouter.post("/closing", requirePermission("farms", "create"), validateBody(closingBody), async (req, res) => {
   const b = req.body as z.infer<typeof closingBody>;
-  await db.transaction(async (tx) => {
-    for (const r of b.rows) {
-      await tx
-        .insert(eggHouseClosing)
-        .values({ houseId: r.houseId, countedOn: b.countedOn, ...r.boxes, recordedBy: req.session.user!.id })
-        .onConflictDoUpdate({
-          target: [eggHouseClosing.houseId, eggHouseClosing.countedOn],
-          set: { ...r.boxes, recordedBy: req.session.user!.id, updatedAt: new Date() },
-        });
-    }
-  });
-  res.status(201).json({ ok: true });
+  try {
+    const out = await db.transaction(async (tx) => {
+      for (const r of b.rows) {
+        await tx
+          .insert(eggHouseClosing)
+          .values({ houseId: r.houseId, countedOn: b.countedOn, ...r.boxes, recordedBy: req.session.user!.id })
+          .onConflictDoUpdate({
+            target: [eggHouseClosing.houseId, eggHouseClosing.countedOn],
+            set: { ...r.boxes, recordedBy: req.session.user!.id, updatedAt: new Date() },
+          });
+      }
+      return settleCountAgainstLedger(tx, b.countedOn, req.session.user!.id);
+    });
+    res.status(201).json(out);
+  } catch (err) {
+    if (!fail(err, res)) throw err;
+  }
 });
 
 const gradingBody = z.object({

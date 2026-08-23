@@ -70,7 +70,7 @@ export function EggGradingPage() {
   const [saved, setSaved] = useState(false);
   const [closingDraft, setClosingDraft] = useState<Record<string, Record<Size, string>>>({});
   const [savingClosing, setSavingClosing] = useState(false);
-  const [closingSaved, setClosingSaved] = useState(false);
+  const [closingSaved, setClosingSaved] = useState<string | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -104,7 +104,7 @@ export function EggGradingPage() {
   };
 
   const setClosing = (houseId: string, size: Size, v: string) => {
-    setClosingSaved(false);
+    setClosingSaved(null);
     setClosingDraft({ ...closingDraft, [houseId]: { ...closingDraft[houseId]!, [size]: v } });
   };
 
@@ -112,7 +112,7 @@ export function EggGradingPage() {
     setSavingClosing(true);
     setError(null);
     try {
-      await api("/api/sales/eggs/closing", {
+      const r = await api<{ adjustmentNumber: string | null }>("/api/sales/eggs/closing", {
         method: "POST",
         body: {
           countedOn: date,
@@ -122,7 +122,7 @@ export function EggGradingPage() {
           })),
         },
       });
-      setClosingSaved(true);
+      setClosingSaved(r.adjustmentNumber ? `saved · ledger adjusted by ${r.adjustmentNumber}` : "saved · ledger already agreed");
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save count");
@@ -357,11 +357,11 @@ export function EggGradingPage() {
           </div>
           <div className="mt-3 flex items-center justify-between">
             <p className="text-[11px] text-muted-foreground">
-              A count, not a stock movement. Where it disagrees with the ledger, post the difference as an
-              inventory adjustment — that is what the variance line is pointing at.
+              Saving the count brings the ledger to it: any difference posts as an inventory adjustment
+              dated today, so the correction is itself a record.
             </p>
             <div className="flex items-center gap-3">
-              {closingSaved && <span className="text-xs text-success">saved</span>}
+              {closingSaved && <span className="text-xs text-success">{closingSaved}</span>}
               <button
                 onClick={saveClosing}
                 disabled={savingClosing}

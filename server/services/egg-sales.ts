@@ -13,6 +13,7 @@
  */
 import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import {
+  accounts,
   contacts,
   creditNotes,
   customerPayments,
@@ -21,10 +22,13 @@ import {
   eggBenchmarkPrices,
   eggDispatches,
   eggGrading,
+  eggHouseClosing,
   eggSalesPreferences,
   eggSizeItems,
   eggSizeOffsets,
   eggSpotOrders,
+  inventoryAdjustmentLines,
+  inventoryAdjustments,
   inventoryTransactions,
   invoiceLines,
   invoices,
@@ -549,6 +553,90 @@ export async function netMovesByDay(tx: Conn, from: string): Promise<Map<string,
     .where(and(inArray(inventoryTransactions.itemId, ids), gte(inventoryTransactions.transactionDate, from)))
     .groupBy(inventoryTransactions.transactionDate);
   return new Map(rows.map((r) => [r.day, Number(r.q)]));
+}
+
+/**
+ * The evening count settles the ledger.
+ *
+ * Counted minus the ledger's closing, per size, posted as one inventory
+ * adjustment dated to the count. Each save posts only the REMAINING
+ * difference: the ledger after a first save equals the count, so saving the
+ * same count again posts nothing, and a corrected count posts just the
+ * correction — every adjustment on record is a real event, never a restatement.
+ *
+ * Quantity only. Graded eggs carry no cost in stock (grading writes value 0),
+ * so there is no rupee side and no journal; the write-off account is named
+ * on the document for the day one is needed.
+ */
+export async function settleCountAgainstLedger(
+  tx: Tx,
+  on: string,
+  userId: string,
+): Promise<{ adjustmentNumber: string | null; variance: Record<EggSize, number> }> {
+  const map = await sizeItems(tx);
+  const held = await stockBySize(tx);
+
+  // The ledger's closing on the day: stock now minus movements after it.
+  const closing = { ...held };
+  for (const s of EGG_SIZES) {
+    const [after] = await tx
+      .select({ q: sql<string>`coalesce(sum(${inventoryTransactions.quantity}), 0)` })
+      .from(inventoryTransactions)
+      .where(and(eq(inventoryTransactions.itemId, map.get(s)!), sql`${inventoryTransactions.transactionDate} > ${on}`));
+    closing[s] = held[s] - Number(after?.q ?? 0);
+  }
+
+  // The sum of the sheds' counts.
+  const counts = await tx.select().from(eggHouseClosing).where(eq(eggHouseClosing.countedOn, on));
+  const counted = Object.fromEntries(EGG_SIZES.map((s) => [s, counts.reduce((a, c) => a + c[s], 0)])) as Record<EggSize, number>;
+  const variance = Object.fromEntries(EGG_SIZES.map((s) => [s, counted[s] - closing[s]])) as Record<EggSize, number>;
+
+  const lines = EGG_SIZES.filter((s) => variance[s] !== 0);
+  if (!lines.length) return { adjustmentNumber: null, variance };
+
+  const [account] = await tx
+    .select({ id: accounts.id })
+    .from(accounts)
+    .where(eq(accounts.systemKey, "inventory_adjustment"));
+  if (!account) throw new PostingError("No inventory adjustment account is set up (system key inventory_adjustment)");
+
+  const number = await nextDocumentNumber(tx, "inventory_adjustment");
+  const [adj] = await tx
+    .insert(inventoryAdjustments)
+    .values({
+      number,
+      adjustmentDate: on,
+      mode: "quantity",
+      reason: `Egg count ${on}`,
+      description: `Evening count across the sheds against the ledger: ${lines
+        .map((s) => `${SIZE_LABEL[s]} ${variance[s] > 0 ? "+" : ""}${variance[s]}`)
+        .join(", ")}`,
+      adjustmentAccountId: account.id,
+      createdBy: userId,
+    })
+    .returning();
+  await tx.insert(inventoryAdjustmentLines).values(
+    lines.map((s, i) => ({
+      adjustmentId: adj!.id,
+      itemId: map.get(s)!,
+      quantityChange: variance[s].toFixed(3),
+      valueChange: "0.00",
+      notes: `${SIZE_LABEL[s]}: counted ${counted[s]}, ledger ${closing[s]}`,
+      lineOrder: i,
+    })),
+  );
+  await moveStock(tx, {
+    movements: lines.map((s) => ({
+      itemId: map.get(s)!,
+      quantity: variance[s].toFixed(3),
+      notes: `Count ${number}`,
+    })),
+    transactionDate: on,
+    sourceType: "inventory_adjustment",
+    sourceId: adj!.id,
+    stockLocationId: await mainStore(tx, null),
+  });
+  return { adjustmentNumber: number, variance };
 }
 
 /* ── The loading ─────────────────────────────────────────────────────────── */
