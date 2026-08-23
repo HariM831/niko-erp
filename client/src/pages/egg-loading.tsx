@@ -27,6 +27,7 @@ interface DayLine {
 
 interface DayData {
   stockBoxes: number | null;
+  stockBySize: Record<string, number> | null;
   lines: DayLine[];
   benchmark: { ratePerEgg: string; setFor: string } | null;
   offsets: Record<string, string> | null;
@@ -119,6 +120,13 @@ export function EggLoadingPage() {
           <span>
             In store: <strong className="tabular-nums">{data.stockBoxes.toLocaleString("en-IN")}</strong>{" "}
             <span className="text-muted-foreground">boxes</span>
+            {data.stockBySize && (
+              <span className="ml-2 text-xs text-muted-foreground tabular-nums">
+                {SIZES.filter((s) => (data.stockBySize?.[s] ?? 0) > 0)
+                  .map((s) => `${SIZE_LABEL[s]} ${(data.stockBySize?.[s] ?? 0).toLocaleString("en-IN")}`)
+                  .join(" · ")}
+              </span>
+            )}
           </span>
           {(() => {
             const dueBoxes = (data.lines ?? [])
@@ -285,6 +293,8 @@ function LoadDialog({
   }, [customerId]);
 
   const totalBoxes = SIZES.reduce((a, s) => a + (Number(qty[s]) || 0), 0);
+  /** A size loaded beyond what the pile holds — the server refuses; say so first. */
+  const overStock = SIZES.filter((s) => (Number(qty[s]) || 0) > (data.stockBySize?.[s] ?? Infinity));
 
   /** What this loading will come to, computed the same way the server will. */
   const estimate = useMemo(() => {
@@ -381,6 +391,12 @@ function LoadDialog({
           ))}
         </div>
 
+        {overStock.length > 0 && (
+          <p className="mb-2 text-xs text-destructive">
+            Not enough in store: {overStock.map((s) => `${SIZE_LABEL[s]} has ${data.stockBySize?.[s] ?? 0}`).join(", ")}
+          </p>
+        )}
+
         {line && deviation !== null && (
           <p className={`mb-2 text-xs ${Math.abs(deviation) > 10 ? "text-warning" : "text-muted-foreground"}`}>
             {totalBoxes} against {line.boxes} committed ({deviation > 0 ? "+" : ""}
@@ -427,6 +443,7 @@ function LoadDialog({
               totalBoxes <= 0 ||
               !driver ||
               !vehicle ||
+              overStock.length > 0 ||
               (available != null && estimate != null && estimate > available)
             }
             className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"

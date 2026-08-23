@@ -5,8 +5,9 @@
  * the exceptions and the spot orders when the month is asked for, so an
  * agreement edited a minute ago is already right for every day shown.
  *
- * Committed vs expected: expected production is the average of the last seven
- * day-end records for future days, and the actual record for past ones.
+ * Committed vs supply: supply is yesterday's closing stock plus the day's
+ * graded boxes (the seven-day average until the sheet is in), carried forward
+ * day to day — what can actually be sold, not just what the sheds lay.
  */
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
@@ -21,7 +22,10 @@ interface CalDay {
   skipped: number;
   dispatched: number;
   production: number | null;
-  expected: number | null;
+  graded: boolean;
+  opening: number | null;
+  supply: number | null;
+  closing: number | null;
   benchmark: string | null;
 }
 
@@ -74,8 +78,8 @@ export function EggCalendarPage() {
         <div>
           <h1 className="text-2xl font-semibold">Egg calendar</h1>
           <p className="text-sm text-muted-foreground">
-            Boxes committed against production. Derived live — edit an agreement and every day
-            already agrees.
+            Boxes committed against what can be sold — the shelf plus the day's grading, carried
+            day to day. Derived live; edit an agreement and every day already agrees.
           </p>
         </div>
         <div className="flex items-center gap-1">
@@ -103,7 +107,10 @@ export function EggCalendarPage() {
               <div key={`pad-${i}`} />
             ))}
             {days.map((d) => {
-              const supply = d.production ?? d.expected;
+              /* Supply is the shelf plus the lay: yesterday's closing carried
+                 in, plus the day's graded boxes (or the seven-day average
+                 until the sheet is in). */
+              const supply = d.supply;
               const past = d.date < today;
               /* The colour is the day's headroom: committed within supply is
                  fine, near it is amber, over it is a promise the sheds cannot
@@ -132,10 +139,20 @@ export function EggCalendarPage() {
                     )}
                   </div>
                   {d.committed > 0 && (
-                    <div className="mt-0.5 text-[11px] leading-tight">
+                    <div
+                      className="mt-0.5 text-[11px] leading-tight"
+                      title={
+                        supply != null
+                          ? `${d.opening ?? 0} on the shelf + ${d.production ?? 0} ${d.graded ? "graded" : "expected"} = ${supply}; ${d.closing ?? 0} left after orders`
+                          : undefined
+                      }
+                    >
                       <span className="font-medium tabular-nums">{d.committed}</span>
                       <span className="text-muted-foreground"> / {supply ?? "?"} boxes</span>
                     </div>
+                  )}
+                  {d.committed === 0 && !past && d.closing != null && (
+                    <div className="mt-0.5 text-[10px] text-muted-foreground">{d.closing} on shelf</div>
                   )}
                   {d.dispatched > 0 && (
                     <div className="text-[10px] text-success">↑ {d.dispatched} loaded</div>
@@ -149,8 +166,9 @@ export function EggCalendarPage() {
             })}
           </div>
           <p className="mt-2 text-[11px] text-muted-foreground">
-            The denominator is the day's own production record where one exists, else the
-            seven-day average. An amber dot means no benchmark is set for that day yet.
+            The denominator is what can actually be sold: yesterday's closing stock plus the day's
+            graded boxes (the seven-day average until the sheet is in), carried day to day. Hover
+            a day for the breakdown. An amber dot means no benchmark is set for that day yet.
           </p>
         </div>
       )}

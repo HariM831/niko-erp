@@ -119,6 +119,9 @@ const NAV: NavItem[] = [
          lives in, so it is made and listed on its own screen. Houses report
          what they happen to be holding. */
       { label: "Batches", path: "/farms/batches" },
+      /* The packing room's day sheet: graded boxes per shed per size. Stock
+         is one pool per size; the shed is a fact about the entry only. */
+      { label: "Egg stock", path: "/farms/egg-stock" },
       /* Two of the sheds belong to Nandamuri and two to Luit, so feed, pullets
          and eggs are a trade between companies rather than an internal move. */
       { label: "Owner billing", path: "/farms/owner-billing" },

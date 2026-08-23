@@ -20,11 +20,15 @@ import {
   eggAgreements,
   eggBenchmarkPrices,
   eggDispatches,
+  eggGrading,
   eggSalesPreferences,
+  eggSizeItems,
   eggSizeOffsets,
   eggSpotOrders,
+  inventoryTransactions,
   invoiceLines,
   invoices,
+  items,
   paymentApplications,
   placementDays,
   users,
@@ -296,45 +300,155 @@ export async function actualBoxesOn(tx: Conn, from: string, to: string) {
   return new Map(rows.map((r) => [r.day, Math.round(Number(r.eggs) / prefs.eggsPerBox)]));
 }
 
-/* ── Egg stock ─────────────────────────────────────────────────────────────
+/* ── Egg stock, by size ────────────────────────────────────────────────────
  *
- * The store's egg count follows the same ledger as everything else:
- * +eggs when the day-end production record is saved, −eggs when a dispatch is
- * invoiced. Production before prefs.stockFrom writes nothing — that history
- * has no matching sales and would pile up a phantom mountain.
+ * ONE pool per size at the farm store. Production is recorded per shed
+ * (the sheet says which shed laid what) but every box lands in the pool, and
+ * a sale draws from the pool — the truck takes 1,434 Large from the pile, not
+ * from L3. Stock by size = the item's opening balance + every movement, the
+ * same rule as everything else; closing stock is never keyed.
  */
 
+/** size → stock item, read once per call site. */
+export async function sizeItems(tx: Conn): Promise<Map<EggSize, string>> {
+  const rows = await tx.select().from(eggSizeItems);
+  return new Map(rows.map((r) => [r.size as EggSize, r.itemId]));
+}
+
+/** Boxes on hand per size, right now. */
+export async function stockBySize(tx: Conn): Promise<Record<EggSize, number>> {
+  const map = await sizeItems(tx);
+  const out = Object.fromEntries(EGG_SIZES.map((s) => [s, 0])) as Record<EggSize, number>;
+  for (const [size, itemId] of map) {
+    const [it] = await tx.select({ opening: items.openingStock }).from(items).where(eq(items.id, itemId));
+    const [moved] = await tx
+      .select({ q: sql<string>`coalesce(sum(${inventoryTransactions.quantity}), 0)` })
+      .from(inventoryTransactions)
+      .where(eq(inventoryTransactions.itemId, itemId));
+    out[size] = Number(it?.opening ?? 0) + Number(moved?.q ?? 0);
+  }
+  return out;
+}
+
+export interface GradingInput {
+  houseId: string;
+  gradedOn: string;
+  boxes: Partial<Record<EggSize, number>>;
+}
+
 /**
- * Re-state one house-day's production in the stock ledger.
+ * Save one shed-day of grading and re-state its stock movement.
  *
- * Delete-and-rewrite rather than insert, because the day's record is itself
- * saved that way: correcting eggs from 4,100 to 4,010 must correct the stock
- * movement, not add a second one.
+ * Delete-and-rewrite, because the sheet is corrected in place: 486 Large
+ * amended to 468 must correct the movement, not add a second one. Stock moves
+ * only from `stockFrom` — the same cutover rule as everywhere else.
  */
-export async function syncEggProduction(
-  tx: Tx,
-  placementId: string,
-  day: string,
-  eggsTotal: number | null,
-): Promise<void> {
+export async function saveGrading(tx: Tx, input: GradingInput, userId: string) {
   const prefs = await eggPrefs(tx);
-  if (day < prefs.stockFrom || !prefs.eggItemId) return;
+  const qty = (s: EggSize) => Math.max(0, Math.trunc(input.boxes[s] ?? 0));
+
+  const [row] = await tx
+    .insert(eggGrading)
+    .values({
+      houseId: input.houseId,
+      gradedOn: input.gradedOn,
+      small: qty("small"),
+      medium: qty("medium"),
+      large: qty("large"),
+      xl: qty("xl"),
+      jumbo: qty("jumbo"),
+      dirty: qty("dirty"),
+      recordedBy: userId,
+    })
+    .onConflictDoUpdate({
+      target: [eggGrading.houseId, eggGrading.gradedOn],
+      set: {
+        small: qty("small"),
+        medium: qty("medium"),
+        large: qty("large"),
+        xl: qty("xl"),
+        jumbo: qty("jumbo"),
+        dirty: qty("dirty"),
+        recordedBy: userId,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+
+  if (input.gradedOn < prefs.stockFrom) return row!;
 
   await tx.execute(sql`
     DELETE FROM inventory_transactions
-    WHERE source_type = 'egg_production'
-      AND source_id = ${placementId}::uuid
-      AND transaction_date = ${day}
+    WHERE source_type = 'egg_grading'
+      AND source_id = ${input.houseId}::uuid
+      AND transaction_date = ${input.gradedOn}
   `);
-  if (!eggsTotal || eggsTotal <= 0) return;
+  const map = await sizeItems(tx);
+  const movements = EGG_SIZES.filter((s) => qty(s) > 0).map((s) => ({
+    itemId: map.get(s)!,
+    quantity: qty(s).toFixed(3),
+  }));
+  if (movements.length) {
+    await moveStock(tx, {
+      movements,
+      transactionDate: input.gradedOn,
+      sourceType: "egg_grading",
+      sourceId: input.houseId,
+      stockLocationId: await mainStore(tx, null),
+    });
+  }
+  return row!;
+}
 
-  await moveStock(tx, {
-    movements: [{ itemId: prefs.eggItemId, quantity: eggsTotal.toFixed(3) }],
-    transactionDate: day,
-    sourceType: "egg_production",
-    sourceId: placementId,
-    stockLocationId: await mainStore(tx, null),
-  });
+/** Boxes graded per day, total across sheds, for the days that have a sheet. */
+export async function gradedBoxesByDay(tx: Conn, from: string, to: string) {
+  const rows = await tx
+    .select({
+      day: eggGrading.gradedOn,
+      boxes: sql<string>`sum(${eggGrading.small} + ${eggGrading.medium} + ${eggGrading.large} + ${eggGrading.xl} + ${eggGrading.jumbo} + ${eggGrading.dirty})`,
+    })
+    .from(eggGrading)
+    .where(and(gte(eggGrading.gradedOn, from), lte(eggGrading.gradedOn, to)))
+    .groupBy(eggGrading.gradedOn);
+  return new Map(rows.map((r) => [r.day, Number(r.boxes)]));
+}
+
+/**
+ * Expected boxes per day: the average of the last seven graded days. Falls
+ * back to the bird record's lay (÷ eggs per box) while no sheet exists yet,
+ * so the calendar has a denominator from day one.
+ */
+export async function expectedGradedBoxesPerDay(tx: Conn): Promise<number | null> {
+  const rows = await tx
+    .select({
+      day: eggGrading.gradedOn,
+      boxes: sql<string>`sum(${eggGrading.small} + ${eggGrading.medium} + ${eggGrading.large} + ${eggGrading.xl} + ${eggGrading.jumbo} + ${eggGrading.dirty})`,
+    })
+    .from(eggGrading)
+    .groupBy(eggGrading.gradedOn)
+    .orderBy(desc(eggGrading.gradedOn))
+    .limit(7);
+  if (!rows.length) return expectedBoxesPerDay(tx);
+  return Math.round(rows.reduce((a, r) => a + Number(r.boxes), 0) / rows.length);
+}
+
+/**
+ * Net stock movement per day across all sizes, so a past day's opening can
+ * be rebuilt from the ledger: opening(d) = stock now − Σ movements on/after d.
+ */
+export async function netMovesByDay(tx: Conn, from: string): Promise<Map<string, number>> {
+  const map = await sizeItems(tx);
+  const ids = [...map.values()];
+  if (!ids.length) return new Map();
+  const rows = await tx
+    .select({
+      day: inventoryTransactions.transactionDate,
+      q: sql<string>`sum(${inventoryTransactions.quantity})`,
+    })
+    .from(inventoryTransactions)
+    .where(and(inArray(inventoryTransactions.itemId, ids), gte(inventoryTransactions.transactionDate, from)))
+    .groupBy(inventoryTransactions.transactionDate);
+  return new Map(rows.map((r) => [r.day, Number(r.q)]));
 }
 
 /* ── The loading ─────────────────────────────────────────────────────────── */
@@ -453,8 +567,23 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
   const perEgg = (s: EggSize) => Number(bm.ratePerEgg) + Number(offsets?.[s] ?? 0) + spread;
 
   const customer = await loadCustomer(tx, input.customerId);
+  const map = await sizeItems(tx);
+
+  /**
+   * A truck cannot take boxes that are not on the pile. Checked per size
+   * against the pooled stock, before any paper is raised.
+   */
+  const held = await stockBySize(tx);
+  for (const s of EGG_SIZES) {
+    if (qty(s) > held[s]) {
+      throw new PostingError(
+        `Only ${held[s].toLocaleString("en-IN")} ${SIZE_LABEL[s]} box(es) in store — cannot load ${qty(s)}`,
+      );
+    }
+  }
+
   const docLines: DocLineInput[] = EGG_SIZES.filter((s) => qty(s) > 0).map((s) => ({
-    itemId: prefs.eggItemId ?? undefined,
+    itemId: map.get(s),
     name: `Eggs — ${SIZE_LABEL[s]} (${qty(s)} box × ${prefs.eggsPerBox})`,
     quantity: String(qty(s) * prefs.eggsPerBox),
     unit: "eggs",
@@ -539,22 +668,19 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
     .returning();
 
   /**
-   * Stock: the eggs leave the farm store, tied to the invoice so the invoice
+   * Stock: the boxes leave the pool, size by size, tied to the invoice so the
    * void path can find and reverse them. Only once stock has begun counting —
    * a dispatch before stockFrom (backdated paperwork) moves no stock, same as
-   * production before it wrote none.
+   * grading before it wrote none.
    */
-  if (prefs.eggItemId && input.dispatchDate >= prefs.stockFrom) {
-    const totalEggs = totalBoxes * prefs.eggsPerBox;
+  if (input.dispatchDate >= prefs.stockFrom) {
     await moveStock(tx, {
-      movements: [
-        {
-          itemId: prefs.eggItemId,
-          quantity: `-${totalEggs.toFixed(3)}`,
-          value: `-${totals.subTotal}`,
-          notes: `Invoice ${number}`,
-        },
-      ],
+      movements: EGG_SIZES.filter((s) => qty(s) > 0).map((s) => ({
+        itemId: map.get(s)!,
+        quantity: `-${qty(s).toFixed(3)}`,
+        value: `-${(qty(s) * prefs.eggsPerBox * perEgg(s)).toFixed(2)}`,
+        notes: `Invoice ${number}`,
+      })),
       transactionDate: input.dispatchDate,
       sourceType: "invoice",
       sourceId: inv!.id,

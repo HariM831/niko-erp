@@ -27,6 +27,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { users } from "./auth";
 import { contacts } from "./contacts";
+import { houses } from "./farms";
 import { items } from "./items";
 import { invoices } from "./sales";
 
@@ -180,7 +181,52 @@ export const eggDispatches = pgTable(
 export const eggSalesPreferences = pgTable("egg_sales_preferences", {
   id: boolean("id").primaryKey().default(true),
   eggsPerBox: integer("eggs_per_box").notNull().default(210),
+  /** Retired placeholder (the ungraded item). Kept nullable for history. */
   eggItemId: uuid("egg_item_id").references(() => items.id),
-  /** Production on/after this date writes egg stock; before it is history. */
+  /** Grading on/after this date writes egg stock; before it is history. */
   stockFrom: date("stock_from").notNull(),
+  /** The kg-per-box bands the grader sorts by; XL is above the large band. */
+  bandSmallMaxKg: numeric("band_small_max_kg", { precision: 5, scale: 2 }).notNull().default("10.5"),
+  bandMediumMaxKg: numeric("band_medium_max_kg", { precision: 5, scale: 2 }).notNull().default("12"),
+  bandLargeMaxKg: numeric("band_large_max_kg", { precision: 5, scale: 2 }).notNull().default("13.5"),
+});
+
+/**
+ * The Production Report half of the day sheet: graded boxes per shed per
+ * size. Entered per shed because the sheet says which shed laid what; the
+ * stock it produces is ONE pool per size — a sale is never per shed.
+ */
+export const eggGrading = pgTable(
+  "egg_grading",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    gradedOn: date("graded_on").notNull(),
+    houseId: uuid("house_id")
+      .notNull()
+      .references(() => houses.id),
+    small: integer("small").notNull().default(0),
+    medium: integer("medium").notNull().default(0),
+    large: integer("large").notNull().default(0),
+    xl: integer("xl").notNull().default(0),
+    jumbo: integer("jumbo").notNull().default(0),
+    dirty: integer("dirty").notNull().default(0),
+    recordedBy: uuid("recorded_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("uq_egg_grading_house_day").on(t.houseId, t.gradedOn),
+    index("ix_egg_grading_day").on(t.gradedOn),
+  ],
+);
+
+/** The stock item behind each size — data the service iterates, not code. */
+export const eggSizeItems = pgTable("egg_size_items", {
+  size: varchar("size", { length: 10 }).primaryKey(),
+  itemId: uuid("item_id")
+    .notNull()
+    .unique()
+    .references(() => items.id),
 });

@@ -21,6 +21,7 @@ import { EggAgreementsPage } from "./pages/egg-agreements";
 import { EggCalendarPage } from "./pages/egg-calendar";
 import { EggBenchmarkPage } from "./pages/egg-benchmark";
 import { EggLoadingPage } from "./pages/egg-loading";
+import { EggGradingPage } from "./pages/egg-grading";
 import { HouseDetailPage } from "./pages/house-detail";
 import { FlockDetailPage } from "./pages/flock-detail";
 import {
@@ -190,6 +191,7 @@ export function App() {
         <Route path="/farms/owner-billing" component={OwnerBillingPage} />
         <Route path="/farms/store" component={FarmStorePage} />
         <Route path="/farms/dr-eggsy" component={DrEggsyPage} />
+        <Route path="/farms/egg-stock" component={EggGradingPage} />
         <Route path="/farms" component={FarmsHousesPage} />
         <Route path="/farms/batches" component={FarmsBatchesPage} />
         {/* The Houses screen moved up to /farms; keep the old path working. */}

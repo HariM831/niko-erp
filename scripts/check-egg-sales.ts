@@ -13,7 +13,8 @@
  *              invoice void → due again → re-loadable
  *   loading:   no benchmark / zero qty / both sources / double-load / skipped
  *              day / walk-in creating its own spot order
- *   stock:     out on invoice, back on void, exact to the egg
+ *   stock:     graded in per shed per size (re-save corrects), out on invoice
+ *              per size, back on void, never below the pile
  *   schedule:  weekdays honoured; pause and end-date honoured
  *
  * Run: npx tsx scripts/check-egg-sales.ts
@@ -27,6 +28,7 @@ import {
   eggBenchmarkPrices,
   eggSizeOffsets,
   eggSpotOrders,
+  houses,
   inventoryTransactions,
   invoices,
 } from "@shared/schema";
@@ -36,6 +38,8 @@ import {
   eggPrefs,
   ledgerAvailable,
   loadAndInvoice,
+  saveGrading,
+  stockBySize,
   unapplyInvoicePayments,
   voidDispatchForInvoice,
 } from "../server/services/egg-sales";
@@ -113,7 +117,7 @@ try {
     if (!customer) throw new Error("could not make the scratch customer");
     const uid = user.id;
     const prefs = await eggPrefs(tx);
-    if (!prefs.eggItemId) throw new Error("egg item missing");
+    void prefs;
 
     // Its own days, far enough out to collide with nothing anyone booked.
     const MON = "2026-12-07"; //  a Monday
@@ -127,22 +131,29 @@ try {
       .values({ effectiveFrom: MON, small: "-0.5000", large: "0.5000", createdBy: uid })
       .onConflictDoNothing();
 
-    // Stock to sell: a production-style receipt so loads have something to draw on.
-    await moveStock(tx, {
-      movements: [{ itemId: prefs.eggItemId, quantity: "100000.000" }],
-      transactionDate: MON,
-      sourceType: "egg_production",
-      sourceId: customer.id, // any uuid; rolled back with everything else
-      stockLocationId: (await tx.execute(sql`SELECT id FROM stock_locations WHERE kind='main' LIMIT 1`)).rows[0]!.id as string,
-    });
+    /* ══ Stock: the grading sheet, per size ═════════════════════════════ */
+    //
+    // Stock comes from the packing room's sheet, per shed per size, pooled
+    // per size. A re-saved sheet must CORRECT its movement, not add one.
+    const [anyHouse] = await tx.select({ id: houses.id }).from(houses).limit(1);
+    if (!anyHouse) throw new Error("no house to grade against");
+    const pileBefore = await stockBySize(tx);
+    await saveGrading(tx, { houseId: anyHouse.id, gradedOn: MON, boxes: { small: 50, large: 300 } }, uid);
+    let held = await stockBySize(tx);
+    ok("grading raises the pool per size", held.small === pileBefore.small + 50 && held.large === pileBefore.large + 300, `+50 S, +300 L`);
+    await saveGrading(tx, { houseId: anyHouse.id, gradedOn: MON, boxes: { small: 40, large: 300 } }, uid);
+    held = await stockBySize(tx);
+    ok("re-saving the sheet corrects, never doubles", held.small === pileBefore.small + 40, `small ${held.small - pileBefore.small} over start (40, not 90)`);
+    await saveGrading(tx, { houseId: anyHouse.id, gradedOn: MON, boxes: { small: 40, large: 300, medium: 20 } }, uid);
+    held = await stockBySize(tx);
+    ok("a size added later lands too", held.medium === pileBefore.medium + 20);
+
     const stock = async () => {
-      const [r] = await tx
-        .select({ q: sql<string>`coalesce(sum(${inventoryTransactions.quantity}),0)` })
-        .from(inventoryTransactions)
-        .where(eq(inventoryTransactions.itemId, prefs.eggItemId!));
-      return Number(r!.q);
+      const h = await stockBySize(tx);
+      return h.small + h.medium + h.large + h.xl + h.jumbo + h.dirty;
     };
     const stockAtStart = await stock();
+    const stockBefore = { ...held };
 
     /** Money into the customer's ledger — the payment that lets trucks load. */
     let paySeq = 0;
@@ -239,7 +250,12 @@ try {
       inv1!.status === "paid" && Number(inv1!.balanceDue) === 0,
       `${inv1!.status}, due ₹${inv1!.balanceDue}`,
     );
-    ok("stock fell by exactly the eggs loaded", (await stock()) === stockAtStart - 70 * 210, `−${70 * 210}`);
+    ok("stock fell by exactly the boxes loaded", (await stock()) === stockAtStart - 70, `−70 boxes`);
+    held = await stockBySize(tx);
+    ok("and by size", held.small === stockBefore.small - 10 && held.large === stockBefore.large - 60, `S −10, L −60`);
+    await refuses("loading more of a size than the pile holds → refused", () =>
+      loadAndInvoice(tx, { dispatchDate: TUE, customerId: customer.id, loaded: { jumbo: held.jumbo + 1 }, driverName: "T", vehicleNumber: "V" }, uid),
+    );
     ok(
       "the load consumed ledger headroom",
       Math.abs((await ledgerAvailable(tx, customer.id)) - (20_01_000 - Number(inv1!.total))) < 0.01,
@@ -263,7 +279,7 @@ try {
 
     /* ══ 6. Void the invoice: the whole day unwinds ══════════════════════ */
     await voidInvoice(tx, r1.invoiceId, MON, uid);
-    ok("stock came back to the egg", (await stock()) === stockAtStart);
+    ok("stock came back to the box, per size", (await stock()) === stockAtStart && (await stockBySize(tx)).small === stockBefore.small);
     ok("the void gave the ledger its headroom back", (await ledgerAvailable(tx, customer.id)) === 20_01_000);
     lines = await dayOrders(tx, MON);
     ok("the day derives back to due", mine(lines)[0]!.dispatch === null);

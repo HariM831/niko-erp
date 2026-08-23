@@ -8,6 +8,8 @@ import { z } from "zod";
 import {
   contacts,
   eggAgreementExceptions,
+  eggGrading,
+  houses,
   inventoryTransactions,
   eggAgreements,
   eggBenchmarkPrices,
@@ -22,13 +24,17 @@ import { validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
 import {
   EGG_SIZES,
-  actualBoxesOn,
+  expectedGradedBoxesPerDay,
+  gradedBoxesByDay,
   ledgerAvailable,
+  netMovesByDay,
+  saveGrading,
+  sizeItems,
+  stockBySize,
   benchmarkHistory,
   benchmarkOn,
   dayOrders,
   eggPrefs,
-  expectedBoxesPerDay,
   loadAndInvoice,
   sizeOffsetsOn,
 } from "../services/egg-sales";
@@ -357,11 +363,34 @@ eggSalesRouter.get("/calendar/:month", view, async (req, res) => {
   const dayStr = (d: number) => `${m[1]}-${m[2]}-${String(d).padStart(2, "0")}`;
   const from = dayStr(1);
   const to = dayStr(daysInMonth);
+  const today = new Date().toISOString().slice(0, 10);
 
-  // Actual production for the days that have records; the rolling average
-  // stands in for the days that do not (today included, until it is entered).
-  const actual = await actualBoxesOn(db, from, to);
-  const expected = await expectedBoxesPerDay(db);
+  /**
+   * What can actually be sold on a day is the shelf PLUS the lay, and the
+   * shelf is yesterday's closing. So supply is a cascade, not a per-day
+   * figure:
+   *
+   *   opening(d)  = closing(d−1)
+   *   supply(d)   = opening(d) + production(d)     production = graded sheet
+   *                                                 where one exists, else the
+   *                                                 seven-day average
+   *   closing(d)  = supply(d) − committed(d)       assuming orders load
+   *
+   * Past days rebuild their opening from the ledger (stock now − movements
+   * since); today's opening is the same arithmetic; tomorrow's is projected.
+   */
+  const graded = await gradedBoxesByDay(db, from, to);
+  const expected = await expectedGradedBoxesPerDay(db);
+  const held = await stockBySize(db);
+  const stockNow = EGG_SIZES.reduce((a, s) => a + held[s], 0);
+  const moves = await netMovesByDay(db, from);
+
+  // opening(d) for d ≤ today: stock now minus every movement dated on/after d.
+  const openingFromLedger = (on: string) => {
+    let sinceP = 0;
+    for (const [day, q] of moves) if (day >= on) sinceP += q;
+    return stockNow - sinceP;
+  };
 
   const benchmarks = await db
     .select({ effectiveFrom: eggBenchmarkPrices.effectiveFrom, ratePerEgg: eggBenchmarkPrices.ratePerEgg })
@@ -370,6 +399,7 @@ eggSalesRouter.get("/calendar/:month", view, async (req, res) => {
   const bmOf = new Map(benchmarks.map((b) => [b.effectiveFrom, b.ratePerEgg]));
 
   const days = [];
+  let carried: number | null = null; // closing of the previous projected day
   for (let d = 1; d <= daysInMonth; d++) {
     const on = dayStr(d);
     const lines = await dayOrders(db, on);
@@ -381,19 +411,32 @@ eggSalesRouter.get("/calendar/:month", view, async (req, res) => {
       .reduce((a, l) => a + l.boxes, 0);
     const spot = lines.filter((l) => l.kind === "spot" && !l.voided).reduce((a, l) => a + l.boxes, 0);
     const dispatched = lines.reduce((a, l) => a + (l.dispatch?.loadedBoxes ?? 0), 0);
+    const committed = standing + overridden + spot;
+
+    const production = graded.get(on) ?? (on >= today ? expected : null);
+    const opening: number | null = on <= today ? openingFromLedger(on) : carried;
+    const supply: number | null = opening != null && production != null ? opening + production : null;
+    // Committed already counts the loaded lines (a dispatch answers its line,
+    // a walk-in books its own spot), so this is right for past days too.
+    const closing: number | null = supply != null ? supply - committed : null;
+    carried = closing;
+
     days.push({
       date: on,
-      committed: standing + overridden + spot,
+      committed,
       standing: standing + overridden,
       spot,
       skipped: lines.filter((l) => l.exception?.kind === "skip").length,
       dispatched,
-      production: actual.get(on) ?? null,
-      expected,
+      production,
+      graded: graded.has(on),
+      opening,
+      supply,
+      closing,
       benchmark: bmOf.get(on) ?? null,
     });
   }
-  res.json({ days, expected });
+  res.json({ days, expected, stockNow });
 });
 
 /** One day's order book, fully resolved — the calendar's drill-down. */
@@ -407,22 +450,12 @@ eggSalesRouter.get("/day/:date", view, async (req, res) => {
     eggPrefs(db),
   ]);
 
-  /**
-   * What the store holds right now, in boxes — the bay's own headroom figure.
-   * Summed from the ledger like every stock number: production in, invoices
-   * out, voids back.
-   */
-  let stockBoxes: number | null = null;
-  if (prefs.eggItemId) {
-    const [held] = await db
-      .select({ eggs: sql<string>`coalesce(sum(${inventoryTransactions.quantity}), 0)` })
-      .from(inventoryTransactions)
-      .where(eq(inventoryTransactions.itemId, prefs.eggItemId));
-    stockBoxes = Math.floor(Number(held?.eggs ?? 0) / prefs.eggsPerBox);
-  }
+  /** What the pile holds right now, by size — the bay's own headroom. */
+  const held = await stockBySize(db);
 
   res.json({
-    stockBoxes,
+    stockBySize: held,
+    stockBoxes: EGG_SIZES.reduce((a, s) => a + held[s], 0),
     date: on,
     lines,
     benchmark: bm ? { ratePerEgg: bm.ratePerEgg, setFor: bm.effectiveFrom } : null,
@@ -441,6 +474,106 @@ eggSalesRouter.get("/customers", view, async (_req, res) => {
     .where(and(sql`${contacts.type} IN ('customer', 'both')`, eq(contacts.isActive, true)))
     .orderBy(asc(contacts.displayName));
   res.json({ customers: rows });
+});
+
+/* ── Grading: the day sheet ──────────────────────────────────────────────── */
+
+/** Per-size movement on one day, split the way the sheet splits it. */
+async function stockSummaryOn(on: string) {
+  const map = await sizeItems(db);
+  const held = await stockBySize(db);
+  const out: Record<string, { opening: number; production: number; sales: number; other: number; closing: number }> = {};
+  for (const s of EGG_SIZES) {
+    const itemId = map.get(s)!;
+    const rows = await db
+      .select({
+        day: inventoryTransactions.transactionDate,
+        source: inventoryTransactions.sourceType,
+        q: sql<string>`sum(${inventoryTransactions.quantity})`,
+      })
+      .from(inventoryTransactions)
+      .where(and(eq(inventoryTransactions.itemId, itemId), gte(inventoryTransactions.transactionDate, on)))
+      .groupBy(inventoryTransactions.transactionDate, inventoryTransactions.sourceType);
+    let since = 0;
+    let production = 0;
+    let sales = 0;
+    let other = 0;
+    for (const r of rows) {
+      const q = Number(r.q);
+      since += q;
+      if (r.day !== on) continue;
+      if (r.source === "egg_grading") production += q;
+      else if (r.source === "invoice" || r.source === "invoice_void") sales -= q;
+      else other += q;
+    }
+    const opening = held[s] - since;
+    out[s] = { opening, production, sales, other, closing: opening + production - sales + other };
+  }
+  return out;
+}
+
+/** The sheet for one day: every laying house, what was graded, and the stock summary. */
+eggSalesRouter.get("/grading/:date", view, async (req, res) => {
+  const on = req.params.date!;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(on)) return res.status(400).json({ error: "Bad date" });
+  const prefs = await eggPrefs(db);
+  const houseRows = await db
+    .select({ id: houses.id, code: houses.code, purpose: houses.purpose })
+    .from(houses)
+    .where(sql`${houses.isActive}`)
+    .orderBy(houses.displayOrder, houses.code);
+  const entries = await db.select().from(eggGrading).where(eq(eggGrading.gradedOn, on));
+  const byHouse = new Map(entries.map((e) => [e.houseId, e]));
+  res.json({
+    date: on,
+    rows: houseRows.map((h) => ({
+      houseId: h.id,
+      code: h.code,
+      purpose: h.purpose,
+      boxes: Object.fromEntries(EGG_SIZES.map((s) => [s, byHouse.get(h.id)?.[s] ?? 0])),
+      entered: byHouse.has(h.id),
+    })),
+    summary: await stockSummaryOn(on),
+    bands: {
+      smallMaxKg: prefs.bandSmallMaxKg,
+      mediumMaxKg: prefs.bandMediumMaxKg,
+      largeMaxKg: prefs.bandLargeMaxKg,
+    },
+    stockFrom: prefs.stockFrom,
+  });
+});
+
+const gradingBody = z.object({
+  gradedOn: dateStr,
+  rows: z
+    .array(
+      z.object({
+        houseId: z.string().uuid(),
+        boxes: z.object(
+          Object.fromEntries(EGG_SIZES.map((s) => [s, z.coerce.number().int().min(0).default(0)])) as Record<
+            (typeof EGG_SIZES)[number],
+            z.ZodDefault<z.ZodNumber>
+          >,
+        ),
+      }),
+    )
+    .min(1)
+    .max(50),
+});
+
+/** Save the sheet: every row in one transaction, re-stated in place. */
+eggSalesRouter.post("/grading", requirePermission("farms", "create"), validateBody(gradingBody), async (req, res) => {
+  const b = req.body as z.infer<typeof gradingBody>;
+  try {
+    await db.transaction(async (tx) => {
+      for (const r of b.rows) {
+        await saveGrading(tx, { houseId: r.houseId, gradedOn: b.gradedOn, boxes: r.boxes }, req.session.user!.id);
+      }
+    });
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    if (!fail(err, res)) throw err;
+  }
 });
 
 /* ── The loading bay ─────────────────────────────────────────────────────── */

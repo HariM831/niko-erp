@@ -34,7 +34,8 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
     })
     .from(houses)
     .leftJoin(iotReadings, eq(iotReadings.houseId, houses.id))
-    .where(sql`${houses.isActive}`);
+    .where(sql`${houses.isActive}`)
+    .orderBy(houses.displayOrder, houses.code);
 
   interface Board {
     houseId: string;
