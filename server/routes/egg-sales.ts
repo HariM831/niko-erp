@@ -459,10 +459,17 @@ eggSalesRouter.get("/day/:date", view, async (req, res) => {
   const cascade = await supplyCascade(db, `${on.slice(0, 7)}-01`, on);
   const capacity = cascade[cascade.length - 1] ?? null;
 
+  /** Each customer's headroom, once, so the bay can gate every row. */
+  const ledger: Record<string, number> = {};
+  for (const customerId of new Set(lines.map((l) => l.customerId))) {
+    ledger[customerId] = await ledgerAvailable(db, customerId);
+  }
+
   res.json({
     stockBySize: held,
     stockBoxes: EGG_SIZES.reduce((a, s) => a + held[s], 0),
     capacity,
+    ledger,
     date: on,
     lines,
     benchmark: bm ? { ratePerEgg: bm.ratePerEgg, setFor: bm.effectiveFrom } : null,

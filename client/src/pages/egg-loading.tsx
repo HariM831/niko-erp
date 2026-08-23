@@ -19,6 +19,8 @@ type DayLine = OrderLine;
 interface DayData {
   stockBoxes: number | null;
   stockBySize: Record<string, number> | null;
+  /** customerId → what their ledger can pay for right now. */
+  ledger: Record<string, number>;
   lines: DayLine[];
   benchmark: { ratePerEgg: string; setFor: string } | null;
   offsets: Record<string, string> | null;
@@ -156,15 +158,42 @@ export function EggLoadingPage() {
             lines={due}
             title="To load"
             empty="Nothing waiting. Walk-ins load with the button above."
-            actions={(l) => (
-              <button
-                onClick={() => setLoadingLine(l)}
-                disabled={!data?.benchmark}
-                className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-              >
-                <Truck className="h-3.5 w-3.5" /> Load
-              </button>
-            )}
+            actions={(l) => {
+              /**
+               * What this order will invoice at, priced as the server will:
+               * per egg, benchmark + size differential + spread. A standing
+               * order booked by count is estimated as Large, the grade nearly
+               * every box on the farm is — the dialog corrects to the truck.
+               */
+              const bm = data?.benchmark ? Number(data.benchmark.ratePerEgg) : null;
+              const perEgg = (s: string) => (bm ?? 0) + Number(data?.offsets?.[s] ?? 0) + Number(l.spreadPerEgg);
+              const split = l.sizes && Object.keys(l.sizes).length ? l.sizes : { large: l.boxes };
+              const estimate = bm == null ? null : Object.entries(split).reduce((a, [s, q]) => a + (q ?? 0) * (data?.eggsPerBox ?? 210) * perEgg(s), 0);
+              const available = data?.ledger?.[l.customerId];
+              const short = estimate != null && available != null ? estimate - available : null;
+              const funded = short != null && short <= 0;
+              return (
+                <div className="flex flex-col items-end gap-0.5">
+                  <button
+                    onClick={() => setLoadingLine(l)}
+                    disabled={!data?.benchmark || !funded}
+                    title={
+                      !data?.benchmark
+                        ? "No benchmark set for the day"
+                        : funded
+                          ? `Ledger covers ~${formatMoney(estimate ?? 0)}`
+                          : `Ledger short by ${formatMoney(short ?? 0)}`
+                    }
+                    className="inline-flex items-center gap-1 rounded-md bg-success px-2.5 py-1 text-xs font-medium text-white hover:bg-success/90 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground"
+                  >
+                    <Truck className="h-3.5 w-3.5" /> Load
+                  </button>
+                  {short != null && short > 0 && (
+                    <span className="whitespace-nowrap text-[10px] text-destructive">short {formatMoney(short)}</span>
+                  )}
+                </div>
+              );
+            }}
           />
           {(() => {
             const struck = (data?.lines ?? []).filter(isStruck);
