@@ -366,7 +366,7 @@ function DayDrawer({
             {/* ── Orders ── */}
             <div>
               <div className="mb-1 flex items-center justify-between">
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Orders ({live.length})</div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Orders</div>
                 {!past && !form && (
                   <button onClick={openNew} className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
                     <Plus className="h-3.5 w-3.5" /> Spot order
@@ -429,138 +429,148 @@ function DayDrawer({
                 </div>
               )}
 
-              {!lines.length ? (
-                <p className="table-surface px-3 py-4 text-center text-sm text-muted-foreground">Nothing due this day.</p>
-              ) : (
-                <div className="table-surface overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="table-head">
-                      <tr>
-                        <th className="table-th text-left">Customer</th>
-                        <th className="table-th w-24 text-left">Type</th>
-                        <th className="table-th text-left">Sizes</th>
-                        <th className="table-th w-24 text-right">Boxes</th>
-                        <th className="table-th w-20 text-right">Spread</th>
-                        <th className="table-th w-28 text-left">Status</th>
-                        <th className="table-th w-16" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {lines.map((l) => {
-                        const split: Array<[string, number]> =
-                          l.sizes && Object.keys(l.sizes).length
-                            ? SIZES.filter((s) => l.sizes![s]).map((s) => [SIZE_LABEL[s], l.sizes![s]!])
-                            : [["Any size", l.boxes]];
-                        const skipped = l.exception?.kind === "skip";
-                        const dead = l.voided || skipped;
-                        const status = l.dispatch
-                          ? { text: `Loaded · ${l.dispatch.invoiceNumber}`, cls: "text-success" }
-                          : l.voided
-                            ? { text: "Voided", cls: "text-muted-foreground" }
-                            : skipped
-                              ? { text: "Skipped", cls: "text-warning" }
-                              : l.exception?.kind === "qty_override"
-                                ? { text: "Adjusted", cls: "text-warning" }
-                                : { text: "Due", cls: "text-muted-foreground" };
-                        return (
-                          <tr key={`${l.kind}-${l.sourceId}`} className={`border-b border-border/60 last:border-0 ${dead ? "opacity-55" : ""}`}>
-                            <td className="px-3 py-2.5">
-                              <div className={`whitespace-nowrap font-medium ${l.voided ? "line-through" : ""}`}>{l.customerName}</div>
-                              {l.city && <div className="text-[11px] leading-tight text-muted-foreground">{l.city}</div>}
-                            </td>
-                            <td className="px-3 py-2.5">
-                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${l.kind === "standing" ? "bg-info/10 text-info" : "bg-warning/10 text-warning"}`}>
-                                {l.kind === "standing" ? "Standing" : "Spot"}
+                {(() => {
+                  /* Sizes as columns, like the sheet — but only the columns the
+                     day's orders actually use, so a day of Large and Medium
+                     is not six columns of dashes. Unsized standing orders get
+                     one column of their own. */
+                  const struck = lines.filter((l) => l.voided || l.exception?.kind === "skip");
+                  const used = SIZES.filter((s) => live.some((l) => l.sizes?.[s]));
+                  const anyUnsized = live.some((l) => !l.sizes || !Object.keys(l.sizes).length);
+                  const cols: Array<{ key: string; label: string }> = [
+                    ...(anyUnsized ? [{ key: "any", label: "Unsized" }] : []),
+                    ...used.map((s) => ({ key: s, label: SIZE_LABEL[s] })),
+                  ];
+                  const cell = (l: DayLine, key: string): number =>
+                    key === "any" ? (!l.sizes || !Object.keys(l.sizes).length ? l.boxes : 0) : (l.sizes?.[key as Size] ?? 0);
+                  const colTotal = (key: string) => live.reduce((a, l) => a + cell(l, key), 0);
+                  const grand = live.reduce((a, l) => a + l.boxes, 0);
+                  const num = "px-2 py-2.5 text-right tabular-nums";
+
+                  return (
+                    <>
+                      {live.length === 0 ? (
+                        <p className="table-surface px-3 py-4 text-center text-sm text-muted-foreground">Nothing due this day.</p>
+                      ) : (
+                        <div className="table-surface overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead className="table-head">
+                              <tr>
+                                <th className="table-th text-left">Customer</th>
+                                {cols.map((c) => (
+                                  <th key={c.key} className="table-th w-[4.5rem] text-right">
+                                    {c.label}
+                                  </th>
+                                ))}
+                                <th className="table-th w-20 text-right">Total</th>
+                                <th className="table-th w-20 text-right">Spread</th>
+                                <th className="table-th w-14" />
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {live.map((l) => (
+                                <tr key={`${l.kind}-${l.sourceId}`} className="border-b border-border/60 last:border-0">
+                                  <td className="px-3 py-2.5">
+                                    <div className="flex items-center gap-2">
+                                      <span className="whitespace-nowrap font-medium">{l.customerName}</span>
+                                      <span
+                                        className={`rounded-full px-1.5 py-px text-[10px] font-semibold ${
+                                          l.kind === "standing" ? "bg-info/10 text-info" : "bg-warning/10 text-warning"
+                                        }`}
+                                      >
+                                        {l.kind === "standing" ? "Standing" : "Spot"}
+                                      </span>
+                                      {l.exception?.kind === "qty_override" && (
+                                        <span className="rounded-full bg-warning/10 px-1.5 py-px text-[10px] font-semibold text-warning">Adjusted</span>
+                                      )}
+                                    </div>
+                                    <div className="text-[11px] leading-tight text-muted-foreground">
+                                      {l.city ?? ""}
+                                      {l.dispatch && (
+                                        <span className="text-success">
+                                          {l.city ? " · " : ""}loaded {fmtBoxes(l.dispatch.loadedBoxes)} · {l.dispatch.invoiceNumber}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </td>
+                                  {cols.map((c) => {
+                                    const v = cell(l, c.key);
+                                    return (
+                                      <td key={c.key} className={`${num} ${v ? "" : "text-muted-foreground/40"}`}>
+                                        {v ? fmtBoxes(v) : "·"}
+                                      </td>
+                                    );
+                                  })}
+                                  <td className={`${num} font-semibold`}>{fmtBoxes(l.boxes)}</td>
+                                  <td className={`${num} text-xs text-muted-foreground`}>
+                                    {Number(l.spreadPerEgg) ? `+${Number(l.spreadPerEgg).toFixed(2)}` : "–"}
+                                  </td>
+                                  <td className="px-2 py-2.5 text-right">
+                                    {!l.dispatch && !past && (
+                                      <div className="flex justify-end gap-0.5">
+                                        {l.kind === "spot" && (
+                                          <button onClick={() => openEdit(l)} disabled={busy} title="Edit" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
+                                            <Pencil className="h-3.5 w-3.5" />
+                                          </button>
+                                        )}
+                                        <button
+                                          onClick={() => (l.kind === "standing" ? skip(l.sourceId) : voidSpot(l.sourceId))}
+                                          disabled={busy}
+                                          title={l.kind === "standing" ? "Skip this delivery" : "Void this order"}
+                                          className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                        >
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </button>
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                            <tfoot>
+                              <tr className="border-t-2 border-border bg-muted/40 font-semibold">
+                                <td className="px-3 py-2.5 text-xs uppercase tracking-wide text-muted-foreground">
+                                  Total · {live.length} order{live.length === 1 ? "" : "s"}
+                                </td>
+                                {cols.map((c) => (
+                                  <td key={c.key} className={num}>
+                                    {colTotal(c.key) ? fmtBoxes(colTotal(c.key)) : "·"}
+                                  </td>
+                                ))}
+                                <td className={`${num} text-base`}>{fmtBoxes(grand)}</td>
+                                <td colSpan={2} />
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      )}
+
+                      {/* What was struck off today, kept for the record but out
+                          of the way of the live book. */}
+                      {struck.length > 0 && (
+                        <div className="mt-2 space-y-1 px-1">
+                          {struck.map((l) => (
+                            <div key={`${l.kind}-${l.sourceId}`} className="flex items-center justify-between text-xs text-muted-foreground">
+                              <span>
+                                <span className="line-through">{l.customerName}</span>
+                                {" · "}
+                                {l.kind === "standing" ? "standing" : `spot ${fmtBoxes(l.boxes)}`}
+                                {" · "}
+                                {l.voided ? "voided" : "skipped"}
+                                {l.exception?.reason && <span className="italic"> — {l.exception.reason}</span>}
                               </span>
-                            </td>
-                            <td className="px-3 py-2.5">
-                              {skipped ? (
-                                <span className="text-xs text-muted-foreground">—</span>
-                              ) : (
-                                <div className="flex flex-wrap gap-1">
-                                  {split.map(([n, q]) => (
-                                    <span key={n} className="whitespace-nowrap rounded bg-muted px-1.5 py-0.5 text-[11px] tabular-nums">
-                                      <span className="text-muted-foreground">{n}</span> <span className="font-medium">{fmtBoxes(q)}</span>
-                                    </span>
-                                  ))}
-                                </div>
+                              {l.kind === "standing" && l.exception?.kind === "skip" && !past && (
+                                <button onClick={() => unskip(l.sourceId)} disabled={busy} className="text-primary hover:underline">
+                                  restore
+                                </button>
                               )}
-                            </td>
-                            <td className="px-3 py-2.5 text-right font-semibold tabular-nums">{skipped ? "—" : fmtBoxes(l.boxes)}</td>
-                            <td className="px-3 py-2.5 text-right text-xs tabular-nums text-muted-foreground">
-                              {Number(l.spreadPerEgg) ? `+₹${Number(l.spreadPerEgg).toFixed(2)}` : "–"}
-                            </td>
-                            <td className={`whitespace-nowrap px-3 py-2.5 text-xs ${status.cls}`}>{status.text}</td>
-                            <td className="px-2 py-2.5 text-right">
-                              {!l.dispatch && !l.voided && !past && (
-                                <div className="flex justify-end gap-0.5">
-                                  {l.kind === "standing" ? (
-                                    skipped ? (
-                                      <button onClick={() => unskip(l.sourceId)} disabled={busy} className="text-xs text-primary hover:underline">
-                                        restore
-                                      </button>
-                                    ) : (
-                                      <button onClick={() => skip(l.sourceId)} disabled={busy} title="Skip delivery for this date" className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
-                                        <Trash2 className="h-3.5 w-3.5" />
-                                      </button>
-                                    )
-                                  ) : (
-                                    <>
-                                      <button onClick={() => openEdit(l)} disabled={busy} title="Edit" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
-                                        <Pencil className="h-3.5 w-3.5" />
-                                      </button>
-                                      <button onClick={() => voidSpot(l.sourceId)} disabled={busy} title="Void" className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
-                                        <Trash2 className="h-3.5 w-3.5" />
-                                      </button>
-                                    </>
-                                  )}
-                                </div>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                    {(() => {
-                      /* Totals over what is actually due: voided and skipped
-                         lines are shown above for the record, not counted. */
-                      const bySize = new Map<string, number>();
-                      let total = 0;
-                      for (const l of live) {
-                        total += l.boxes;
-                        const split: Array<[string, number]> =
-                          l.sizes && Object.keys(l.sizes).length
-                            ? SIZES.filter((s) => l.sizes![s]).map((s) => [SIZE_LABEL[s], l.sizes![s]!])
-                            : [["Any size", l.boxes]];
-                        for (const [n, q] of split) bySize.set(n, (bySize.get(n) ?? 0) + q);
-                      }
-                      const order = ["Any size", ...SIZES.map((s) => SIZE_LABEL[s])];
-                      return (
-                        <tfoot>
-                          <tr className="border-t-2 border-border bg-muted/40">
-                            <td className="px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground" colSpan={2}>
-                              Total due · {live.length} order{live.length === 1 ? "" : "s"}
-                            </td>
-                            <td className="px-3 py-2.5">
-                              <div className="flex flex-wrap gap-1">
-                                {order
-                                  .filter((n) => bySize.get(n))
-                                  .map((n) => (
-                                    <span key={n} className="whitespace-nowrap rounded bg-background px-1.5 py-0.5 text-[11px] tabular-nums">
-                                      <span className="text-muted-foreground">{n}</span> <span className="font-medium">{fmtBoxes(bySize.get(n)!)}</span>
-                                    </span>
-                                  ))}
-                              </div>
-                            </td>
-                            <td className="px-3 py-2.5 text-right text-base font-semibold tabular-nums">{fmtBoxes(total)}</td>
-                            <td colSpan={3} />
-                          </tr>
-                        </tfoot>
-                      );
-                    })()}
-                  </table>
-                </div>
-              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
 
               {!past && (
                 <div className="mt-2 text-right">
