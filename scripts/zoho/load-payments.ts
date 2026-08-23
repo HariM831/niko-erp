@@ -65,6 +65,8 @@ const MODE: Record<string, "cash" | "bank_transfer" | "upi" | "cheque" | "card">
   "Bank Remittance": "bank_transfer",
   UPI: "upi",
   Cheque: "cheque",
+  // Zoho's US spelling of the same instrument.
+  Check: "cheque",
   Card: "card",
   "Credit Card": "card",
 };
