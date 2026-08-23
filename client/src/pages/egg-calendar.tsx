@@ -436,100 +436,89 @@ function DayDrawer({
                   <table className="w-full text-sm">
                     <thead className="table-head">
                       <tr>
-                        <th className="table-th w-[14rem] text-left">Customer</th>
+                        <th className="table-th text-left">Customer</th>
                         <th className="table-th w-24 text-left">Type</th>
-                        <th className="table-th text-left">Size</th>
+                        <th className="table-th text-left">Sizes</th>
                         <th className="table-th w-24 text-right">Boxes</th>
-                        <th className="table-th w-24 text-right">Spread</th>
-                        <th className="table-th w-20" />
+                        <th className="table-th w-20 text-right">Spread</th>
+                        <th className="table-th w-28 text-left">Status</th>
+                        <th className="table-th w-16" />
                       </tr>
                     </thead>
                     <tbody>
-                      {lines.map((l, idx) => {
-                        const sizeRows: Array<[string, number]> =
+                      {lines.map((l) => {
+                        const split: Array<[string, number]> =
                           l.sizes && Object.keys(l.sizes).length
                             ? SIZES.filter((s) => l.sizes![s]).map((s) => [SIZE_LABEL[s], l.sizes![s]!])
-                            : [["Any", l.boxes]];
-                        const dead = l.voided || l.exception?.kind === "skip";
+                            : [["Any size", l.boxes]];
                         const skipped = l.exception?.kind === "skip";
-                        const multi = sizeRows.length > 1;
-                        const span = sizeRows.length + (multi ? 1 : 0);
-                        const rows = sizeRows.map(([sizeName, qty], i) => (
-                          <tr
-                            key={`${l.kind}-${l.sourceId}-${sizeName}`}
-                            className={`${idx > 0 && i === 0 ? "border-t border-border" : i > 0 ? "border-t border-border/30" : ""} ${dead ? "opacity-50" : ""}`}
-                          >
-                            {i === 0 && (
-                              <td rowSpan={span} className="px-3 py-2 align-top">
-                                <div className={`whitespace-nowrap font-medium ${l.voided ? "line-through" : ""}`}>{l.customerName}</div>
-                                {l.city && <div className="text-[11px] text-muted-foreground">{l.city}</div>}
-                                {l.dispatch && (
-                                  <div className="text-[11px] text-success">
-                                    loaded {fmtBoxes(l.dispatch.loadedBoxes)} · {l.dispatch.invoiceNumber}
-                                  </div>
-                                )}
-                              </td>
-                            )}
-                            {i === 0 && (
-                              <td rowSpan={span} className="px-3 py-2 align-top">
-                                <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${l.kind === "standing" ? "bg-info/10 text-info" : "bg-warning/10 text-warning"}`}>
-                                  {l.kind === "standing" ? "Standing" : "Spot"}
-                                </span>
-                                {skipped && <div className="mt-0.5 text-[10px] text-muted-foreground">skipped</div>}
-                                {l.exception?.kind === "qty_override" && <div className="mt-0.5 text-[10px] text-muted-foreground">adjusted</div>}
-                                {l.voided && <div className="mt-0.5 text-[10px] text-muted-foreground">voided</div>}
-                              </td>
-                            )}
-                            <td className={`px-3 py-2 text-xs ${multi ? "text-muted-foreground" : ""}`}>{skipped ? "—" : sizeName}</td>
-                            <td className={`px-3 py-2 text-right tabular-nums ${multi ? "text-muted-foreground" : "font-medium"}`}>
-                              {skipped ? "—" : fmtBoxes(qty)}
+                        const dead = l.voided || skipped;
+                        const status = l.dispatch
+                          ? { text: `Loaded · ${l.dispatch.invoiceNumber}`, cls: "text-success" }
+                          : l.voided
+                            ? { text: "Voided", cls: "text-muted-foreground" }
+                            : skipped
+                              ? { text: "Skipped", cls: "text-warning" }
+                              : l.exception?.kind === "qty_override"
+                                ? { text: "Adjusted", cls: "text-warning" }
+                                : { text: "Due", cls: "text-muted-foreground" };
+                        return (
+                          <tr key={`${l.kind}-${l.sourceId}`} className={`border-b border-border/60 last:border-0 ${dead ? "opacity-55" : ""}`}>
+                            <td className="px-3 py-2.5">
+                              <div className={`whitespace-nowrap font-medium ${l.voided ? "line-through" : ""}`}>{l.customerName}</div>
+                              {l.city && <div className="text-[11px] leading-tight text-muted-foreground">{l.city}</div>}
                             </td>
-                            {i === 0 && (
-                              <td rowSpan={span} className="px-3 py-2 text-right align-top text-xs tabular-nums text-muted-foreground">
-                                {Number(l.spreadPerEgg) ? `+₹${Number(l.spreadPerEgg).toFixed(2)}` : "–"}
-                              </td>
-                            )}
-                            {i === 0 && (
-                              <td rowSpan={span} className="px-2 py-2 text-right align-top">
-                                {!l.dispatch && !l.voided && !past && (
-                                  <div className="flex justify-end gap-1">
-                                    {l.kind === "standing" ? (
-                                      skipped ? (
-                                        <button onClick={() => unskip(l.sourceId)} disabled={busy} className="text-xs text-primary hover:underline">
-                                          restore
-                                        </button>
-                                      ) : (
-                                        <button onClick={() => skip(l.sourceId)} disabled={busy} title="Skip delivery for this date" className="rounded p-1 text-destructive hover:bg-destructive/10">
-                                          <Trash2 className="h-3.5 w-3.5" />
-                                        </button>
-                                      )
+                            <td className="px-3 py-2.5">
+                              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${l.kind === "standing" ? "bg-info/10 text-info" : "bg-warning/10 text-warning"}`}>
+                                {l.kind === "standing" ? "Standing" : "Spot"}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5">
+                              {skipped ? (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              ) : (
+                                <div className="flex flex-wrap gap-1">
+                                  {split.map(([n, q]) => (
+                                    <span key={n} className="whitespace-nowrap rounded bg-muted px-1.5 py-0.5 text-[11px] tabular-nums">
+                                      <span className="text-muted-foreground">{n}</span> <span className="font-medium">{fmtBoxes(q)}</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 text-right font-semibold tabular-nums">{skipped ? "—" : fmtBoxes(l.boxes)}</td>
+                            <td className="px-3 py-2.5 text-right text-xs tabular-nums text-muted-foreground">
+                              {Number(l.spreadPerEgg) ? `+₹${Number(l.spreadPerEgg).toFixed(2)}` : "–"}
+                            </td>
+                            <td className={`whitespace-nowrap px-3 py-2.5 text-xs ${status.cls}`}>{status.text}</td>
+                            <td className="px-2 py-2.5 text-right">
+                              {!l.dispatch && !l.voided && !past && (
+                                <div className="flex justify-end gap-0.5">
+                                  {l.kind === "standing" ? (
+                                    skipped ? (
+                                      <button onClick={() => unskip(l.sourceId)} disabled={busy} className="text-xs text-primary hover:underline">
+                                        restore
+                                      </button>
                                     ) : (
-                                      <>
-                                        <button onClick={() => openEdit(l)} disabled={busy} title="Edit" className="rounded p-1 text-muted-foreground hover:bg-muted">
-                                          <Pencil className="h-3.5 w-3.5" />
-                                        </button>
-                                        <button onClick={() => voidSpot(l.sourceId)} disabled={busy} title="Void" className="rounded p-1 text-destructive hover:bg-destructive/10">
-                                          <Trash2 className="h-3.5 w-3.5" />
-                                        </button>
-                                      </>
-                                    )}
-                                  </div>
-                                )}
-                              </td>
-                            )}
+                                      <button onClick={() => skip(l.sourceId)} disabled={busy} title="Skip delivery for this date" className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    )
+                                  ) : (
+                                    <>
+                                      <button onClick={() => openEdit(l)} disabled={busy} title="Edit" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
+                                        <Pencil className="h-3.5 w-3.5" />
+                                      </button>
+                                      <button onClick={() => voidSpot(l.sourceId)} disabled={busy} title="Void" className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive">
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </td>
                           </tr>
-                        ));
-                        /* A multi-size order closes with its own total, so
-                           the eye does not have to add the column. */
-                        if (multi) {
-                          rows.push(
-                            <tr key={`${l.kind}-${l.sourceId}-total`} className={`border-t border-border/30 ${dead ? "opacity-50" : ""}`}>
-                              <td className="px-3 py-1.5 text-xs font-medium">Order total</td>
-                              <td className="px-3 py-1.5 text-right font-semibold tabular-nums">{fmtBoxes(l.boxes)}</td>
-                            </tr>,
-                          );
-                        }
-                        return rows;
+                        );
                       })}
                     </tbody>
                     {(() => {
@@ -542,23 +531,29 @@ function DayDrawer({
                         const split: Array<[string, number]> =
                           l.sizes && Object.keys(l.sizes).length
                             ? SIZES.filter((s) => l.sizes![s]).map((s) => [SIZE_LABEL[s], l.sizes![s]!])
-                            : [["Any", l.boxes]];
+                            : [["Any size", l.boxes]];
                         for (const [n, q] of split) bySize.set(n, (bySize.get(n) ?? 0) + q);
                       }
-                      const order = ["Any", ...SIZES.map((s) => SIZE_LABEL[s])];
+                      const order = ["Any size", ...SIZES.map((s) => SIZE_LABEL[s])];
                       return (
                         <tfoot>
                           <tr className="border-t-2 border-border bg-muted/40">
-                            <td className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground" colSpan={2}>
-                              Total due
+                            <td className="px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground" colSpan={2}>
+                              Total due · {live.length} order{live.length === 1 ? "" : "s"}
                             </td>
-                            <td className="px-3 py-2 text-xs text-muted-foreground">
-                              {order.filter((n) => bySize.get(n)).map((n) => `${n} ${fmtBoxes(bySize.get(n)!)}`).join(" · ")}
+                            <td className="px-3 py-2.5">
+                              <div className="flex flex-wrap gap-1">
+                                {order
+                                  .filter((n) => bySize.get(n))
+                                  .map((n) => (
+                                    <span key={n} className="whitespace-nowrap rounded bg-background px-1.5 py-0.5 text-[11px] tabular-nums">
+                                      <span className="text-muted-foreground">{n}</span> <span className="font-medium">{fmtBoxes(bySize.get(n)!)}</span>
+                                    </span>
+                                  ))}
+                              </div>
                             </td>
-                            <td className="px-3 py-2 text-right text-base font-semibold tabular-nums">{fmtBoxes(total)}</td>
-                            <td colSpan={2} className="px-3 py-2 text-right text-xs text-muted-foreground">
-                              {live.length} order{live.length === 1 ? "" : "s"}
-                            </td>
+                            <td className="px-3 py-2.5 text-right text-base font-semibold tabular-nums">{fmtBoxes(total)}</td>
+                            <td colSpan={3} />
                           </tr>
                         </tfoot>
                       );
