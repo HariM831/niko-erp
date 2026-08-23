@@ -84,10 +84,11 @@ const COA: Array<[string, string, AcctType, AcctSubtype, string?, string?, boole
   ["2110", "Accounts Payable", "liability", "accounts_payable", "ap", "2100"],
   ["2120", "Other Current Liabilities", "liability", "other_current_liability", undefined, "2100", true],
   ["2121", "TDS Payable", "liability", "other_current_liability", "tds_payable", "2120"],
-  ["2122", "ESI Payable", "liability", "other_current_liability", undefined, "2120"],
-  ["2123", "PF Payable", "liability", "other_current_liability", undefined, "2120"],
+  ["2122", "ESI Payable", "liability", "other_current_liability", "esi_payable", "2120"],
+  ["2123", "PF Payable", "liability", "other_current_liability", "pf_payable", "2120"],
   ["2124", "Unsecured Loans", "liability", "other_current_liability", undefined, "2120"],
-  ["2125", "Expenses Payable (Salaries and others)", "liability", "other_current_liability", undefined, "2120"],
+  ["2125", "Expenses Payable (Salaries and others)", "liability", "other_current_liability", "salary_payable", "2120"],
+  ["2129", "Professional Tax Payable", "liability", "other_current_liability", "pt_payable", "2120"],
   ["2126", "CGST Payable", "liability", "other_current_liability", "cgst_payable", "2120"],
   ["2127", "SGST Payable", "liability", "other_current_liability", "sgst_payable", "2120"],
   ["2128", "IGST Payable", "liability", "other_current_liability", "igst_payable", "2120"],
@@ -185,11 +186,11 @@ const COA: Array<[string, string, AcctType, AcctSubtype, string?, string?, boole
   ["6403", "Others Expenses (S&D)", "expense", "expense", undefined, "6400"],
 
   ["6500", "Employee Benefits Expenses", "expense", "expense", undefined, undefined, true],
-  ["6501", "Salary & Bonus", "expense", "expense", undefined, "6500"],
-  ["6502", "Labour Wages", "expense", "expense", undefined, "6500"],
+  ["6501", "Salary & Bonus", "expense", "expense", "salary_expense", "6500"],
+  ["6502", "Labour Wages", "expense", "expense", "wages_expense", "6500"],
   ["6503", "Remuneration to Directors", "expense", "expense", undefined, "6500"],
-  ["6504", "Contribution to Provident Fund", "expense", "expense", undefined, "6500"],
-  ["6505", "Contribution to ESIC", "expense", "expense", undefined, "6500"],
+  ["6504", "Contribution to Provident Fund", "expense", "expense", "pf_employer_expense", "6500"],
+  ["6505", "Contribution to ESIC", "expense", "expense", "esi_employer_expense", "6500"],
   ["6506", "Staff & Director Welfare Expenses", "expense", "expense", undefined, "6500"],
   ["6507", "Medical Expenses", "expense", "expense", undefined, "6500"],
 
@@ -218,6 +219,7 @@ const SERIES: Array<[string, string]> = [
   ["office_receipt", "GR-"],
   ["production_order", "PRD-"],
   ["feed_transfer", "FT-"],
+  ["payroll_run", "PAY-"],
 ];
 
 const TAXES: Array<[string, string]> = [

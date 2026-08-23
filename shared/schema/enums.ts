@@ -60,6 +60,8 @@ export const journalSourceType = pgEnum("journal_source_type", [
   "banking",
   /** Advances moved into (or back out of) a receivable — the loading bay's auto-apply. */
   "advance_application",
+  /** A confirmed payroll run: salary expense against the payables. */
+  "payroll_run",
 ]);
 
 /**

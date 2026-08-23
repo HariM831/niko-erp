@@ -111,6 +111,25 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     ],
   },
   {
+    key: "payroll",
+    label: "Payroll",
+    description: "Employees, attendance, leave, pay inputs, salary runs, devices and canteen",
+    actions: [
+      { key: "view", label: "View" },
+      { key: "employees", label: "Manage employees" },
+      // Marking a day and approving a leave are the same authority: deciding
+      // what a person is paid for.
+      { key: "attendance", label: "Attendance and leave" },
+      { key: "pay_inputs", label: "Bonuses, overtime, advances, claims" },
+      // Running payroll moves money into the ledger; nobody else's verb.
+      { key: "run", label: "Run and confirm payroll" },
+      { key: "gate", label: "Gate kiosk and face enrolment" },
+      { key: "canteen", label: "Canteen" },
+      { key: "devices", label: "Pair and revoke devices" },
+      { key: "settings", label: "Shifts, holidays, rates, departments" },
+    ],
+  },
+  {
     key: "reports",
     label: "Reports",
     description: "Profit & loss, balance sheet, cash flow, ageing",
