@@ -487,7 +487,14 @@ eggSalesRouter.get("/customers", view, async (_req, res) => {
   const rows = await db
     .select({ id: contacts.id, name: contacts.displayName })
     .from(contacts)
-    .where(and(sql`${contacts.type} IN ('customer', 'both')`, eq(contacts.isActive, true)))
+    .where(
+      and(
+        sql`${contacts.type} IN ('customer', 'both')`,
+        eq(contacts.isActive, true),
+        // The owners' eggs are bought back through owner billing, never sold to them here.
+        eq(contacts.isGroupCompany, false),
+      ),
+    )
     .orderBy(asc(contacts.displayName));
   res.json({ customers: rows });
 });

@@ -188,7 +188,9 @@ export function App() {
             single-formula view, so its old path lands there. */}
         <Route path="/feed-mill/formulator">{() => <Redirect to="/feed-mill/formulas" />}</Route>
         <Route path="/feed-mill/production" component={FeedProductionPage} />
-        <Route path="/farms/owner-billing" component={OwnerBillingPage} />
+        <Route path="/accountant/group-companies" component={OwnerBillingPage} />
+        {/* The page moved under Accountant; old links keep working. */}
+        <Route path="/farms/owner-billing">{() => <Redirect to="/accountant/group-companies" />}</Route>
         <Route path="/farms/store" component={FarmStorePage} />
         <Route path="/farms/dr-eggsy" component={DrEggsyPage} />
         <Route path="/farms/egg-stock" component={EggGradingPage} />

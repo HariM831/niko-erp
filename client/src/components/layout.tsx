@@ -122,9 +122,6 @@ const NAV: NavItem[] = [
       /* The packing room's day sheet: graded boxes per shed per size. Stock
          is one pool per size; the shed is a fact about the entry only. */
       { label: "Egg stock", path: "/farms/egg-stock" },
-      /* Two of the sheds belong to Nandamuri and two to Luit, so feed, pullets
-         and eggs are a trade between companies rather than an internal move. */
-      { label: "Owner billing", path: "/farms/owner-billing" },
       /* The same core inventory, seen and handled at the farm gate. */
       { label: "Farm store", path: "/farms/store" },
       /* Field photos sent for a model's first opinion, with the flock record. */
@@ -135,6 +132,10 @@ const NAV: NavItem[] = [
     label: "Accountant",
     icon: BookOpen,
     children: [
+      /* Two of the sheds belong to Nandamuri and two to Luit, so feed, pullets
+         and eggs are a trade between companies. Their ledger lives here, and
+         they appear in no customer or vendor list anywhere else. */
+      { label: "Group Companies", path: "/accountant/group-companies" },
       { label: "Manual Journals", path: "/accountant/journals" },
       { label: "Bulk Update", path: "/accountant/bulk-update" },
       { label: "Chart of Accounts", path: "/accountant/accounts" },

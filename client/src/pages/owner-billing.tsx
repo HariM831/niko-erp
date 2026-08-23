@@ -136,7 +136,7 @@ export function OwnerBillingPage() {
   const ownerId = chosen ?? owners[0]?.id ?? "";
   useEffect(() => {
     if (!chosen && owners.length) {
-      navigate(`/farms/owner-billing?owner=${owners[0]!.id}`, { replace: true });
+      navigate(`/accountant/group-companies?owner=${owners[0]!.id}`, { replace: true });
     }
   }, [chosen, owners, navigate]);
 
@@ -183,7 +183,7 @@ export function OwnerBillingPage() {
                 are a handful of owners and moving between them IS the job. */}
             <select
               value={ownerId}
-              onChange={(e) => navigate(`/farms/owner-billing?owner=${e.target.value}`)}
+              onChange={(e) => navigate(`/accountant/group-companies?owner=${e.target.value}`)}
               className="rounded-md border border-gray-200 bg-white px-2 py-1 text-lg font-semibold text-gray-900"
             >
               {owners.map((o) => (
@@ -196,7 +196,7 @@ export function OwnerBillingPage() {
               {contact.type}
             </span>
             <span className="rounded bg-brand-50 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-brand-600">
-              Shed owner
+              Group company
             </span>
           </div>
           <div className="flex items-center gap-2">

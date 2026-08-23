@@ -525,6 +525,8 @@ reportsRouter.get("/ar-aging", requirePermission("reports", "view"), async (req,
       and(
         inArray(invoices.status, ["sent", "partially_paid"]),
         lte(invoices.invoiceDate, asOf),
+        // The group's own companies are not receivables from the market.
+        eq(contacts.isGroupCompany, false),
       ),
     )
     .orderBy(asc(contacts.displayName), asc(invoices.dueDate));
@@ -559,7 +561,14 @@ reportsRouter.get("/ap-aging", requirePermission("reports", "view"), async (req,
     })
     .from(bills)
     .innerJoin(contacts, eq(contacts.id, bills.vendorId))
-    .where(and(inArray(bills.status, ["open", "partially_paid"]), lte(bills.billDate, asOf)))
+    .where(
+      and(
+        inArray(bills.status, ["open", "partially_paid"]),
+        lte(bills.billDate, asOf),
+        // Nor payables to it.
+        eq(contacts.isGroupCompany, false),
+      ),
+    )
     .orderBy(asc(contacts.displayName), asc(bills.dueDate));
 
   const asOfMs = new Date(`${asOf}T00:00:00Z`).getTime();
@@ -810,7 +819,7 @@ reportsRouter.get("/sales-by-customer", requirePermission("reports", "view"), as
     })
     .from(invoices)
     .innerJoin(contacts, eq(contacts.id, invoices.customerId))
-    .where(and(sql`${invoices.status} NOT IN ('draft', 'void')`, ...window(invoices.invoiceDate)))
+    .where(and(eq(contacts.isGroupCompany, false), sql`${invoices.status} NOT IN ('draft', 'void')`, ...window(invoices.invoiceDate)))
     .groupBy(invoices.customerId, contacts.displayName);
 
   const creditRows = await db
@@ -823,7 +832,7 @@ reportsRouter.get("/sales-by-customer", requirePermission("reports", "view"), as
     .from(creditNotes)
     .innerJoin(contacts, eq(contacts.id, creditNotes.customerId))
     .where(
-      and(sql`${creditNotes.status} NOT IN ('draft', 'void')`, ...window(creditNotes.creditNoteDate)),
+      and(eq(contacts.isGroupCompany, false), sql`${creditNotes.status} NOT IN ('draft', 'void')`, ...window(creditNotes.creditNoteDate)),
     )
     .groupBy(creditNotes.customerId, contacts.displayName);
 
@@ -897,7 +906,7 @@ reportsRouter.get("/purchases-by-vendor", requirePermission("reports", "view"), 
     .from(bills)
     .innerJoin(contacts, eq(contacts.id, bills.vendorId))
     .where(
-      and(
+      and(eq(contacts.isGroupCompany, false), 
         sql`${bills.status} NOT IN ('draft', 'void')`,
         ...(from ? [gte(bills.billDate, from)] : []),
         ...(to ? [lte(bills.billDate, to)] : []),
@@ -916,7 +925,7 @@ reportsRouter.get("/purchases-by-vendor", requirePermission("reports", "view"), 
     .from(vendorCredits)
     .innerJoin(contacts, eq(contacts.id, vendorCredits.vendorId))
     .where(
-      and(
+      and(eq(contacts.isGroupCompany, false), 
         sql`${vendorCredits.status} NOT IN ('draft', 'void')`,
         ...(from ? [gte(vendorCredits.creditDate, from)] : []),
         ...(to ? [lte(vendorCredits.creditDate, to)] : []),

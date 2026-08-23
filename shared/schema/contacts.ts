@@ -32,6 +32,13 @@ export const contacts = pgTable("contacts", {
     .notNull()
     .default("0"),
   notes: text("notes"),
+  /**
+   * One of the group's own companies — Nandamuri, Luit Valley. Their
+   * documents post to the GL like anyone's, but they are the group, not the
+   * market: excluded from every customer- and vendor-scoped list, report and
+   * KPI. Their ledger lives on its own page under Accountant.
+   */
+  isGroupCompany: boolean("is_group_company").notNull().default(false),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

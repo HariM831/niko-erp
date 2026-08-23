@@ -81,6 +81,9 @@ contactsRouter.get("/", requirePermission("sales", "view"), async (req, res) => 
   // customers has to return it too.
   if (type === "customer" || type === "vendor") {
     conditions.push(inArray(contacts.type, [type, "both"]));
+    // The group's own companies are neither customers nor vendors to the
+    // market; their ledger has its own page under Accountant.
+    conditions.push(eq(contacts.isGroupCompany, false));
   }
   if (isActive !== undefined) conditions.push(eq(contacts.isActive, isActive === "true"));
   if (search) {
