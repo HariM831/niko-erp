@@ -226,37 +226,55 @@ interface SummaryStats {
   avgDaysToGetPaid?: number;
 }
 
-/** Zoho's Payment Summary strip above the Invoices / Bills lists. */
+/**
+ * The Payment Summary strip above the Invoices / Bills lists — a quiet
+ * gradient hero rather than a flat row of numbers, in the same varied-shade
+ * yolk language as Home: one figure leads, the rest sit beside it in a
+ * lighter weight. Overdue gets a small dot when it is not zero — the one
+ * place on this page red is earned rather than decorative.
+ */
 function PaymentSummaryBanner({ endpoint, side }: { endpoint: string; side: "receivable" | "payable" }) {
   const { data } = useQuery({
     queryKey: [endpoint],
     queryFn: () => api<SummaryStats>(endpoint),
   });
-  const stats = [
+  const overdueAmount = Number(data?.overdue ?? 0);
+  const secondary = [
+    { label: "Due today", value: formatMoney(data?.dueToday ?? 0) },
+    { label: "Due within 30 days", value: formatMoney(data?.dueWithin30Days ?? 0) },
     {
-      label: side === "receivable" ? "Total Outstanding Receivables" : "Total Outstanding Payables",
-      value: formatMoney(data?.totalOutstanding ?? 0),
-    },
-    { label: "Due Today", value: formatMoney(data?.dueToday ?? 0) },
-    { label: "Due Within 30 Days", value: formatMoney(data?.dueWithin30Days ?? 0) },
-    {
-      label: side === "receivable" ? "Overdue Invoice" : "OverDue Bills",
+      label: side === "receivable" ? "Overdue invoices" : "Overdue bills",
       value: formatMoney(data?.overdue ?? 0),
+      alert: overdueAmount > 0,
     },
     ...(side === "receivable"
-      ? [{ label: "Average No. of Days for Getting Paid", value: `${data?.avgDaysToGetPaid ?? 0} Days` }]
+      ? [{ label: "Avg. days to get paid", value: `${data?.avgDaysToGetPaid ?? 0} days` }]
       : []),
   ];
   return (
-    <div
-      className={`grid gap-6 border-b bg-white px-5 py-4 ${side === "receivable" ? "grid-cols-5" : "grid-cols-4"}`}
-    >
-      {stats.map((s) => (
-        <div key={s.label}>
-          <div className="text-[13px] font-semibold tabular-nums text-gray-800">{s.value}</div>
-          <div className="mt-0.5 text-xs text-gray-500">{s.label}</div>
+    <div className="relative overflow-hidden bg-gradient-to-br from-yolk-400 via-yolk-500 to-yolk-600 px-6 py-5 text-white">
+      <div className="pointer-events-none absolute -right-12 -top-16 h-44 w-44 rounded-full bg-white/10" />
+      <div className="relative flex flex-wrap items-end justify-between gap-x-10 gap-y-3">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-wider text-yolk-50/80">
+            {side === "receivable" ? "Total outstanding receivables" : "Total outstanding payables"}
+          </div>
+          <div className="text-[28px] font-extrabold leading-tight tabular-nums">
+            {formatMoney(data?.totalOutstanding ?? 0)}
+          </div>
         </div>
-      ))}
+        <div className="flex flex-wrap gap-x-8 gap-y-2">
+          {secondary.map((s) => (
+            <div key={s.label}>
+              <div className="text-[10.5px] font-semibold uppercase tracking-wider text-yolk-50/75">{s.label}</div>
+              <div className="flex items-center gap-1.5 text-[15px] font-bold tabular-nums">
+                {s.alert && <span className="h-1.5 w-1.5 rounded-full bg-red-300" />}
+                {s.value}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
