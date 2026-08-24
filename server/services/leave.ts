@@ -193,8 +193,9 @@ export async function approveLeave(tx: Conn, id: string, userId: string, remarks
     .set({ status: "approved", decidedBy: userId, decidedAt: new Date(), remarks: remarks ?? null })
     .where(eq(leaveApplications.id, id));
   // The resolver already ranks leave under punches and over weekly off; a
-  // recompute of the range IS the write, and honours manual/import rows.
-  await recomputeRange(tx, app.fromDate, app.toDate, [app.employeeId]);
+  // recompute of the range IS the write. It overrides imported days — an
+  // approval that a bulk import silently outranked would be no approval.
+  await recomputeRange(tx, app.fromDate, app.toDate, [app.employeeId], true);
   return { ...app, status: "approved" as const };
 }
 
@@ -231,6 +232,8 @@ async function revertLeaveDays(tx: Conn, app: { employeeId: string; fromDate: st
         eq(attendanceDays.source, "leave"),
       ),
     );
+  // Only the rows this leave wrote were deleted above, so a plain recompute
+  // refills them; imported days elsewhere in the range are none of its business.
   await recomputeRange(tx, app.fromDate, app.toDate, [app.employeeId]);
 }
 

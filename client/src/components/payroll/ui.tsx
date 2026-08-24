@@ -267,13 +267,16 @@ export interface EmployeeRow {
   shift: { id: string; name: string } | string | null;
 }
 
-/** Active employees in a stable order (by name) — the list every picker reads. */
+/**
+ * Active employees in employee-code order — the sequence the office knows
+ * them by, and the same order every grid, picker and report uses.
+ */
 export function useEmployees(opts: { active?: boolean; all?: boolean } = {}) {
   const q = opts.all ? "" : `?active=${opts.active === false ? 0 : 1}`;
   return useQuery({
     queryKey: ["payroll", "employees", q],
     queryFn: () => api<EmployeeRow[]>(`/api/payroll/employees${q}`),
-    select: (rows) => [...rows].sort((a, b) => a.name.localeCompare(b.name)),
+    select: (rows) => [...rows].sort((a, b) => a.empCode.localeCompare(b.empCode, undefined, { numeric: true })),
     staleTime: 60_000,
   });
 }

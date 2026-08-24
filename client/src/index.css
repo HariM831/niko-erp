@@ -88,11 +88,16 @@ body {
   @apply rounded-xl border border-gray-200/80 bg-white shadow-[0_1px_3px_rgba(16,24,40,0.06)];
 }
 
-.input {
-  @apply w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-[13px] transition-colors duration-150 placeholder:text-gray-400;
-}
-.input:focus {
-  @apply border-brand-400 outline-none ring-2 ring-brand-100;
+/* In the components layer so a width utility on the element (`input w-40`)
+   beats the default `w-full` — outside a layer it would lose on source order
+   and every filter box would stretch across the page. */
+@layer components {
+  .input {
+    @apply w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-[13px] transition-colors duration-150 placeholder:text-gray-400;
+  }
+  .input:focus {
+    @apply border-brand-400 outline-none ring-2 ring-brand-100;
+  }
 }
 
 .label {

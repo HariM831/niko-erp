@@ -16,12 +16,13 @@ interface Today {
   counts: { present: number; insideNow: number; absent: number; total: number; onLeave?: number };
 }
 interface Run { id: string; month: number; year: number; status: "draft" | "confirmed"; employeeCount: number; totalNet: number; totalGross: number; journalEntryNumber?: string | null }
-interface Leave { id: string; employeeName?: string; employee?: { name: string }; leaveType: string; fromDate: string; toDate: string; days: number; status: string }
-interface PayInput { id: string; employeeName?: string; employee?: { name: string }; kind: string; amount: number | string; status: string }
-interface OpenPunch { id: string; employeeId: string; employeeName?: string; name?: string; empCode?: string; punchDate: string; punchedAt: string }
+interface Leave { id: string; name?: string; empCode?: string; leaveType: string; fromDate: string; toDate: string; days: number; status: string }
+interface PayInput { id: string; name?: string; empCode?: string; kind: string; amount: number | string; status: string }
+interface OpenPunch { id: string; employeeId: string; name?: string; empCode?: string; punchDate: string; punchedAt: string }
 interface Holiday { id: string; name: string; date: string; type: string; isRecurring: boolean }
 
-const empName = (r: { employeeName?: string; employee?: { name: string }; name?: string }) => r.employeeName ?? r.employee?.name ?? r.name ?? "—";
+/** The routes join the person in flat, as `name`. */
+const empName = (r: { name?: string }) => r.name ?? "—";
 
 function Tile({ label, value, sub, href, tone }: { label: string; value: string; sub?: string; href?: string; tone?: "good" | "bad" | "warn" }) {
   const color = tone === "good" ? "text-emerald-600" : tone === "bad" ? "text-red-600" : tone === "warn" ? "text-amber-600" : "";
@@ -207,7 +208,7 @@ export function PayrollOverviewPage() {
                 {open.map((o) => (
                   <tr key={o.id} className="table-row">
                     <Td><Badge tone="red">Open punch</Badge></Td>
-                    <Td>{o.employeeName ?? o.name ?? o.empCode ?? "—"}</Td>
+                    <Td>{o.name ?? o.empCode ?? "—"}</Td>
                     <Td>In {dmy(o.punchDate)} {fmtTime(o.punchedAt)}, no out</Td>
                     <Td right>—</Td>
                   </tr>

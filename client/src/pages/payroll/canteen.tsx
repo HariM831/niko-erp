@@ -41,12 +41,15 @@ interface Serving {
   attendancePresent: boolean | null;
 }
 interface Eligibility { employeeId: string; name?: string; empCode?: string; breakfast: boolean; dinner: boolean; note: string | null }
+/** Shape of GET /api/canteen/report — one cell per canteen × meal × state. */
 interface Report {
-  byCanteen: { canteen: string; meal: Meal; state: string; plates: number }[];
+  cells: { canteen: string; meal: Meal; state: string; plates: number }[];
+  plates: number;
   guests?: number;
-  totalPlates?: number;
+  byDate?: { date: string; plates: number }[];
   costPerPlate?: number | null;
-  totalCost?: number | null;
+  totalExpense?: number | null;
+  note?: string;
 }
 type Meal = "breakfast" | "lunch" | "dinner";
 const MEALS: Meal[] = ["breakfast", "lunch", "dinner"];
@@ -232,7 +235,8 @@ function ReportTab() {
     enabled: from <= to,
   });
   const d = repQ.data;
-  const total = d?.totalPlates ?? d?.byCanteen.reduce((a, r) => a + r.plates, 0) ?? 0;
+  const cells = d?.cells ?? [];
+  const total = d?.plates ?? cells.reduce((a, r) => a + r.plates, 0);
 
   return (
     <div>
@@ -245,7 +249,8 @@ function ReportTab() {
             <span>{num(total)} plates</span>
             {d.guests != null && <span>{num(d.guests)} guest</span>}
             {d.costPerPlate != null && <span>{formatMoney(d.costPerPlate)} / plate</span>}
-            {d.totalCost != null && <span>{formatMoney(d.totalCost)} total</span>}
+            {d.totalExpense != null && <span>{formatMoney(d.totalExpense)} total</span>}
+            {d.note && <span className="text-gray-400">{d.note}</span>}
           </span>
         )}
       </div>
@@ -258,7 +263,7 @@ function ReportTab() {
               <tr><Th>Canteen</Th><Th>Meal</Th><Th>State</Th><Th right>Plates</Th></tr>
             </thead>
             <tbody>
-              {(d?.byCanteen ?? []).map((r, i) => (
+              {cells.map((r, i) => (
                 <tr key={i} className="table-row">
                   <Td>{r.canteen}</Td>
                   <Td className="capitalize">{r.meal}</Td>
@@ -266,8 +271,8 @@ function ReportTab() {
                   <Td right>{num(r.plates)}</Td>
                 </tr>
               ))}
-              {!d?.byCanteen.length && <tr><Td colSpan={4}><Empty>No plates in this range.</Empty></Td></tr>}
-              {d && d.byCanteen.length > 0 && (
+              {!cells.length && <tr><Td colSpan={4}><Empty>No plates in this range.</Empty></Td></tr>}
+              {cells.length > 0 && (
                 <tr className="bg-gray-50 font-semibold"><Td colSpan={3}>Total</Td><Td right>{num(total)}</Td></tr>
               )}
             </tbody>

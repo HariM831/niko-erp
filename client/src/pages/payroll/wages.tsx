@@ -19,7 +19,7 @@ interface WageRow {
 }
 interface WagesReport {
   rows: WageRow[];
-  totalsByRole: { role: string | null; headcount: number; presentDays: number; halfDays: number; amount: number | string }[];
+  byRole: { role: string | null; heads: number; presentDays: number; halfDays: number; amount: number | string }[];
   total?: number | string;
 }
 interface WageRole { id: string; name: string; isActive: boolean }
@@ -38,7 +38,7 @@ export function PayrollWagesPage() {
   });
 
   const rows = useMemo(
-    () => [...(reportQ.data?.rows ?? [])].sort((a, b) => a.name.localeCompare(b.name)),
+    () => [...(reportQ.data?.rows ?? [])].sort((a, b) => a.empCode.localeCompare(b.empCode, undefined, { numeric: true })),
     [reportQ.data],
   );
   const paged = usePaged(rows);
@@ -54,18 +54,18 @@ export function PayrollWagesPage() {
         <input type="date" className="input w-auto" value={to} onChange={(e) => setTo(e.target.value)} />
         <select value={role} onChange={(e) => setRole(e.target.value)} className="input w-44">
           <option value="">All roles</option>
-          {(rolesQ.data ?? []).map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
+          {(rolesQ.data ?? []).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
       </PageHeader>
 
       {/* Totals by role */}
       {reportQ.data && (
         <div className="mb-3 flex flex-wrap gap-2">
-          {reportQ.data.totalsByRole.map((t) => (
+          {(reportQ.data.byRole ?? []).map((t) => (
             <div key={t.role ?? "none"} className="rounded-lg bg-white px-4 py-2 shadow-sm">
               <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{t.role ?? "No role"}</div>
               <div className="text-[15px] font-semibold tabular-nums">{formatMoney(t.amount)}</div>
-              <div className="text-[11px] tabular-nums text-gray-500">{t.headcount} workers · {num(t.presentDays + t.halfDays * 0.5, 1)} paid days</div>
+              <div className="text-[11px] tabular-nums text-gray-500">{t.heads} workers · {num(t.presentDays + t.halfDays * 0.5, 1)} paid days</div>
             </div>
           ))}
           <div className="rounded-lg bg-white px-4 py-2 shadow-sm ring-1 ring-brand-100">

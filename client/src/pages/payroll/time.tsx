@@ -37,7 +37,7 @@ interface MonthGrid {
   employees: { id: string; empCode: string; name: string; department: string | null; days: Record<string, DayCell>; totals: Totals }[];
 }
 interface Leave {
-  id: string; employeeId: string; employeeName?: string; employee?: { name: string; empCode: string };
+  id: string; employeeId: string; name?: string; empCode?: string;
   leaveType: "CL" | "SL" | "CompOff"; fromDate: string; toDate: string; days: number; reason: string;
   status: string; compOffWorkDate: string | null; remarks: string | null; appliedAt: string;
 }
@@ -46,11 +46,11 @@ interface Balance {
   SL: { earned: number; used: number; balance: number };
   CompOff: { earned: number; used: number; balance: number; expiring: { workDate: string; expiresOn: string }[] };
 }
-interface OpenPunch { id: string; employeeId: string; employeeName?: string; name?: string; empCode?: string; punchDate: string; punchedAt: string }
-interface Assignment { id: string; employeeId: string; employeeName?: string; empCode?: string; shiftId: string; shiftName?: string; shift?: { name: string }; effectiveFrom: string; effectiveTo: string | null }
+interface OpenPunch { id: string; employeeId: string; name?: string; empCode?: string; punchDate: string; punchedAt: string }
+interface Assignment { id: string; employeeId: string; name?: string; empCode?: string; shiftId: string; shiftName?: string; shift?: { name: string }; effectiveFrom: string; effectiveTo: string | null }
 interface Shift { id: string; name: string; startTime: string; endTime: string; weeklyOffDays: number[]; isActive: boolean; color: string }
 
-const leaveName = (l: Leave) => l.employeeName ?? l.employee?.name ?? "—";
+const leaveName = (l: Leave) => l.name ?? "—";
 
 type Tab = "calendar" | "grid" | "leave" | "exceptions" | "roster";
 
@@ -295,7 +295,7 @@ function TeamGridTab() {
   });
 
   const employees = useMemo(
-    () => [...(gridQ.data?.employees ?? [])].sort((a, b) => a.name.localeCompare(b.name)),
+    () => [...(gridQ.data?.employees ?? [])].sort((a, b) => a.empCode.localeCompare(b.empCode, undefined, { numeric: true })),
     [gridQ.data],
   );
   const paged = usePaged(employees);
@@ -682,7 +682,7 @@ function ExceptionsTab() {
             <tbody>
               {rows.map((p) => (
                 <tr key={p.id} className="table-row">
-                  <Td className="font-medium">{p.employeeName ?? p.name ?? p.empCode ?? "—"}</Td>
+                  <Td className="font-medium">{p.name ?? p.empCode ?? "—"}</Td>
                   <Td className="tabular-nums">{dmy(p.punchDate)}</Td>
                   <Td className="tabular-nums">{fmtTime(p.punchedAt)}</Td>
                   <Td right><button className="btn-secondary" onClick={() => setResolving(p)}>Resolve</button></Td>
@@ -698,7 +698,7 @@ function ExceptionsTab() {
         <Dialog open onOpenChange={(v) => !v && setResolving(null)}>
           <DialogContent className="max-w-sm">
             <DialogHeader>
-              <DialogTitle>Resolve · {resolving.employeeName ?? resolving.name ?? ""} {dmy(resolving.punchDate)}</DialogTitle>
+              <DialogTitle>Resolve · {resolving.name ?? ""} {dmy(resolving.punchDate)}</DialogTitle>
             </DialogHeader>
             <div className="mb-2 flex rounded-md bg-gray-100 p-0.5 text-[13px]">
               <button className={`flex-1 rounded px-2 py-1 ${mode === "out" ? "bg-white font-medium shadow-sm" : "text-gray-500"}`} onClick={() => setMode("out")}>Insert out time</button>

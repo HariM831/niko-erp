@@ -91,6 +91,11 @@ Balance = earned − approved days this calendar year. Validation: CL ≤ `clMax
 consecutive; comp-off needs `compOffWorkDate` in the past and within validity.
 Approving writes `attendance_days` (status L, source leave) for the range unless a punch row
 or a manual row already exists; rejecting/cancelling removes those rows and recomputes.
+An approval also overrides an `import` row — a bulk-imported month must not silently outrank
+a decision about specific days, or the approval is invisible and the month still pays LOP.
+The consequence: the imported status of an approved day is not recoverable if the leave is
+later rejected; the day falls back to what the resolver says (absent, unless a punch exists),
+and HR can mark it by hand.
 
 ## Session routes — `server/routes/payroll.ts`, mounted `/api/payroll` (after `requireAuth`)
 

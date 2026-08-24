@@ -375,8 +375,8 @@ payrollRouter.get("/employees", view, async (req, res) => {
       hasFace: sql<boolean>`${employees.faceDescriptor} IS NOT NULL`,
       shift: sql<string | null>`(
         SELECT s.name FROM shift_assignments a JOIN shifts s ON s.id = a.shift_id
-        WHERE a.employee_id = ${employees.id} AND a.effective_from <= (NOW() AT TIME ZONE 'Asia/Kolkata')::date::text
-          AND (a.effective_to IS NULL OR a.effective_to >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date::text)
+        WHERE a.employee_id = ${employees.id} AND a.effective_from <= (NOW() AT TIME ZONE 'Asia/Kolkata')::date
+          AND (a.effective_to IS NULL OR a.effective_to >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date)
         ORDER BY a.effective_from DESC LIMIT 1
       )`,
     })
@@ -1478,8 +1478,8 @@ payrollRouter.get("/runs/:id/bank-file", view, async (req, res) => {
   const lines = [
     "Name,Account Number,IFSC,Net Pay",
     ...slips
-      .filter((s) => Number(s.slip.netPay) > 0)
-      .map((s) => [esc(s.name), esc(s.slip.bankAccountNumber ?? ""), esc(s.slip.bankIfsc ?? ""), Number(s.slip.netPay).toFixed(2)].join(",")),
+      .filter((s) => Number(s.netPay) > 0)
+      .map((s) => [esc(s.name), esc(s.bankAccountNumber ?? ""), esc(s.bankIfsc ?? ""), Number(s.netPay).toFixed(2)].join(",")),
   ];
   res.setHeader("Content-Type", "text/csv");
   res.setHeader("Content-Disposition", `attachment; filename=payroll-${run.year}-${String(run.month).padStart(2, "0")}.csv`);
@@ -1530,11 +1530,13 @@ payrollRouter.get("/reports/wages", view, async (req, res) => {
       return { ...s, dailyRate: rate, presentDays: t.P, halfDays: t.H, amount };
     })
     .filter((r) => r.presentDays + r.halfDays > 0 || req.query.role);
-  const byRole = new Map<string, { role: string; heads: number; amount: number }>();
+  const byRole = new Map<string, { role: string; heads: number; presentDays: number; halfDays: number; amount: number }>();
   for (const r of rows) {
     const key = r.role ?? "(no role)";
-    const agg = byRole.get(key) ?? { role: key, heads: 0, amount: 0 };
+    const agg = byRole.get(key) ?? { role: key, heads: 0, presentDays: 0, halfDays: 0, amount: 0 };
     agg.heads++;
+    agg.presentDays += r.presentDays;
+    agg.halfDays += r.halfDays;
     agg.amount = Math.round((agg.amount + r.amount) * 100) / 100;
     byRole.set(key, agg);
   }

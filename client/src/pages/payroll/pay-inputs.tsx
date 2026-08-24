@@ -25,8 +25,8 @@ const EXPENSE_CATEGORIES = ["travel", "food", "accommodation", "communication", 
 interface PayInput {
   id: string;
   employeeId: string;
-  employeeName?: string;
-  employee?: { name: string; empCode: string };
+  name: string;
+  empCode: string;
   kind: Kind;
   month: number;
   year: number;
@@ -41,8 +41,8 @@ interface PayInput {
 interface Advance {
   id: string;
   employeeId: string;
-  employeeName?: string;
-  employee?: { name: string; empCode: string };
+  name: string;
+  empCode: string;
   type: "salary_advance" | "loan";
   amount: number | string;
   emiAmount: number | string;
@@ -53,7 +53,9 @@ interface Advance {
   repayments: { id: string; amount: number | string; month: number; year: number; notes: string | null; payrollRunId: string | null }[];
 }
 
-const who = (r: { employeeName?: string; employee?: { name: string } }) => r.employeeName ?? r.employee?.name ?? "—";
+/** The routes join the employee in flat: `name` and `empCode` on the row. */
+const who = (r: { name?: string; empCode?: string }) => r.name ?? "—";
+const whoCode = (r: { empCode?: string }) => r.empCode ?? "";
 
 export function PayrollPayInputsPage() {
   const qc = useQueryClient();
@@ -127,7 +129,9 @@ export function PayrollPayInputsPage() {
             <tbody>
               {paged.page.map((r) => (
                 <tr key={r.id} className="table-row">
-                  <Td className="font-medium">{who(r)}</Td>
+                  <Td className="font-medium">
+                    {who(r)} <span className="ml-1 text-[11px] font-normal text-gray-400">{whoCode(r)}</span>
+                  </Td>
                   <Td><Badge tone={r.kind === "deduction" ? "red" : "blue"}>{KIND_LABEL[r.kind]}</Badge></Td>
                   <Td className="max-w-[280px] truncate" title={r.description ?? undefined}>
                     {r.kind === "overtime" && r.hours != null && <span className="tabular-nums">{num(r.hours, 1)} h × {formatMoney(r.ratePerHour ?? 0)} · </span>}
@@ -317,7 +321,9 @@ function AdvancesSection() {
               {rows.map((a) => (
                 <Fragment key={a.id}>
                   <tr className="table-row cursor-pointer" onClick={() => setExpanded(expanded === a.id ? null : a.id)}>
-                    <Td className="font-medium">{who(a)}</Td>
+                    <Td className="font-medium">
+                      {who(a)} <span className="ml-1 text-[11px] font-normal text-gray-400">{whoCode(a)}</span>
+                    </Td>
                     <Td>{a.type === "loan" ? "Loan" : "Salary advance"}{a.reason && <span className="ml-1 text-[11px] text-gray-400">{a.reason}</span>}</Td>
                     <Td className="tabular-nums">{dmy(a.givenOn)}</Td>
                     <Td right>{formatMoney(a.amount)}</Td>

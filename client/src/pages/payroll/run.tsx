@@ -32,7 +32,6 @@ interface Run {
 interface Slip {
   id: string;
   employeeId: string;
-  employeeName?: string;
   name?: string;
   empCode?: string;
   department?: string | null;
@@ -75,7 +74,7 @@ interface RunDetail {
   exceptions: { employeeId: string; name: string; issue: string }[];
 }
 
-const slipName = (s: Slip) => s.employeeName ?? s.name ?? "—";
+const slipName = (s: Slip) => s.name ?? "—";
 
 export function PayrollRunPage() {
   const qc = useQueryClient();
@@ -117,7 +116,8 @@ export function PayrollRunPage() {
 
   const detail = detailQ.data;
   const run = detail?.run;
-  const slips = useMemo(() => [...(detail?.slips ?? [])].sort((a, b) => slipName(a).localeCompare(slipName(b))), [detail]);
+    // The server returns them in employee-code order; keep it.
+  const slips = useMemo(() => detail?.slips ?? [], [detail]);
   const paged = usePaged(slips);
 
   return (

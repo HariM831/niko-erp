@@ -388,8 +388,14 @@ export async function runExceptions(tx: Conn, runId: string): Promise<RunExcepti
 }
 
 /** The slips of a run with the employee columns the screen shows. */
+/**
+ * A run's slips, flat: the slip's own columns with the person's name, code and
+ * department beside them. Flat because every consumer — the review table, the
+ * payslip, the bank file — wants one row per person, not a row wrapping a row.
+ * Ordered by employee code, the sequence the office reads in.
+ */
 export async function runSlips(tx: Conn, runId: string) {
-  return tx
+  const rows = await tx
     .select({
       slip: salarySlips,
       name: employees.name,
@@ -401,6 +407,7 @@ export async function runSlips(tx: Conn, runId: string) {
     .leftJoin(departments, eq(departments.id, employees.departmentId))
     .where(eq(salarySlips.payrollRunId, runId))
     .orderBy(asc(employees.empCode));
+  return rows.map((r) => ({ ...r.slip, name: r.name, empCode: r.empCode, department: r.department }));
 }
 
 export async function listRuns(tx: Conn) {

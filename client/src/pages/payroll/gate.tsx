@@ -37,7 +37,7 @@ interface PunchRow {
   punchDate: string;
   method: string;
   latitude: number | null;
-  employeeName?: string;
+  name?: string;
   empCode?: string;
 }
 interface Position { latitude: number; longitude: number; accuracy: number }
@@ -423,9 +423,9 @@ export function PayrollGatePage() {
               const emp = empById.get(p.employeeId);
               return (
                 <div key={p.id} className="flex items-center gap-3 border-b border-gray-100 pb-2 text-sm last:border-0 last:pb-0">
-                  <Avatar src={emp?.photoUrl} name={p.employeeName ?? emp?.name ?? "?"} size="sm" />
+                  <Avatar src={emp?.photoUrl} name={p.name ?? emp?.name ?? "?"} size="sm" />
                   <div className="min-w-0 flex-1">
-                    <span className="font-medium">{p.employeeName ?? emp?.name ?? p.empCode}</span>
+                    <span className="font-medium">{p.name ?? emp?.name ?? p.empCode}</span>
                     <span className="text-gray-400"> · {fmtTime(p.punchedAt)}</span>
                   </div>
                   <Badge tone={p.type === "in" ? "green" : "gray"}>{p.type.toUpperCase()}</Badge>

@@ -163,7 +163,10 @@ export function PayrollEmployeesPage() {
   });
   const deptQ = useQuery({ queryKey: ["payroll", "departments"], queryFn: () => api<Department[]>("/api/payroll/departments") });
 
-  const rows = useMemo(() => [...(listQ.data ?? [])].sort((a, b) => a.name.localeCompare(b.name)), [listQ.data]);
+  const rows = useMemo(
+    () => [...(listQ.data ?? [])].sort((a, b) => a.empCode.localeCompare(b.empCode, undefined, { numeric: true })),
+    [listQ.data],
+  );
   const paged = usePaged(rows);
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["payroll", "employees"] });
@@ -196,7 +199,7 @@ export function PayrollEmployeesPage() {
         </div>
         <select value={dept} onChange={(e) => setDept(e.target.value)} className="input w-44">
           <option value="">All departments</option>
-          {(deptQ.data ?? []).map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
+          {(deptQ.data ?? []).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
         <select value={payType} onChange={(e) => setPayType(e.target.value)} className="input w-36">
           <option value="">All pay types</option>

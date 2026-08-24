@@ -313,8 +313,21 @@ export async function loadContext(tx: Conn, from: string, to: string, employeeId
  * source is `manual` or `import` are left exactly as they are; a day the
  * resolver now says has no row (future, outside service) is deleted unless
  * it is one of those.
+ *
+ * `overrideImported` drops `import` from that protection. Deciding a leave is
+ * a decision about specific days, and it must land even where a bulk import
+ * had already written those days as absent — otherwise the approval is
+ * invisible and the month still pays LOP. An HR `manual` row still wins:
+ * somebody looked at that day and said what it was.
  */
-async function writeRange(tx: Conn, emps: EmployeeLike[], from: string, to: string, ctx: ResolveContext): Promise<number> {
+async function writeRange(
+  tx: Conn,
+  emps: EmployeeLike[],
+  from: string,
+  to: string,
+  ctx: ResolveContext,
+  overrideImported = false,
+): Promise<number> {
   if (!emps.length) return 0;
   const ids = emps.map((e) => e.id);
   const locked = await tx
@@ -325,7 +338,7 @@ async function writeRange(tx: Conn, emps: EmployeeLike[], from: string, to: stri
         inArray(attendanceDays.employeeId, ids),
         gte(attendanceDays.day, from),
         lte(attendanceDays.day, to),
-        inArray(attendanceDays.source, ["manual", "import"]),
+        overrideImported ? eq(attendanceDays.source, "manual") : inArray(attendanceDays.source, ["manual", "import"]),
       ),
     );
   const lockedSet = new Set(locked.map((r) => `${r.employeeId}|${r.day}`));
@@ -361,7 +374,13 @@ async function writeRange(tx: Conn, emps: EmployeeLike[], from: string, to: stri
   for (const d of deletes) {
     await tx
       .delete(attendanceDays)
-      .where(and(eq(attendanceDays.employeeId, d.employeeId), eq(attendanceDays.day, d.day), sql`${attendanceDays.source} NOT IN ('manual','import')`));
+      .where(
+        and(
+          eq(attendanceDays.employeeId, d.employeeId),
+          eq(attendanceDays.day, d.day),
+          overrideImported ? sql`${attendanceDays.source} <> 'manual'` : sql`${attendanceDays.source} NOT IN ('manual','import')`,
+        ),
+      );
   }
   return upserts.length;
 }
@@ -376,14 +395,23 @@ export async function recomputeEmployeeDay(tx: Conn, employeeId: string, day: st
   return resolveDay(emp, day, ctx);
 }
 
-/** Recompute every active employee (or the given ones) over [from, to]. */
-export async function recomputeRange(tx: Conn, from: string, to: string, employeeIds?: string[]): Promise<{ rows: number; employees: number }> {
+/**
+ * Recompute every active employee (or the given ones) over [from, to].
+ * `overrideImported` is for leave decisions — see writeRange.
+ */
+export async function recomputeRange(
+  tx: Conn,
+  from: string,
+  to: string,
+  employeeIds?: string[],
+  overrideImported = false,
+): Promise<{ rows: number; employees: number }> {
   const emps = await tx
     .select(employeeLite)
     .from(employees)
     .where(employeeIds?.length ? inArray(employees.id, employeeIds) : eq(employees.isActive, true));
   const ctx = await loadContext(tx, from, to, employeeIds);
-  const rows = await writeRange(tx, emps, from, to, ctx);
+  const rows = await writeRange(tx, emps, from, to, ctx, overrideImported);
   return { rows, employees: emps.length };
 }
 
