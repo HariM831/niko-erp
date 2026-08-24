@@ -336,7 +336,7 @@ export function ReportViewPage({ reportKey }: { reportKey: string }) {
     return (
       <div className="p-8 text-[13px] text-gray-500">
         No such report.{" "}
-        <Link href="/reports" className="text-[#1c5bd9] hover:underline">
+        <Link href="/reports" className="text-[#e06d05] hover:underline">
           Back to the Reports Center
         </Link>
         .
@@ -433,7 +433,7 @@ export function ReportViewPage({ reportKey }: { reportKey: string }) {
         <button onClick={() => apply({ range: "Custom", ...draft })} className="btn-primary">
           Run Report
         </button>
-        <Link href="/reports" className="ml-auto text-[13px] text-[#1c5bd9] hover:underline">
+        <Link href="/reports" className="ml-auto text-[13px] text-[#e06d05] hover:underline">
           All reports
         </Link>
       </div>
@@ -551,7 +551,7 @@ function TreeRows({
           <Fragment key={n.accountId}>
             <tr>
               <td className="px-2 py-2" style={{ paddingLeft: `${20 + n.depth * 20}px` }}>
-                <Link href={href(n)} className="font-medium text-[#1c5bd9] hover:underline">
+                <Link href={href(n)} className="font-medium text-[#e06d05] hover:underline">
                   {n.name}
                 </Link>
               </td>
@@ -866,7 +866,7 @@ function ItemTable({ data }: { data: Record<string, unknown> }) {
             Amounts booked without an item still reach the ledger —{" "}
             <Link
               href={`/accountant/accounts/${account.id}`}
-              className="text-[#1c5bd9] hover:underline"
+              className="text-[#e06d05] hover:underline"
             >
               open the account ledger
             </Link>{" "}
@@ -895,7 +895,7 @@ function ItemTable({ data }: { data: Record<string, unknown> }) {
               <td className="px-2 py-2 pl-5">
                 <Link
                   href={`/items/${r.itemId}`}
-                  className="font-medium text-[#1c5bd9] hover:underline"
+                  className="font-medium text-[#e06d05] hover:underline"
                 >
                   {r.name}
                 </Link>
@@ -953,7 +953,7 @@ function SalesByCustomer({ data }: { data: Record<string, unknown> }) {
               <td className="px-2 py-2 pl-5">
                 <Link
                   href={`/sales/customers/${r.contactId}`}
-                  className="font-medium text-[#1c5bd9] hover:underline"
+                  className="font-medium text-[#e06d05] hover:underline"
                 >
                   {r.name}
                 </Link>
@@ -1015,7 +1015,7 @@ function PurchasesByVendor({ data }: { data: Record<string, unknown> }) {
                 {r.contactId ? (
                   <Link
                     href={`/purchases/vendors/${r.contactId}`}
-                    className="font-medium text-[#1c5bd9] hover:underline"
+                    className="font-medium text-[#e06d05] hover:underline"
                   >
                     {r.name}
                   </Link>
@@ -1131,7 +1131,7 @@ function ExpenseByCategory({ data }: { data: Record<string, unknown> }) {
                 c.children.map((ch) => (
                   <tr key={ch.accountId} className="bg-[#fafafc]">
                     <td className="px-2 py-2 pl-11">
-                      <Link href={href(ch)} className="font-medium text-[#1c5bd9] hover:underline">
+                      <Link href={href(ch)} className="font-medium text-[#e06d05] hover:underline">
                         {ch.name}
                       </Link>
                       <span className="ml-2 text-[11px] text-gray-400">{ch.code}</span>
@@ -1224,7 +1224,7 @@ function AgingSummary({ reportKey, data }: { reportKey: string; data: Record<str
               <td className="px-2 py-2 pl-5">
                 <Link
                   href={isAr ? `/sales/customers/${id}` : `/purchases/vendors/${id}`}
-                  className="font-medium text-[#1c5bd9] hover:underline"
+                  className="font-medium text-[#e06d05] hover:underline"
                 >
                   {r.name}
                 </Link>

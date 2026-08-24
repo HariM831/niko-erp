@@ -124,7 +124,7 @@ export function TopBar() {
           <Bell size={16} />
         </button>
 
-        <span className="ml-1 grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-brand-500 text-xs font-bold text-white">
+        <span className="ml-1 grid h-8 w-8 place-items-center rounded-full bg-gradient-to-br from-yolk-400 to-yolk-600 text-xs font-bold text-white">
           {user?.name?.[0]?.toUpperCase() ?? "U"}
         </span>
       </div>

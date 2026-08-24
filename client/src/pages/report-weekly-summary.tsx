@@ -206,7 +206,7 @@ export function WeeklySummaryPage() {
         <button onClick={csv} className="btn-secondary" disabled={!weeks.length}>
           Download CSV
         </button>
-        <Link href="/reports" className="ml-auto text-[13px] text-[#1c5bd9] hover:underline">
+        <Link href="/reports" className="ml-auto text-[13px] text-[#e06d05] hover:underline">
           All reports
         </Link>
       </div>

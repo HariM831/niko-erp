@@ -4,17 +4,21 @@
 @theme {
   --font-sans: "Inter", "Segoe UI", system-ui, sans-serif;
 
-  --color-brand-50: #eef4ff;
-  --color-brand-100: #dce9fe;
-  --color-brand-200: #c0d8fd;
-  --color-brand-400: #6ba4fc;
-  --color-brand-500: #408dfb;
-  --color-brand-600: #2570eb;
-  --color-brand-700: #1d5ac4;
+  /* Brand — egg-yolk orange. Was a blue ramp; every page reads the token,
+     never a literal hex, so retuning the whole app's accent happens here. */
+  --color-brand-50: #fff8ef;
+  --color-brand-100: #ffecd2;
+  --color-brand-200: #ffd8a3;
+  --color-brand-400: #ffa233;
+  --color-brand-500: #f98a12;
+  --color-brand-600: #e06d05;
+  --color-brand-700: #b85406;
 
-  --color-sidebar: #21263f;
-  --color-sidebar-deep: #1a1e33;
-  --color-sidebar-hover: #2d3352;
+  /* A warm charcoal-brown rather than navy, so the rail reads as part of
+     the same agri palette instead of a leftover corporate-blue shell. */
+  --color-sidebar: #2b2117;
+  --color-sidebar-deep: #1c150d;
+  --color-sidebar-hover: #3d3020;
 
   --color-surface: #f5f6f8;
 
@@ -23,11 +27,11 @@
   --color-amber-500: #f59e0b;
   --color-violet-500: #8b5cf6;
 
-  /* ── Yolk / soil — the Home page's own palette ───────────────────────────
-     Egg-yolk orange and a warm soil neutral, used only by home.tsx. Additive:
-     nothing above changes, so every other screen keeps the brand-blue system
-     exactly as it is. Kept here rather than inline so it is still one place
-     to retune, per this file's own rule. */
+  /* ── Yolk / soil ──────────────────────────────────────────────────────
+     The named ramp brand-* now points at, plus soil, a warm neutral used
+     alongside gray-* on Home and Farms for card grounds and secondary text.
+     Kept as its own named ramp (not just "brand") because yolk-100 or
+     soil-600 reads clearer at the call site than brand-2. */
   --color-yolk-50: #fff8ef;
   --color-yolk-100: #ffecd2;
   --color-yolk-200: #ffd8a3;
@@ -56,17 +60,21 @@
   --color-background: #f5f6f8;   /* the app surface */
   --color-foreground: #111827;   /* gray-900, as every other page uses */
   --color-card: #ffffff;
-  --color-primary: #2570eb;      /* brand-600 */
+  --color-primary: #e06d05;      /* brand-600 */
   --color-secondary: #f3f4f6;    /* gray-100 */
   --color-muted: #f3f4f6;
   --color-muted-foreground: #6b7280; /* gray-500 */
   --color-success: #10b981;      /* mint-500 */
   --color-warning: #f59e0b;      /* amber-500 */
-  --color-info: #408dfb;         /* brand-500 */
+  /* Deliberately its own blue, not brand-derived: "info" (edit icons, the
+     odd status badge) needs to stay a colour that never means "primary
+     action" or "loss" — recolouring it with the brand accent would blur
+     the one distinction it exists for. */
+  --color-info: #408dfb;
   --color-destructive: #f0616f;  /* coral-500 */
   --color-border: #e5e7eb;       /* gray-200 */
   --color-input: #e5e7eb;
-  --color-ring: #408dfb;
+  --color-ring: #f98a12;
 }
 
 body {
@@ -233,7 +241,7 @@ body {
    padlock instead, so "you may change this" is visible before clicking. */
 .s-link {
   @apply text-[13px] font-medium;
-  color: #1c5bd9;
+  color: #e06d05;
 }
 .s-link:hover {
   @apply underline;

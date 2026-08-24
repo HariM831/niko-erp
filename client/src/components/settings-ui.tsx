@@ -131,7 +131,7 @@ export function RowAction({
       className={
         tone === "danger"
           ? "text-gray-500 hover:text-red-600 hover:underline"
-          : "text-[#1c5bd9] hover:underline"
+          : "text-[#e06d05] hover:underline"
       }
     >
       {children}

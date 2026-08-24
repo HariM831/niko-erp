@@ -270,8 +270,8 @@ function BankSummaryChart({ rows }: { rows: RegisterRow[] }) {
           <text x={0} y={y(t) + 3} fontSize={10} fill="#9ca3af">{compactMoney(t)}</text>
         </g>
       ))}
-      <path d={areaPath} fill="var(--tw-color-brand-500, #6366f1)" opacity={0.08} />
-      <path d={linePath} fill="none" stroke="#6366f1" strokeWidth={1.75} />
+      <path d={areaPath} fill="var(--color-brand-500)" opacity={0.1} />
+      <path d={linePath} fill="none" stroke="var(--color-brand-600)" strokeWidth={1.75} />
       {series.map((s, i) =>
         i % labelEvery === 0 ? (
           <text key={s.date} x={x(i)} y={height - 4} fontSize={9} fill="#9ca3af" textAnchor="middle">

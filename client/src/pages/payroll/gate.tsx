@@ -340,7 +340,7 @@ export function PayrollGatePage() {
                 </div>
                 {/* One action only — the next logical punch */}
                 <button
-                  className={`inline-flex items-center gap-2 rounded-lg px-10 py-3 text-[15px] font-semibold text-white ${next === "in" ? "bg-emerald-600" : "bg-sky-600"}`}
+                  className={`inline-flex items-center gap-2 rounded-lg px-10 py-3 text-[15px] font-semibold text-white ${next === "in" ? "bg-emerald-600" : "bg-brand-600"}`}
                   onClick={() => void submitPunch(stage.employee, next, "face", stage.score, stage.photo)}
                 >
                   {next === "in" ? <><LogIn size={18} /> Punch IN</> : <><LogOut size={18} /> Punch OUT</>}
@@ -456,7 +456,7 @@ export function PayrollGatePage() {
                         <div className="text-xs text-gray-400">{emp.empCode}</div>
                       </div>
                       <button
-                        className={`btn-secondary ${next === "in" ? "!text-emerald-700" : "!text-sky-700"}`}
+                        className={`btn-secondary ${next === "in" ? "!text-emerald-700" : "!text-brand-700"}`}
                         onClick={() => { setManualSelected({ employee: emp, punchType: next }); setManualCapture(null); }}
                       >
                         {next === "in" ? <><LogIn size={13} /> In</> : <><LogOut size={13} /> Out</>}

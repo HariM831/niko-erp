@@ -174,7 +174,7 @@ function BreedGroup({
             </span>
             <button
               onClick={onAdd}
-              className="text-[11px] text-blue-600 hover:underline"
+              className="text-[11px] text-brand-600 hover:underline"
             >
               {adding ? "Cancel" : "+ Standard set"}
             </button>
@@ -205,7 +205,7 @@ function BreedGroup({
                 v{s.version}
               </span>
               {s.isDefault && (
-                <span className="ml-2 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700">
+                <span className="ml-2 rounded bg-brand-50 px-1.5 py-0.5 text-[10px] text-brand-700">
                   default
                 </span>
               )}
@@ -220,7 +220,7 @@ function BreedGroup({
             <td className="px-3 py-2 text-right">
               <button
                 onClick={() => onToggleSet(s.id)}
-                className="text-[12px] text-blue-600 hover:underline"
+                className="text-[12px] text-brand-600 hover:underline"
               >
                 {openSet === s.id ? "Close" : "Edit curve"}
               </button>
@@ -510,7 +510,7 @@ function CurveDialog({
                           }))
                         }
                         inputMode="decimal"
-                        className="w-20 rounded border border-transparent px-1.5 py-1 text-right tabular-nums hover:border-gray-200 focus:border-blue-400 focus:outline-none"
+                        className="w-20 rounded border border-transparent px-1.5 py-1 text-right tabular-nums hover:border-gray-200 focus:border-brand-400 focus:outline-none"
                       />
                     </td>
                   ))}

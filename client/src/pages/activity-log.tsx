@@ -76,7 +76,7 @@ export function ActivityLogPage() {
                   </td>
                   <td className="px-4 py-2.5">
                     <span className="flex items-center gap-2">
-                      <span className="grid h-6 w-6 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-brand-500 text-[10px] font-bold text-white">
+                      <span className="grid h-6 w-6 place-items-center rounded-full bg-gradient-to-br from-yolk-400 to-yolk-600 text-[10px] font-bold text-white">
                         {r.userName[0]?.toUpperCase()}
                       </span>
                       <span className="font-medium">{r.userName}</span>

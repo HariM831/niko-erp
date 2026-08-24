@@ -85,7 +85,7 @@ export function CommentsTimeline({
 
             {rows?.map((c) => (
               <div key={c.id} className="group mb-3.5 flex items-start gap-2.5">
-                <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-brand-500 text-[11px] font-bold text-white">
+                <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-gradient-to-br from-yolk-400 to-yolk-600 text-[11px] font-bold text-white">
                   {c.authorName[0]?.toUpperCase()}
                 </span>
                 <div className="min-w-0 flex-1">

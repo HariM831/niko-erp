@@ -36,7 +36,10 @@ const Tooltip = RechartsTooltip as unknown as (props: Record<string, unknown>) =
 /* The strokes are literals because SVG cannot read a Tailwind class. EGGSY's
    palette: brand blue for the measured line, amber for feed and for a setpoint,
    green for water, red for anything that is a warning by itself. */
-const BLUE = "#4f8ef7";
+// The generic "measured value" line colour, reused across temperature,
+// humidity, vent level and pressure — none of those are meaningfully blue,
+// so it follows the app's own accent rather than sitting apart from it.
+const BLUE = "#e06d05";
 const GREEN = "#65c366";
 const AMBER = "#f59e0b";
 const RED = "#ef4444";

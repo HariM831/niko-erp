@@ -296,7 +296,7 @@ function SidebarBody({
       </nav>
       <div className="border-t border-white/10 p-3">
         <div className="flex items-center gap-2.5">
-          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-brand-500 text-xs font-bold text-white">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-gradient-to-br from-yolk-400 to-yolk-600 text-xs font-bold text-white">
             {user?.name?.[0]?.toUpperCase() ?? "U"}
           </span>
           <div className="min-w-0 flex-1">

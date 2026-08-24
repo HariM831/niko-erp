@@ -318,7 +318,7 @@ function OptionsModal({
                       }),
                     )
                   }
-                  className="text-[#1c5bd9] hover:underline"
+                  className="text-[#e06d05] hover:underline"
                 >
                   {o.isActive ? "Retire" : "Restore"}
                 </button>

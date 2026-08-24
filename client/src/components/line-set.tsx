@@ -123,7 +123,7 @@ export function LineSet<T extends Record<string, string>>({
       <button
         onClick={() => onChange([...rows, { ...blank }])}
         disabled={disabled}
-        className="mt-2 flex items-center gap-1 text-[12px] text-blue-600 hover:underline disabled:opacity-40"
+        className="mt-2 flex items-center gap-1 text-[12px] text-brand-600 hover:underline disabled:opacity-40"
       >
         <Plus size={12} /> {addLabel}
       </button>
