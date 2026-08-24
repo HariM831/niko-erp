@@ -89,7 +89,7 @@ salesDocumentsRouter.get(
     const [agg] = await db.execute(sql`
       SELECT
         COALESCE(SUM(balance) FILTER (WHERE status = 'open'), 0)::numeric(14,2) AS open_balance,
-        COALESCE(SUM(total) FILTER (WHERE credit_note_date >= date_trunc('month', CURRENT_DATE)), 0)::numeric(14,2) AS issued_this_month,
+        COALESCE(SUM(total) FILTER (WHERE credit_note_date >= date_trunc('month', (NOW() AT TIME ZONE 'Asia/Kolkata')::date)), 0)::numeric(14,2) AS issued_this_month,
         COUNT(*) FILTER (WHERE status = 'open')::int AS open_count,
         COALESCE(SUM(total) FILTER (WHERE status = 'closed'), 0)::numeric(14,2) AS closed_value
       FROM credit_notes

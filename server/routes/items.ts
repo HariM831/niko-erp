@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, asc, desc, eq, getTableColumns, ilike, isNull, or } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, ilike, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { PRODUCE_CATEGORIES } from "@shared/item-categories";
 import {
@@ -17,6 +17,7 @@ import {
   taxes,
 } from "@shared/schema";
 import { db } from "../db";
+import { stockOnHand } from "../services/inventory";
 import { requirePermission } from "../lib/rbac";
 import { contains } from "../services/document-search";
 import { validateBody } from "../lib/validate";
@@ -62,6 +63,30 @@ const itemSchema = z.object({
   openingStock: quantity.optional(),
   openingStockRate: money.optional(),
   reorderLevel: quantity.optional(),
+});
+
+/** The gradient hero strip on the Items list. */
+itemsRouter.get("/summary", requirePermission("items", "view"), async (_req, res) => {
+  const [counts] = await db
+    .select({
+      total: sql<number>`count(*)::int`,
+      active: sql<number>`count(*) FILTER (WHERE ${items.isActive})::int`,
+    })
+    .from(items);
+
+  // The same on-hand computation the Stock on Hand page uses — reordering
+  // "count items low" from Items' own raw opening_stock would double-book
+  // every movement Inventory has since posted.
+  const levels = await stockOnHand(db);
+  const totalValue = levels.reduce((sum, l) => sum + Number(l.value), 0);
+  const belowReorder = levels.filter((l) => l.belowReorder).length;
+
+  res.json({
+    totalItems: counts?.total ?? 0,
+    active: counts?.active ?? 0,
+    stockValue: totalValue.toFixed(2),
+    belowReorder,
+  });
 });
 
 itemsRouter.get("/", requirePermission("items", "view"), async (req, res) => {

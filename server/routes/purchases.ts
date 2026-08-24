@@ -139,7 +139,7 @@ purchasesRouter.get("/orders/summary", requirePermission("purchases", "view"), a
     SELECT
       COALESCE(SUM(total) FILTER (WHERE status IN ('issued', 'partially_billed')), 0)::numeric(14,2) AS open_value,
       COALESCE(SUM(total) FILTER (WHERE status = 'draft'), 0)::numeric(14,2) AS draft_value,
-      COALESCE(SUM(total) FILTER (WHERE status = 'billed' AND order_date >= date_trunc('month', CURRENT_DATE)), 0)::numeric(14,2) AS billed_this_month
+      COALESCE(SUM(total) FILTER (WHERE status = 'billed' AND order_date >= date_trunc('month', (NOW() AT TIME ZONE 'Asia/Kolkata')::date)), 0)::numeric(14,2) AS billed_this_month
     FROM purchase_orders
   `).then((r) => r.rows as Array<Record<string, string>>);
 
@@ -150,7 +150,7 @@ purchasesRouter.get("/orders/summary", requirePermission("purchases", "view"), a
     FROM purchase_orders
     WHERE status IN ('issued', 'partially_billed')
       AND expected_delivery_date IS NOT NULL
-      AND expected_delivery_date < CURRENT_DATE
+      AND expected_delivery_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date
   `).then((r) => r.rows as Array<{ overdue_value: string }>);
 
   res.json({
@@ -447,9 +447,9 @@ purchasesRouter.get("/bills/summary", requirePermission("purchases", "view"), as
   const [agg] = await db.execute(sql`
     SELECT
       COALESCE(SUM(balance_due) FILTER (WHERE status IN ('open', 'partially_paid')), 0)::numeric(14,2) AS total_outstanding,
-      COALESCE(SUM(balance_due) FILTER (WHERE status IN ('open', 'partially_paid') AND due_date = CURRENT_DATE), 0)::numeric(14,2) AS due_today,
-      COALESCE(SUM(balance_due) FILTER (WHERE status IN ('open', 'partially_paid') AND due_date > CURRENT_DATE AND due_date <= CURRENT_DATE + INTERVAL '30 days'), 0)::numeric(14,2) AS due_within_30,
-      COALESCE(SUM(balance_due) FILTER (WHERE status IN ('open', 'partially_paid') AND due_date < CURRENT_DATE), 0)::numeric(14,2) AS overdue
+      COALESCE(SUM(balance_due) FILTER (WHERE status IN ('open', 'partially_paid') AND due_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date), 0)::numeric(14,2) AS due_today,
+      COALESCE(SUM(balance_due) FILTER (WHERE status IN ('open', 'partially_paid') AND due_date > (NOW() AT TIME ZONE 'Asia/Kolkata')::date AND due_date <= (NOW() AT TIME ZONE 'Asia/Kolkata')::date + INTERVAL '30 days'), 0)::numeric(14,2) AS due_within_30,
+      COALESCE(SUM(balance_due) FILTER (WHERE status IN ('open', 'partially_paid') AND due_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date), 0)::numeric(14,2) AS overdue
     FROM bills
   `).then((r) => r.rows as Array<Record<string, string>>);
   res.json({
@@ -898,6 +898,25 @@ const vendorPaymentSchema = z.object({
     .default([]),
 });
 
+/** The gradient hero strip on the Payments Made list. */
+purchasesRouter.get("/payments/summary", requirePermission("purchases", "view"), async (_req, res) => {
+  const [agg] = await db.execute(sql`
+    SELECT
+      COALESCE(SUM(amount) FILTER (WHERE payment_date >= date_trunc('month', (NOW() AT TIME ZONE 'Asia/Kolkata')::date)), 0)::numeric(14,2) AS this_month,
+      COALESCE(SUM(amount) FILTER (WHERE payment_date >= date_trunc('week', (NOW() AT TIME ZONE 'Asia/Kolkata')::date)), 0)::numeric(14,2) AS this_week,
+      COALESCE(SUM(unapplied_amount) FILTER (WHERE unapplied_amount > 0), 0)::numeric(14,2) AS unapplied,
+      COALESCE(SUM(amount) FILTER (WHERE payment_date >= date_trunc('year', (NOW() AT TIME ZONE 'Asia/Kolkata')::date)), 0)::numeric(14,2) AS this_year
+    FROM vendor_payments
+  `).then((r) => r.rows as Array<Record<string, string>>);
+
+  res.json({
+    thisMonth: agg?.this_month ?? "0.00",
+    thisWeek: agg?.this_week ?? "0.00",
+    unapplied: agg?.unapplied ?? "0.00",
+    thisYear: agg?.this_year ?? "0.00",
+  });
+});
+
 purchasesRouter.get("/payments", requirePermission("purchases", "view"), async (req, res) => {
   const query = req.query as Record<string, string | undefined>;
   const { vendorId, from, to, search } = query;
@@ -1224,7 +1243,7 @@ purchasesRouter.get(
     const [agg] = await db.execute(sql`
       SELECT
         COALESCE(SUM(balance) FILTER (WHERE status = 'open'), 0)::numeric(14,2) AS open_balance,
-        COALESCE(SUM(total) FILTER (WHERE credit_date >= date_trunc('month', CURRENT_DATE)), 0)::numeric(14,2) AS issued_this_month,
+        COALESCE(SUM(total) FILTER (WHERE credit_date >= date_trunc('month', (NOW() AT TIME ZONE 'Asia/Kolkata')::date)), 0)::numeric(14,2) AS issued_this_month,
         COUNT(*) FILTER (WHERE status = 'open')::int AS open_count,
         COALESCE(SUM(total) FILTER (WHERE status = 'closed'), 0)::numeric(14,2) AS closed_value
       FROM vendor_credits
@@ -1448,10 +1467,10 @@ const expenseSchema = z.object({
 purchasesRouter.get("/expenses/summary", requirePermission("purchases", "view"), async (_req, res) => {
   const [agg] = await db.execute(sql`
     SELECT
-      COALESCE(SUM(amount) FILTER (WHERE expense_date >= date_trunc('month', CURRENT_DATE)), 0)::numeric(14,2) AS this_month,
-      COALESCE(SUM(amount) FILTER (WHERE expense_date >= date_trunc('week', CURRENT_DATE)), 0)::numeric(14,2) AS this_week,
-      COALESCE(SUM(amount) FILTER (WHERE expense_date >= CURRENT_DATE - INTERVAL '30 days'), 0)::numeric(14,2) AS last_30_days,
-      COALESCE(SUM(amount) FILTER (WHERE expense_date >= date_trunc('year', CURRENT_DATE)), 0)::numeric(14,2) AS this_year
+      COALESCE(SUM(amount) FILTER (WHERE expense_date >= date_trunc('month', (NOW() AT TIME ZONE 'Asia/Kolkata')::date)), 0)::numeric(14,2) AS this_month,
+      COALESCE(SUM(amount) FILTER (WHERE expense_date >= date_trunc('week', (NOW() AT TIME ZONE 'Asia/Kolkata')::date)), 0)::numeric(14,2) AS this_week,
+      COALESCE(SUM(amount) FILTER (WHERE expense_date >= (NOW() AT TIME ZONE 'Asia/Kolkata')::date - INTERVAL '30 days'), 0)::numeric(14,2) AS last_30_days,
+      COALESCE(SUM(amount) FILTER (WHERE expense_date >= date_trunc('year', (NOW() AT TIME ZONE 'Asia/Kolkata')::date)), 0)::numeric(14,2) AS this_year
     FROM expenses
   `).then((r) => r.rows as Array<Record<string, string>>);
 

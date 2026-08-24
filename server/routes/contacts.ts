@@ -74,6 +74,40 @@ function moduleFor(type: string | undefined) {
   return type === "vendor" ? "purchases" : "sales";
 }
 
+/** The gradient hero strip on the Customers / Vendors lists. */
+contactsRouter.get("/summary", requirePermission("sales", "view"), async (req, res) => {
+  const type = (req.query.type as string | undefined) === "vendor" ? "vendor" : "customer";
+  const typeCond = inArray(contacts.type, [type, "both"]);
+  const notGroup = eq(contacts.isGroupCompany, false);
+
+  const [counts] = await db
+    .select({
+      active: sql<number>`count(*) FILTER (WHERE ${contacts.isActive})::int`,
+      newThisMonth: sql<number>`count(*) FILTER (WHERE ${contacts.createdAt} >= date_trunc('month', (now() AT TIME ZONE 'Asia/Kolkata')::date))::int`,
+    })
+    .from(contacts)
+    .where(and(typeCond, notGroup));
+
+  const [outstanding] =
+    type === "vendor"
+      ? await db
+          .select({ total: sql<string>`coalesce(sum(${bills.balanceDue}), 0)` })
+          .from(bills)
+          .innerJoin(contacts, eq(contacts.id, bills.vendorId))
+          .where(and(sql`${bills.status} NOT IN ('draft', 'void')`, notGroup))
+      : await db
+          .select({ total: sql<string>`coalesce(sum(${invoices.balanceDue}), 0)` })
+          .from(invoices)
+          .innerJoin(contacts, eq(contacts.id, invoices.customerId))
+          .where(and(sql`${invoices.status} NOT IN ('draft', 'void')`, notGroup));
+
+  res.json({
+    totalOutstanding: outstanding?.total ?? "0.00",
+    active: counts?.active ?? 0,
+    newThisMonth: counts?.newThisMonth ?? 0,
+  });
+});
+
 contactsRouter.get("/", requirePermission("sales", "view"), async (req, res) => {
   const { type, search, isActive } = req.query as Record<string, string | undefined>;
   const conditions = [];

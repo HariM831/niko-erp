@@ -224,9 +224,9 @@ salesRouter.get("/invoices/summary", requirePermission("sales", "view"), async (
   const [agg] = await db.execute(sql`
     SELECT
       COALESCE(SUM(balance_due) FILTER (WHERE status IN ('sent', 'partially_paid')), 0)::numeric(14,2) AS total_outstanding,
-      COALESCE(SUM(balance_due) FILTER (WHERE status IN ('sent', 'partially_paid') AND due_date = CURRENT_DATE), 0)::numeric(14,2) AS due_today,
-      COALESCE(SUM(balance_due) FILTER (WHERE status IN ('sent', 'partially_paid') AND due_date > CURRENT_DATE AND due_date <= CURRENT_DATE + INTERVAL '30 days'), 0)::numeric(14,2) AS due_within_30,
-      COALESCE(SUM(balance_due) FILTER (WHERE status IN ('sent', 'partially_paid') AND due_date < CURRENT_DATE), 0)::numeric(14,2) AS overdue
+      COALESCE(SUM(balance_due) FILTER (WHERE status IN ('sent', 'partially_paid') AND due_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date), 0)::numeric(14,2) AS due_today,
+      COALESCE(SUM(balance_due) FILTER (WHERE status IN ('sent', 'partially_paid') AND due_date > (NOW() AT TIME ZONE 'Asia/Kolkata')::date AND due_date <= (NOW() AT TIME ZONE 'Asia/Kolkata')::date + INTERVAL '30 days'), 0)::numeric(14,2) AS due_within_30,
+      COALESCE(SUM(balance_due) FILTER (WHERE status IN ('sent', 'partially_paid') AND due_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date), 0)::numeric(14,2) AS overdue
     FROM invoices
   `).then((r) => r.rows as Array<Record<string, string>>);
 
@@ -600,6 +600,25 @@ salesRouter.post(
 );
 
 // ---------- Payments Received ----------
+
+/** The gradient hero strip on the Payments Received list. */
+salesRouter.get("/payments/summary", requirePermission("sales", "view"), async (_req, res) => {
+  const [agg] = await db.execute(sql`
+    SELECT
+      COALESCE(SUM(amount) FILTER (WHERE payment_date >= date_trunc('month', (NOW() AT TIME ZONE 'Asia/Kolkata')::date)), 0)::numeric(14,2) AS this_month,
+      COALESCE(SUM(amount) FILTER (WHERE payment_date >= date_trunc('week', (NOW() AT TIME ZONE 'Asia/Kolkata')::date)), 0)::numeric(14,2) AS this_week,
+      COALESCE(SUM(unapplied_amount) FILTER (WHERE unapplied_amount > 0), 0)::numeric(14,2) AS unapplied,
+      COALESCE(SUM(amount) FILTER (WHERE payment_date >= date_trunc('year', (NOW() AT TIME ZONE 'Asia/Kolkata')::date)), 0)::numeric(14,2) AS this_year
+    FROM customer_payments
+  `).then((r) => r.rows as Array<Record<string, string>>);
+
+  res.json({
+    thisMonth: agg?.this_month ?? "0.00",
+    thisWeek: agg?.this_week ?? "0.00",
+    unapplied: agg?.unapplied ?? "0.00",
+    thisYear: agg?.this_year ?? "0.00",
+  });
+});
 
 salesRouter.get("/payments", requirePermission("sales", "view"), async (req, res) => {
   const query = req.query as Record<string, string | undefined>;

@@ -1,7 +1,9 @@
+import { useQuery } from "@tanstack/react-query";
 import { ListPage, StatusBadge, type ListView } from "../components/list-page";
 import { AttachmentsButton } from "../components/attachments";
+import { SummaryBanner } from "../components/summary-banner";
 import { Package } from "lucide-react";
-import { formatDate, formatMoney } from "../api";
+import { api, formatDate, formatMoney } from "../api";
 import { ITEM_CATEGORIES, ITEM_CATEGORY_LABELS, type ItemCategory } from "@shared/item-categories";
 
 const activeViews: ListView[] = [
@@ -48,6 +50,27 @@ const contactColumns = (balanceHeader: string) => [
   },
 ];
 
+/** The Customers / Vendors lists' own hero — total outstanding leads, matching the "Receivables/Payables (BCY)" column each row already shows. */
+function ContactSummaryBanner({ type }: { type: "customer" | "vendor" }) {
+  const { data } = useQuery({
+    queryKey: ["/api/contacts/summary", type],
+    queryFn: () =>
+      api<{ totalOutstanding: string; active: number; newThisMonth: number }>(`/api/contacts/summary?type=${type}`),
+  });
+  return (
+    <SummaryBanner
+      primary={{
+        label: type === "customer" ? "Total receivables outstanding" : "Total payables outstanding",
+        value: formatMoney(data?.totalOutstanding ?? 0),
+      }}
+      secondary={[
+        { label: `Active ${type}s`, value: String(data?.active ?? 0) },
+        { label: "New this month", value: String(data?.newThisMonth ?? 0) },
+      ]}
+    />
+  );
+}
+
 export const CustomersPage = () => (
   <ListPage<ContactRow>
     title="Customers"
@@ -58,6 +81,7 @@ export const CustomersPage = () => (
     rowPath={(r) => `/sales/customers/${r.id}`}
     columns={contactColumns("Receivables (BCY)")}
     views={activeViews}
+    banner={<ContactSummaryBanner type="customer" />}
   />
 );
 
@@ -71,6 +95,7 @@ export const VendorsPage = () => (
     rowPath={(r) => `/purchases/vendors/${r.id}`}
     columns={contactColumns("Payables (BCY)")}
     views={activeViews}
+    banner={<ContactSummaryBanner type="vendor" />}
   />
 );
 
@@ -100,6 +125,26 @@ const itemViews: ListView[] = [
   { label: "Uncategorised", params: { category: "none" } },
 ];
 
+/** The Items list's own hero — stock value leads, below-reorder is the one alert. */
+function ItemSummaryBanner() {
+  const { data } = useQuery({
+    queryKey: ["/api/items/summary"],
+    queryFn: () =>
+      api<{ totalItems: number; active: number; stockValue: string; belowReorder: number }>("/api/items/summary"),
+  });
+  const below = data?.belowReorder ?? 0;
+  return (
+    <SummaryBanner
+      primary={{ label: "Stock on hand value", value: formatMoney(data?.stockValue ?? 0) }}
+      secondary={[
+        { label: "Total items", value: String(data?.totalItems ?? 0) },
+        { label: "Active", value: String(data?.active ?? 0) },
+        { label: "Below reorder level", value: String(below), alert: below > 0 },
+      ]}
+    />
+  );
+}
+
 export const ItemsPage = () => (
   <ListPage<ItemRow>
     title="Items"
@@ -111,6 +156,7 @@ export const ItemsPage = () => (
     newLabel="New Item"
     newPath="/items/new"
     rowPath={(r) => `/items/${r.id}`}
+    banner={<ItemSummaryBanner />}
     columns={[
       {
         key: "name",
@@ -197,6 +243,27 @@ const JOURNAL_STATUS: Record<string, string> = {
   reversed: "reversed",
 };
 
+/** The Manual Journals list's own hero — this month's activity leads. */
+function JournalSummaryBanner() {
+  const { data } = useQuery({
+    queryKey: ["/api/accounting/journals/summary"],
+    queryFn: () =>
+      api<{ thisMonth: string; entriesThisMonth: number; draftCount: number; thisYear: string }>(
+        "/api/accounting/journals/summary",
+      ),
+  });
+  return (
+    <SummaryBanner
+      primary={{ label: "Journalled this month", value: formatMoney(data?.thisMonth ?? 0) }}
+      secondary={[
+        { label: "Entries this month", value: String(data?.entriesThisMonth ?? 0) },
+        { label: "Draft", value: String(data?.draftCount ?? 0) },
+        { label: "This year", value: formatMoney(data?.thisYear ?? 0) },
+      ]}
+    />
+  );
+}
+
 export const JournalsPage = () => (
   <ListPage<JournalRow>
     title="Manual Journals"
@@ -205,6 +272,7 @@ export const JournalsPage = () => (
     newLabel="New Journal"
     newPath="/accountant/journals/new"
     rowPath={(r) => `/accountant/journals/${r.id}`}
+    banner={<JournalSummaryBanner />}
     columns={[
       { key: "date", header: "Date", render: (r) => formatDate(r.entryDate) },
       { key: "number", header: "Journal#", render: (r) => <span className="font-medium text-brand-600">{r.entryNumber}</span> },

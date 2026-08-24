@@ -87,6 +87,31 @@ const journalSchema = z.object({
   lines: z.array(journalLineSchema).min(2).max(200),
 });
 
+/** The gradient hero strip on the Manual Journals list — scoped to the same "manual" entries the list itself defaults to. */
+accountingRouter.get(
+  "/journals/summary",
+  requirePermission("accounting", "view"),
+  async (_req, res) => {
+    const [agg] = await db.execute(sql`
+      SELECT
+        COALESCE(SUM(jel.debit) FILTER (WHERE je.entry_date >= date_trunc('month', (NOW() AT TIME ZONE 'Asia/Kolkata')::date)), 0)::numeric(14,2) AS this_month,
+        COUNT(DISTINCT je.id) FILTER (WHERE je.entry_date >= date_trunc('month', (NOW() AT TIME ZONE 'Asia/Kolkata')::date))::int AS entries_this_month,
+        COUNT(DISTINCT je.id) FILTER (WHERE je.status = 'draft')::int AS draft_count,
+        COALESCE(SUM(jel.debit) FILTER (WHERE je.entry_date >= date_trunc('year', (NOW() AT TIME ZONE 'Asia/Kolkata')::date)), 0)::numeric(14,2) AS this_year
+      FROM journal_entries je
+      JOIN journal_entry_lines jel ON jel.entry_id = je.id
+      WHERE je.source_type = 'manual'
+    `).then((r) => r.rows as Array<Record<string, string>>);
+
+    res.json({
+      thisMonth: agg?.this_month ?? "0.00",
+      entriesThisMonth: agg?.entries_this_month ?? 0,
+      draftCount: agg?.draft_count ?? 0,
+      thisYear: agg?.this_year ?? "0.00",
+    });
+  },
+);
+
 accountingRouter.get(
   "/journals",
   requirePermission("accounting", "view"),

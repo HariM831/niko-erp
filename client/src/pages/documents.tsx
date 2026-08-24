@@ -352,6 +352,46 @@ function ExpenseSummaryBanner() {
   );
 }
 
+/** The Payments Received list's own hero — received this month leads. */
+function PaymentsReceivedSummaryBanner() {
+  const { data } = useQuery({
+    queryKey: ["/api/sales/payments/summary"],
+    queryFn: () =>
+      api<{ thisMonth: string; thisWeek: string; unapplied: string; thisYear: string }>("/api/sales/payments/summary"),
+  });
+  return (
+    <SummaryBanner
+      primary={{ label: "Received this month", value: formatMoney(data?.thisMonth ?? 0) }}
+      secondary={[
+        { label: "This week", value: formatMoney(data?.thisWeek ?? 0) },
+        { label: "Unapplied (advances)", value: formatMoney(data?.unapplied ?? 0) },
+        { label: "This year", value: formatMoney(data?.thisYear ?? 0) },
+      ]}
+    />
+  );
+}
+
+/** The Payments Made list's own hero — paid this month leads. */
+function PaymentsMadeSummaryBanner() {
+  const { data } = useQuery({
+    queryKey: ["/api/purchases/payments/summary"],
+    queryFn: () =>
+      api<{ thisMonth: string; thisWeek: string; unapplied: string; thisYear: string }>(
+        "/api/purchases/payments/summary",
+      ),
+  });
+  return (
+    <SummaryBanner
+      primary={{ label: "Paid this month", value: formatMoney(data?.thisMonth ?? 0) }}
+      secondary={[
+        { label: "This week", value: formatMoney(data?.thisWeek ?? 0) },
+        { label: "Unapplied (advances)", value: formatMoney(data?.unapplied ?? 0) },
+        { label: "This year", value: formatMoney(data?.thisYear ?? 0) },
+      ]}
+    />
+  );
+}
+
 export const InvoicesPage = () => (
   <ListPage<DocRow>
     title="Invoices"
@@ -374,6 +414,7 @@ export const CustomerPaymentsPage = () => (
     rowKey={(r) => r.id}
     newPath="/sales/payments/new"
     rowPath={(r) => `/sales/payments/${r.id}`}
+    banner={<PaymentsReceivedSummaryBanner />}
     columns={[
       { key: "date", header: "Date", render: (r) => shortDate(r.paymentDate as string) },
       { key: "number", header: "Payment #", render: (r) => <span className="font-medium text-brand-600">{r.number}</span> },
@@ -495,6 +536,7 @@ export const VendorPaymentsPage = () => (
     rowKey={(r) => r.id}
     newPath="/purchases/payments/new"
     rowPath={(r) => `/purchases/payments/${r.id}`}
+    banner={<PaymentsMadeSummaryBanner />}
     columns={[
       { key: "date", header: "Date", render: (r) => shortDate(r.paymentDate as string) },
       { key: "number", header: "Payment #", render: (r) => <span className="font-medium text-brand-600">{r.number}</span> },
