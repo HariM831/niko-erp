@@ -378,7 +378,7 @@ export function HomePage() {
           <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Adding it up…
         </div>
       ) : (
-        <div className="mx-auto max-w-6xl space-y-4 p-6">
+        <div className="mx-auto max-w-[1800px] space-y-4 p-6 xl:p-8">
           {/* ── Farm hero — the reason there is a mill or a ledger at all ── */}
           <div className="grid gap-4 lg:grid-cols-3">
             <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-yolk-400 via-yolk-500 to-yolk-600 p-5 text-white shadow-[0_8px_30px_-12px_rgba(224,109,5,0.55)] lg:col-span-2">
@@ -439,7 +439,7 @@ export function HomePage() {
           </div>
 
           {/* ── Everything the farm feeds and is fed by ── */}
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
             {/* Sales */}
             <Tile icon={<ShoppingCart size={15} />} title="Sales" hint="market only, group excluded">
               <div className="grid grid-cols-3 gap-1">
@@ -516,7 +516,7 @@ export function HomePage() {
             </Tile>
 
             {/* Finance */}
-            <Tile icon={<Landmark size={15} />} title="Finance" hint="AR / AP as of today" span="lg:col-span-2">
+            <Tile icon={<Landmark size={15} />} title="Finance" hint="AR / AP as of today" span="lg:col-span-2 2xl:col-span-3">
               <div className="grid grid-cols-2 gap-1 md:grid-cols-4">
                 <Metric label="Revenue" value={lakh(data.finance.totalRevenue)} onClick={() => setDetail("customers")} />
                 <Metric label="Feed cost" value={lakh(data.finance.totalFeedCost)} sub={`${num(data.finance.grossMarginPct, 1)}% margin`} onClick={() => setDetail("produced")} />

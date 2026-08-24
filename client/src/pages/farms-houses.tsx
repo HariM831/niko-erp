@@ -681,7 +681,7 @@ export function FarmsHousesPage() {
   const pulletAgg = computeAggregate(pulletSheds);
 
   return (
-    <div className="min-h-full bg-soil-50 mx-auto max-w-4xl p-4" data-testid="bird-dashboard">
+    <div className="min-h-full bg-soil-50 mx-auto max-w-6xl p-4 lg:p-6" data-testid="bird-dashboard">
       <div className="mb-4 flex items-center gap-2.5">
         <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-yolk-400 to-yolk-600 text-white shadow-sm">
           <Bird className="h-4 w-4" />
@@ -784,13 +784,16 @@ export function FarmsHousesPage() {
       <div className="hidden md:block">
         {layerSheds.length > 0 && (
           <div className="mb-4">
-            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Layers
+            <div className="mb-2 flex items-center gap-1.5">
+              <span className="flex h-5 w-5 items-center justify-center rounded-md bg-yolk-100 text-yolk-700">
+                <Egg className="h-3 w-3" />
+              </span>
+              <span className="text-[13px] font-bold text-soil-900">Layers</span>
             </div>
-            <div className="table-surface">
+            <div className="rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)] overflow-hidden">
               <table className="w-full text-sm">
-                <thead className="table-head">
-                  <tr className="border-b border-primary/20">
+                <thead>
+                  <tr className="border-b border-soil-100">
                     <Th align="left" sort="shed" active={sortBy} onSort={setSortBy}>
                       Shed
                     </Th>
@@ -808,7 +811,7 @@ export function FarmsHousesPage() {
                   {layerSheds.map((m) => (
                     <tr
                       key={m.shed.id}
-                      className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-muted/30"
+                      className="cursor-pointer border-b border-soil-100/70 last:border-0 transition-colors hover:bg-yolk-50/70"
                       onClick={() => openShed(m.shed.id)}
                       data-testid={`row-shed-${m.shed.id}`}
                     >
@@ -847,7 +850,7 @@ export function FarmsHousesPage() {
                       </td>
                     </tr>
                   ))}
-                  <tr className="border-t border-border bg-muted/40 text-xs font-semibold text-foreground">
+                  <tr className="border-t border-soil-100 bg-soil-50 text-xs font-semibold text-soil-900">
                     <td className="px-3 py-2">Total</td>
                     <td className="px-3 py-2 text-right tabular-nums">
                       {fmtNum(layerAgg.totalBirds)}
@@ -878,13 +881,16 @@ export function FarmsHousesPage() {
 
         {pulletSheds.length > 0 && (
           <div className="mb-4">
-            <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Pullets
+            <div className="mb-2 flex items-center gap-1.5">
+              <span className="flex h-5 w-5 items-center justify-center rounded-md bg-soil-100 text-soil-600">
+                <Bird className="h-3 w-3" />
+              </span>
+              <span className="text-[13px] font-bold text-soil-900">Pullets</span>
             </div>
-            <div className="table-surface">
+            <div className="rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)] overflow-hidden">
               <table className="w-full text-sm">
-                <thead className="table-head">
-                  <tr className="border-b border-primary/20">
+                <thead>
+                  <tr className="border-b border-soil-100">
                     <Th align="left" sort="shed" active={sortBy} onSort={setSortBy}>
                       Shed
                     </Th>
@@ -901,7 +907,7 @@ export function FarmsHousesPage() {
                   {pulletSheds.map((m) => (
                     <tr
                       key={m.shed.id}
-                      className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-muted/30"
+                      className="cursor-pointer border-b border-soil-100/70 last:border-0 transition-colors hover:bg-yolk-50/70"
                       onClick={() => openShed(m.shed.id)}
                       data-testid={`row-shed-${m.shed.id}`}
                     >
@@ -929,7 +935,7 @@ export function FarmsHousesPage() {
                       </td>
                     </tr>
                   ))}
-                  <tr className="border-t border-border bg-muted/40 text-xs font-semibold text-foreground">
+                  <tr className="border-t border-soil-100 bg-soil-50 text-xs font-semibold text-soil-900">
                     <td className="px-3 py-2">Total</td>
                     <td className="px-3 py-2 text-right tabular-nums">
                       {fmtNum(pulletAgg.totalBirds)}
@@ -963,9 +969,12 @@ export function FarmsHousesPage() {
           one. */}
       {iot && iot.board.some((r) => r.tempC != null) && (
         <div className="mt-6">
-          <div className="mb-1 flex items-baseline justify-between">
-            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Shed conditions
+          <div className="mb-2 flex items-baseline justify-between">
+            <div className="flex items-center gap-1.5">
+              <span className="flex h-5 w-5 items-center justify-center rounded-md bg-yolk-100 text-yolk-700">
+                <Droplets className="h-3 w-3" />
+              </span>
+              <span className="text-[13px] font-bold text-soil-900">Shed conditions</span>
             </div>
             <div className="text-[11px] text-muted-foreground">
               {iot.poll?.at
@@ -974,9 +983,9 @@ export function FarmsHousesPage() {
               {iot.poll && !iot.poll.ok && <span className="ml-1 text-destructive">· last poll failed</span>}
             </div>
           </div>
-          <div className="table-surface overflow-x-auto">
+          <div className="rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)] overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="table-head">
+              <thead>
                 <tr>
                   <Th align="left">Shed</Th>
                   <Th>Temp</Th>
@@ -1006,9 +1015,9 @@ export function FarmsHousesPage() {
                       <tr
                         key={r.houseId}
                         onClick={() => setLocation(`/farms/conditions/${r.houseId}`)}
-                        className="cursor-pointer border-b border-border/60 last:border-0 hover:bg-muted/50"
+                        className="cursor-pointer border-b border-soil-100/70 last:border-0 transition-colors hover:bg-yolk-50/70"
                       >
-                        <td className="px-3 py-2 font-medium text-primary">{r.code}</td>
+                        <td className="px-3 py-2 font-semibold text-yolk-700">{r.code}</td>
                         <td
                           className={`px-3 py-2 text-right tabular-nums ${
                             off != null && off > 1 ? "font-semibold text-warning" : ""
@@ -1376,16 +1385,16 @@ function Th({
   active?: SortKey;
   onSort?: (k: SortKey) => void;
 }) {
-  // `.table-th` and nothing else — the colour and weight live in index.css so
-  // this header changes when every other header in the app changes.
-  const cls = `table-th ${align === "left" ? "text-left" : "text-right"}`;
+  // Warm, but private to this file — Th is only ever used by the three
+  // tables below, so this does not touch any other screen's headers.
+  const cls = `whitespace-nowrap bg-soil-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-soil-400 ${align === "left" ? "text-left" : "text-right"}`;
   if (!sort || !onSort) return <th className={cls}>{children}</th>;
   const on = active === sort;
   return (
     <th className={cls}>
       <button
         onClick={() => onSort(sort)}
-        className={`inline-flex items-center gap-1 ${on ? "text-foreground" : "hover:text-foreground"}`}
+        className={`inline-flex items-center gap-1 ${on ? "text-soil-900" : "hover:text-soil-700"}`}
       >
         {children}
         {/* The arrow only shows on the column doing the sorting — a row of
