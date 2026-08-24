@@ -1,6 +1,7 @@
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { ListPage, StatusBadge, type Column, type ListView } from "../components/list-page";
+import { SummaryBanner } from "../components/summary-banner";
 import type { SearchField } from "../components/advanced-search";
 import { AttachmentsButton } from "../components/attachments";
 import { api, formatMoney } from "../api";
@@ -252,30 +253,60 @@ function PaymentSummaryBanner({ endpoint, side }: { endpoint: string; side: "rec
       : []),
   ];
   return (
-    <div className="relative overflow-hidden bg-gradient-to-br from-yolk-400 via-yolk-500 to-yolk-600 px-6 py-5 text-white">
-      <div className="pointer-events-none absolute -right-12 -top-16 h-44 w-44 rounded-full bg-white/10" />
-      <div className="relative flex flex-wrap items-end justify-between gap-x-10 gap-y-3">
-        <div>
-          <div className="text-[11px] font-bold uppercase tracking-wider text-yolk-50/80">
-            {side === "receivable" ? "Total outstanding receivables" : "Total outstanding payables"}
-          </div>
-          <div className="text-[28px] font-extrabold leading-tight tabular-nums">
-            {formatMoney(data?.totalOutstanding ?? 0)}
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-x-8 gap-y-2">
-          {secondary.map((s) => (
-            <div key={s.label}>
-              <div className="text-[10.5px] font-semibold uppercase tracking-wider text-yolk-50/75">{s.label}</div>
-              <div className="flex items-center gap-1.5 text-[15px] font-bold tabular-nums">
-                {s.alert && <span className="h-1.5 w-1.5 rounded-full bg-red-300" />}
-                {s.value}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
+    <SummaryBanner
+      primary={{
+        label: side === "receivable" ? "Total outstanding receivables" : "Total outstanding payables",
+        value: formatMoney(data?.totalOutstanding ?? 0),
+      }}
+      secondary={secondary}
+    />
+  );
+}
+
+/** The Purchase Orders list's own hero — open value leads, delivery slippage is the one alert. */
+function PurchaseOrderSummaryBanner() {
+  const { data } = useQuery({
+    queryKey: ["/api/purchases/orders/summary"],
+    queryFn: () =>
+      api<{ openValue: string; draftValue: string; billedThisMonth: string; overdueForDelivery: string }>(
+        "/api/purchases/orders/summary",
+      ),
+  });
+  const overdueValue = Number(data?.overdueForDelivery ?? 0);
+  return (
+    <SummaryBanner
+      primary={{ label: "Open purchase orders", value: formatMoney(data?.openValue ?? 0) }}
+      secondary={[
+        { label: "Draft", value: formatMoney(data?.draftValue ?? 0) },
+        {
+          label: "Overdue for delivery",
+          value: formatMoney(data?.overdueForDelivery ?? 0),
+          alert: overdueValue > 0,
+        },
+        { label: "Billed this month", value: formatMoney(data?.billedThisMonth ?? 0) },
+      ]}
+    />
+  );
+}
+
+/** The Credit Notes list's own hero — open balance leads. */
+function CreditNoteSummaryBanner() {
+  const { data } = useQuery({
+    queryKey: ["/api/sales/credit-notes/summary"],
+    queryFn: () =>
+      api<{ openBalance: string; issuedThisMonth: string; openCount: number; closedValue: string }>(
+        "/api/sales/credit-notes/summary",
+      ),
+  });
+  return (
+    <SummaryBanner
+      primary={{ label: "Open credit balance", value: formatMoney(data?.openBalance ?? 0) }}
+      secondary={[
+        { label: "Issued this month", value: formatMoney(data?.issuedThisMonth ?? 0) },
+        { label: "Open credit notes", value: String(data?.openCount ?? 0) },
+        { label: "Closed", value: formatMoney(data?.closedValue ?? 0) },
+      ]}
+    />
   );
 }
 
@@ -325,6 +356,7 @@ export const CreditNotesPage = () => (
     newPath="/sales/credit-notes/new"
     rowPath={(r) => `/sales/credit-notes/${r.id}`}
     columns={docColumns("creditNoteDate", { balance: "balance", numberHeader: "Credit Note#" })}
+    banner={<CreditNoteSummaryBanner />}
   />
 );
 
@@ -353,6 +385,7 @@ export const PurchaseOrdersPage = () => (
     views={statusViews(["draft", "issued", "partially_billed", "billed", "closed", "cancelled"])}
     newPath="/purchases/orders/new"
     rowPath={(r) => `/purchases/orders/${r.id}`}
+    banner={<PurchaseOrderSummaryBanner />}
     columns={[
       { key: "date", header: "Date", render: (r) => shortDate(r.orderDate as string) },
       { key: "number", header: "Purchase Order#", render: (r) => <span className="font-medium text-brand-600">{r.number}</span> },

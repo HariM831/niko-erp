@@ -133,6 +133,34 @@ const poSchema = z.object({
   lines: z.array(lineSchema).min(1).max(200),
 });
 
+/** The gradient hero strip on the Purchase Orders list — same shape as Bills'. */
+purchasesRouter.get("/orders/summary", requirePermission("purchases", "view"), async (_req, res) => {
+  const [agg] = await db.execute(sql`
+    SELECT
+      COALESCE(SUM(total) FILTER (WHERE status IN ('issued', 'partially_billed')), 0)::numeric(14,2) AS open_value,
+      COALESCE(SUM(total) FILTER (WHERE status = 'draft'), 0)::numeric(14,2) AS draft_value,
+      COALESCE(SUM(total) FILTER (WHERE status = 'billed' AND order_date >= date_trunc('month', CURRENT_DATE)), 0)::numeric(14,2) AS billed_this_month
+    FROM purchase_orders
+  `).then((r) => r.rows as Array<Record<string, string>>);
+
+  // "Overdue for delivery" mirrors the same red flag the list's own Delivery
+  // Date column already shows per row — an issued PO past its expected date.
+  const [overdue] = await db.execute(sql`
+    SELECT COALESCE(SUM(total), 0)::numeric(14,2) AS overdue_value
+    FROM purchase_orders
+    WHERE status IN ('issued', 'partially_billed')
+      AND expected_delivery_date IS NOT NULL
+      AND expected_delivery_date < CURRENT_DATE
+  `).then((r) => r.rows as Array<{ overdue_value: string }>);
+
+  res.json({
+    openValue: agg?.open_value ?? "0.00",
+    draftValue: agg?.draft_value ?? "0.00",
+    billedThisMonth: agg?.billed_this_month ?? "0.00",
+    overdueForDelivery: overdue?.overdue_value ?? "0.00",
+  });
+});
+
 purchasesRouter.get("/orders", requirePermission("purchases", "view"), async (req, res) => {
   const query = req.query as Record<string, string | undefined>;
   const { vendorId, status, from, to, search } = query;

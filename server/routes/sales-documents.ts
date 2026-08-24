@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, asc, desc, eq, getTableColumns, gte, inArray, lte } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, gte, inArray, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   contacts,
@@ -80,6 +80,29 @@ const creditNoteSchema = z.object({
   customerNotes: z.string().optional(),
   lines: z.array(lineSchema).min(1).max(200),
 });
+
+/** The gradient hero strip on the Credit Notes list — same shape as Invoices'. */
+salesDocumentsRouter.get(
+  "/credit-notes/summary",
+  requirePermission("sales", "view"),
+  async (_req, res) => {
+    const [agg] = await db.execute(sql`
+      SELECT
+        COALESCE(SUM(balance) FILTER (WHERE status = 'open'), 0)::numeric(14,2) AS open_balance,
+        COALESCE(SUM(total) FILTER (WHERE credit_note_date >= date_trunc('month', CURRENT_DATE)), 0)::numeric(14,2) AS issued_this_month,
+        COUNT(*) FILTER (WHERE status = 'open')::int AS open_count,
+        COALESCE(SUM(total) FILTER (WHERE status = 'closed'), 0)::numeric(14,2) AS closed_value
+      FROM credit_notes
+    `).then((r) => r.rows as Array<Record<string, string>>);
+
+    res.json({
+      openBalance: agg?.open_balance ?? "0.00",
+      issuedThisMonth: agg?.issued_this_month ?? "0.00",
+      openCount: agg?.open_count ?? 0,
+      closedValue: agg?.closed_value ?? "0.00",
+    });
+  },
+);
 
 salesDocumentsRouter.get(
   "/credit-notes",
