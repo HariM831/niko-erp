@@ -385,15 +385,15 @@ export function OverviewTab({
             <table className="w-full max-w-lg text-[13px]">
               <thead className="table-head">
                 <tr>
-                  <th className="border-b border-[#ebeaf2] px-3 py-2">Currency</th>
-                  <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">
+                  <th className="border-b border-[#ece3d5] px-3 py-2">Currency</th>
+                  <th className="border-b border-[#ece3d5] px-3 py-2 text-right">
                     Outstanding {heading}
                   </th>
-                  <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Unused Credits</th>
+                  <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Unused Credits</th>
                 </tr>
               </thead>
               <tbody>
-                <tr className="border-b border-[#ebeaf2]">
+                <tr className="border-b border-[#ece3d5]">
                   <td className="px-3 py-2.5">INR — Indian Rupee</td>
                   <td className="px-3 py-2.5 text-right font-medium tabular-nums">
                     {formatMoney(outstanding)}
@@ -479,7 +479,7 @@ export function IncomeChart({ contactId, label }: { contactId: string; label: st
   );
   const slot = periods.length ? (width - padL - 10) / periods.length : 0;
 
-  const DEBIT = "#4f8ef7";
+  const DEBIT = "#e06d05";
   const CREDIT = "#65c366";
 
   return (
@@ -515,7 +515,7 @@ export function IncomeChart({ contactId, label }: { contactId: string; label: st
       <svg viewBox={`0 0 ${width} ${height}`} className="h-40 w-full">
         {[0, 0.25, 0.5, 0.75, 1].map((f) => (
           <g key={f}>
-            <line x1={padL} x2={width} y1={height - padB - f * (height - padB - 10)} y2={height - padB - f * (height - padB - 10)} stroke="#ebeaf2" strokeWidth={1} />
+            <line x1={padL} x2={width} y1={height - padB - f * (height - padB - 10)} y2={height - padB - f * (height - padB - 10)} stroke="#ece3d5" strokeWidth={1} />
             <text x={0} y={height - padB - f * (height - padB - 10) + 3} fontSize={10} fill="#9ca3af">
               {compactMoney(max * f)}
             </text>
@@ -634,11 +634,11 @@ export function TransactionsTab({
               <table className="w-full max-w-4xl text-[13px]">
                 <thead className="table-head">
                   <tr>
-                    <th className="border-b border-[#ebeaf2] px-3 py-2">Date</th>
-                    <th className="border-b border-[#ebeaf2] px-3 py-2">Number</th>
-                    <th className="border-b border-[#ebeaf2] px-3 py-2">Status</th>
-                    <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Amount</th>
-                    {s.balanceKey && <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Balance</th>}
+                    <th className="border-b border-[#ece3d5] px-3 py-2">Date</th>
+                    <th className="border-b border-[#ece3d5] px-3 py-2">Number</th>
+                    <th className="border-b border-[#ece3d5] px-3 py-2">Status</th>
+                    <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Amount</th>
+                    {s.balanceKey && <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Balance</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -646,7 +646,7 @@ export function TransactionsTab({
                     <tr
                       key={r.id}
                       onClick={() => navigate(`${s.basePath}/${r.id}`)}
-                      className="cursor-pointer border-b border-[#ebeaf2] hover:bg-gray-50"
+                      className="cursor-pointer border-b border-[#ece3d5] hover:bg-gray-50"
                     >
                       <td className="px-3 py-2">{formatDate(r[s.dateKey] as string)}</td>
                       <td className="px-3 py-2 font-medium text-brand-600">{r.number}</td>
@@ -716,22 +716,22 @@ export function StatementTab({ id }: { id: string }) {
       <table className="w-full max-w-4xl text-[13px]">
         <thead className="table-head">
           <tr>
-            <th className="border-b border-[#ebeaf2] px-3 py-2">Date</th>
-            <th className="border-b border-[#ebeaf2] px-3 py-2">Transaction</th>
-            <th className="border-b border-[#ebeaf2] px-3 py-2">Number</th>
-            <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Debit</th>
-            <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Credit</th>
-            <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Balance</th>
+            <th className="border-b border-[#ece3d5] px-3 py-2">Date</th>
+            <th className="border-b border-[#ece3d5] px-3 py-2">Transaction</th>
+            <th className="border-b border-[#ece3d5] px-3 py-2">Number</th>
+            <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Debit</th>
+            <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Credit</th>
+            <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Balance</th>
           </tr>
         </thead>
         <tbody>
-          <tr className="border-b border-[#ebeaf2] bg-gray-50/60">
+          <tr className="border-b border-[#ece3d5] bg-gray-50/60">
             <td className="px-3 py-2 text-gray-500">{formatDate(from)}</td>
             <td colSpan={4} className="px-3 py-2 font-medium">Opening Balance</td>
             <td className="px-3 py-2 text-right font-medium tabular-nums">{formatMoney(data?.openingBalance ?? 0)}</td>
           </tr>
           {data?.rows.map((r, i) => (
-            <tr key={i} className="border-b border-[#ebeaf2]">
+            <tr key={i} className="border-b border-[#ece3d5]">
               <td className="px-3 py-2">{formatDate(r.date)}</td>
               <td className="px-3 py-2">{r.type}</td>
               <td className="px-3 py-2">

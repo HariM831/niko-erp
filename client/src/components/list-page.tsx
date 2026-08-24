@@ -229,13 +229,13 @@ export function ListPage<T>({
           <table className="w-full border-separate border-spacing-0 text-[13px]">
             <thead className="table-head sticky top-0 z-10">
               <tr>
-                <th className={`w-9 border-b border-[#ebeaf2] ${cellPad}`}>
+                <th className={`w-9 border-b border-[#ece3d5] ${cellPad}`}>
                   <input type="checkbox" checked={allSelected} onChange={toggleAll} className="accent-brand-500" />
                 </th>
                 {columns.map((c) => (
                   <th
                     key={c.key}
-                    className={`border-b border-[#ebeaf2] font-semibold ${cellPad} ${c.align === "right" ? "text-right" : ""}`}
+                    className={`border-b border-[#ece3d5] font-semibold ${cellPad} ${c.align === "right" ? "text-right" : ""}`}
                   >
                     {c.header}
                   </th>
@@ -272,7 +272,7 @@ export function ListPage<T>({
                             return next;
                           })
                         }
-                        className="cursor-pointer select-none border-b border-[#ebeaf2] bg-gray-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 hover:bg-gray-100"
+                        className="cursor-pointer select-none border-b border-[#ece3d5] bg-gray-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-500 hover:bg-gray-100"
                       >
                         <span className="mr-1.5 inline-block w-3 text-gray-400">
                           {isCollapsed ? "▸" : "▾"}
@@ -296,7 +296,7 @@ export function ListPage<T>({
                     }`}
                   >
                     <td
-                      className={`border-b border-[#ebeaf2] ${cellPad}`}
+                      className={`border-b border-[#ece3d5] ${cellPad}`}
                       onClick={(e) => e.stopPropagation()}
                     >
                       <input
@@ -309,7 +309,7 @@ export function ListPage<T>({
                     {columns.map((c) => (
                       <td
                         key={c.key}
-                        className={`border-b border-[#ebeaf2] ${cellPad} ${c.align === "right" ? "text-right tabular-nums" : ""}`}
+                        className={`border-b border-[#ece3d5] ${cellPad} ${c.align === "right" ? "text-right tabular-nums" : ""}`}
                       >
                         {c.render(row)}
                       </td>

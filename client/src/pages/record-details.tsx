@@ -208,17 +208,17 @@ export function PaymentDetailPage({ side, id }: { side: "customer" | "vendor"; i
           <table className="w-full text-[13px]">
             <thead className="table-head">
               <tr>
-                <th className="border-b border-[#ebeaf2] px-3 py-2">Number</th>
-                <th className="border-b border-[#ebeaf2] px-3 py-2">Date</th>
-                <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Document Total</th>
-                <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Amount Applied</th>
+                <th className="border-b border-[#ece3d5] px-3 py-2">Number</th>
+                <th className="border-b border-[#ece3d5] px-3 py-2">Date</th>
+                <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Document Total</th>
+                <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Amount Applied</th>
               </tr>
             </thead>
             <tbody>
               {doc.applications.map((a, i) => {
                 const docId = a.invoiceId ?? a.billId;
                 return (
-                  <tr key={i} className="border-b border-[#ebeaf2]">
+                  <tr key={i} className="border-b border-[#ece3d5]">
                     <td className="px-3 py-2.5">
                       <Link href={`${docBase}/${docId}`} className="font-medium text-brand-600 hover:underline">
                         {a.invoiceNumber ?? a.billNumber}
@@ -413,15 +413,15 @@ export function JournalDetailPage({ id }: { id: string }) {
       <table className="w-full text-[13px]">
         <thead className="table-head">
           <tr>
-            <th className="border-b border-[#ebeaf2] px-3 py-2">Account</th>
-            <th className="border-b border-[#ebeaf2] px-3 py-2">Description</th>
-            <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Debit</th>
-            <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Credit</th>
+            <th className="border-b border-[#ece3d5] px-3 py-2">Account</th>
+            <th className="border-b border-[#ece3d5] px-3 py-2">Description</th>
+            <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Debit</th>
+            <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Credit</th>
           </tr>
         </thead>
         <tbody>
           {doc.lines.map((l) => (
-            <tr key={l.id} className="border-b border-[#ebeaf2]">
+            <tr key={l.id} className="border-b border-[#ece3d5]">
               <td className="px-3 py-2.5">
                 <Link
                   href={`/accountant/accounts/${l.accountId}`}
@@ -517,17 +517,17 @@ export function AccountLedgerPage({ id }: { id: string }) {
         <table className="w-full text-[13px]">
           <thead className="table-head">
             <tr>
-              <th className="border-b border-[#ebeaf2] px-3 py-2">Date</th>
-              <th className="border-b border-[#ebeaf2] px-3 py-2">Entry</th>
-              <th className="border-b border-[#ebeaf2] px-3 py-2">Narration</th>
-              <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Debit</th>
-              <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Credit</th>
-              <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Balance</th>
+              <th className="border-b border-[#ece3d5] px-3 py-2">Date</th>
+              <th className="border-b border-[#ece3d5] px-3 py-2">Entry</th>
+              <th className="border-b border-[#ece3d5] px-3 py-2">Narration</th>
+              <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Debit</th>
+              <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Credit</th>
+              <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Balance</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r, i) => (
-              <tr key={i} className="border-b border-[#ebeaf2]">
+              <tr key={i} className="border-b border-[#ece3d5]">
                 <td className="px-3 py-2.5">{shortDate(r.entryDate)}</td>
                 <td className="px-3 py-2.5">
                   <Link href={`/accountant/journals/${r.entryId}`} className="font-medium text-brand-600 hover:underline">

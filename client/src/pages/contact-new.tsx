@@ -359,40 +359,40 @@ export function ContactNewPage({ type, editId }: { type: "customer" | "vendor" |
               <table className="w-full text-[13px]">
                 <thead className="table-head">
                   <tr>
-                    <th className="border border-[#ebeaf2] px-2 py-1.5 w-24">Salutation</th>
-                    <th className="border border-[#ebeaf2] px-2 py-1.5">First Name</th>
-                    <th className="border border-[#ebeaf2] px-2 py-1.5">Last Name</th>
-                    <th className="border border-[#ebeaf2] px-2 py-1.5">Email</th>
-                    <th className="border border-[#ebeaf2] px-2 py-1.5">Phone</th>
-                    <th className="border border-[#ebeaf2] px-2 py-1.5 w-16">Primary</th>
-                    <th className="border border-[#ebeaf2] px-2 py-1.5 w-10" />
+                    <th className="border border-[#ece3d5] px-2 py-1.5 w-24">Salutation</th>
+                    <th className="border border-[#ece3d5] px-2 py-1.5">First Name</th>
+                    <th className="border border-[#ece3d5] px-2 py-1.5">Last Name</th>
+                    <th className="border border-[#ece3d5] px-2 py-1.5">Email</th>
+                    <th className="border border-[#ece3d5] px-2 py-1.5">Phone</th>
+                    <th className="border border-[#ece3d5] px-2 py-1.5 w-16">Primary</th>
+                    <th className="border border-[#ece3d5] px-2 py-1.5 w-10" />
                   </tr>
                 </thead>
                 <tbody>
                   {persons.map((p, i) => (
                     <tr key={i}>
-                      <td className="border border-[#ebeaf2] p-1">
+                      <td className="border border-[#ece3d5] p-1">
                         <select value={p.salutation} onChange={(e) => updatePerson(i, { salutation: e.target.value })} className="input py-1">
                           <option value=""></option>
                           {SALUTATIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                         </select>
                       </td>
-                      <td className="border border-[#ebeaf2] p-1">
+                      <td className="border border-[#ece3d5] p-1">
                         <input value={p.firstName} onChange={(e) => updatePerson(i, { firstName: e.target.value })} className="input py-1" />
                       </td>
-                      <td className="border border-[#ebeaf2] p-1">
+                      <td className="border border-[#ece3d5] p-1">
                         <input value={p.lastName} onChange={(e) => updatePerson(i, { lastName: e.target.value })} className="input py-1" />
                       </td>
-                      <td className="border border-[#ebeaf2] p-1">
+                      <td className="border border-[#ece3d5] p-1">
                         <input value={p.email} onChange={(e) => updatePerson(i, { email: e.target.value })} className="input py-1" />
                       </td>
-                      <td className="border border-[#ebeaf2] p-1">
+                      <td className="border border-[#ece3d5] p-1">
                         <input value={p.phone} onChange={(e) => updatePerson(i, { phone: e.target.value })} className="input py-1" />
                       </td>
-                      <td className="border border-[#ebeaf2] p-1 text-center">
+                      <td className="border border-[#ece3d5] p-1 text-center">
                         <input type="radio" name="primary-person" checked={p.isPrimary} onChange={() => updatePerson(i, { isPrimary: true })} />
                       </td>
-                      <td className="border border-[#ebeaf2] p-1 text-center">
+                      <td className="border border-[#ece3d5] p-1 text-center">
                         {persons.length > 1 && (
                           <button onClick={() => removePerson(i)} className="text-gray-400 hover:text-red-600">×</button>
                         )}

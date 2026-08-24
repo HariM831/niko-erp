@@ -266,7 +266,7 @@ function BankSummaryChart({ rows }: { rows: RegisterRow[] }) {
     <svg viewBox={`0 0 ${width} ${height}`} className="h-40 w-full">
       {ticks.map((t, i) => (
         <g key={i}>
-          <line x1={padL} x2={width} y1={y(t)} y2={y(t)} stroke="#ebeaf2" strokeWidth={1} />
+          <line x1={padL} x2={width} y1={y(t)} y2={y(t)} stroke="#ece3d5" strokeWidth={1} />
           <text x={0} y={y(t) + 3} fontSize={10} fill="#9ca3af">{compactMoney(t)}</text>
         </g>
       ))}
@@ -398,32 +398,32 @@ function AllTransactionsTab({ rows, onOpen }: { rows: RegisterRow[]; onOpen: (pa
     <table className="w-full text-[13px]">
       <thead className="table-head sticky top-0">
         <tr>
-          <th className="border-b border-[#ebeaf2] px-4 py-2.5">Date</th>
-          <th className="border-b border-[#ebeaf2] px-4 py-2.5">Reference#</th>
-          <th className="border-b border-[#ebeaf2] px-4 py-2.5">Type</th>
-          <th className="border-b border-[#ebeaf2] px-4 py-2.5">Status</th>
-          <th className="border-b border-[#ebeaf2] px-4 py-2.5 text-right">Deposits</th>
-          <th className="border-b border-[#ebeaf2] px-4 py-2.5 text-right">Withdrawals</th>
-          <th className="border-b border-[#ebeaf2] px-4 py-2.5 text-right">Running Balance</th>
+          <th className="border-b border-[#ece3d5] px-4 py-2.5">Date</th>
+          <th className="border-b border-[#ece3d5] px-4 py-2.5">Reference#</th>
+          <th className="border-b border-[#ece3d5] px-4 py-2.5">Type</th>
+          <th className="border-b border-[#ece3d5] px-4 py-2.5">Status</th>
+          <th className="border-b border-[#ece3d5] px-4 py-2.5 text-right">Deposits</th>
+          <th className="border-b border-[#ece3d5] px-4 py-2.5 text-right">Withdrawals</th>
+          <th className="border-b border-[#ece3d5] px-4 py-2.5 text-right">Running Balance</th>
         </tr>
       </thead>
       <tbody>
         {desc.map((r, i) => (
           <tr key={`${r.entryId}-${i}`} onClick={() => onOpen(r.docPath)} className="cursor-pointer bg-white transition-colors hover:bg-gray-50">
-            <td className="border-b border-[#ebeaf2] px-4 py-2.5 align-top">{formatDate(r.entryDate)}</td>
-            <td className="border-b border-[#ebeaf2] px-4 py-2.5 align-top text-gray-700">{r.reference ?? "—"}</td>
-            <td className="border-b border-[#ebeaf2] px-4 py-2.5 align-top">
+            <td className="border-b border-[#ece3d5] px-4 py-2.5 align-top">{formatDate(r.entryDate)}</td>
+            <td className="border-b border-[#ece3d5] px-4 py-2.5 align-top text-gray-700">{r.reference ?? "—"}</td>
+            <td className="border-b border-[#ece3d5] px-4 py-2.5 align-top">
               <div className="text-gray-800">{r.typeLabel}</div>
               {r.party && <div className="max-w-56 truncate text-xs text-gray-500">{r.party}</div>}
             </td>
-            <td className={`border-b border-[#ebeaf2] px-4 py-2.5 align-top ${STATUS_STYLES[r.status]}`}>{r.status}</td>
-            <td className="border-b border-[#ebeaf2] px-4 py-2.5 text-right align-top tabular-nums">
+            <td className={`border-b border-[#ece3d5] px-4 py-2.5 align-top ${STATUS_STYLES[r.status]}`}>{r.status}</td>
+            <td className="border-b border-[#ece3d5] px-4 py-2.5 text-right align-top tabular-nums">
               {Number(r.debit) > 0 ? formatMoney(r.debit) : ""}
             </td>
-            <td className="border-b border-[#ebeaf2] px-4 py-2.5 text-right align-top tabular-nums">
+            <td className="border-b border-[#ece3d5] px-4 py-2.5 text-right align-top tabular-nums">
               {Number(r.credit) > 0 ? formatMoney(r.credit) : ""}
             </td>
-            <td className="border-b border-[#ebeaf2] px-4 py-2.5 text-right align-top font-medium tabular-nums">
+            <td className="border-b border-[#ece3d5] px-4 py-2.5 text-right align-top font-medium tabular-nums">
               {formatMoney(r.running)}
             </td>
           </tr>
@@ -723,12 +723,12 @@ function ImportStatementWizard({
           <div className="max-h-40 overflow-auto rounded border bg-white">
             <table className="w-full text-xs">
               <thead className="table-head">
-                <tr>{headers.map((h, i) => <th key={i} className="border-b border-[#ebeaf2] px-2 py-1.5">{h}</th>)}</tr>
+                <tr>{headers.map((h, i) => <th key={i} className="border-b border-[#ece3d5] px-2 py-1.5">{h}</th>)}</tr>
               </thead>
               <tbody>
                 {dataRows.slice(0, 4).map((r, i) => (
                   <tr key={i}>
-                    {headers.map((_, ci) => <td key={ci} className="border-b border-[#ebeaf2] px-2 py-1.5">{r[ci]}</td>)}
+                    {headers.map((_, ci) => <td key={ci} className="border-b border-[#ece3d5] px-2 py-1.5">{r[ci]}</td>)}
                   </tr>
                 ))}
               </tbody>
@@ -755,23 +755,23 @@ function ImportStatementWizard({
             <table className="w-full text-xs">
               <thead className="table-head sticky top-0">
                 <tr>
-                  <th className="border-b border-[#ebeaf2] px-2 py-1.5">Date</th>
-                  <th className="border-b border-[#ebeaf2] px-2 py-1.5">Description</th>
-                  <th className="border-b border-[#ebeaf2] px-2 py-1.5">Reference</th>
-                  <th className="border-b border-[#ebeaf2] px-2 py-1.5 text-right">Withdrawal</th>
-                  <th className="border-b border-[#ebeaf2] px-2 py-1.5 text-right">Deposit</th>
+                  <th className="border-b border-[#ece3d5] px-2 py-1.5">Date</th>
+                  <th className="border-b border-[#ece3d5] px-2 py-1.5">Description</th>
+                  <th className="border-b border-[#ece3d5] px-2 py-1.5">Reference</th>
+                  <th className="border-b border-[#ece3d5] px-2 py-1.5 text-right">Withdrawal</th>
+                  <th className="border-b border-[#ece3d5] px-2 py-1.5 text-right">Deposit</th>
                 </tr>
               </thead>
               <tbody>
                 {parsedRows.map((r, i) => (
                   <tr key={i} className={r.valid ? "" : "bg-red-50"}>
-                    <td className="border-b border-[#ebeaf2] px-2 py-1.5">{r.txnDate ?? <span className="text-red-500">{r.reason}</span>}</td>
-                    <td className="border-b border-[#ebeaf2] px-2 py-1.5">{r.description ?? "—"}</td>
-                    <td className="border-b border-[#ebeaf2] px-2 py-1.5">{r.utr ?? "—"}</td>
-                    <td className="border-b border-[#ebeaf2] px-2 py-1.5 text-right tabular-nums">
+                    <td className="border-b border-[#ece3d5] px-2 py-1.5">{r.txnDate ?? <span className="text-red-500">{r.reason}</span>}</td>
+                    <td className="border-b border-[#ece3d5] px-2 py-1.5">{r.description ?? "—"}</td>
+                    <td className="border-b border-[#ece3d5] px-2 py-1.5">{r.utr ?? "—"}</td>
+                    <td className="border-b border-[#ece3d5] px-2 py-1.5 text-right tabular-nums">
                       {r.direction === "debit" ? r.amount?.toFixed(2) : ""}
                     </td>
-                    <td className="border-b border-[#ebeaf2] px-2 py-1.5 text-right tabular-nums">
+                    <td className="border-b border-[#ece3d5] px-2 py-1.5 text-right tabular-nums">
                       {r.direction === "credit" ? r.amount?.toFixed(2) : ""}
                     </td>
                   </tr>
@@ -883,12 +883,12 @@ function UncategorizedTab({
         <table className="w-full text-[13px]">
           <thead className="table-head sticky top-0">
             <tr>
-              <th className="border-b border-[#ebeaf2] px-4 py-2.5">Date</th>
-              <th className="border-b border-[#ebeaf2] px-4 py-2.5">Description</th>
-              <th className="border-b border-[#ebeaf2] px-4 py-2.5">UTR</th>
-              <th className="border-b border-[#ebeaf2] px-4 py-2.5 text-right">Withdrawal</th>
-              <th className="border-b border-[#ebeaf2] px-4 py-2.5 text-right">Deposit</th>
-              <th className="border-b border-[#ebeaf2] px-4 py-2.5">Status</th>
+              <th className="border-b border-[#ece3d5] px-4 py-2.5">Date</th>
+              <th className="border-b border-[#ece3d5] px-4 py-2.5">Description</th>
+              <th className="border-b border-[#ece3d5] px-4 py-2.5">UTR</th>
+              <th className="border-b border-[#ece3d5] px-4 py-2.5 text-right">Withdrawal</th>
+              <th className="border-b border-[#ece3d5] px-4 py-2.5 text-right">Deposit</th>
+              <th className="border-b border-[#ece3d5] px-4 py-2.5">Status</th>
             </tr>
           </thead>
           <tbody>
@@ -897,7 +897,7 @@ function UncategorizedTab({
                 <tr
                   key={t.id}
                   onClick={() => setExpanded(expanded === t.id ? null : t.id)}
-                  className="cursor-pointer border-b border-[#ebeaf2] hover:bg-gray-50"
+                  className="cursor-pointer border-b border-[#ece3d5] hover:bg-gray-50"
                 >
                   <td className="px-4 py-2.5">{formatDate(t.txnDate)}</td>
                   <td className="px-4 py-2.5">{t.description ?? t.counterparty ?? "—"}</td>
@@ -913,7 +913,7 @@ function UncategorizedTab({
                   </td>
                 </tr>
                 {expanded === t.id && (
-                  <tr key={`${t.id}-x`} className="border-b border-[#ebeaf2] bg-gray-50">
+                  <tr key={`${t.id}-x`} className="border-b border-[#ece3d5] bg-gray-50">
                     <td colSpan={6} className="px-6 py-4">
                       {t.matchStatus === "unmatched" ? (
                         <div className="flex flex-wrap items-end gap-3">

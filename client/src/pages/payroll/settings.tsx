@@ -200,7 +200,7 @@ function ShiftDialog({ shift, onClose, onSaved }: { shift: Shift | null; onClose
     endTime: shift?.endTime ?? "18:00",
     workingHours: String(shift?.workingHours ?? 8),
     weeklyOffDays: shift?.weeklyOffDays ?? [0],
-    color: shift?.color ?? "#3B82F6",
+    color: shift?.color ?? "#e06d05",
   });
   const save = useMutation({
     mutationFn: () => {

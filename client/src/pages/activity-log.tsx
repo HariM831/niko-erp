@@ -56,16 +56,16 @@ export function ActivityLogPage() {
           <table className="w-full text-[13px]">
             <thead className="table-head sticky top-0 z-10">
               <tr>
-                <th className="border-b border-[#ebeaf2] px-4 py-2.5">Time</th>
-                <th className="border-b border-[#ebeaf2] px-4 py-2.5">User</th>
-                <th className="border-b border-[#ebeaf2] px-4 py-2.5">Action</th>
-                <th className="border-b border-[#ebeaf2] px-4 py-2.5">Resource</th>
-                <th className="border-b border-[#ebeaf2] px-4 py-2.5">IP Address</th>
+                <th className="border-b border-[#ece3d5] px-4 py-2.5">Time</th>
+                <th className="border-b border-[#ece3d5] px-4 py-2.5">User</th>
+                <th className="border-b border-[#ece3d5] px-4 py-2.5">Action</th>
+                <th className="border-b border-[#ece3d5] px-4 py-2.5">Resource</th>
+                <th className="border-b border-[#ece3d5] px-4 py-2.5">IP Address</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} className="row-hover border-b border-[#ebeaf2]">
+                <tr key={r.id} className="row-hover border-b border-[#ece3d5]">
                   <td className="whitespace-nowrap px-4 py-2.5 tabular-nums text-gray-600">
                     {new Date(r.createdAt).toLocaleString("en-IN", {
                       day: "2-digit",

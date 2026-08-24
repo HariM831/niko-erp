@@ -111,7 +111,7 @@ export function OfficeSitesSection() {
               </EmptyRow>
             )}
             {data?.gates.map((g) => (
-              <tr key={g.id} className={`border-b border-[#ebeaf2] ${g.isActive ? "" : "text-gray-400"}`}>
+              <tr key={g.id} className={`border-b border-[#ece3d5] ${g.isActive ? "" : "text-gray-400"}`}>
                 <td className="px-3 py-2 text-[13px] font-medium">
                   {g.name}
                   {!g.isActive && <span className="ml-1.5 text-[11px]">out of service</span>}
@@ -178,7 +178,7 @@ export function OfficeSitesSection() {
               </EmptyRow>
             )}
             {data?.weighbridges.map((w) => (
-              <tr key={w.id} className={`border-b border-[#ebeaf2] ${w.isActive ? "" : "text-gray-400"}`}>
+              <tr key={w.id} className={`border-b border-[#ece3d5] ${w.isActive ? "" : "text-gray-400"}`}>
                 <td className="px-3 py-2 text-[13px] font-medium">
                   {w.name}
                   {!w.isActive && <span className="ml-1.5 text-[11px]">out of service</span>}

@@ -80,10 +80,10 @@ export function BudgetsPage() {
           <table className="w-full border-separate border-spacing-0 text-[13px]">
             <thead className="table-head sticky top-0 z-10">
               <tr>
-                <th className="border-b border-[#ebeaf2] px-4 py-2.5">Name</th>
-                <th className="border-b border-[#ebeaf2] px-4 py-2.5">Period</th>
-                <th className="border-b border-[#ebeaf2] px-4 py-2.5">From</th>
-                <th className="border-b border-[#ebeaf2] px-4 py-2.5">To</th>
+                <th className="border-b border-[#ece3d5] px-4 py-2.5">Name</th>
+                <th className="border-b border-[#ece3d5] px-4 py-2.5">Period</th>
+                <th className="border-b border-[#ece3d5] px-4 py-2.5">From</th>
+                <th className="border-b border-[#ece3d5] px-4 py-2.5">To</th>
               </tr>
             </thead>
             <tbody>
@@ -93,12 +93,12 @@ export function BudgetsPage() {
                   onClick={() => navigate(`/accountant/budgets/${b.id}`)}
                   className="cursor-pointer bg-white transition-colors hover:bg-gray-50"
                 >
-                  <td className="border-b border-[#ebeaf2] px-4 py-2.5 font-medium text-brand-600">{b.name}</td>
-                  <td className="border-b border-[#ebeaf2] px-4 py-2.5 text-gray-700">
+                  <td className="border-b border-[#ece3d5] px-4 py-2.5 font-medium text-brand-600">{b.name}</td>
+                  <td className="border-b border-[#ece3d5] px-4 py-2.5 text-gray-700">
                     {PERIOD_LABEL[b.period] ?? b.period}
                   </td>
-                  <td className="border-b border-[#ebeaf2] px-4 py-2.5">{formatDate(b.startDate)}</td>
-                  <td className="border-b border-[#ebeaf2] px-4 py-2.5">{formatDate(b.endDate)}</td>
+                  <td className="border-b border-[#ece3d5] px-4 py-2.5">{formatDate(b.startDate)}</td>
+                  <td className="border-b border-[#ece3d5] px-4 py-2.5">{formatDate(b.endDate)}</td>
                 </tr>
               ))}
             </tbody>
@@ -560,12 +560,12 @@ function ActualsGrid({ data, period }: { data: { periods: string[]; rows: Actual
       netOf ? sum(netOf[0], measure, p) - sum(netOf[1], measure, p) : sum(set, measure, p);
     return (
       <tr key={key} className="font-semibold">
-        <td className="sticky left-0 z-10 whitespace-nowrap border border-[#ebeaf2] bg-[#f9f9fb] px-3 py-2">{label}</td>
+        <td className="sticky left-0 z-10 whitespace-nowrap border border-[#ece3d5] bg-[#f9f9fb] px-3 py-2">{label}</td>
         {[...periods, null].flatMap((p) =>
           (["budget", "actual", "variance"] as const).map((measure) => (
             <td
               key={`${key}-${p ?? "total"}-${measure}`}
-              className="border border-[#ebeaf2] bg-[#f9f9fb] px-3 py-2 text-right tabular-nums"
+              className="border border-[#ece3d5] bg-[#f9f9fb] px-3 py-2 text-right tabular-nums"
             >
               {measure === "variance" ? (
                 <Signed value={value(measure, p)} tone={varianceTone(toneType, value(measure, p))} />
@@ -587,15 +587,15 @@ function ActualsGrid({ data, period }: { data: { periods: string[]; rows: Actual
       <table className="text-[13px]">
         <thead className="table-head">
           <tr>
-            <th rowSpan={2} className="sticky left-0 z-10 border border-[#ebeaf2] bg-[#f9f9fb] px-3 py-2 text-left align-bottom">
+            <th rowSpan={2} className="sticky left-0 z-10 border border-[#ece3d5] bg-[#f9f9fb] px-3 py-2 text-left align-bottom">
               Account
             </th>
             {periods.map((p) => (
-              <th key={p} colSpan={3} className="border border-[#ebeaf2] px-3 py-1.5 text-center">
+              <th key={p} colSpan={3} className="border border-[#ece3d5] px-3 py-1.5 text-center">
                 {periodLabel(p, period)}
               </th>
             ))}
-            <th colSpan={3} className="border border-[#ebeaf2] px-3 py-1.5 text-center">
+            <th colSpan={3} className="border border-[#ece3d5] px-3 py-1.5 text-center">
               Total
             </th>
           </tr>
@@ -604,7 +604,7 @@ function ActualsGrid({ data, period }: { data: { periods: string[]; rows: Actual
               ["Budget", "Actual", "Variance"].map((h) => (
                 <th
                   key={`${p}-${h}`}
-                  className="whitespace-nowrap border border-[#ebeaf2] px-3 py-1.5 text-right text-[11px] font-medium"
+                  className="whitespace-nowrap border border-[#ece3d5] px-3 py-1.5 text-right text-[11px] font-medium"
                 >
                   {h}
                 </th>
@@ -617,37 +617,37 @@ function ActualsGrid({ data, period }: { data: { periods: string[]; rows: Actual
             <tr key={`${type}-head`}>
               <td
                 colSpan={periods.length * 3 + 4}
-                className="border border-[#ebeaf2] bg-[#f4f4f8] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#6c718a]"
+                className="border border-[#ece3d5] bg-[#f4f4f8] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#6c718a]"
               >
                 {TYPE_LABEL[type] ?? type}
               </td>
             </tr>,
             ...set.map((r) => (
             <tr key={r.accountId}>
-              <td className="sticky left-0 z-10 whitespace-nowrap border border-[#ebeaf2] bg-white px-3 py-1.5">
+              <td className="sticky left-0 z-10 whitespace-nowrap border border-[#ece3d5] bg-white px-3 py-1.5">
                 <span className="tabular-nums text-gray-500">{r.accountCode}</span> {r.accountName}
               </td>
               {periods.flatMap((p) => {
                 const c = r.cells.find((x) => x.periodStart === p) ?? EMPTY_CELL;
                 return [
-                  <td key={`${p}-b`} className="border border-[#ebeaf2] px-3 py-1.5 text-right tabular-nums">
+                  <td key={`${p}-b`} className="border border-[#ece3d5] px-3 py-1.5 text-right tabular-nums">
                     {formatMoney(c.budget)}
                   </td>,
-                  <td key={`${p}-a`} className="border border-[#ebeaf2] px-3 py-1.5 text-right tabular-nums">
+                  <td key={`${p}-a`} className="border border-[#ece3d5] px-3 py-1.5 text-right tabular-nums">
                     {formatMoney(c.actual)}
                   </td>,
-                  <td key={`${p}-v`} className="border border-[#ebeaf2] px-3 py-1.5 text-right">
+                  <td key={`${p}-v`} className="border border-[#ece3d5] px-3 py-1.5 text-right">
                     <Signed value={Number(c.variance)} tone={varianceTone(r.accountType, Number(c.variance))} />
                   </td>,
                 ];
               })}
-              <td className="border border-[#ebeaf2] bg-[#fbfbfd] px-3 py-1.5 text-right font-medium tabular-nums">
+              <td className="border border-[#ece3d5] bg-[#fbfbfd] px-3 py-1.5 text-right font-medium tabular-nums">
                 {formatMoney(r.totalBudget)}
               </td>
-              <td className="border border-[#ebeaf2] bg-[#fbfbfd] px-3 py-1.5 text-right font-medium tabular-nums">
+              <td className="border border-[#ece3d5] bg-[#fbfbfd] px-3 py-1.5 text-right font-medium tabular-nums">
                 {formatMoney(r.totalActual)}
               </td>
-              <td className="border border-[#ebeaf2] bg-[#fbfbfd] px-3 py-1.5 text-right">
+              <td className="border border-[#ece3d5] bg-[#fbfbfd] px-3 py-1.5 text-right">
                 <Signed value={Number(r.totalVariance)} tone={varianceTone(r.accountType, Number(r.totalVariance))} />
               </td>
             </tr>
@@ -787,13 +787,13 @@ export function BudgetDetailPage({ id }: { id: string }) {
           <table className="text-[13px]">
             <thead className="table-head">
               <tr>
-                <th className="sticky left-0 z-10 border border-[#ebeaf2] bg-[#f9f9fb] px-3 py-2 text-left">Account</th>
+                <th className="sticky left-0 z-10 border border-[#ece3d5] bg-[#f9f9fb] px-3 py-2 text-left">Account</th>
                 {data.periods.map((p) => (
-                  <th key={p} className="w-28 border border-[#ebeaf2] px-3 py-2 text-right">
+                  <th key={p} className="w-28 border border-[#ece3d5] px-3 py-2 text-right">
                     {periodLabel(p, data.period)}
                   </th>
                 ))}
-                <th className="w-32 border border-[#ebeaf2] px-3 py-2 text-right">Total</th>
+                <th className="w-32 border border-[#ece3d5] px-3 py-2 text-right">Total</th>
               </tr>
             </thead>
             <tbody>
@@ -801,7 +801,7 @@ export function BudgetDetailPage({ id }: { id: string }) {
                 <tr key={`${type}-head`}>
                   <td
                     colSpan={data.periods.length + 2}
-                    className="border border-[#ebeaf2] bg-[#f4f4f8] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#6c718a]"
+                    className="border border-[#ece3d5] bg-[#f4f4f8] px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#6c718a]"
                   >
                     {TYPE_LABEL[type] ?? type}
                   </td>
@@ -810,12 +810,12 @@ export function BudgetDetailPage({ id }: { id: string }) {
                 const rowTotal = data.periods.reduce((s, p) => s + cell(a.accountId, p), 0);
                 return (
                   <tr key={a.accountId}>
-                    <td className="sticky left-0 z-10 whitespace-nowrap border border-[#ebeaf2] bg-white px-3 py-1.5">
+                    <td className="sticky left-0 z-10 whitespace-nowrap border border-[#ece3d5] bg-white px-3 py-1.5">
                       <span className="tabular-nums text-gray-500">{a.accountCode}</span>{" "}
                       <span>{a.accountName}</span>
                     </td>
                     {data.periods.map((p) => (
-                      <td key={p} className="border border-[#ebeaf2] p-1">
+                      <td key={p} className="border border-[#ece3d5] p-1">
                         <input
                           value={draft[`${a.accountId}:${p}`] ?? ""}
                           onChange={(e) =>
@@ -826,22 +826,22 @@ export function BudgetDetailPage({ id }: { id: string }) {
                         />
                       </td>
                     ))}
-                    <td className="border border-[#ebeaf2] px-3 py-1.5 text-right font-medium tabular-nums">
+                    <td className="border border-[#ece3d5] px-3 py-1.5 text-right font-medium tabular-nums">
                       {formatMoney(rowTotal)}
                     </td>
                   </tr>
                 );
                 }),
                 <tr key={`${type}-total`} className="font-semibold">
-                  <td className="sticky left-0 z-10 whitespace-nowrap border border-[#ebeaf2] bg-[#f9f9fb] px-3 py-2">
+                  <td className="sticky left-0 z-10 whitespace-nowrap border border-[#ece3d5] bg-[#f9f9fb] px-3 py-2">
                     Total {TYPE_LABEL[type] ?? type}
                   </td>
                   {data.periods.map((p) => (
-                    <td key={p} className="border border-[#ebeaf2] bg-[#f9f9fb] px-3 py-2 text-right tabular-nums">
+                    <td key={p} className="border border-[#ece3d5] bg-[#f9f9fb] px-3 py-2 text-right tabular-nums">
                       {formatMoney(columnTotal(set, p))}
                     </td>
                   ))}
-                  <td className="border border-[#ebeaf2] bg-[#f9f9fb] px-3 py-2 text-right tabular-nums">
+                  <td className="border border-[#ece3d5] bg-[#f9f9fb] px-3 py-2 text-right tabular-nums">
                     {formatMoney(data.periods.reduce((s, p) => s + columnTotal(set, p), 0))}
                   </td>
                 </tr>,

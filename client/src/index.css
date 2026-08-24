@@ -180,7 +180,7 @@ body {
      · horizontal hairline dividers only. No vertical grid lines, anywhere.
 
    Matches Zoho Books' live computed styles: #f9f9fb header, #6c718a text,
-   #ebeaf2 hairlines. */
+   #ece3d5 hairlines. */
 .table-head {
   @apply text-left text-[11px] font-semibold uppercase;
   background-color: #f9f9fb;
@@ -205,7 +205,7 @@ body {
    column keeps its divider when the table scrolls under it. */
 .table-td {
   @apply px-3 py-2 text-[13px];
-  border-bottom: 0.7px solid #ebeaf2;
+  border-bottom: 0.7px solid #ece3d5;
 }
 
 .table-row:hover {
@@ -231,7 +231,7 @@ body {
 }
 .s-td {
   @apply px-2 py-3 text-[13px] first:pl-5;
-  border-bottom: 0.7px solid #ebeaf2;
+  border-bottom: 0.7px solid #ece3d5;
 }
 .s-row:hover {
   background-color: #fafafc;

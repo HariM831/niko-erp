@@ -480,14 +480,14 @@ export function InventoryAdjustmentNewPage() {
         <table className="mb-3 w-full max-w-4xl text-[13px]">
           <thead className="table-head">
             <tr>
-              <th className="border border-[#ebeaf2] px-2 py-2 text-left">Item</th>
-              <th className="w-28 border border-[#ebeaf2] px-2 py-2 text-right">On hand</th>
+              <th className="border border-[#ece3d5] px-2 py-2 text-left">Item</th>
+              <th className="w-28 border border-[#ece3d5] px-2 py-2 text-right">On hand</th>
               {mode === "quantity" && (
-                <th className="w-32 border border-[#ebeaf2] px-2 py-2 text-right">Qty change</th>
+                <th className="w-32 border border-[#ece3d5] px-2 py-2 text-right">Qty change</th>
               )}
-              <th className="w-32 border border-[#ebeaf2] px-2 py-2 text-right">Value change</th>
-              <th className="border border-[#ebeaf2] px-2 py-2 text-left">Notes</th>
-              <th className="w-8 border border-[#ebeaf2]" />
+              <th className="w-32 border border-[#ece3d5] px-2 py-2 text-right">Value change</th>
+              <th className="border border-[#ece3d5] px-2 py-2 text-left">Notes</th>
+              <th className="w-8 border border-[#ece3d5]" />
             </tr>
           </thead>
           <tbody>
@@ -498,7 +498,7 @@ export function InventoryAdjustmentNewPage() {
                 : null;
               return (
                 <tr key={i}>
-                  <td className="border border-[#ebeaf2] px-2 py-1">
+                  <td className="border border-[#ece3d5] px-2 py-1">
                     <select
                       value={l.itemId}
                       onChange={(e) => update(i, { itemId: e.target.value })}
@@ -512,11 +512,11 @@ export function InventoryAdjustmentNewPage() {
                       ))}
                     </select>
                   </td>
-                  <td className="border border-[#ebeaf2] px-2 py-1 text-right tabular-nums text-gray-500">
+                  <td className="border border-[#ece3d5] px-2 py-1 text-right tabular-nums text-gray-500">
                     {level ? `${qty(level.quantity)} ${level.unit}` : "—"}
                   </td>
                   {mode === "quantity" && (
-                    <td className="border border-[#ebeaf2] px-2 py-1">
+                    <td className="border border-[#ece3d5] px-2 py-1">
                       <input
                         value={l.quantityChange}
                         onChange={(e) => update(i, { quantityChange: e.target.value })}
@@ -527,7 +527,7 @@ export function InventoryAdjustmentNewPage() {
                       />
                     </td>
                   )}
-                  <td className="border border-[#ebeaf2] px-2 py-1">
+                  <td className="border border-[#ece3d5] px-2 py-1">
                     <input
                       value={l.valueChange}
                       onChange={(e) => update(i, { valueChange: e.target.value })}
@@ -535,14 +535,14 @@ export function InventoryAdjustmentNewPage() {
                       className="w-full bg-transparent text-right tabular-nums outline-none"
                     />
                   </td>
-                  <td className="border border-[#ebeaf2] px-2 py-1">
+                  <td className="border border-[#ece3d5] px-2 py-1">
                     <input
                       value={l.notes}
                       onChange={(e) => update(i, { notes: e.target.value })}
                       className="w-full bg-transparent outline-none"
                     />
                   </td>
-                  <td className="border border-[#ebeaf2] text-center">
+                  <td className="border border-[#ece3d5] text-center">
                     {lines.length > 1 && (
                       <button
                         onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))}

@@ -381,7 +381,7 @@ export function BulkUpdatePage() {
             const allOn = rows.length > 0 && rows.every((r) => selected.has(key(r)));
             return (
               <section key={g.type} className="mt-5">
-                <div className="flex items-center justify-between border-b border-[#ebeaf2] pb-1.5">
+                <div className="flex items-center justify-between border-b border-[#ece3d5] pb-1.5">
                   <h2 className="text-[13px] font-semibold text-gray-800">
                     {g.label} ({g.rows.length})
                   </h2>
@@ -416,7 +416,7 @@ export function BulkUpdatePage() {
                     {rows.map((r) => {
                       const on = selected.has(key(r));
                       return (
-                        <tr key={key(r)} className="border-b border-[#ebeaf2] hover:bg-gray-50">
+                        <tr key={key(r)} className="border-b border-[#ece3d5] hover:bg-gray-50">
                           <td className="px-2 py-1.5">
                             <input
                               type="checkbox"

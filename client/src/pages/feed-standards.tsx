@@ -141,7 +141,7 @@ export function FeedStandardsSection() {
             {NUTRIENTS.map((n) => {
               const d = drafts[n.key];
               return (
-                <tr key={n.key} className="border-b border-[#ebeaf2]">
+                <tr key={n.key} className="border-b border-[#ece3d5]">
                   <td className="px-3 py-1.5 text-[13px]">{nutrientLabel(n.key)}</td>
                   <td className="px-3 py-1">
                     <input

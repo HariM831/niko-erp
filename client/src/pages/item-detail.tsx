@@ -388,12 +388,12 @@ export function ItemDetailPage({ id }: { id: string }) {
                   <table className="w-full max-w-4xl text-[13px]">
                     <thead className="table-head">
                       <tr>
-                        <th className="border-b border-[#ebeaf2] px-3 py-2">Date</th>
-                        <th className="border-b border-[#ebeaf2] px-3 py-2">Number</th>
-                        <th className="border-b border-[#ebeaf2] px-3 py-2">Name</th>
-                        <th className="border-b border-[#ebeaf2] px-3 py-2">Status</th>
-                        <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Quantity</th>
-                        <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Amount</th>
+                        <th className="border-b border-[#ece3d5] px-3 py-2">Date</th>
+                        <th className="border-b border-[#ece3d5] px-3 py-2">Number</th>
+                        <th className="border-b border-[#ece3d5] px-3 py-2">Name</th>
+                        <th className="border-b border-[#ece3d5] px-3 py-2">Status</th>
+                        <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Quantity</th>
+                        <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Amount</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -401,7 +401,7 @@ export function ItemDetailPage({ id }: { id: string }) {
                         <tr
                           key={r.id + r.number}
                           onClick={() => navigate(`${s.basePath}/${r.id}`)}
-                          className="row-hover cursor-pointer border-b border-[#ebeaf2]"
+                          className="row-hover cursor-pointer border-b border-[#ece3d5]"
                         >
                           <td className="px-3 py-2.5">{shortDate(r.date)}</td>
                           <td className="px-3 py-2.5 font-medium text-brand-600">{r.number}</td>

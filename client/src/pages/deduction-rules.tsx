@@ -283,7 +283,7 @@ export function DeductionRulesSection() {
   const Row = ({ r }: { r: Rule }) => (
     <tr
       onClick={() => pick(r)}
-      className={`row-hover cursor-pointer border-b border-[#ebeaf2] ${
+      className={`row-hover cursor-pointer border-b border-[#ece3d5] ${
         draft?.id === r.id ? "bg-brand-50" : ""
       } ${r.isActive ? "" : "text-gray-400"}`}
     >

@@ -252,19 +252,19 @@ export function PaymentNewPage({ side, editId }: { side: "customer" | "vendor"; 
               <table className="w-full text-[13px]">
                 <thead className="table-head">
                   <tr>
-                    <th className="border border-[#ebeaf2] px-3 py-2">Number</th>
-                    <th className="border border-[#ebeaf2] px-3 py-2">Due Date</th>
-                    <th className="border border-[#ebeaf2] px-3 py-2 text-right">Balance Due</th>
-                    <th className="w-36 border border-[#ebeaf2] px-3 py-2 text-right">Payment</th>
+                    <th className="border border-[#ece3d5] px-3 py-2">Number</th>
+                    <th className="border border-[#ece3d5] px-3 py-2">Due Date</th>
+                    <th className="border border-[#ece3d5] px-3 py-2 text-right">Balance Due</th>
+                    <th className="w-36 border border-[#ece3d5] px-3 py-2 text-right">Payment</th>
                   </tr>
                 </thead>
                 <tbody>
                   {openDocs.map((d) => (
                     <tr key={d.id}>
-                      <td className="border border-[#ebeaf2] px-3 py-2 font-medium text-brand-600">{d.number}</td>
-                      <td className="border border-[#ebeaf2] px-3 py-2">{formatDate(d.dueDate)}</td>
-                      <td className="border border-[#ebeaf2] px-3 py-2 text-right tabular-nums">{formatMoney(d.balanceDue)}</td>
-                      <td className="border border-[#ebeaf2] px-1 py-1">
+                      <td className="border border-[#ece3d5] px-3 py-2 font-medium text-brand-600">{d.number}</td>
+                      <td className="border border-[#ece3d5] px-3 py-2">{formatDate(d.dueDate)}</td>
+                      <td className="border border-[#ece3d5] px-3 py-2 text-right tabular-nums">{formatMoney(d.balanceDue)}</td>
+                      <td className="border border-[#ece3d5] px-1 py-1">
                         <input
                           value={applied[d.id] ?? ""}
                           onChange={(e) => setApplied((a) => ({ ...a, [d.id]: e.target.value }))}

@@ -97,9 +97,9 @@ function IconVent() {
 function IconPressure() {
   return (
     <svg viewBox="0 0 24 24" className="h-full w-full">
-      <path d="M4 16a8 8 0 0 1 16 0" fill="none" stroke="#a78bfa" strokeWidth="1.8" strokeLinecap="round" />
-      <path d="M12 16l4.5-4" stroke="#7c3aed" strokeWidth="1.8" strokeLinecap="round" />
-      <circle cx="12" cy="16" r="1.8" fill="#7c3aed" />
+      <path d="M4 16a8 8 0 0 1 16 0" fill="none" stroke="#ffbd63" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M12 16l4.5-4" stroke="#b85406" strokeWidth="1.8" strokeLinecap="round" />
+      <circle cx="12" cy="16" r="1.8" fill="#b85406" />
     </svg>
   );
 }
@@ -107,8 +107,8 @@ function IconPressure() {
 function IconWater() {
   return (
     <svg viewBox="0 0 24 24" className="h-full w-full">
-      <path d="M6.5 5h11l-1 13.5a2 2 0 0 1-2 1.8h-5a2 2 0 0 1-2-1.8z" fill="#e0f2fe" stroke="#0ea5e9" strokeWidth="1.5" />
-      <path d="M7.2 12.5h9.6l-.5 6a2 2 0 0 1-2 1.8h-4.6a2 2 0 0 1-2-1.8z" fill="#38bdf8" />
+      <path d="M6.5 5h11l-1 13.5a2 2 0 0 1-2 1.8h-5a2 2 0 0 1-2-1.8z" fill="#fff1de" stroke="#b85406" strokeWidth="1.5" />
+      <path d="M7.2 12.5h9.6l-.5 6a2 2 0 0 1-2 1.8h-4.6a2 2 0 0 1-2-1.8z" fill="#e0a15c" />
     </svg>
   );
 }
@@ -116,8 +116,8 @@ function IconWater() {
 function IconHumidity() {
   return (
     <svg viewBox="0 0 24 24" className="h-full w-full">
-      <path d="M12 3.5C12 3.5 6 10 6 14a6 6 0 0 0 12 0c0-4-6-10.5-6-10.5z" fill="#e0f2fe" stroke="#0ea5e9" strokeWidth="1.5" />
-      <path d="M9.5 14.5a2.5 2.5 0 0 0 2.5 2.5" fill="none" stroke="#0ea5e9" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M12 3.5C12 3.5 6 10 6 14a6 6 0 0 0 12 0c0-4-6-10.5-6-10.5z" fill="#fff1de" stroke="#f98a12" strokeWidth="1.5" />
+      <path d="M9.5 14.5a2.5 2.5 0 0 0 2.5 2.5" fill="none" stroke="#f98a12" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }
@@ -316,9 +316,9 @@ export function FanWall({ live, purpose }: { live: LiveShed; purpose: string }) 
                   <div
                     title={`Group ${fanId}: ${on ? "running" : "off"}`}
                     className={`${cellCls} flex items-center justify-center rounded-full border-2 transition-all ${
-                      on ? "border-info/40 bg-info/10" : "border-border bg-muted"
+                      on ? "border-brand-400/50 bg-brand-50" : "border-border bg-muted"
                     }`}
-                    style={on ? { boxShadow: "0 0 6px #93c5fd" } : undefined}
+                    style={on ? { boxShadow: "0 0 6px #ffd8a3" } : undefined}
                   >
                     <svg viewBox="0 0 24 24" className={iconCls} aria-hidden>
                       <g transform="translate(12,12)" style={on ? { animation: "fanSpin 1.2s linear infinite" } : undefined}>
@@ -329,12 +329,12 @@ export function FanWall({ live, purpose }: { live: LiveShed; purpose: string }) 
                             cy="-4"
                             rx="2.5"
                             ry="5"
-                            fill={on ? "#3b82f6" : "#9ca3af"}
+                            fill={on ? "#e06d05" : "#9ca3af"}
                             transform={`rotate(${angle})`}
                             opacity={on ? 0.9 : 0.45}
                           />
                         ))}
-                        <circle r="2" fill={on ? "#1d4ed8" : "#6b7280"} />
+                        <circle r="2" fill={on ? "#b85406" : "#6b7280"} />
                       </g>
                     </svg>
                   </div>

@@ -63,14 +63,14 @@ export function JournalSection({
       <table className="w-full max-w-2xl text-[13px]">
         <thead className="table-head">
           <tr>
-            <th className="border-b border-[#ebeaf2] px-3 py-2">Account</th>
-            <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Debit</th>
-            <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Credit</th>
+            <th className="border-b border-[#ece3d5] px-3 py-2">Account</th>
+            <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Debit</th>
+            <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Credit</th>
           </tr>
         </thead>
         <tbody>
           {data.lines.map((l, i) => (
-            <tr key={i} className="border-b border-[#ebeaf2]">
+            <tr key={i} className="border-b border-[#ece3d5]">
               <td className="px-3 py-2">{l.accountCode} · {l.accountName}</td>
               <td className="px-3 py-2 text-right tabular-nums">{Number(l.debit) > 0 ? formatMoney(l.debit) : "0.00"}</td>
               <td className="px-3 py-2 text-right tabular-nums">{Number(l.credit) > 0 ? formatMoney(l.credit) : "0.00"}</td>

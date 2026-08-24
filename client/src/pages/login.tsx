@@ -22,8 +22,11 @@ export function LoginPage() {
   };
 
   return (
-    <div className="grid min-h-screen place-items-center bg-gradient-to-br from-sidebar via-[#232948] to-brand-700">
-      <form onSubmit={submit} className="w-[350px] rounded-2xl bg-white p-8 shadow-2xl">
+    <div className="relative grid min-h-screen place-items-center overflow-hidden bg-gradient-to-br from-sidebar via-soil-800 to-yolk-600">
+      {/* Two quiet suns, not a texture — the same trick as the Home hero. */}
+      <div className="pointer-events-none absolute -left-24 -top-24 h-96 w-96 rounded-full bg-white/5" />
+      <div className="pointer-events-none absolute -bottom-32 -right-16 h-[28rem] w-[28rem] rounded-full bg-yolk-400/20" />
+      <form onSubmit={submit} className="relative w-[350px] rounded-2xl bg-white p-8 shadow-2xl">
         <div className="mb-1 flex items-center gap-2.5">
           <span className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 text-lg font-extrabold text-white shadow-md">
             E

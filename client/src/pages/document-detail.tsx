@@ -807,14 +807,14 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
                 <table className="w-full text-[13px]">
                   <thead className="table-head">
                     <tr>
-                      <th className="border-b border-[#ebeaf2] px-3 py-2">Payment #</th>
-                      <th className="border-b border-[#ebeaf2] px-3 py-2">Date</th>
-                      <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Amount Applied</th>
+                      <th className="border-b border-[#ece3d5] px-3 py-2">Payment #</th>
+                      <th className="border-b border-[#ece3d5] px-3 py-2">Date</th>
+                      <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Amount Applied</th>
                     </tr>
                   </thead>
                   <tbody>
                     {doc.payments.map((p, i) => (
-                      <tr key={i} className="border-b border-[#ebeaf2]">
+                      <tr key={i} className="border-b border-[#ece3d5]">
                         <td className="px-3 py-2">
                           <Link
                             href={`${isSales ? "/sales/payments" : "/purchases/payments"}/${p.paymentId}`}
@@ -843,17 +843,17 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
                 <table className="w-full max-w-3xl text-[13px]">
                   <thead className="table-head">
                     <tr>
-                      <th className="border-b border-[#ebeaf2] px-3 py-2">Item</th>
-                      <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Qty</th>
-                      <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Line Amount</th>
-                      <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">+ Freight</th>
-                      <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Landed Cost</th>
-                      <th className="border-b border-[#ebeaf2] px-3 py-2 text-right">Landed Unit Cost</th>
+                      <th className="border-b border-[#ece3d5] px-3 py-2">Item</th>
+                      <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Qty</th>
+                      <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Line Amount</th>
+                      <th className="border-b border-[#ece3d5] px-3 py-2 text-right">+ Freight</th>
+                      <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Landed Cost</th>
+                      <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Landed Unit Cost</th>
                     </tr>
                   </thead>
                   <tbody>
                     {doc.lines.map((l) => (
-                      <tr key={l.id} className="border-b border-[#ebeaf2]">
+                      <tr key={l.id} className="border-b border-[#ece3d5]">
                         <td className="px-3 py-2">{l.name}</td>
                         <td className="px-3 py-2 text-right tabular-nums">
                           {formatNum(l.quantity)} {l.unit ?? ""}

@@ -74,9 +74,9 @@ export function BankingOverviewPage() {
             <table className="w-full text-[13px]">
               <thead className="table-head">
                 <tr>
-                  <th className="border-b border-[#ebeaf2] px-4 py-2.5">Account Details</th>
-                  <th className="border-b border-[#ebeaf2] px-4 py-2.5 text-right">Uncategorized</th>
-                  <th className="border-b border-[#ebeaf2] px-4 py-2.5 text-right">Amount in Zoho Books</th>
+                  <th className="border-b border-[#ece3d5] px-4 py-2.5">Account Details</th>
+                  <th className="border-b border-[#ece3d5] px-4 py-2.5 text-right">Uncategorized</th>
+                  <th className="border-b border-[#ece3d5] px-4 py-2.5 text-right">Amount in Zoho Books</th>
                 </tr>
               </thead>
               <tbody>
@@ -86,7 +86,7 @@ export function BankingOverviewPage() {
                     onClick={() => navigate(`/banking/${a.id}`)}
                     className="cursor-pointer bg-white transition-colors hover:bg-gray-50"
                   >
-                    <td className="border-b border-[#ebeaf2] px-4 py-3">
+                    <td className="border-b border-[#ece3d5] px-4 py-3">
                       <span className="flex items-center gap-2.5">
                         <span className="chip h-8 w-8 bg-gray-100 text-gray-500">
                           {a.kind === "cash" ? <Wallet size={14} /> : <Landmark size={14} />}
@@ -99,7 +99,7 @@ export function BankingOverviewPage() {
                         </span>
                       </span>
                     </td>
-                    <td className="border-b border-[#ebeaf2] px-4 py-3 text-right">
+                    <td className="border-b border-[#ece3d5] px-4 py-3 text-right">
                       {a.uncategorized > 0 ? (
                         <span className="font-semibold text-amber-600">{a.uncategorized}</span>
                       ) : (
@@ -107,7 +107,7 @@ export function BankingOverviewPage() {
                       )}
                     </td>
                     <td
-                      className={`border-b border-[#ebeaf2] px-4 py-3 text-right font-medium tabular-nums ${
+                      className={`border-b border-[#ece3d5] px-4 py-3 text-right font-medium tabular-nums ${
                         Number(a.amountInBooks) < 0 ? "text-red-600" : ""
                       }`}
                     >
