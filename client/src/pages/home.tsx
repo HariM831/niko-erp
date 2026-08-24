@@ -237,14 +237,17 @@ function DTable<T>({
   cols: { h: string; v: (r: T) => ReactNode; right?: boolean }[];
   totals?: ReactNode[];
 }) {
-  if (!rows.length) return <div className="py-6 text-center text-sm text-gray-400">Nothing in this range.</div>;
+  if (!rows.length) return <div className="py-6 text-center text-sm text-soil-400">Nothing in this range.</div>;
   return (
-    <div className="table-surface max-h-[60vh] overflow-auto">
+    <div className="max-h-[60vh] overflow-auto rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
       <table className="w-full text-sm">
-        <thead className="table-head sticky top-0">
+        <thead className="sticky top-0">
           <tr>
             {cols.map((c) => (
-              <th key={c.h} className={`table-th ${c.right ? "text-right" : "text-left"}`}>
+              <th
+                key={c.h}
+                className={`whitespace-nowrap bg-soil-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-soil-400 ${c.right ? "text-right" : "text-left"}`}
+              >
                 {c.h}
               </th>
             ))}
@@ -252,7 +255,7 @@ function DTable<T>({
         </thead>
         <tbody>
           {rows.map((r, i) => (
-            <tr key={i} className="border-b border-gray-100 last:border-0">
+            <tr key={i} className="border-b border-soil-100/70 transition-colors last:border-0 hover:bg-yolk-50/70">
               {cols.map((c) => (
                 <td key={c.h} className={`px-3 py-1.5 ${c.right ? "text-right tabular-nums" : ""}`}>
                   {c.v(r)}
@@ -261,7 +264,7 @@ function DTable<T>({
             </tr>
           ))}
           {totals && (
-            <tr className="bg-gray-50 font-semibold">
+            <tr className="bg-soil-50 font-semibold">
               {totals.map((t, i) => (
                 <td key={i} className={`px-3 py-2 ${cols[i]?.right ? "text-right tabular-nums" : ""}`}>
                   {t}

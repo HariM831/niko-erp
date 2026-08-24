@@ -14,7 +14,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { Plus, X } from "lucide-react";
+import { Layers, Plus, X } from "lucide-react";
 import { ApiError, api } from "../api";
 import { FLOCK_STATUS_LABELS, hatchProfile, type FlockStatus } from "@shared/schema/flocks";
 import { HOUSE_PURPOSE_LABELS, type HousePurpose } from "@shared/schema/farms";
@@ -68,13 +68,18 @@ export function FarmsBatchesPage() {
   });
 
   return (
-    <div className="p-4 md:p-6">
+    <div className="min-h-full bg-soil-50 p-4 md:p-6">
       <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-gray-900">Batches</h1>
-          <p className="mt-0.5 text-[13px] text-gray-500">
-            Every cohort on the farm. A batch keeps one record across every shed it lives in.
-          </p>
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-yolk-400 to-yolk-600 text-white shadow-sm">
+            <Layers className="h-4 w-4" />
+          </span>
+          <div>
+            <h1 className="text-xl font-semibold text-soil-900">Batches</h1>
+            <p className="mt-0.5 text-[13px] text-soil-400">
+              Every cohort on the farm. A batch keeps one record across every shed it lives in.
+            </p>
+          </div>
         </div>
         <div className="flex items-end gap-2">
           <div className="w-40">
@@ -92,7 +97,7 @@ export function FarmsBatchesPage() {
           </div>
           <button
             onClick={() => setAdding(true)}
-            className="btn-primary flex min-h-[44px] items-center gap-1 whitespace-nowrap"
+            className="btn-yolk flex min-h-[44px] items-center gap-1 whitespace-nowrap"
           >
             <Plus size={14} /> New batch
           </button>
@@ -102,19 +107,19 @@ export function FarmsBatchesPage() {
       {isLoading && <p className="text-[13px] text-gray-500">Loading…</p>}
 
       {flocks && !flocks.length && (
-        <div className="card p-6 text-center">
-          <p className="text-[14px] font-medium text-gray-900">No batches yet.</p>
-          <p className="mt-1 text-[13px] text-gray-500">
+        <div className="rounded-2xl bg-white p-6 text-center shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
+          <p className="text-[14px] font-medium text-soil-900">No batches yet.</p>
+          <p className="mt-1 text-[13px] text-soil-400">
             A batch is created here, then placed in a house. Houses report what they are holding.
           </p>
         </div>
       )}
 
       {!!flocks?.length && (
-        <div className="table-surface overflow-x-auto">
+        <div className="overflow-x-auto rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
           <table className="w-full text-[13px]">
-            <thead className="table-head">
-              <tr>
+            <thead className="bg-soil-50 text-left text-[11px] font-semibold uppercase text-soil-400">
+              <tr className="border-b border-soil-100">
                 <th className="px-3 py-2">Batch</th>
                 <th className="px-3 py-2">Breed</th>
                 <th className="px-3 py-2">Site</th>
@@ -127,7 +132,7 @@ export function FarmsBatchesPage() {
             </thead>
             <tbody>
               {flocks.map((f) => (
-                <tr key={f.id} className="border-b border-gray-100 hover:bg-gray-50">
+                <tr key={f.id} className="border-b border-soil-100/70 last:border-0 transition-colors hover:bg-yolk-50/70">
                   <td className="px-3 py-2">
                     {/* wouter's Link IS the anchor — wrapping one inside it
                         nests <a> in <a>, which React refuses to render. */}
@@ -260,7 +265,7 @@ function NewBatchDialog({ onClose, onSaved }: { onClose: () => void; onSaved: ()
             <label className="label">Code</label>
             {/* Generated from site and year — "the second Nalbari batch of 2026"
                 is what people say, so it is what the code says. */}
-            <div className="input flex items-center bg-gray-50 font-medium text-gray-700">
+            <div className="input flex items-center bg-soil-50 font-medium text-gray-700">
               {f.locationId ? (nextCode?.code ?? "…") : "Pick a site"}
             </div>
           </div>
@@ -372,7 +377,7 @@ function NewBatchDialog({ onClose, onSaved }: { onClose: () => void; onSaved: ()
             </p>
           )}
           {profile && !clash && (
-            <div className="mt-2 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-[12px] text-gray-600">
+            <div className="mt-2 rounded-lg border border-soil-200 bg-soil-50 px-3 py-2 text-[12px] text-gray-600">
               <span className="font-medium text-gray-900">{n(profile.placedCount)} birds</span>
               {profile.spreadDays > 0 ? (
                 <>
@@ -402,7 +407,7 @@ function NewBatchDialog({ onClose, onSaved }: { onClose: () => void; onSaved: ()
           <button
             onClick={() => save.mutate()}
             disabled={!ready || save.isPending}
-            className="btn-primary"
+            className="btn-yolk"
           >
             {save.isPending ? "Placing…" : "Place batch"}
           </button>

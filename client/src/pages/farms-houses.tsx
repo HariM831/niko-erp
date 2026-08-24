@@ -601,18 +601,18 @@ export function FarmsHousesPage() {
   if (isLoading) {
     return (
       <div className="min-h-full space-y-4 bg-soil-50 p-4" data-testid="page-skeleton">
-        <div className="h-8 w-48 animate-pulse rounded bg-primary/10" />
+        <div className="h-8 w-48 animate-pulse rounded bg-yolk-100" />
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <div
               key={i}
               className="animate-pulse space-y-3 rounded-lg border p-4"
             >
-              <div className="h-5 w-2/3 rounded bg-primary/10" />
-              <div className="h-4 w-1/2 rounded bg-primary/10" />
+              <div className="h-5 w-2/3 rounded bg-yolk-100" />
+              <div className="h-4 w-1/2 rounded bg-yolk-100" />
               <div className="flex gap-2">
-                <div className="h-8 w-20 rounded bg-primary/10" />
-                <div className="h-8 w-20 rounded bg-primary/10" />
+                <div className="h-8 w-20 rounded bg-yolk-100" />
+                <div className="h-8 w-20 rounded bg-yolk-100" />
               </div>
             </div>
           ))}
@@ -704,7 +704,7 @@ export function FarmsHousesPage() {
         />
         <button
           onClick={() => setDisplayDate(getSmartDate())}
-          className="whitespace-nowrap rounded-md px-2 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/8"
+          className="whitespace-nowrap rounded-md px-2 py-1.5 text-xs font-medium text-yolk-700 transition-colors hover:bg-yolk-50"
           data-testid="button-reset-date"
         >
           Reset
@@ -1080,8 +1080,8 @@ export function FarmsHousesPage() {
                   onShedClick={() => openShed(m.shed.id)}
                 />
               ))}
-              <div className="rounded-lg border border-gray-200 bg-gray-100 p-2.5">
-                <div className="mb-1.5 text-[10px] font-semibold uppercase text-muted-foreground">
+              <div className="rounded-2xl bg-soil-100 p-2.5">
+                <div className="mb-1.5 text-[10px] font-semibold uppercase text-soil-600">
                   Layer Totals
                 </div>
                 <div className="grid grid-cols-4 gap-1.5">
@@ -1133,8 +1133,8 @@ export function FarmsHousesPage() {
                   onShedClick={() => openShed(m.shed.id)}
                 />
               ))}
-              <div className="rounded-lg border border-gray-200 bg-gray-100 p-2.5">
-                <div className="mb-1.5 text-[10px] font-semibold uppercase text-muted-foreground">
+              <div className="rounded-2xl bg-soil-100 p-2.5">
+                <div className="mb-1.5 text-[10px] font-semibold uppercase text-soil-600">
                   Pullet Totals
                 </div>
                 <div className="grid grid-cols-3 gap-1.5">
@@ -1194,7 +1194,7 @@ export function FarmsHousesPage() {
             </button>
             <div className="mb-4 flex items-center gap-2">
               <span
-                className={`rounded px-2 py-0.5 text-xs font-medium ${modalShed.type === "layer" ? "bg-primary text-white" : "bg-secondary text-foreground"}`}
+                className={`rounded px-2 py-0.5 text-xs font-medium ${modalShed.type === "layer" ? "bg-yolk-500 text-white" : "bg-soil-600 text-white"}`}
               >
                 {modalShed.type}
               </span>
@@ -1546,7 +1546,7 @@ function MetricCard({
         ? "bg-warning/10 border-warning/40"
         : highlight === "red"
           ? "bg-destructive/10 border-destructive/40"
-          : "bg-gray-50 border-gray-200";
+          : "bg-soil-50 border-soil-200";
   return (
     <div className={`rounded-lg border p-3 ${bgClass}`}>
       <div className="mb-0.5 text-[11px] text-muted-foreground">{label}</div>
@@ -1586,7 +1586,7 @@ function ShedRow({ metrics, onTileClick, onShedClick }: ShedRowProps) {
         data-testid={`link-shed-${m.shed.id}`}
       >
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold text-foreground transition-colors group-hover:text-primary">
+          <div className="truncate text-sm font-semibold text-foreground transition-colors group-hover:text-yolk-700">
             {m.shed.name}
           </div>
           <div className="text-[10px] leading-tight text-muted-foreground">
@@ -1594,7 +1594,7 @@ function ShedRow({ metrics, onTileClick, onShedClick }: ShedRowProps) {
             {m.ageWeeks !== null && ` · ${m.ageWeeks}w`}
           </div>
         </div>
-        <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-gray-300 group-hover:text-primary" />
+        <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-gray-300 group-hover:text-yolk-600" />
       </button>
 
       <div
@@ -1602,7 +1602,7 @@ function ShedRow({ metrics, onTileClick, onShedClick }: ShedRowProps) {
       >
         {m.shed.type === "layer" && (
           <button
-            className={`rounded border px-1 py-1.5 text-center transition-transform active:scale-95 ${m.closingStock > 0 ? eggBg : "border-gray-200 bg-gray-50 text-muted-foreground"}`}
+            className={`rounded border px-1 py-1.5 text-center transition-transform active:scale-95 ${m.closingStock > 0 ? eggBg : "border-soil-200 bg-soil-50 text-muted-foreground"}`}
             onClick={(e) => {
               e.stopPropagation();
               onTileClick("eggs");
@@ -1651,7 +1651,7 @@ function ShedRow({ metrics, onTileClick, onShedClick }: ShedRowProps) {
         </button>
 
         <button
-          className={`rounded border px-1 py-1.5 text-center transition-transform active:scale-95 ${m.mortality > 0 ? "border-destructive/40 bg-destructive/10 text-destructive" : "border-gray-200 bg-gray-50 text-muted-foreground"}`}
+          className={`rounded border px-1 py-1.5 text-center transition-transform active:scale-95 ${m.mortality > 0 ? "border-destructive/40 bg-destructive/10 text-destructive" : "border-soil-200 bg-soil-50 text-muted-foreground"}`}
           onClick={(e) => {
             e.stopPropagation();
             onTileClick("birds");

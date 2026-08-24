@@ -149,13 +149,18 @@ export function FarmStorePage() {
   }, [stock, stores]);
 
   return (
-    <div className="p-4 md:p-6">
+    <div className="min-h-full bg-soil-50 p-4 md:p-6">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Farm store</h1>
-          <p className="text-sm text-muted-foreground">
-            The same inventory the books keep, seen at the farm. Billed goods land here on their own.
-          </p>
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-yolk-400 to-yolk-600 text-white shadow-sm">
+            <PackageOpen className="h-4 w-4" />
+          </span>
+          <div>
+            <h1 className="text-2xl font-extrabold tracking-tight text-soil-900">Farm store</h1>
+            <p className="text-sm text-soil-400">
+              The same inventory the books keep, seen at the farm. Billed goods land here on their own.
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {farms.length > 1 && (
@@ -173,13 +178,13 @@ export function FarmStorePage() {
           )}
           <button
             onClick={() => setDialog("receive")}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            className="inline-flex items-center gap-1.5 rounded-md bg-yolk-500 px-3 py-2 text-sm font-medium text-white hover:bg-yolk-600"
           >
             <ArrowDownToLine className="h-4 w-4" /> Receive
           </button>
           <button
             onClick={() => setDialog("issue")}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted"
+            className="btn-yolk-secondary"
           >
             <ArrowUpFromLine className="h-4 w-4" /> Issue
           </button>
@@ -191,25 +196,28 @@ export function FarmStorePage() {
       ) : (
         <>
           {/* ── On hand ── */}
-          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            On hand
+          <div className="mb-2 flex items-center gap-1.5">
+            <span className="flex h-5 w-5 items-center justify-center rounded-md bg-yolk-100 text-yolk-700">
+              <PackageOpen className="h-3 w-3" />
+            </span>
+            <span className="text-[13px] font-bold text-soil-900">On hand</span>
           </div>
           {!byItem.length ? (
-            <div className="table-surface flex items-center gap-3 px-4 py-6 text-sm text-muted-foreground">
+            <div className="flex items-center gap-3 rounded-2xl bg-white px-4 py-6 text-sm text-muted-foreground shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
               <PackageOpen className="h-5 w-5" />
               Nothing on the shelves yet. Receive a delivery, or bill goods to this farm in Purchases.
             </div>
           ) : (
-            <div className="table-surface overflow-x-auto">
+            <div className="overflow-x-auto rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
               <table className="w-full text-sm">
-                <thead className="table-head">
-                  <tr>
-                    <th className="table-th text-left">Item</th>
-                    <th className="table-th text-left">Category</th>
-                    <th className="table-th text-right">Store</th>
-                    <th className="table-th text-right">In sheds</th>
-                    <th className="table-th text-right">Total</th>
-                    <th className="table-th text-left">Unit</th>
+                <thead>
+                  <tr className="border-b border-soil-100">
+                    <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Item</th>
+                    <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Category</th>
+                    <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-soil-400">Store</th>
+                    <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-soil-400">In sheds</th>
+                    <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-soil-400">Total</th>
+                    <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Unit</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -217,7 +225,7 @@ export function FarmStorePage() {
                     const total = r.main + r.houses;
                     const low = r.reorderLevel != null && total < Number(r.reorderLevel);
                     return (
-                      <tr key={r.itemId} className="border-b border-border/60 last:border-0">
+                      <tr key={r.itemId} className="border-b border-soil-100/70 last:border-0 transition-colors hover:bg-yolk-50/70">
                         <td className="px-3 py-2 font-medium">
                           {r.name}
                           {low && (
@@ -242,26 +250,29 @@ export function FarmStorePage() {
           )}
 
           {/* ── The ledger ── */}
-          <div className="mb-1 mt-6 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-            Recent movements
+          <div className="mb-2 mt-6 flex items-center gap-1.5">
+            <span className="flex h-5 w-5 items-center justify-center rounded-md bg-soil-100 text-soil-600">
+              <ArrowUpFromLine className="h-3 w-3" />
+            </span>
+            <span className="text-[13px] font-bold text-soil-900">Recent movements</span>
           </div>
-          <div className="table-surface overflow-x-auto">
+          <div className="overflow-x-auto rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
             <table className="w-full text-sm">
-              <thead className="table-head">
-                <tr>
-                  <th className="table-th text-left">Date</th>
-                  <th className="table-th text-left">Item</th>
-                  <th className="table-th text-right">Qty</th>
-                  <th className="table-th text-left">Kind</th>
-                  <th className="table-th text-left">Store</th>
-                  <th className="table-th text-left">Notes</th>
+              <thead>
+                <tr className="border-b border-soil-100">
+                  <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Date</th>
+                  <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Item</th>
+                  <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-soil-400">Qty</th>
+                  <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Kind</th>
+                  <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Store</th>
+                  <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Notes</th>
                 </tr>
               </thead>
               <tbody>
                 {entries.map((e) => {
                   const qty = Number(e.quantity);
                   return (
-                    <tr key={e.id} className="border-b border-border/60 last:border-0">
+                    <tr key={e.id} className="border-b border-soil-100/70 last:border-0 transition-colors hover:bg-yolk-50/70">
                       <td className="px-3 py-2 whitespace-nowrap">{fmtDate(e.date)}</td>
                       <td className="px-3 py-2">{e.itemName}</td>
                       <td
@@ -488,7 +499,7 @@ function MoveDialog({
           <button
             onClick={submit}
             disabled={saving}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md bg-yolk-500 px-3 py-2 text-sm font-medium text-white hover:bg-yolk-600 disabled:opacity-50"
           >
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
             {kind === "receive" ? "Receive" : "Issue"}

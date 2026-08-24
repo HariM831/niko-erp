@@ -7,7 +7,7 @@
  * A correction to a shed's row corrects its stock movement in place.
  */
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Egg, Loader2 } from "lucide-react";
 import { api } from "../api";
 
 const SIZES = ["small", "medium", "large", "xl", "jumbo", "dirty"] as const;
@@ -162,14 +162,19 @@ export function EggGradingPage() {
   const rows = (sheet?.rows ?? []).filter((r) => r.purpose === "layer" || r.entered);
 
   return (
-    <div className="p-4 md:p-6">
+    <div className="min-h-full bg-soil-50 p-4 md:p-6">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold">Egg stock</h1>
-          <p className="text-sm text-muted-foreground">
-            The day sheet. Boxes per shed per size go in; the stock summary underneath is the
-            ledger, not a second entry.
-          </p>
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-yolk-400 to-yolk-600 text-white shadow-sm">
+            <Egg className="h-4 w-4" />
+          </span>
+          <div>
+            <h1 className="text-2xl font-semibold text-soil-900">Egg stock</h1>
+            <p className="text-sm text-soil-400">
+              The day sheet. Boxes per shed per size go in; the stock summary underneath is the
+              ledger, not a second entry.
+            </p>
+          </div>
         </div>
         <input
           type="date"
@@ -190,25 +195,25 @@ export function EggGradingPage() {
             </p>
           )}
 
-          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-soil-400">
             Production report
           </div>
-          <div className="table-surface overflow-x-auto">
+          <div className="overflow-x-auto rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
             <table className="w-full text-sm">
-              <thead className="table-head">
-                <tr>
-                  <th className="table-th text-left">Shed</th>
+              <thead className="bg-soil-50 text-left text-[11px] font-semibold uppercase text-soil-400">
+                <tr className="border-b border-soil-100">
+                  <th className="whitespace-nowrap px-3 py-2 text-left">Shed</th>
                   {SIZES.map((z) => (
-                    <th key={z} className="table-th text-right">
+                    <th key={z} className="whitespace-nowrap px-3 py-2 text-right">
                       {LABEL[z]}
                     </th>
                   ))}
-                  <th className="table-th text-right">Total</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-right">Total</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={r.houseId} className="border-b border-border/60 last:border-0">
+                  <tr key={r.houseId} className="border-b border-soil-100/70 last:border-0 transition-colors hover:bg-yolk-50/70">
                     <td className="px-3 py-1.5 font-medium">{r.code}</td>
                     {SIZES.map((z) => (
                       <td key={z} className="px-2 py-1.5">
@@ -227,7 +232,7 @@ export function EggGradingPage() {
                     </td>
                   </tr>
                 ))}
-                <tr className="bg-muted/40 font-semibold">
+                <tr className="border-t border-soil-100 bg-soil-50 font-semibold">
                   <td className="px-3 py-2">Total</td>
                   {SIZES.map((z) => (
                     <td key={z} className="px-3 py-2 text-right tabular-nums">
@@ -254,7 +259,7 @@ export function EggGradingPage() {
               <button
                 onClick={save}
                 disabled={saving}
-                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-md bg-yolk-500 px-3 py-2 text-sm font-medium text-white hover:bg-yolk-600 disabled:opacity-50"
               >
                 {saving && <Loader2 className="h-4 w-4 animate-spin" />}
                 Save sheet
@@ -263,25 +268,25 @@ export function EggGradingPage() {
           </div>
 
           <div className="mb-1 mt-6 flex items-baseline justify-between">
-            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <div className="text-xs font-semibold uppercase tracking-wide text-soil-400">
               Closing count by shed
             </div>
             <div className="text-[11px] text-muted-foreground">
               The evening count in each shed's room. What left the shed is derived: opening + graded − counted.
             </div>
           </div>
-          <div className="table-surface overflow-x-auto">
+          <div className="overflow-x-auto rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
             <table className="w-full text-sm">
-              <thead className="table-head">
-                <tr>
-                  <th className="table-th text-left">Shed</th>
+              <thead className="bg-soil-50 text-left text-[11px] font-semibold uppercase text-soil-400">
+                <tr className="border-b border-soil-100">
+                  <th className="whitespace-nowrap px-3 py-2 text-left">Shed</th>
                   {SIZES.map((z) => (
-                    <th key={z} className="table-th text-right">
+                    <th key={z} className="whitespace-nowrap px-3 py-2 text-right">
                       {LABEL[z]}
                     </th>
                   ))}
-                  <th className="table-th text-right">Total</th>
-                  <th className="table-th text-right">Lifted</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-right">Total</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-right">Lifted</th>
                 </tr>
               </thead>
               <tbody>
@@ -289,7 +294,7 @@ export function EggGradingPage() {
                   const total = SIZES.reduce((a, z) => a + (Number(closingDraft[r.houseId]?.[z]) || 0), 0);
                   const liftedTotal = r.lifted ? SIZES.reduce((a, z) => a + (r.lifted![z] ?? 0), 0) : null;
                   return (
-                    <tr key={r.houseId} className="border-b border-border/60 last:border-0">
+                    <tr key={r.houseId} className="border-b border-soil-100/70 last:border-0 transition-colors hover:bg-yolk-50/70">
                       <td className="px-3 py-1.5">
                         <div className="font-medium">{r.code}</div>
                         {r.opening && (
@@ -317,7 +322,7 @@ export function EggGradingPage() {
                     </tr>
                   );
                 })}
-                <tr className="bg-muted/40 font-semibold">
+                <tr className="border-t border-soil-100 bg-soil-50 font-semibold">
                   <td className="px-3 py-2">Counted</td>
                   {SIZES.map((z) => {
                     const v = Object.values(closingDraft).reduce((a, r) => a + (Number(r[z]) || 0), 0);
@@ -333,7 +338,7 @@ export function EggGradingPage() {
                   <td />
                 </tr>
                 {sheet.variance && (
-                  <tr className="border-t border-border text-xs">
+                  <tr className="border-t border-soil-200 text-xs">
                     <td className="px-3 py-1.5 text-muted-foreground">vs ledger closing</td>
                     {SIZES.map((z) => {
                       const v = sheet.variance![z] ?? 0;
@@ -365,27 +370,27 @@ export function EggGradingPage() {
               <button
                 onClick={saveClosing}
                 disabled={savingClosing}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50"
+                className="btn-yolk"
               >
                 {savingClosing && <Loader2 className="h-4 w-4 animate-spin" />}
                 Save count
               </button>
             </div>
           </div>
-          <div className="mb-1 mt-6 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <div className="mb-1 mt-6 text-xs font-semibold uppercase tracking-wide text-soil-400">
             Stock summary
           </div>
-          <div className="table-surface overflow-x-auto">
+          <div className="overflow-x-auto rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
             <table className="w-full text-sm">
-              <thead className="table-head">
-                <tr>
-                  <th className="table-th text-left" />
+              <thead className="bg-soil-50 text-left text-[11px] font-semibold uppercase text-soil-400">
+                <tr className="border-b border-soil-100">
+                  <th className="whitespace-nowrap px-3 py-2 text-left" />
                   {SIZES.map((z) => (
-                    <th key={z} className="table-th text-right">
+                    <th key={z} className="whitespace-nowrap px-3 py-2 text-right">
                       {LABEL[z]}
                     </th>
                   ))}
-                  <th className="table-th text-right">Total</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-right">Total</th>
                 </tr>
               </thead>
               <tbody>
@@ -404,7 +409,7 @@ export function EggGradingPage() {
                   return (
                     <tr
                       key={key}
-                      className={`border-b border-border/60 last:border-0 ${strong ? "bg-muted/40 font-semibold" : ""}`}
+                      className={`border-b border-soil-100/70 last:border-0 ${strong ? "bg-soil-50 font-semibold" : ""}`}
                     >
                       <td className="px-3 py-1.5">{label}</td>
                       {SIZES.map((z) => {

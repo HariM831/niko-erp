@@ -112,6 +112,32 @@ body {
   @apply rounded-xl border border-gray-200/80 bg-white shadow-[0_1px_3px_rgba(16,24,40,0.06)];
 }
 
+/* ── Yolk buttons — the Farms module's own primary/secondary, same geometry
+   as .btn-primary/.btn-secondary so nothing shifts size, just colour. Kept
+   as their own classes rather than reskinning .btn-primary itself: every
+   other module's buttons stay brand-blue, unchanged. */
+.btn-yolk {
+  @apply inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-yolk-500 px-3 text-[13px] font-normal text-white transition-all duration-150;
+}
+.btn-yolk:hover {
+  @apply bg-yolk-600 shadow-md;
+}
+.btn-yolk:disabled {
+  @apply cursor-not-allowed opacity-50 shadow-none;
+}
+
+.btn-yolk-secondary {
+  @apply inline-flex h-8 items-center justify-center gap-1.5 rounded-md border px-3 text-[13px] font-normal text-soil-800 transition-all duration-150;
+  background-color: var(--color-yolk-50);
+  border-color: var(--color-yolk-200);
+}
+.btn-yolk-secondary:hover {
+  background-color: var(--color-yolk-100);
+}
+.btn-yolk-secondary:disabled {
+  @apply cursor-not-allowed opacity-50;
+}
+
 /* In the components layer so a width utility on the element (`input w-40`)
    beats the default `w-full` — outside a layer it would lose on source order
    and every filter box would stretch across the page. */

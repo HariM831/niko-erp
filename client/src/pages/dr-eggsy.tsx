@@ -160,17 +160,22 @@ export function DrEggsyPage() {
   const isAdmin = state.currentUser?.isAdmin || false;
 
   return (
-    <div className="p-4 md:p-6">
+    <div className="min-h-full bg-soil-50 p-4 md:p-6">
       <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Dr EGGSY</h1>
-          <p className="text-sm text-muted-foreground">
-            Field observations sent for diagnosis — a first opinion from a model, not a vet.
-          </p>
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-yolk-400 to-yolk-600 text-white shadow-sm">
+            <Stethoscope className="h-4 w-4" />
+          </span>
+          <div>
+            <h1 className="text-2xl font-extrabold tracking-tight text-soil-900">Dr EGGSY</h1>
+            <p className="text-sm text-soil-400">
+              Field observations sent for diagnosis — a first opinion from a model, not a vet.
+            </p>
+          </div>
         </div>
         <button
           onClick={() => setShowNew(true)}
-          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          className="inline-flex items-center gap-1.5 rounded-md bg-yolk-500 px-3 py-2 text-sm font-medium text-white hover:bg-yolk-600"
         >
           <Plus className="h-4 w-4" /> New observation
         </button>
@@ -197,7 +202,7 @@ export function DrEggsyPage() {
               <button
                 key={o.id}
                 onClick={() => setOpen(o)}
-                className="table-surface flex flex-col overflow-hidden text-left transition-shadow hover:shadow-md"
+                className="flex flex-col overflow-hidden rounded-2xl bg-white text-left shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)] transition-shadow hover:shadow-md"
               >
                 {/* First photo as the card face; the rest counted. */}
                 {o.images[0] ? (
@@ -296,13 +301,13 @@ export function DrEggsyPage() {
             </div>
 
             {open.note && (
-              <div className="mb-3 rounded-md bg-muted px-3 py-2 text-sm">
+              <div className="mb-3 rounded-xl bg-soil-50 px-3 py-2 text-sm">
                 <span className="font-medium">Field note:</span> {open.note}
               </div>
             )}
 
             {open.aiRemark ? (
-              <div className="rounded-md border border-border p-3">
+              <div className="rounded-xl bg-yolk-50/60 p-3">
                 <Remark text={open.aiRemark} />
               </div>
             ) : (
@@ -313,7 +318,7 @@ export function DrEggsyPage() {
               <button
                 onClick={() => analyze(open.id)}
                 disabled={analyzing === open.id}
-                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-md bg-yolk-500 px-3 py-2 text-sm font-medium text-white hover:bg-yolk-600 disabled:opacity-50"
               >
                 {analyzing === open.id ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -431,7 +436,7 @@ function NewObservation({
         />
         <button
           onClick={() => fileInput.current?.click()}
-          className="mb-2 inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-2 text-sm hover:bg-muted"
+          className="btn-yolk-secondary mb-2"
         >
           <Camera className="h-4 w-4" /> Add photos
         </button>
@@ -457,7 +462,7 @@ function NewObservation({
           <button
             onClick={submit}
             disabled={saving}
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md bg-yolk-500 px-3 py-2 text-sm font-medium text-white hover:bg-yolk-600 disabled:opacity-50"
           >
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
             Submit

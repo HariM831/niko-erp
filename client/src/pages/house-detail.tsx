@@ -921,23 +921,23 @@ export function HouseDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="space-y-4 p-4" data-testid="page-skeleton">
-        <div className="h-8 w-48 bg-primary/10 rounded animate-pulse" />
+      <div className="min-h-full space-y-4 bg-soil-50 p-4" data-testid="page-skeleton">
+        <div className="h-8 w-48 bg-yolk-100 rounded animate-pulse" />
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="border rounded-lg p-4 space-y-2 animate-pulse">
-              <div className="h-4 w-20 bg-primary/10 rounded" />
-              <div className="h-6 w-16 bg-primary/10 rounded" />
+              <div className="h-4 w-20 bg-yolk-100 rounded" />
+              <div className="h-6 w-16 bg-yolk-100 rounded" />
             </div>
           ))}
         </div>
         <div className="border rounded-lg p-4 space-y-3 animate-pulse">
-          <div className="h-5 w-32 bg-primary/10 rounded" />
+          <div className="h-5 w-32 bg-yolk-100 rounded" />
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="flex items-center gap-4 py-2">
-              <div className="h-4 w-16 bg-primary/10 rounded" />
-              <div className="h-4 flex-1 bg-primary/10 rounded" />
-              <div className="h-4 w-12 bg-primary/10 rounded" />
+              <div className="h-4 w-16 bg-yolk-100 rounded" />
+              <div className="h-4 flex-1 bg-yolk-100 rounded" />
+              <div className="h-4 w-12 bg-yolk-100 rounded" />
             </div>
           ))}
         </div>
@@ -947,10 +947,10 @@ export function HouseDetailPage() {
 
   if (!shed) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-soil-50">
         <div className="text-center">
           <p className="text-gray-500 mb-4">Shed not found</p>
-          <Button onClick={() => setLocation("/farms/daily")}>Go Back</Button>
+          <Button onClick={() => setLocation("/farms/daily")} className="bg-yolk-500 hover:bg-yolk-600">Go Back</Button>
         </div>
       </div>
     );
@@ -973,20 +973,23 @@ export function HouseDetailPage() {
   const eggPercent = formClosingBirds > 0 ? (formEggsProduced / formClosingBirds) * 100 : 0;
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-4xl mx-auto">
+    <div className="min-h-screen bg-soil-50 p-4">
+      <div className="max-w-6xl mx-auto">
         <div className="flex items-center gap-4 mb-6">
-          <Button 
-            variant="ghost" 
+          <Button
+            variant="ghost"
             size="icon"
             onClick={() => setLocation("/farms/daily")}
             data-testid="button-back"
           >
             <ArrowLeft className="w-5 h-5" />
           </Button>
+          <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-yolk-400 to-yolk-600 text-white shadow-sm">
+            <Bird className="h-4 w-4" />
+          </span>
           <div className="flex-1">
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-2xl font-bold text-gray-800">{shed.name}</h1>
+              <h1 className="text-2xl font-extrabold tracking-tight text-soil-900">{shed.name}</h1>
               <Badge variant={shed.type === 'pullet' ? 'secondary' : 'default'}>
                 {shed.type}
               </Badge>
@@ -1023,16 +1026,16 @@ export function HouseDetailPage() {
               )}
             </div>
             {age && (
-              <p className="text-gray-500 text-sm">
+              <p className="text-soil-400 text-sm">
                 Age: {age.weeks} weeks, {age.days} days
               </p>
             )}
             {largestBatchStock && (
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-soil-400">
                   Breed: {breeds.find(b => b.id === (largestBatchStock as any).breedId)?.name || 'Not set'}
                 </p>
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-soil-400">
                   DOB: {largestBatchStock.batchBirthDate ? format(new Date(largestBatchStock.batchBirthDate), 'dd MMM yyyy') : 'Not set'}
                 </p>
               </div>
@@ -1053,7 +1056,7 @@ export function HouseDetailPage() {
         {/* Live sensor card omitted — no IoT integration in EGGSY yet. */}
 
         {stocks.length === 0 ? (
-          <Card className="mb-6">
+          <Card className="mb-6 rounded-2xl border-0 bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
             <CardContent className="py-12 text-center">
               <Bird className="w-12 h-12 mx-auto mb-4 text-gray-300" />
               <h3 className="text-lg font-medium text-gray-600 mb-2">No Birds Placed Yet</h3>
@@ -1066,7 +1069,7 @@ export function HouseDetailPage() {
               <p className="text-gray-400 mb-4">
                 Batches are created on the Batches screen, then placed into a house.
               </p>
-              <Button onClick={() => setLocation("/farms/batches")} data-testid="button-go-batches">
+              <Button onClick={() => setLocation("/farms/batches")} className="bg-yolk-500 hover:bg-yolk-600" data-testid="button-go-batches">
                 Go to Batches
               </Button>
             </CardContent>
@@ -1078,14 +1081,16 @@ export function HouseDetailPage() {
                 label="Opening"
                 value={totalOpeningStock.toLocaleString()}
                 icon={Bird}
-                accent="bg-primary"
+                accent="bg-yolk-500"
+                className="rounded-2xl shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]"
                 data-testid="text-opening-stock"
               />
               <KpiCard
                 label="Current"
                 value={closingStock.toLocaleString()}
                 icon={Check}
-                accent="bg-success"
+                accent="bg-soil-600"
+                className="rounded-2xl shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]"
                 data-testid="text-closing-stock"
               />
               <KpiCard
@@ -1093,13 +1098,15 @@ export function HouseDetailPage() {
                 value={filteredRecords.reduce((sum, r) => sum + (r.mortality || 0), 0).toLocaleString()}
                 icon={AlertTriangle}
                 accent="bg-destructive"
+                className="rounded-2xl shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]"
                 data-testid="text-total-mortality"
               />
               <KpiCard
                 label="Age"
                 value={age ? `${age.weeks}w ${age.days}d` : '-'}
                 icon={Calendar}
-                accent="bg-info"
+                accent="bg-yolk-600"
+                className="rounded-2xl shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]"
                 data-testid="text-age"
               />
             </div>
@@ -1115,7 +1122,7 @@ export function HouseDetailPage() {
 
             {chartData.length > 0 && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                <Card>
+                <Card className="rounded-2xl border-0 bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-base flex items-center gap-2">
                       <Wheat className="w-4 h-4 text-warning" />
@@ -1167,7 +1174,7 @@ export function HouseDetailPage() {
                   </CardContent>
                 </Card>
 
-                <Card>
+                <Card className="rounded-2xl border-0 bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-base flex items-center gap-2">
                       <Droplets className="w-4 h-4 text-info" />
@@ -1220,7 +1227,7 @@ export function HouseDetailPage() {
                 </Card>
 
                 {shed?.type === 'layer' && (
-                  <Card className="md:col-span-2">
+                  <Card className="md:col-span-2 rounded-2xl border-0 bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
                     <CardHeader className="pb-2">
                       <CardTitle className="text-base flex items-center gap-2">
                         <Egg className="w-4 h-4 text-warning" />
@@ -1284,7 +1291,7 @@ export function HouseDetailPage() {
               </TabsList>
 
               <TabsContent value="daily">
-                <Card>
+                <Card className="rounded-2xl border-0 bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
                   <CardHeader className="flex flex-row items-center justify-between">
                     <CardTitle>Daily Records</CardTitle>
                     <div className="flex gap-2">
@@ -1330,20 +1337,20 @@ export function HouseDetailPage() {
                                   <p className="text-sm font-medium mb-2">{bulkUploadData.length} records found in CSV:</p>
                                   <div className="max-h-64 overflow-auto border rounded">
                                     <table className="w-full text-xs">
-                                      <thead className="table-head sticky top-0">
-                                        <tr className="border-b border-primary/20">
-                                          <th className="table-th">Date</th>
-                                          <th className="table-th">Batch</th>
-                                          <th className="table-th text-right">Mortality</th>
-                                          {shed?.type !== 'layer' && <th className="table-th text-right">Male Birds</th>}
-                                          <th className="table-th text-right">Feed Intake</th>
-                                          <th className="table-th text-right">Water Upper</th>
-                                          {shed?.type === 'layer' && <th className="table-th text-right">Eggs</th>}
+                                      <thead className="sticky top-0">
+                                        <tr className="border-b border-soil-100">
+                                          <th className="whitespace-nowrap bg-soil-50 px-2 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-soil-400">Date</th>
+                                          <th className="whitespace-nowrap bg-soil-50 px-2 py-1.5 text-left text-[10px] font-semibold uppercase tracking-wider text-soil-400">Batch</th>
+                                          <th className="whitespace-nowrap bg-soil-50 px-2 py-1.5 text-right text-[10px] font-semibold uppercase tracking-wider text-soil-400">Mortality</th>
+                                          {shed?.type !== 'layer' && <th className="whitespace-nowrap bg-soil-50 px-2 py-1.5 text-right text-[10px] font-semibold uppercase tracking-wider text-soil-400">Male Birds</th>}
+                                          <th className="whitespace-nowrap bg-soil-50 px-2 py-1.5 text-right text-[10px] font-semibold uppercase tracking-wider text-soil-400">Feed Intake</th>
+                                          <th className="whitespace-nowrap bg-soil-50 px-2 py-1.5 text-right text-[10px] font-semibold uppercase tracking-wider text-soil-400">Water Upper</th>
+                                          {shed?.type === 'layer' && <th className="whitespace-nowrap bg-soil-50 px-2 py-1.5 text-right text-[10px] font-semibold uppercase tracking-wider text-soil-400">Eggs</th>}
                                         </tr>
                                       </thead>
                                       <tbody>
                                         {bulkUploadData.map((row, i) => (
-                                          <tr key={i} className="border-b border-border/60">
+                                          <tr key={i} className="border-b border-soil-100/70">
                                             <td className="p-2">{row.date}</td>
                                             <td className="p-2 text-muted-foreground text-xs">{row.batchNumber || '(auto)'}</td>
                                             <td className="p-2 text-right tabular-nums">{row.mortality}</td>
@@ -1360,7 +1367,7 @@ export function HouseDetailPage() {
                                     <Button variant="outline" onClick={() => { setBulkUploadData([]); setBulkUploadError(''); }} data-testid="button-bulk-cancel">
                                       Cancel
                                     </Button>
-                                    <Button onClick={handleBulkUploadSubmit} disabled={isBulkUploading} data-testid="button-bulk-submit">
+                                    <Button onClick={handleBulkUploadSubmit} disabled={isBulkUploading} className="bg-yolk-500 hover:bg-yolk-600" data-testid="button-bulk-submit">
                                       {isBulkUploading ? 'Uploading...' : `Upload ${bulkUploadData.length} Records`}
                                     </Button>
                                   </div>
@@ -1372,7 +1379,7 @@ export function HouseDetailPage() {
                       )}
                     <Dialog open={showRecordDialog} onOpenChange={(open) => { setShowRecordDialog(open); if (!open) setEditingRecordId(null); }}>
                       <DialogTrigger asChild>
-                        <Button size="sm" className="min-h-[44px]" data-testid="button-add-record">
+                        <Button size="sm" className="min-h-[44px] bg-yolk-500 hover:bg-yolk-600" data-testid="button-add-record">
                           <Plus className="w-4 h-4 mr-2" />
                           Add Record
                         </Button>
@@ -1465,7 +1472,7 @@ export function HouseDetailPage() {
                                 />
                               </div>
                             </div>
-                            <div className="text-sm bg-gray-100 p-2 rounded flex justify-between">
+                            <div className="text-sm bg-soil-50 p-2 rounded flex justify-between">
                               <span>Opening: <strong>{formOpeningBirds.toLocaleString()}</strong></span>
                               <span>Closing: <strong className={formClosingBirds < 0 ? 'text-destructive' : 'text-success'}>{formClosingBirds.toLocaleString()}</strong></span>
                             </div>
@@ -1580,7 +1587,7 @@ export function HouseDetailPage() {
                           )}
 
                           <Button 
-                            className="w-full min-h-[44px]" 
+                            className="w-full min-h-[44px] bg-yolk-500 hover:bg-yolk-600" 
                             onClick={handleSaveRecord}
                             disabled={Boolean(isSaving || formClosingBirds < 0 || (!editingRecordId && recordForm.date && records.some(r => format(new Date(r.date), 'yyyy-MM-dd') === recordForm.date)))}
                             data-testid="button-save-record"
@@ -1675,7 +1682,7 @@ export function HouseDetailPage() {
                           return (
                             <div 
                               key={record.id} 
-                              className="flex items-center justify-between p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors"
+                              className="flex items-center justify-between p-3 bg-soil-50 rounded-lg cursor-pointer hover:bg-yolk-50/70 transition-colors"
                               data-testid={`record-${record.id}`}
                               onClick={() => {
                                 setSelectedRecord(record);
@@ -1758,12 +1765,12 @@ export function HouseDetailPage() {
               </TabsContent>
 
               <TabsContent value="weights">
-                <Card>
+                <Card className="rounded-2xl border-0 bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
                   <CardHeader className="flex flex-row items-center justify-between">
                     <CardTitle>Weekly Weights</CardTitle>
                     <Dialog open={showWeightDialog} onOpenChange={(open) => { setShowWeightDialog(open); if (!open) setEditingWeightId(null); }}>
                       <DialogTrigger asChild>
-                        <Button size="sm" className="min-h-[44px]" data-testid="button-add-weight">
+                        <Button size="sm" className="min-h-[44px] bg-yolk-500 hover:bg-yolk-600" data-testid="button-add-weight">
                           <Plus className="w-4 h-4 mr-2" />
                           Add Weight
                         </Button>
@@ -1786,7 +1793,7 @@ export function HouseDetailPage() {
                             const birthStr = largestBatchStock?.batchBirthDate || largestBatchStock?.dateIn || earliestStock?.dateIn;
                             const selectedAge = birthStr ? calculateAge(birthStr, new Date(weightForm.date)) : age;
                             return (
-                              <div className="text-sm text-gray-500 bg-gray-100 p-2 rounded">
+                              <div className="text-sm text-gray-500 bg-soil-50 p-2 rounded">
                                 Week {selectedAge?.weeks} ({weightForm.date === format(new Date(), 'yyyy-MM-dd') ? 'today' : weightForm.date})
                               </div>
                             );
@@ -1822,7 +1829,7 @@ export function HouseDetailPage() {
                             </div>
                           )}
                           <Button 
-                            className="w-full min-h-[44px]" 
+                            className="w-full min-h-[44px] bg-yolk-500 hover:bg-yolk-600" 
                             onClick={handleSaveWeight}
                             disabled={isSaving || !weightForm.averageWeight}
                             data-testid="button-save-weight"
@@ -1843,7 +1850,7 @@ export function HouseDetailPage() {
                         {(shedData.weights as WeeklyWeight[]).map((weight) => (
                           <div 
                             key={weight.id} 
-                            className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                            className="flex items-center justify-between p-3 bg-soil-50 rounded-lg"
                             data-testid={`weight-${weight.id}`}
                           >
                             <div>
@@ -1897,7 +1904,7 @@ export function HouseDetailPage() {
               </TabsContent>
 
               <TabsContent value="vaccination">
-                <Card>
+                <Card className="rounded-2xl border-0 bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
                   <CardHeader className="flex flex-row items-center justify-between">
                     <CardTitle className="flex items-center gap-2">
                       <Syringe className="w-5 h-5" />
@@ -1905,7 +1912,7 @@ export function HouseDetailPage() {
                     </CardTitle>
                     <Dialog open={showVaccinationDialog} onOpenChange={(open) => { setShowVaccinationDialog(open); if (!open) setEditingVaccinationId(null); }}>
                       <DialogTrigger asChild>
-                        <Button size="sm" className="min-h-[44px]" data-testid="button-add-vaccination">
+                        <Button size="sm" className="min-h-[44px] bg-yolk-500 hover:bg-yolk-600" data-testid="button-add-vaccination">
                           <Plus className="w-4 h-4 mr-2" />
                           Add Record
                         </Button>
@@ -2055,7 +2062,7 @@ export function HouseDetailPage() {
                                 )}
                                 <Button 
                                   onClick={handleSaveVaccination}
-                                  className="w-full min-h-[44px]"
+                                  className="w-full min-h-[44px] bg-yolk-500 hover:bg-yolk-600"
                                   disabled={isSaving || !isValid}
                                   data-testid="button-save-vaccination"
                                 >
@@ -2078,15 +2085,15 @@ export function HouseDetailPage() {
                     ) : (
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
-                          <thead className="table-head">
-                            <tr className="border-b border-primary/20">
-                              <th className="table-th">Date</th>
-                              <th className="table-th">Age</th>
-                              <th className="table-th">Vaccine Name</th>
-                              <th className="table-th">Batch No.</th>
-                              <th className="table-th">Make</th>
-                              <th className="table-th text-right">Birds</th>
-                              {isAdmin && <th className="table-th text-right">Actions</th>}
+                          <thead>
+                            <tr className="border-b border-soil-100">
+                              <th className="whitespace-nowrap bg-soil-50 px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Date</th>
+                              <th className="whitespace-nowrap bg-soil-50 px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Age</th>
+                              <th className="whitespace-nowrap bg-soil-50 px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Vaccine Name</th>
+                              <th className="whitespace-nowrap bg-soil-50 px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Batch No.</th>
+                              <th className="whitespace-nowrap bg-soil-50 px-2 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Make</th>
+                              <th className="whitespace-nowrap bg-soil-50 px-2 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-soil-400">Birds</th>
+                              {isAdmin && <th className="whitespace-nowrap bg-soil-50 px-2 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-soil-400">Actions</th>}
                             </tr>
                           </thead>
                           <tbody>
@@ -2105,7 +2112,7 @@ export function HouseDetailPage() {
                                 }
                               }
                               return (
-                                <tr key={record.id} className="border-b border-border/60 hover:bg-muted/30">
+                                <tr key={record.id} className="border-b border-soil-100/70 transition-colors hover:bg-yolk-50/70">
                                   <td className="py-3 px-2">{format(recordDate, 'dd MMM yyyy')}</td>
                                   <td className="py-3 px-2">
                                     <Badge variant="outline">{ageLabel}</Badge>
@@ -2162,7 +2169,7 @@ export function HouseDetailPage() {
                   So this lists what this house has held and hands off to the
                   flock, where those three things are edited as dated line sets.
                 */}
-                <Card>
+                <Card className="rounded-2xl border-0 bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
                   <CardHeader className="flex flex-row items-start justify-between gap-3">
                     <div>
                     <CardTitle>Bird Batches</CardTitle>
@@ -2186,7 +2193,7 @@ export function HouseDetailPage() {
                             onClick={() =>
                               stock.flockId && setLocation(`/farms/flocks/${stock.flockId}`)
                             }
-                            className="flex w-full items-center justify-between gap-3 rounded-lg border border-border p-3 text-left transition-colors hover:bg-muted/40"
+                            className="flex w-full items-center justify-between gap-3 rounded-2xl bg-white p-3 text-left shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)] transition-colors hover:bg-yolk-50/70"
                             data-testid={`batch-${stock.id}`}
                           >
                             <div className="min-w-0">
@@ -2282,7 +2289,7 @@ export function HouseDetailPage() {
                 />
               </div>
               <Button
-                className="w-full min-h-[44px]"
+                className="w-full min-h-[44px] bg-yolk-500 hover:bg-yolk-600"
                 onClick={handleSaveShedDetails}
                 disabled={isSaving || !editShedForm.name}
                 data-testid="button-save-shed-details"
