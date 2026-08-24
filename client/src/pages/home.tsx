@@ -4,12 +4,12 @@
  * laid, what the market bought, and what is owed either way. Every tile
  * opens into the table it was summed from.
  *
- * Ported from Amino's executive report. Its People section has no source
- * in EGGSY yet (no attendance module), so it is not shown.
+ * Ported from Amino's executive report, People section included now that
+ * the Payroll module supplies it.
  */
 import { useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Egg, Factory, Landmark, Loader2, ShoppingCart, Truck } from "lucide-react";
+import { Egg, Factory, Landmark, Loader2, ShoppingCart, Truck, Users } from "lucide-react";
 import { api, formatMoney } from "../api";
 import { useAuth } from "../auth";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -56,6 +56,17 @@ interface BossView {
     grossMarginPct: number;
     apDetails: { vendor: string; number: string; total: number; balanceDue: number; dueDate: string | null; status: string }[];
   };
+}
+
+/* ── Shape of /api/payroll/reports/people ──────────────────────────────── */
+interface PeopleView {
+  totalStaff: number;
+  presentToday: number;
+  insideNow: { id: string; empCode: string; name: string; department?: string | null; since?: string | null }[];
+  absentToday: { id: string; empCode: string; name: string; department?: string | null }[];
+  byDepartment: { department: string; present: number; total: number }[];
+  attendancePct: number;
+  wagesCost: number;
 }
 
 /* ── Ranges, in IST ────────────────────────────────────────────────────── */
@@ -235,7 +246,7 @@ function Sparkline({ points }: { points: { date: string; price: number }[] }) {
 }
 
 /* ── Page ──────────────────────────────────────────────────────────────── */
-type Detail = "received" | "pending" | "produced" | "sent" | "houses" | "customers" | "payables" | null;
+type Detail = "received" | "pending" | "produced" | "sent" | "houses" | "customers" | "payables" | "absent" | "inside" | null;
 
 export function HomePage() {
   const { user } = useAuth();
@@ -246,6 +257,13 @@ export function HomePage() {
   const { data, isLoading } = useQuery({
     queryKey: ["boss-view", from, to],
     queryFn: () => api<BossView>(`/api/boss-view?from=${from}&to=${to}`),
+  });
+  // People comes from the Payroll module; the card simply stays away if the
+  // endpoint errors (module off, or no permission).
+  const { data: people } = useQuery({
+    queryKey: ["people", from, to],
+    queryFn: () => api<PeopleView>(`/api/payroll/reports/people?from=${from}&to=${to}`),
+    retry: false,
   });
   const { data: org } = useQuery({
     queryKey: ["org"],
@@ -361,6 +379,31 @@ export function HomePage() {
               </div>
             </Section>
 
+            {/* People — today's presence is always today; the range drives cost */}
+            {people && (
+              <Section icon={<Users size={17} />} title="People" hint={`${people.totalStaff} on the rolls`}>
+                <div className="grid grid-cols-3 gap-2 md:grid-cols-5">
+                  <Stat label="Present today" value={num(people.presentToday)} tone="good" onClick={() => setDetail("absent")} />
+                  <Stat label="Inside now" value={num(people.insideNow.length)} onClick={() => setDetail("inside")} />
+                  <Stat label="Absent" value={num(people.absentToday.length)} tone={people.absentToday.length ? "bad" : undefined} onClick={() => setDetail("absent")} />
+                  <Stat label="Attendance" value={`${num(people.attendancePct, 1)}%`} sub="over the range" />
+                  <Stat label="Wages cost" value={lakh(people.wagesCost)} sub="daily wage, range" />
+                </div>
+                <div className="mt-3 space-y-1.5">
+                  {people.byDepartment.map((d) => (
+                    <div key={d.department} className="flex items-center gap-2 text-xs">
+                      <span className="w-28 truncate text-gray-600">{d.department}</span>
+                      <div className="h-2 flex-1 overflow-hidden rounded bg-gray-100">
+                        <div className="h-full bg-brand-500" style={{ width: `${d.total ? (d.present / d.total) * 100 : 0}%` }} />
+                      </div>
+                      <span className="w-14 text-right tabular-nums">{d.present}/{d.total}</span>
+                    </div>
+                  ))}
+                  {!people.byDepartment.length && <div className="text-xs text-gray-400">No departments yet.</div>}
+                </div>
+              </Section>
+            )}
+
             {/* Finance */}
             <Section icon={<Landmark size={17} />} title="Finance" hint="AR / AP as of today">
               <div className="grid grid-cols-2 gap-2">
@@ -473,6 +516,35 @@ export function HomePage() {
                   { h: "Value", v: (r) => formatMoney(r.value), right: true },
                 ]}
                 totals={["Total", data.sales.invoiceCount, num(data.sales.totalEggs), data.sales.totalEggs ? num(data.sales.totalSales / data.sales.totalEggs, 2) : "—", formatMoney(data.sales.totalSales)]}
+              />
+            </>
+          )}
+          {people && detail === "absent" && (
+            <>
+              <DialogHeader><DialogTitle>Absent today</DialogTitle></DialogHeader>
+              <DTable
+                rows={people.absentToday}
+                cols={[
+                  { h: "Employee", v: (r) => r.name },
+                  { h: "Code", v: (r) => r.empCode },
+                  { h: "Department", v: (r) => r.department ?? "—" },
+                ]}
+                totals={[`${people.absentToday.length} absent`, "", ""]}
+              />
+            </>
+          )}
+          {people && detail === "inside" && (
+            <>
+              <DialogHeader><DialogTitle>Inside now</DialogTitle></DialogHeader>
+              <DTable
+                rows={people.insideNow}
+                cols={[
+                  { h: "Employee", v: (r) => r.name },
+                  { h: "Code", v: (r) => r.empCode },
+                  { h: "Department", v: (r) => r.department ?? "—" },
+                  { h: "In since", v: (r) => (r.since ? new Date(r.since).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : "—"), right: true },
+                ]}
+                totals={[`${people.insideNow.length} inside`, "", "", ""]}
               />
             </>
           )}

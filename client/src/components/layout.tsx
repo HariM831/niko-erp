@@ -13,6 +13,7 @@ import {
   ScrollText,
   Settings,
   ShoppingCart,
+  Users,
   Wheat,
   Bird,
   Menu,
@@ -26,6 +27,8 @@ import { SearchProvider } from "./search-context";
 interface NavChild {
   label: string;
   path: string;
+  /** [module, action] permission required to see this entry. */
+  perm?: [string, string];
 }
 interface NavItem {
   label: string;
@@ -126,6 +129,28 @@ const NAV: NavItem[] = [
       { label: "Farm store", path: "/farms/store" },
       /* Field photos sent for a model's first opinion, with the flock record. */
       { label: "Dr EGGSY", path: "/farms/dr-eggsy" },
+    ],
+  },
+  {
+    /**
+     * People, in the order the day runs: who is here (Time, Gate), what they
+     * are owed (Pay Inputs, Run, Wages), what they ate (Canteen), and the
+     * hardware and masters behind it. Each entry carries its payroll action,
+     * so a gate guard sees Gate and nothing else.
+     */
+    label: "Payroll",
+    icon: Users,
+    children: [
+      { label: "Overview", path: "/payroll", perm: ["payroll", "view"] },
+      { label: "Employees", path: "/payroll/employees", perm: ["payroll", "employees"] },
+      { label: "Time", path: "/payroll/time", perm: ["payroll", "attendance"] },
+      { label: "Gate", path: "/payroll/gate", perm: ["payroll", "gate"] },
+      { label: "Pay Inputs", path: "/payroll/pay-inputs", perm: ["payroll", "pay_inputs"] },
+      { label: "Run", path: "/payroll/run", perm: ["payroll", "run"] },
+      { label: "Wages", path: "/payroll/wages", perm: ["payroll", "view"] },
+      { label: "Canteen", path: "/payroll/canteen", perm: ["payroll", "canteen"] },
+      { label: "Devices", path: "/payroll/devices", perm: ["payroll", "devices"] },
+      { label: "Settings", path: "/payroll/settings", perm: ["payroll", "settings"] },
     ],
   },
   {
@@ -323,7 +348,7 @@ function BottomSheet({
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const [location] = useLocation();
-  const { user, logout } = useAuth();
+  const { user, logout, can } = useAuth();
   const [openGroup, setOpenGroup] = useState<string | null>(() => {
     const active = NAV.find((n) => n.children?.some((c) => location.startsWith(c.path)));
     return active?.label ?? null;
@@ -335,7 +360,14 @@ export function AppLayout({ children }: { children: ReactNode }) {
     item.children?.some((c) => location.startsWith(c.path)) ?? false;
 
   const isAdmin = user?.permissions["*"]?.includes("*") ?? false;
-  const navItems = isAdmin ? [...NAV, ...ADMIN_NAV] : NAV;
+  // Permission-gated entries drop out per user; a group with nothing left
+  // to show disappears entirely rather than sitting as an empty heading.
+  const gated = NAV.map((item) =>
+    item.children
+      ? { ...item, children: item.children.filter((c) => !c.perm || can(c.perm[0], c.perm[1])) }
+      : item,
+  ).filter((item) => !item.children || item.children.length > 0);
+  const navItems = isAdmin ? [...gated, ...ADMIN_NAV] : gated;
 
   /**
    * The bottom bar carries the pages of the section you are IN, not the whole

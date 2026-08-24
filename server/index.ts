@@ -39,6 +39,9 @@ import { farmStoreRouter } from "./routes/farm-store";
 import { drEggsyRouter } from "./routes/dr-eggsy";
 import { eggSalesRouter } from "./routes/egg-sales";
 import { bossViewRouter } from "./routes/boss-view";
+import { payrollRouter } from "./routes/payroll";
+import { canteenRouter } from "./routes/canteen";
+import { deviceRouter } from "./routes/device";
 import { settingsRouter } from "./routes/settings";
 import { attachmentsRouter } from "./routes/attachments";
 import { commentsRouter } from "./routes/comments";
@@ -58,6 +61,9 @@ app.set("trust proxy", 1);
 // has its rejections forwarded to the error handler instead of hanging.
 forwardAsyncErrors();
 
+// Field devices sync batches of punches and plates with photos attached;
+// they get a wider parser before the general limit applies.
+app.use("/api/device", express.json({ limit: "25mb" }));
 app.use(express.json({ limit: "2mb" }));
 
 const PgStore = connectPgSimple(session);
@@ -81,6 +87,10 @@ app.use(
 // header on a mutating request is rejected (browsers always send it;
 // API clients must set it or use a token flow added later).
 app.use((req, res, next) => {
+  // Paired phones authenticate with a bearer token and carry no cookie, so
+  // there is nothing for a cross-site request to ride on; they send no
+  // Origin either. The device router enforces its own token.
+  if (req.path.startsWith("/api/device/")) return next();
   if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
     const origin = req.headers.origin ?? req.headers.referer;
     if (!origin) return res.status(403).json({ error: "Missing Origin header" });
@@ -137,6 +147,12 @@ app.use("/api/farms/store", requireAuth, farmStoreRouter);
 app.use("/api/farms/dr-eggsy", requireAuth, drEggsyRouter);
 app.use("/api/sales/eggs", requireAuth, eggSalesRouter);
 app.use("/api/boss-view", requireAuth, bossViewRouter);
+app.use("/api/payroll", requireAuth, payrollRouter);
+app.use("/api/canteen", requireAuth, canteenRouter);
+// Deliberately NOT behind requireAuth: the paired gate and canteen phones
+// authenticate with a device bearer token (see routes/device.ts). The admin
+// half of that router carries its own session guard on every route.
+app.use("/api/device", deviceRouter);
 app.use("/api/settings", requireAuth, settingsRouter);
 app.use("/api/attachments", attachmentsRouter);
 app.use("/api/comments", commentsRouter);

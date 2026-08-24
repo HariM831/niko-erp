@@ -76,6 +76,17 @@ import { GoodsReceiptsPage } from "./pages/office-receipts";
 import { GateInPage } from "./pages/office-gate";
 import { StationPage, isStation, stationPath } from "./pages/office-stations";
 import { SettlementPage } from "./pages/office-settlement";
+import { PayrollOverviewPage } from "./pages/payroll/overview";
+import { PayrollEmployeesPage } from "./pages/payroll/employees";
+import { PayrollTimePage } from "./pages/payroll/time";
+import { PayrollGatePage } from "./pages/payroll/gate";
+import { PayrollFaceEnrollmentPage } from "./pages/payroll/face-enrollment";
+import { PayrollPayInputsPage } from "./pages/payroll/pay-inputs";
+import { PayrollRunPage } from "./pages/payroll/run";
+import { PayrollWagesPage } from "./pages/payroll/wages";
+import { PayrollCanteenPage } from "./pages/payroll/canteen";
+import { PayrollDevicesPage } from "./pages/payroll/devices";
+import { PayrollSettingsPage } from "./pages/payroll/settings";
 
 const SPLIT: Record<string, { endpoint: string; basePath: string; title: string; newPath: string; dateKey: string }> = {
   invoice: { endpoint: "/api/sales/invoices", basePath: "/sales/invoices", title: "Invoices", newPath: "/sales/invoices/new", dateKey: "invoiceDate" },
@@ -235,6 +246,17 @@ export function App() {
         </Route>
         <Route path="/inventory/adjustments" component={InventoryAdjustmentsPage} />
         <Route path="/inventory/stock" component={StockPage} />
+        <Route path="/payroll/employees" component={PayrollEmployeesPage} />
+        <Route path="/payroll/time" component={PayrollTimePage} />
+        <Route path="/payroll/gate" component={PayrollGatePage} />
+        <Route path="/payroll/face-enrollment" component={PayrollFaceEnrollmentPage} />
+        <Route path="/payroll/pay-inputs" component={PayrollPayInputsPage} />
+        <Route path="/payroll/run" component={PayrollRunPage} />
+        <Route path="/payroll/wages" component={PayrollWagesPage} />
+        <Route path="/payroll/canteen" component={PayrollCanteenPage} />
+        <Route path="/payroll/devices" component={PayrollDevicesPage} />
+        <Route path="/payroll/settings" component={PayrollSettingsPage} />
+        <Route path="/payroll" component={PayrollOverviewPage} />
         <Route path="/reports/weekly-management-summary" component={WeeklySummaryPage} />
         <Route path="/reports/:key">{(p) => <ReportViewPage reportKey={p.key!} />}</Route>
         <Route path="/reports" component={ReportsPage} />
