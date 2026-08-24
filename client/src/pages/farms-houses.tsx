@@ -600,7 +600,7 @@ export function FarmsHousesPage() {
 
   if (isLoading) {
     return (
-      <div className="space-y-4 p-4" data-testid="page-skeleton">
+      <div className="min-h-full space-y-4 bg-soil-50 p-4" data-testid="page-skeleton">
         <div className="h-8 w-48 animate-pulse rounded bg-primary/10" />
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -681,10 +681,15 @@ export function FarmsHousesPage() {
   const pulletAgg = computeAggregate(pulletSheds);
 
   return (
-    <div className="mx-auto max-w-4xl p-4" data-testid="bird-dashboard">
-      <div className="mb-4">
-        <h1 className="text-xl font-bold text-foreground">Houses</h1>
-        <p className="text-[13px] text-muted-foreground">Bird sheds overview</p>
+    <div className="min-h-full bg-soil-50 mx-auto max-w-4xl p-4" data-testid="bird-dashboard">
+      <div className="mb-4 flex items-center gap-2.5">
+        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-yolk-400 to-yolk-600 text-white shadow-sm">
+          <Bird className="h-4 w-4" />
+        </span>
+        <div>
+          <h1 className="text-xl font-extrabold tracking-tight text-soil-900">Houses</h1>
+          <p className="text-[13px] text-soil-400">Bird sheds overview</p>
+        </div>
       </div>
 
       {/* Date Selector */}
@@ -715,19 +720,19 @@ export function FarmsHousesPage() {
           label="Eggs"
           value={fmtNum(summaryData.totalEggs)}
           icon={Egg}
-          accent="bg-warning"
+          accent="bg-yolk-500"
         />
         <KpiCard
           label="Birds"
           value={fmtNum(summaryData.totalBirds)}
           icon={Bird}
-          accent="bg-info"
+          accent="bg-soil-600"
         />
         <KpiCard
           label="Feed (T)"
           value={fmtNum(summaryData.totalFeedKg / 1000, 1)}
           icon={Wheat}
-          accent="bg-success"
+          accent="bg-yolk-600"
         />
         <KpiCard
           label="Mortality"
@@ -1404,7 +1409,7 @@ function KpiCard({
   accent: string;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-lg bg-card shadow-sm transition-shadow hover:shadow-md">
+    <div className="relative overflow-hidden rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)] transition-shadow hover:shadow-md">
       <div className="p-3.5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
@@ -1464,7 +1469,7 @@ function GuideCard({
         : "text-destructive";
 
   return (
-    <div className="rounded-lg bg-card p-3.5 shadow-sm transition-shadow hover:shadow-md">
+    <div className="rounded-2xl bg-white p-3.5 shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)] transition-shadow hover:shadow-md">
       <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </p>
@@ -1563,7 +1568,7 @@ function ShedRow({ metrics, onTileClick, onShedClick }: ShedRowProps) {
 
   return (
     <div
-      className="rounded-lg border bg-white p-2.5 shadow-sm"
+      className="rounded-2xl bg-white p-2.5 shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]"
       data-testid={`row-shed-${m.shed.id}`}
     >
       <button
