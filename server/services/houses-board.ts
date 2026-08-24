@@ -19,7 +19,7 @@
  * The old app computed a shed's closing count as
  *     opening + transferredIn − mortality − transferredOut − culled − male
  * so `openingCount` here carries ONLY the `place` movements and the daily rows
- * carry everything else. Add them up and you get exactly what the EGGSY ledger
+ * carry everything else. Add them up and you get exactly what the niko ledger
  * says, because both are summing the same movements — just grouped differently.
  */
 import { and, asc, eq, isNotNull, sql } from "drizzle-orm";

@@ -118,7 +118,7 @@ async function main() {
   // while their series issues VCN-, so the next one would break a run that has
   // an obvious continuation — that is worth aligning. Payments instead kept
   // Zoho's own "CP-2026-27/927", which is not a prefix and a counter at all and
-  // cannot be continued; those simply start fresh on EGGSY numbering, which is
+  // cannot be continued; those simply start fresh on niko numbering, which is
   // what cutting over means.
   for (const [entity, [table, column]] of Object.entries(TABLES)) {
     if (seenEntities.has(entity)) continue;

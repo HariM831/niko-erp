@@ -174,7 +174,7 @@ process.on("unhandledRejection", (reason) => {
 
 const port = Number(process.env.PORT ?? 3000);
 app.listen(port, () => {
-  console.log(`eggsy server listening on :${port}`);
+  console.log(`niko server listening on :${port}`);
   // The sheds' instruments — reads every five minutes while the server is up.
   startIotPolling();
 });

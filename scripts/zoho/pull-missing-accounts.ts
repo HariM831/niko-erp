@@ -9,7 +9,7 @@
  * happily by id; they are simply absent from the list.
  *
  * Left unfound, the document import would have hit postings against accounts
- * that do not exist in EGGSY, several hundred documents in.
+ * that do not exist in niko, several hundred documents in.
  *
  * This scans everything already pulled for account ids, fetches any the chart
  * did not include, and writes them alongside it. Re-run it as more data lands —

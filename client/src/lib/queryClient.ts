@@ -6,7 +6,7 @@
  * point somewhere else — every edit a chance to change a number on screen —
  * the URLs are translated here, once.
  *
- * Reads all come from one EGGSY endpoint per house, memoised for a moment so
+ * Reads all come from one niko endpoint per house, memoised for a moment so
  * that a page firing eight GETs at mount makes one request rather than eight.
  */
 import { api } from "../api";
@@ -48,7 +48,7 @@ const tail = (url: string) => url.split("?")[0]!.split("/").filter(Boolean).pop(
 
 class NotWired extends Error {
   constructor(method: string, url: string) {
-    super(`${method} ${url} has no EGGSY equivalent`);
+    super(`${method} ${url} has no niko equivalent`);
   }
 }
 
@@ -98,7 +98,7 @@ export async function apiRequest(method: string, url: string, body?: unknown) {
 
   // ── Writes ──
   //
-  // Same paths, translated onto EGGSY's services in server/routes/farms-compat.
+  // Same paths, translated onto niko's services in server/routes/farms-compat.
   // The in-flight read cache is cleared so the refetch every save triggers sees
   // what was just written rather than the copy from a moment ago.
   inflight.clear();

@@ -1,7 +1,7 @@
 import { index, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
 
 /**
- * Which Zoho record became which EGGSY row.
+ * Which Zoho record became which niko row.
  *
  * Migration scaffolding, deliberately kept out of the domain tables: adding a
  * `zohoId` column to contacts, items and every document type would leave a
@@ -19,11 +19,11 @@ export const zohoIdMap = pgTable(
   "zoho_id_map",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    /** The EGGSY table this refers to: "account", "contact", "invoice"... */
+    /** The niko table this refers to: "account", "contact", "invoice"... */
     entity: varchar("entity", { length: 40 }).notNull(),
     /** Zoho's own id for the record. */
     zohoId: varchar("zoho_id", { length: 64 }).notNull(),
-    /** The row created in EGGSY. */
+    /** The row created in niko. */
     eggsyId: uuid("eggsy_id").notNull(),
     /** Document number or name, purely so the table is readable by a person. */
     label: text("label"),

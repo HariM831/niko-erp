@@ -8,7 +8,7 @@
  * already on disk and picks up where it stopped. Deleting a file re-pulls just
  * that module.
  *
- * Nothing is written to Zoho and nothing is written to the EGGSY database.
+ * Nothing is written to Zoho and nothing is written to the niko database.
  * This step only produces files.
  *
  *   npx tsx scripts/zoho/pull.ts            # everything outstanding
@@ -168,7 +168,7 @@ async function pullDetail(m: Module, ids: Set<string>) {
 /**
  * Every posting Zoho has made, account by account — the double-entry history.
  * This is what the import will be checked against, so it is worth having even
- * though EGGSY re-derives its own postings from the documents.
+ * though niko re-derives its own postings from the documents.
  */
 async function pullLedger(accountIds: string[]) {
   const file = `${DIR}/ledger/accounttransactions.jsonl`;

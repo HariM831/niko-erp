@@ -6,7 +6,7 @@
  *   npx tsx scripts/seed-demo.ts
  */
 
-const BASE = process.env.EGGSY_BASE_URL ?? "http://localhost:3000";
+const BASE = process.env.niko_BASE_URL ?? "http://localhost:3000";
 let cookie = "";
 
 async function api(method: string, path: string, body?: unknown) {
@@ -59,12 +59,12 @@ async function main() {
   // ---------- Organisation profile ----------
   console.log("Setting organisation profile…");
   await api("PATCH", "/api/settings/org", {
-    name: "Eggsy Farms Private Limited",
+    name: "niko Farms Private Limited",
     gstin: "29AACCE1234F1Z5",
     pan: "AACCE1234F",
     stateCode: "29",
     phone: "+91 80 4567 8901",
-    email: "accounts@eggsyfarms.in",
+    email: "accounts@nikofarms.in",
     address: "Plot 42, Poultry Industrial Estate",
     city: "Bengaluru",
     state: "Karnataka",

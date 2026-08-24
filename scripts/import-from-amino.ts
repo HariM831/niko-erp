@@ -172,7 +172,7 @@ try {
     for (const sh of shedRows) {
       const match = byCode.get(s(sh.name).toUpperCase().trim());
       if (!match) {
-        problem(`shed "${s(sh.name)}" has no house in EGGSY`);
+        problem(`shed "${s(sh.name)}" has no house in niko`);
         continue;
       }
       houseOf.set(s(sh.id), match);

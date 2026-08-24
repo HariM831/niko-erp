@@ -1,5 +1,5 @@
 /**
- * Dr EGGSY — field observations sent for diagnosis.
+ * Dr niko — field observations sent for diagnosis.
  *
  * A worker in a shed photographs what they found and submits it; the analyze
  * step sends the photos to a vision model TOGETHER WITH the flock's own
@@ -45,7 +45,7 @@ const UPLOAD_DIR = path.resolve(process.cwd(), "uploads");
  * on white paper — this is gross pathology in shed lighting, and the answer is
  * a clinical judgement rather than a transcription.
  */
-const DR_EGGSY_MODEL = process.env.DR_EGGSY_MODEL || "gemini-flash-latest";
+const DR_niko_MODEL = process.env.DR_niko_MODEL || "gemini-flash-latest";
 
 /** Observations, newest first, with their photos' attachment ids. */
 drEggsyRouter.get("/", requirePermission("farms", "view"), async (_req, res) => {
@@ -270,13 +270,13 @@ Be direct and clinical. If the images are unclear, say so and advise from the pe
 
   try {
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: DR_EGGSY_MODEL });
+    const model = genAI.getGenerativeModel({ model: DR_niko_MODEL });
     const result = await model.generateContent([prompt, ...imageParts]);
     const remark = result.response.text();
 
     const [updated] = await db
       .update(aiObservations)
-      .set({ aiRemark: remark, aiModel: DR_EGGSY_MODEL, analyzedAt: new Date() })
+      .set({ aiRemark: remark, aiModel: DR_niko_MODEL, analyzedAt: new Date() })
       .where(eq(aiObservations.id, obs.id))
       .returning();
     res.json(updated);

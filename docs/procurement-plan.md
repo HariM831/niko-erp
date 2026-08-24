@@ -1,11 +1,11 @@
 # Procurement — execution plan
 
-Mounting the six-station goods-receiving flow onto EGGSY's Purchases module.
+Mounting the six-station goods-receiving flow onto niko's Purchases module.
 
 **Design source:** `Amino farms/docs/receiving-six-station-flow.md`
 **Written:** 2026-08-15
 
-The design doc calls itself greenfield. It is not, here. EGGSY already owns
+The design doc calls itself greenfield. It is not, here. niko already owns
 contacts, items, purchase orders, bills, vendor credits, payments, taxes,
 locations, numbering, RBAC, attachments and the posting engine. This plan keeps
 all of it and adds only what genuinely does not exist: the receipt record, the
@@ -38,10 +38,10 @@ six station screens, and the rules that turn a truck into a bill.
 | 2 | **Procurement does not move stock.** Feed Mill owns feed-item inventory, Farms owns birds and eggs; each posts a day-end inventory value | Periodic inventory, not perpetual. `moveStock()` is never called from here. No GRNI account. |
 | 3 | **Two counters on PO lines** — `billedQuantity` and `deliveredQuantity` | The vendor discharges the order by sending the vehicle. `deliveredQuantity` rises by the full sent quantity whatever we then do with it. |
 | 4 | **`procurement` permission module with custom actions** | A weighbridge operator cannot settle. Requires a real fix to `sanitisePermissions` — see §6. |
-| 5 | **EGGSY theme throughout** | No second design system. Same tokens, same components, responsive down to a phone. |
+| 5 | **niko theme throughout** | No second design system. Same tokens, same components, responsive down to a phone. |
 | 6 | **Shortage tolerance is per material** | `items.shortageTolerancePct`, not per vendor. |
 | 7 | **No offline mode.** The gate is capture-and-forward | Work is never lost and a truck is never held, but OCR and live matching need signal. See §9.1. |
-| 8 | **No GST, anywhere** | Eggs are exempt, so tax is folded into cost. No tax account is ever touched and bill lines carry no `taxId`. Settled for EGGSY before this module. |
+| 8 | **No GST, anywhere** | Eggs are exempt, so tax is folded into cost. No tax account is ever touched and bill lines carry no `taxId`. Settled for niko before this module. |
 | 9 | **Deleting a receipt rolls the number back** | So test entries leave no gap in the series. `resyncDocumentNumber()` recomputes the counter from the surviving documents — see §6. |
 | 10 | **Test data stays** | Nothing created while testing is cleaned up afterwards. Records are left in place for inspection unless you ask for them to go. |
 
@@ -97,7 +97,7 @@ read that seam to build their own stock and their day-end valuation entry.
 
 **Eggs are exempt, so there is no output tax and no recoverable input credit.**
 Any GST a registered vendor charges is simply part of what the goods cost. This
-was settled for EGGSY before this module existed — `scripts/zoho/map-accounts.ts`
+was settled for niko before this module existed — `scripts/zoho/map-accounts.ts`
 maps `input_gst`, `cgst_payable`, `sgst_payable` and `igst_payable` with the note
 *"unused once tax is folded into cost"*.
 
@@ -802,7 +802,7 @@ exactly to net. A manual allocation must also sum exactly — reject otherwise.
 
 ## 9. Screens
 
-**EGGSY theme throughout.** Inter at 13px, `--color-brand-500` for primary,
+**niko theme throughout.** Inter at 13px, `--color-brand-500` for primary,
 `.card` / `.input` / `.label` / `.btn-primary` / `.btn-secondary` /
 `.table-head`, `StatusBadge` as uppercase coloured text. No pills, no second
 palette, no separate mobile design system.
@@ -897,7 +897,7 @@ numbers, and knowing item 5 above is the bill.
 
 ## 10. Validation matrix
 
-Carried over from the design doc, with the EGGSY mechanism named.
+Carried over from the design doc, with the niko mechanism named.
 
 | # | Station | Condition | Behaviour | Mechanism |
 |---|---|---|---|---|
@@ -1011,7 +1011,7 @@ factor of sixty. This case must pass before the OCR layer ships.
 
 | Question | Answer |
 |---|---|
-| GST handling? | None. Eggs are exempt, so tax is folded into cost — settled for EGGSY before this module (§3) |
+| GST handling? | None. Eggs are exempt, so tax is folded into cost — settled for niko before this module (§3) |
 | Rejected lines on the bill? | No. We never took the goods (§3) |
 | Payable weight when short? | Bill at the vendor's quantity, credit the shortage. It is `deduction_rules` data, not code |
 | Shortage tolerance — vendor or material? | Material: `items.shortageTolerancePct` |

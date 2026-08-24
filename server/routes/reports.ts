@@ -161,7 +161,7 @@ type Movement = Awaited<ReturnType<typeof accountMovements>>[number];
  * Rows for one P&L section, as a tree.
  *
  * Income sits credit-side, so its sign is flipped to read positive; expenses
- * are already debit-positive. Subtypes decide the section: EGGSY has stored
+ * are already debit-positive. Subtypes decide the section: niko has stored
  * cost_of_goods_sold, other_income and other_expense since the chart was
  * seeded, and the old flat report simply ignored them.
  */
@@ -883,12 +883,12 @@ reportsRouter.get("/sales-by-customer", requirePermission("reports", "view"), as
 /**
  * Purchases per vendor, across bills, vendor credits and expense claims.
  *
- * Expenses belong here or the report would miss most of what EGGSY spends —
+ * Expenses belong here or the report would miss most of what niko spends —
  * electricity, freight and fuel are claims, not bills. An expense with no
  * vendor named still has to be counted, so those collect under "Others" rather
  * than being dropped.
  *
- * Journals are excluded: EGGSY does not record a contact on a journal entry, so
+ * Journals are excluded: niko does not record a contact on a journal entry, so
  * there is no vendor to attribute one to. Zoho shows a Journal Count column;
  * printing one full of zeros would claim an attribution that does not exist.
  */
@@ -1036,7 +1036,7 @@ reportsRouter.get("/purchases-by-vendor", requirePermission("reports", "view"), 
 /**
  * Expense grouped by its top-level account, with the sub-accounts beneath.
  *
- * "Category" here is the parent expense account — EGGSY has no separate
+ * "Category" here is the parent expense account — niko has no separate
  * category concept, and inventing one would leave two ways to classify a cost.
  * The client shows categories collapsed and expands on click, which is the bit
  * Zoho's own version lacks.

@@ -116,7 +116,7 @@ async function main() {
       for (const d of docs) {
         if (done.has(String(d.document_id))) continue;
         if (!eggsyId) {
-          // The document itself never made it into EGGSY, so there is nothing
+          // The document itself never made it into niko, so there is nothing
           // to attach to. Reported rather than guessed at.
           orphans.push(`${src.file} ${parentZohoId || "(no id)"} — ${d.file_name}`);
           continue;
@@ -149,7 +149,7 @@ async function main() {
     console.log(`    ${k.padEnd(16)}${String(v.n).padStart(6)}  ${mb(v.bytes)}`);
   }
   if (orphans.length) {
-    console.log(`\n${orphans.length} file(s) hang off a document that is not in EGGSY:`);
+    console.log(`\n${orphans.length} file(s) hang off a document that is not in niko:`);
     for (const o of orphans.slice(0, 10)) console.log(`    ${o}`);
     if (orphans.length > 10) console.log(`    … and ${orphans.length - 10} more`);
   }

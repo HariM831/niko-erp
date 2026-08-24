@@ -113,7 +113,7 @@ async function main() {
           inventoryAccountId: i.inventory_account_id
             ? (accountFor.get(i.inventory_account_id) ?? null)
             : null,
-          // No tax: EGGSY folds GST into the amount, so an item carries no rate.
+          // No tax: niko folds GST into the amount, so an item carries no rate.
           taxId: null,
           isActive: i.status === "active",
         })

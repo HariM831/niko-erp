@@ -1,5 +1,5 @@
 /**
- * Bring Amino's Dr EGGSY observations across — the last piece of the export
+ * Bring Amino's Dr niko observations across — the last piece of the export
  * the main import left behind.
  *
  * Eleven observations, forty-six photos. The photos are copied from

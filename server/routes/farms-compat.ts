@@ -1,7 +1,7 @@
 /**
  * Writes for the ported screens, in the shapes they send.
  *
- * Those pages think in sheds, batch numbers and dates. EGGSY thinks in
+ * Those pages think in sheds, batch numbers and dates. niko thinks in
  * placements, flocks and a movement ledger. Rather than edit a couple of
  * thousand lines of JSX to change what it posts — every edit a chance to change
  * a number on screen — the translation happens here, beside the read adapter
@@ -106,7 +106,7 @@ const dailyBody = z.object({
  * Save one shed-day.
  *
  * Two fields on that form are refused rather than quietly dropped, because in
- * EGGSY they are owned elsewhere and writing them here would give the same
+ * niko they are owned elsewhere and writing them here would give the same
  * movement two homes:
  *
  *  - transferred in / out — birds move on the flock's Transfer tab, as dated

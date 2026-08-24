@@ -6,12 +6,12 @@
  *   npx tsx scripts/zoho/load-expenses.ts --commit    # do it
  *
  * Every one is a single line charged to a single account and paid from one
- * bank, which is exactly EGGSY's model, so nothing has to be reshaped. Two
+ * bank, which is exactly niko's model, so nothing has to be reshaped. Two
  * things to know:
  *
- *   Zoho gives expenses no number at all. EGGSY requires one, so they are
+ *   Zoho gives expenses no number at all. niko requires one, so they are
  *   issued here in date order — meaning a re-run produces the same numbers, but
- *   also that nothing in EGGSY will match a reference anyone quotes from Zoho.
+ *   also that nothing in niko will match a reference anyone quotes from Zoho.
  *
  *   Only 2 of 2,604 name a vendor. The rest are genuinely unattributed, which
  *   is why Purchases by Vendor collects them under "Others" rather than

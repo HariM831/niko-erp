@@ -14,7 +14,7 @@ import { useApp } from "@/lib/store";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 /* The chart strokes below are literals because SVG cannot read a Tailwind
-   class. They are EGGSY's palette: amber-500 for feed, brand-500 for water,
+   class. They are niko's palette: amber-500 for feed, brand-500 for water,
    brand-600 for eggs, and gray-400 dashed for the standard. */
 import {
   LineChart,
@@ -1053,7 +1053,7 @@ export function HouseDetailPage() {
         </div>
 
         {/* Live sensor snapshot — links to full sensors page */}
-        {/* Live sensor card omitted — no IoT integration in EGGSY yet. */}
+        {/* Live sensor card omitted — no IoT integration in niko yet. */}
 
         {stocks.length === 0 ? (
           <Card className="mb-6 rounded-2xl border-0 bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
@@ -2395,6 +2395,6 @@ export function HouseDetailPage() {
 }
 
 // The farm's shed screen ends with a live-sensor card here — the Big Herdsman
-// house card, fed by controller readings. It is not ported because EGGSY has no
+// house card, fed by controller readings. It is not ported because niko has no
 // IoT integration at all: no polling, no readings table, nothing behind it.
 // That is a subsystem rather than a component, so it wants its own decision.

@@ -1,5 +1,5 @@
 /**
- * Phase 3: bills, posted through EGGSY's own engine.
+ * Phase 3: bills, posted through niko's own engine.
  *
  *   npx tsx scripts/zoho/load-bills.ts             # say what would happen
  *   npx tsx scripts/zoho/load-bills.ts --commit    # do it
@@ -14,10 +14,10 @@
  *
  *   TDS. 89 bills withhold tax at source, ₹2.90 lakh in total. Zoho withholds
  *   it on the bill, so the expense is gross and the payable is net; that is now
- *   how EGGSY posts it too.
+ *   how niko posts it too.
  *
  *   Numbering. Zoho's bill_number is the vendor's own invoice number, not ours.
- *   It goes to vendorBillNumber and EGGSY issues its own sequence.
+ *   It goes to vendorBillNumber and niko issues its own sequence.
  */
 import { readFile } from "node:fs/promises";
 import { eq, sql } from "drizzle-orm";
@@ -60,7 +60,7 @@ interface ZohoBill {
   line_items: ZohoLine[];
 }
 
-/** Zoho's overdue is derived from the due date in EGGSY, so it maps to open. */
+/** Zoho's overdue is derived from the due date in niko, so it maps to open. */
 const STATUS: Record<string, "draft" | "open" | "partially_paid" | "paid" | "void"> = {
   draft: "draft",
   open: "open",
@@ -101,7 +101,7 @@ async function main() {
     if (!contactFor.has(b.vendor_id)) problems.push(`${b.bill_number}: vendor not imported`);
     if (!STATUS[b.status]) problems.push(`${b.bill_number}: unknown status "${b.status}"`);
     for (const l of b.line_items ?? []) {
-      // Every purchase line must name an account: EGGSY has no catch-all to
+      // Every purchase line must name an account: niko has no catch-all to
       // fall back to on the expense side, and inventing one would bury a cost.
       if (!l.account_id) problems.push(`${b.bill_number}: a line names no account`);
       else if (!accountFor.has(l.account_id)) {
@@ -146,7 +146,7 @@ async function main() {
   const [admin] = await db.select({ id: users.id }).from(users).limit(1);
   if (!admin) throw new Error("No user to attribute the import to");
 
-  // EGGSY issues its own bill numbers; Zoho's belong to the vendor. Numbered in
+  // niko issues its own bill numbers; Zoho's belong to the vendor. Numbered in
   // date order so a re-run produces the same sequence.
   const [{ next }] = await db
     .select({ next: sql<number>`COALESCE(MAX(SUBSTRING(number FROM '[0-9]+$')::int), 0) + 1` })

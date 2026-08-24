@@ -1,7 +1,7 @@
 /**
  * The IoT store, exercised inside a rolled-back transaction.
  *
- * No network. Readings are handed in directly, so what is tested is what EGGSY
+ * No network. Readings are handed in directly, so what is tested is what niko
  * does with them rather than whether bhfarm answered — the vendor's own
  * behaviour is checked by pointing `probe-bhfarm.ts` at it.
  *

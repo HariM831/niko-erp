@@ -137,7 +137,7 @@ const PRESETS: Record<string, () => { from: string; to: string }> = {
 
 // ---------- Reports Center ----------
 
-const VISITED_KEY = "eggsy.reports.lastVisited";
+const VISITED_KEY = "niko.reports.lastVisited";
 
 function readVisited(): Record<string, string> {
   try {
@@ -389,7 +389,7 @@ export function ReportViewPage({ reportKey }: { reportKey: string }) {
           </select>
         </label>
 
-        {/* EGGSY posts on accrual only, so the basis is stated rather than
+        {/* niko posts on accrual only, so the basis is stated rather than
             offered as a one-option dropdown. */}
         {LEDGER_BASED.has(reportKey) && (
           <span className="flex h-8 items-center gap-2 rounded-md border bg-gray-50 px-3 text-[13px] text-gray-500">
@@ -978,7 +978,7 @@ function SalesByCustomer({ data }: { data: Record<string, unknown> }) {
 }
 
 /**
- * Bills, vendor credits and expense claims per vendor. Most of what EGGSY
+ * Bills, vendor credits and expense claims per vendor. Most of what niko
  * spends is claimed rather than billed, so a bills-only version of this report
  * would be missing the larger half of it.
  */

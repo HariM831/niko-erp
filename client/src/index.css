@@ -54,7 +54,7 @@
   /* ── Semantic tokens the Farms screens are written against ──────────────
      The Houses and House pages were ported markup-and-all from the farm's own
      app, which meant bringing its palette with them. These now point at
-     EGGSY's own colours instead, so those screens sit beside the rest of the
+     niko's own colours instead, so those screens sit beside the rest of the
      app rather than looking like a guest — and because the port only ever
      names the token, not the colour, this file is the only place it changes. */
   --color-background: #f5f6f8;   /* the app surface */

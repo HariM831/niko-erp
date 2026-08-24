@@ -1,10 +1,10 @@
 /**
- * Phase 3: invoices, posted through EGGSY's own engine.
+ * Phase 3: invoices, posted through niko's own engine.
  *
  *   npx tsx scripts/zoho/load-invoices.ts             # say what would happen
  *   npx tsx scripts/zoho/load-invoices.ts --commit    # do it
  *
- * Totals come from Zoho verbatim rather than being recomputed. EGGSY would
+ * Totals come from Zoho verbatim rather than being recomputed. niko would
  * re-derive them under its own rounding preference and drift by a rupee per
  * document, which across 614 invoices is a reconciliation nobody can finish.
  * The journal, though, is built by the same postInvoiceJournal the application
@@ -53,7 +53,7 @@ interface ZohoInvoice {
 }
 
 /**
- * Zoho tracks overdue as a status; EGGSY derives it from the due date, so an
+ * Zoho tracks overdue as a status; niko derives it from the due date, so an
  * overdue invoice is simply one that was sent and is not yet paid.
  */
 const STATUS: Record<string, "draft" | "sent" | "partially_paid" | "paid" | "void"> = {
@@ -114,21 +114,21 @@ const MANUAL_ITEM: Record<string, string> = {
  * How a document-level discount reaches the ledger.
  *
  * Zoho lets a discount sit on the invoice header and posts it to a Discount
- * account of its own. EGGSY has no header discount — its posting credits
+ * account of its own. niko has no header discount — its posting credits
  * revenue with the sum of the lines — so the first attempt spread it across
  * them instead. That balanced, but it classified the money differently from
  * Zoho: ₹50 came off Sales rather than landing in Discount, and the two
  * ledgers disagreed on an income account while agreeing on the total.
  *
  * A discount is just a negative adjustment: a signed amount posted to a named
- * account, which EGGSY already models. One invoice in 614 has one.
+ * account, which niko already models. One invoice in 614 has one.
  */
 function discountAsAdjustment(inv: ZohoInvoice) {
   const discountP = Math.round(Number(inv.discount_total ?? 0) * 100);
   const adjustmentP = Math.round(Number(inv.adjustment ?? 0) * 100);
   if (!discountP) return { amountP: adjustmentP, accountId: inv.adjustment_account_id ?? null };
   if (adjustmentP) {
-    // Both would need two extra postings and EGGSY has one slot. No invoice in
+    // Both would need two extra postings and niko has one slot. No invoice in
     // these books does it; refuse rather than silently drop one.
     throw new Error(
       `${inv.invoice_number} carries both a header discount and an adjustment, which cannot both be represented`,
@@ -174,7 +174,7 @@ async function main() {
    * account. A line that explicitly chose some other account is left alone, and
    * a line with no item has nothing to go on and stays where it is.
    *
-   * The consequence, accepted deliberately: EGGSY's revenue accounts no longer
+   * The consequence, accepted deliberately: niko's revenue accounts no longer
    * match Zoho's P&L account by account. Total revenue is identical, and that
    * is what reconciliation checks.
    */
@@ -323,7 +323,7 @@ async function main() {
         rate: money(l.rate),
         discountPercent: "0",
         taxAmount: "0",
-        // Already net of any line discount, which is what EGGSY's `amount`
+        // Already net of any line discount, which is what niko's `amount`
         // means. A header discount is not netted here — it posts to its own
         // account through the adjustment.
         amount: money(l.item_total),

@@ -1,5 +1,5 @@
 /**
- * Bring EGGSY's invoice balances into line with Zoho's — the cutover's last
+ * Bring niko's invoice balances into line with Zoho's — the cutover's last
  * reconciliation.
  *
  * Why this exists: the pull resumes by id and never re-fetches a detail it
@@ -10,11 +10,11 @@
  *
  * The one thing that cannot go stale is what this asks for: Zoho's CURRENT
  * balance per invoice, fetched fresh from the list endpoint every run. Where
- * EGGSY shows more due than Zoho, the difference is applied from that
+ * niko shows more due than Zoho, the difference is applied from that
  * customer's unapplied payments oldest-first, with the same DR advances / CR
  * AR journal the loading bay posts — because that is exactly what Zoho did,
- * whatever its own pairing was. Where EGGSY shows LESS due than Zoho, nothing
- * is touched and it is reported: that would mean EGGSY invented money.
+ * whatever its own pairing was. Where niko shows LESS due than Zoho, nothing
+ * is touched and it is reported: that would mean niko invented money.
  *
  *   npx tsx scripts/zoho/reconcile-invoice-balances.ts             # dry
  *   npx tsx scripts/zoho/reconcile-invoice-balances.ts --commit
@@ -74,8 +74,8 @@ async function main() {
     if (oursP === zohoBalP) continue;
 
     if (oursP < zohoBalP) {
-      // EGGSY says more of it is paid than Zoho does. Never "fixed" silently.
-      overs.push(`${z.invoice_number}: EGGSY due ${money(oursP)} < Zoho due ${money(zohoBalP)}`);
+      // niko says more of it is paid than Zoho does. Never "fixed" silently.
+      overs.push(`${z.invoice_number}: niko due ${money(oursP)} < Zoho due ${money(zohoBalP)}`);
       continue;
     }
 
@@ -150,7 +150,7 @@ async function main() {
 
   console.log(`\n  ${short} invoice(s) short by ₹${money(shortP)} in total`);
   if (overs.length) {
-    console.log(`  !! ${overs.length} invoice(s) where EGGSY shows MORE paid than Zoho:`);
+    console.log(`  !! ${overs.length} invoice(s) where niko shows MORE paid than Zoho:`);
     for (const o of overs) console.log(`     ${o}`);
   }
   console.log(commit ? "  applied." : "  dry run — nothing written. Add --commit.");

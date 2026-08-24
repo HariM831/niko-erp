@@ -58,7 +58,7 @@ interface ZohoVendorPayment {
   bills?: Array<{ bill_id: string; amount_applied: number }>;
 }
 
-/** Zoho writes the mode as a label; EGGSY stores an enum. */
+/** Zoho writes the mode as a label; niko stores an enum. */
 const MODE: Record<string, "cash" | "bank_transfer" | "upi" | "cheque" | "card"> = {
   Cash: "cash",
   "Bank Transfer": "bank_transfer",

@@ -157,7 +157,7 @@ export const ENTITIES: EntityDef[] = [
   },
   {
     /**
-     * A Dr EGGSY field observation — photos of what somebody found in a shed,
+     * A Dr niko field observation — photos of what somebody found in a shed,
      * sent for diagnosis. Registered so the photos ride the same attachments
      * machinery as every other file. Not numbered: an observation is known by
      * its shed and its date, not by a serial.

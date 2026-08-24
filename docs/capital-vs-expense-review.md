@@ -1,4 +1,4 @@
-# Capital / investment spend routed through expenses — EGGSY (Zoho books)
+# Capital / investment spend routed through expenses — niko (Zoho books)
 
 Source: full Zoho dump in `.zoho-dump` — 21559 ledger postings, 2023-12-05 → 2026-08-13. Every journal, bill and expense was scanned.
 

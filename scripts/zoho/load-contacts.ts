@@ -22,7 +22,7 @@ import { eq } from "drizzle-orm";
 import { contactAddresses, contactPersons, contacts, zohoIdMap } from "@shared/schema";
 import { db, pool } from "../../server/db";
 
-/** Zoho's GST treatment vocabulary onto EGGSY's. */
+/** Zoho's GST treatment vocabulary onto niko's. */
 const GST_TREATMENT: Record<string, string> = {
   business_gst: "registered_business",
   business_registered_composition: "registered_composition",
@@ -90,7 +90,7 @@ async function main() {
     ...new Set(all.map((c) => c.gst_treatment).filter((t) => t && !GST_TREATMENT[t])),
   ];
   if (unknownTreatment.length) {
-    throw new Error(`GST treatments with no EGGSY equivalent: ${unknownTreatment.join(", ")}`);
+    throw new Error(`GST treatments with no niko equivalent: ${unknownTreatment.join(", ")}`);
   }
 
   const done = await db
@@ -99,7 +99,7 @@ async function main() {
     .where(eq(zohoIdMap.entity, "contact"));
   const already = new Set(done.map((d) => d.zohoId));
 
-  // One EGGSY contact per name, however many Zoho records carry it.
+  // One niko contact per name, however many Zoho records carry it.
   const groups = new Map<string, ZohoContact[]>();
   for (const c of all) {
     const key = c.contact_name.trim().toLowerCase();
@@ -113,7 +113,7 @@ async function main() {
 
   const customers = all.filter((c) => c.contact_type === "customer").length;
   console.log(`${all.length} Zoho contacts — ${customers} customers, ${all.length - customers} vendors`);
-  console.log(`  ${groups.size} distinct names -> ${todo.length} EGGSY contacts to create`);
+  console.log(`  ${groups.size} distinct names -> ${todo.length} niko contacts to create`);
   console.log(`  ${already.size} Zoho ids already imported`);
   console.log(`  ${all.filter((c) => c.contact_persons?.length).length} have contact persons`);
   console.log(`  ${all.filter((c) => hasAddress(c.billing_address)).length} have a billing address`);
@@ -194,7 +194,7 @@ async function main() {
       const seenPeople = new Set<string>();
       for (const p of group.flatMap((g) => g.contact_persons ?? [])) {
         const firstName = clean(p.first_name) ?? clean(p.last_name);
-        if (!firstName) continue; // EGGSY requires a first name; a nameless row says nothing.
+        if (!firstName) continue; // niko requires a first name; a nameless row says nothing.
         // Merged records often list the same person twice.
         const key = `${firstName}|${p.last_name ?? ""}|${p.email ?? ""}`.toLowerCase();
         if (seenPeople.has(key)) continue;

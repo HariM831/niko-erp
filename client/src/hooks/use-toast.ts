@@ -1,9 +1,9 @@
 /**
  * `useToast` — the notification call the ported screens make.
  *
- * EGGSY has no toast system, so for now these go to the console rather than
+ * niko has no toast system, so for now these go to the console rather than
  * being swallowed: a save that quietly fails is worse than one that says so
- * somewhere. Wire this to a real toast when EGGSY grows one.
+ * somewhere. Wire this to a real toast when niko grows one.
  */
 export interface ToastArgs {
   title?: string;

@@ -5,7 +5,7 @@
  *   npx tsx scripts/zoho/load-banks.ts --commit    # do it
  *
  * Easy to overlook, because "bank account" means two different things in
- * EGGSY: a GL account in the chart, already imported, and a row in
+ * niko: a GL account in the chart, already imported, and a row in
  * bank_accounts that expenses and payments actually point at. The second was
  * empty, so every expense and payment would have failed on a foreign key
  * several thousand records into the import.

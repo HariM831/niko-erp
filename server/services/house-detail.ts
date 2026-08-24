@@ -6,7 +6,7 @@
  * that translation twice is how the same shed comes to show one number on the
  * overview and a different one on its own page.
  *
- * Weighings and vaccinations are keyed to the PLACEMENT in EGGSY and grouped
+ * Weighings and vaccinations are keyed to the PLACEMENT in niko and grouped
  * back onto the shed here — see shared/schema/health.ts for why.
  */
 import { and, asc, desc, eq, inArray } from "drizzle-orm";

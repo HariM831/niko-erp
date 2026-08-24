@@ -1,5 +1,5 @@
 /**
- * Dr EGGSY — what somebody found in a shed, sent for a first opinion.
+ * Dr niko — what somebody found in a shed, sent for a first opinion.
  *
  * A worker photographs a post-mortem or anything that looks wrong, picks the
  * shed, and submits. Analyze sends the photos to a vision model together with
@@ -167,7 +167,7 @@ export function DrEggsyPage() {
             <Stethoscope className="h-4 w-4" />
           </span>
           <div>
-            <h1 className="text-2xl font-extrabold tracking-tight text-soil-900">Dr EGGSY</h1>
+            <h1 className="text-2xl font-extrabold tracking-tight text-soil-900">Dr niko</h1>
             <p className="text-sm text-soil-400">
               Field observations sent for diagnosis — a first opinion from a model, not a vet.
             </p>

@@ -11,7 +11,7 @@ import { useQuery } from "@tanstack/react-query";
  * rather than matched as a string there.
  *
  * Only fields the module actually has are offered. Zoho's bill search carries
- * GST treatment, place of supply, TCS and projects; EGGSY has none of those by
+ * GST treatment, place of supply, TCS and projects; niko has none of those by
  * design, so they are absent rather than present and inert.
  */
 

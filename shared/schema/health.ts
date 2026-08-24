@@ -85,7 +85,7 @@ export const vaccinationEvents = pgTable(
 );
 
 /**
- * Dr EGGSY: a field observation sent for diagnosis.
+ * Dr niko: a field observation sent for diagnosis.
  *
  * A worker photographs what they found — a post-mortem, wet litter, a bird
  * that looks wrong — and the observation goes to a model along with the

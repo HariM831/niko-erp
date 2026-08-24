@@ -4,10 +4,10 @@
  *
  * What it does, in order:
  *
- *   MATERIALS — matched to EGGSY items by name, then by alias, then by a
+ *   MATERIALS — matched to niko items by name, then by alias, then by a
  *     normalised comparison. A match is marked `isFeedIngredient`, given the
- *     export's price where EGGSY has none, and its nutrient profile written
- *     (source "book"). An Amino material with no EGGSY item is REPORTED, never
+ *     export's price where niko has none, and its nutrient profile written
+ *     (source "book"). An Amino material with no niko item is REPORTED, never
  *     invented — the item master is office's, and a half-created item
  *     with no account is worse than a line in a report.
  *
@@ -27,7 +27,7 @@
  *   npx tsx scripts/import-feed-mill.ts feed-mill-export.json --write
  *
  * Idempotent: run twice, the second run finds everything in place and writes
- * nothing new. Existing EGGSY formulas of the same name are superseded, not
+ * nothing new. Existing niko formulas of the same name are superseded, not
  * duplicated.
  */
 import { readFileSync } from "node:fs";
@@ -101,8 +101,8 @@ async function main() {
         .update(items)
         .set({
           isFeedIngredient: true,
-          // The export's price fills a blank; a price EGGSY already has wins,
-          // because EGGSY's came through office and is newer.
+          // The export's price fills a blank; a price niko already has wins,
+          // because niko's came through office and is newer.
           ...(m.costPerKg && !Number(item.costPrice) ? { costPrice: String(m.costPerKg) } : {}),
           ...(m.bagWeightKg && item.unitBagWeightKg == null
             ? { unitBagWeightKg: String(m.bagWeightKg) }
@@ -213,7 +213,7 @@ async function main() {
 
   console.log(`\n  ${profiled} material(s) matched, ${housesMade} house(s) new, ${formulasMade} formula(s) ready`);
   if (unmatched.length) {
-    console.log(`\n  NO EGGSY ITEM for these Amino materials — add them or an alias, then re-run:`);
+    console.log(`\n  NO niko ITEM for these Amino materials — add them or an alias, then re-run:`);
     for (const u of unmatched) console.log(`    - ${u}`);
   }
   if (skipped.length) {

@@ -1,7 +1,7 @@
 /**
  * Read the Amino export and reconcile it before anything is imported.
  *
- * EGGSY derives a flock's bird count from its movements and refuses any
+ * niko derives a flock's bird count from its movements and refuses any
  * movement that would leave a house holding fewer than zero birds. So the
  * numbers have to add up BEFORE the import runs, not during it.
  *
@@ -99,7 +99,7 @@ const origins = stock
   .filter((r) => !r.source_shed_id)
   .sort((a, b) => day(a.date_in).localeCompare(day(b.date_in)));
 
-console.log("  Each batch as EGGSY will read it\n");
+console.log("  Each batch as niko will read it\n");
 const placedByBatch = new Map<string, number>();
 
 for (const o of origins) {

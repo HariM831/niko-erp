@@ -1,6 +1,6 @@
 /**
  * A read-only client for the Zoho Books API, used to migrate the live books
- * into EGGSY.
+ * into niko.
  *
  * Three things this has to survive, because the pull runs for an hour or more
  * unattended: access tokens expire after an hour, the API rate-limits, and a

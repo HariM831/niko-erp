@@ -8,7 +8,7 @@
  *
  *   npx tsx scripts/iot-poll.ts               one poll, now
  *   npx tsx scripts/iot-poll.ts --backfill    pull the vendor's stored history
- *   npx tsx scripts/iot-poll.ts --gaps        list the stretches EGGSY missed
+ *   npx tsx scripts/iot-poll.ts --gaps        list the stretches niko missed
  *   npx tsx scripts/iot-poll.ts --fill        fetch just those stretches
  *   npx tsx scripts/iot-poll.ts --status      the last polls and the token
  *
@@ -132,7 +132,7 @@ if (mode === "fill") {
 
 if (mode === "backfill") {
   // The operation the six-week window is about: the vendor discards anything
-  // older, so this is the once chance to capture what came before EGGSY.
+  // older, so this is the once chance to capture what came before niko.
   console.log("  pulling the vendor's stored history — this takes a while\n");
   const r = await backfill(42);
   console.log(`  ${r.houses} house(s), ${num(r.readings)} sample(s) kept, from ${r.from}`);

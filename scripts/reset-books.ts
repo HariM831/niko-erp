@@ -11,7 +11,7 @@
  * the organisation is called, and the numbering configuration (its counters are
  * wound back to 1, but the series themselves stay).
  *
- * AFTER RUNNING THIS, EGGSY CANNOT POST ANYTHING. The posting engine resolves
+ * AFTER RUNNING THIS, niko CANNOT POST ANYTHING. The posting engine resolves
  * accounts by system key — `ap`, `ar`, `sales`, `cash_bank` and the rest — and
  * this removes them along with everything else. Either run `npm run db:seed` to
  * rebuild the standard chart, or load a chart from the migration and assign the

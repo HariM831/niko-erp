@@ -2,7 +2,7 @@
  * The boss view — the whole operation on one screen, for a date range.
  *
  * Ported from Amino's executive report, section for section, but every
- * figure is computed from EGGSY's own tables: gate receipts for purchases,
+ * figure is computed from niko's own tables: gate receipts for purchases,
  * production orders and feed transfers for the mill, flock_day for the farm,
  * invoices and the benchmark for sales, bills for payables. The group
  * companies are excluded wherever a customer or vendor is being counted —

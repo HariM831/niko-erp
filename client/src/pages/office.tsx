@@ -3,7 +3,7 @@
  *
  * Stations 1–5 are used one-handed at a boom barrier and in a weighbridge
  * cabin, so they stay single-column and stack on a phone. They use the same
- * tokens and components as the rest of EGGSY: no second design system.
+ * tokens and components as the rest of niko: no second design system.
  *
  * P0 ships the shells. The receipt record, the queues and settlement land in
  * P2 onwards — see docs/office-plan.md.

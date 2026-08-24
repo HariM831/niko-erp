@@ -1,4 +1,4 @@
-# Feed Mill: integrating Amino's mill into EGGSY
+# Feed Mill: integrating Amino's mill into niko
 
 Read of `Amino farms` as at 17 Aug 2026. Covers formulas, formulator, production,
 transfer and inventory. No code written.
@@ -7,7 +7,7 @@ transfer and inventory. No code written.
 
 ## 1. The finding that reframes the port
 
-EGGSY's inventory service already exists, and it was written for this. From
+niko's inventory service already exists, and it was written for this. From
 `server/services/inventory.ts`:
 
 > **postInventoryMovement** — "This is the seam operational modules use — *the
@@ -17,7 +17,7 @@ EGGSY's inventory service already exists, and it was written for this. From
 And `inventory_transactions.sourceType` documents its own values as
 `e.g. "inventory_adjustment", "feed_mill"`.
 
-So EGGSY has a movement ledger, valuation from that ledger, GL posting, negative
+So niko has a movement ledger, valuation from that ledger, GL posting, negative
 stock guards and reversal — `moveStock`, `postInventoryMovement`, `stockOnHand`,
 `reverseStock`, `assertStockNotNegative`. The inventory half of the feed mill is
 not a port. It is a caller.
@@ -39,7 +39,7 @@ That removes most of what Amino built by hand.
 
 ## 2. What does NOT need rebuilding
 
-| Amino | EGGSY equivalent | Note |
+| Amino | niko equivalent | Note |
 |---|---|---|
 | `materials` (CRUD, stock, min levels) | `items` | Has `aliases`, `unitBagWeightKg`, purchase account, `trackInventory`, opening stock + rate, reorder level |
 | `vendors` | `contacts` | Richer — GSTIN/PAN, payment terms, place of supply |
@@ -52,7 +52,7 @@ That removes most of what Amino built by hand.
 | Activity log, journal posting, numbering | `activity`, `posting.ts`, `numbering.ts` | |
 | `production_plan` | — | **Not feed mill.** It plans egg boxes; belongs to Farms |
 
-Roughly 60% of Amino's feed-mill surface is already standing in EGGSY, most of it
+Roughly 60% of Amino's feed-mill surface is already standing in niko, most of it
 in better shape.
 
 ---
@@ -86,7 +86,7 @@ worth a column.
 Amino's `feed_standards` is `lifeStage × nutrient → min/max`. Clean, port nearly
 as-is. Life stages live in a shared const.
 
-Fits EGGSY as reference data under **Settings → Feed Mill**, beside the
+Fits niko as reference data under **Settings → Feed Mill**, beside the
 procurement tabs. Same treatment as QC specs: versioned, superseded rather than
 edited, because a formula solved last March was solved against March's standard.
 
@@ -95,14 +95,14 @@ edited, because a formula solved last March was solved against March's standard.
 Amino: `formulas` (ingredients as `jsonb`, `targetProtein`, `dosageLimits` jsonb,
 `feedIntakeG`) plus `formula_versions` snapshotting every edit.
 
-**Recommendation: follow the `qc_specs` pattern already in EGGSY** — a `formulas`
+**Recommendation: follow the `qc_specs` pattern already in niko** — a `formulas`
 header, `formula_lines` as real rows (not jsonb), versioned with one live version
 per formula, superseded on save. Reasons:
 
 - ingredient lines want a foreign key to `items`; jsonb cannot have one
 - a batch must record *which version* it was made to, exactly as a receipt line
   records `qcSpecId`
-- EGGSY already has the supersede-with-history idiom, screens included
+- niko already has the supersede-with-history idiom, screens included
 
 Each formula names its **output item** and its **batch size in kg**. Amino derives
 batch size by summing ingredient kg (`formulaTotalKg`, defaulting to 1000) —
@@ -142,9 +142,9 @@ Amino's flow: **generate slip → print → confirm → batch**. The slip is a w
 order; confirming it consumes stock and creates the batch record. Backdating is
 allowed and skips the stock check.
 
-Map onto EGGSY documents:
+Map onto niko documents:
 
-| Amino | EGGSY |
+| Amino | niko |
 |---|---|
 | `production_slips` (pending/confirmed/void) | **Production Order** — numbered document, `nextDocumentNumber` |
 | `batches` (+ `formulaSnapshot`, `costSnapshot`) | **Production Entry** — the completion, posts the movements |
@@ -188,7 +188,7 @@ balance per lot and recording `lot_consumption` for retrospective recalculation.
 It also has three fallbacks — backdated entries, opening stock with no lots,
 missing lots — each estimating from `materials.costPerKg`.
 
-EGGSY has **no lot tracking**, and `inventory_transactions` carries a `value` on
+niko has **no lot tracking**, and `inventory_transactions` carries a `value` on
 every movement.
 
 **Recommendation: weighted average from the movement ledger.**
@@ -230,7 +230,7 @@ F5 cannot.
 
 - **`deliveries`** and its moisture/price alerting — procurement supersedes it
 - **`materials.currentStock`** and `remainingQuantity` — stored balances, against
-  EGGSY's foundations
+  niko's foundations
 - **`production_plan`** — egg boxes, belongs to Farms
 - **`batches.formulaSnapshot` / `costSnapshot` as jsonb** — a version reference
   plus real movement rows says the same thing and can be queried
@@ -238,7 +238,7 @@ F5 cannot.
   `Dr feed_inventory / Cr feed_cogs`, crediting an expense account to move value
   into stock. It nets out only if COGS was debited earlier, which for a slip-built
   batch it was not. Worth checking against Amino's actuals before assuming the
-  balances there are right; EGGSY should post raw-inventory-out to
+  balances there are right; niko should post raw-inventory-out to
   finished-inventory-in and never touch COGS until feed leaves for a shed.
 - **The duplicated `NUTRIENT_FIELD_MAP`** — one on the client, one inside the
   solver endpoint

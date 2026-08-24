@@ -128,7 +128,7 @@ const NAV: NavItem[] = [
       /* The same core inventory, seen and handled at the farm gate. */
       { label: "Farm store", path: "/farms/store" },
       /* Field photos sent for a model's first opinion, with the flock record. */
-      { label: "Dr EGGSY", path: "/farms/dr-eggsy" },
+      { label: "Dr niko", path: "/farms/dr-eggsy" },
     ],
   },
   {
@@ -215,9 +215,9 @@ function SidebarBody({
     <>
       <div className="flex h-14 items-center gap-2.5 px-4">
         <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-brand-400 to-brand-600 text-[15px] font-extrabold text-white shadow-md">
-          E
+          n
         </span>
-        <span className="text-[15px] font-bold tracking-tight text-white">Eggsy Books</span>
+        <span className="text-[15px] font-bold tracking-tight text-white">niko</span>
       </div>
       <nav className="flex-1 overflow-y-auto px-2.5 py-2 text-[13px]">
         {navItems.map((item) => {
@@ -387,7 +387,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const leaf = navItems.find(
     (i) => i.path && (i.path === "/" ? location === "/" : location.startsWith(i.path)),
   );
-  const title = activeGroup?.label ?? leaf?.label ?? "Eggsy Books";
+  const title = activeGroup?.label ?? leaf?.label ?? "niko";
 
   return (
     // The provider wraps both the top bar and the page, because the search box

@@ -10,7 +10,7 @@
  * every line names an account, which is checked again here before anything is
  * written.
  *
- * EGGSY numbers its own journal entries, so Zoho's JN-* goes into the entry's
+ * niko numbers its own journal entries, so Zoho's JN-* goes into the entry's
  * reference where it stays visible and searchable.
  */
 import { readFile } from "node:fs/promises";

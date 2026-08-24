@@ -141,7 +141,7 @@ async function main() {
   const [admin] = await db.select({ id: users.id }).from(users).limit(1);
   if (!admin) throw new Error("No user to attribute the import to");
 
-  // EGGSY issues its own numbers; Zoho's belong to the vendor and go to
+  // niko issues its own numbers; Zoho's belong to the vendor and go to
   // reference, the same rule bills follow.
   const [{ next }] = await db
     .select({ next: sql<number>`COALESCE(MAX(SUBSTRING(number FROM '[0-9]+$')::int), 0) + 1` })

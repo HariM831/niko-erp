@@ -112,7 +112,7 @@ export async function computeDocumentTotals(
 
   const adjustmentP = toPaise(adjustment?.amount ?? "0");
   const rawTotalP = subTotalP - discountP + taxTotalP + adjustmentP;
-  // Rounding is an org preference — Zoho defaults to none, EGGSY to whole
+  // Rounding is an org preference — Zoho defaults to none, niko to whole
   // rupees. Whatever it is, the difference is recorded as roundOff so the
   // document still ties to its own lines.
   const prefs = await getPreferences(tx);

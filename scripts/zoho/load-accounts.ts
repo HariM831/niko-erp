@@ -1,5 +1,5 @@
 /**
- * Phase 3, first step: create EGGSY's chart of accounts from the reviewed map.
+ * Phase 3, first step: create niko's chart of accounts from the reviewed map.
  *
  * The first thing in this migration that writes to the database, and everything
  * after it resolves against what this creates — so it runs dry by default and
@@ -36,7 +36,7 @@ async function main() {
     accounts: MappedAccount[];
   };
 
-  // Parents before children, so a parent's EGGSY id exists by the time a child
+  // Parents before children, so a parent's niko id exists by the time a child
   // needs it. The map is already in depth-first order but sorting on depth
   // makes that a property of this script rather than an assumption about
   // another one.
@@ -124,7 +124,7 @@ async function main() {
     .limit(1)
     .then((r) => (r.length ? r : [{ count: 0 }]));
 
-  console.log(`\nCommitted. EGGSY now has ${count} accounts.`);
+  console.log(`\nCommitted. niko now has ${count} accounts.`);
   await pool.end();
 }
 

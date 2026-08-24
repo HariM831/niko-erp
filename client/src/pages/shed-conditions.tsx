@@ -33,7 +33,7 @@ import { FanWall, type LiveShed } from "../components/iot-widgets";
 /** recharts 3 types the tooltip callbacks tighter than these call sites want. */
 const Tooltip = RechartsTooltip as unknown as (props: Record<string, unknown>) => ReactElement;
 
-/* The strokes are literals because SVG cannot read a Tailwind class. EGGSY's
+/* The strokes are literals because SVG cannot read a Tailwind class. niko's
    palette: brand blue for the measured line, amber for feed and for a setpoint,
    green for water, red for anything that is a warning by itself. */
 // The generic "measured value" line colour, reused across temperature,

@@ -1,5 +1,5 @@
 /**
- * Phase 4: EGGSY's postings against Zoho's, account by account and day by day.
+ * Phase 4: niko's postings against Zoho's, account by account and day by day.
  *
  *   npx tsx scripts/zoho/verify-ledger.ts
  *
@@ -168,7 +168,7 @@ async function main() {
     const crDiff = e.cr - z.cr;
     if (drDiff === 0 && crDiff === 0) agreeing += 1;
     // Zoho routes an advance in and straight out again through the same account
-    // on the same day; EGGSY posts where the money ends up. Equal net movement
+    // on the same day; niko posts where the money ends up. Equal net movement
     // and unequal gross is that, and it changes no balance.
     else if (drDiff === crDiff) grossOnly += 1;
     else {
@@ -203,7 +203,7 @@ async function main() {
     byAccount.set(acct, e);
   }
 
-  console.log("\nDifferences by account (EGGSY minus Zoho, over the whole window):");
+  console.log("\nDifferences by account (niko minus Zoho, over the whole window):");
   console.log(
     `  ${"account".padEnd(38)}${"days".padStart(6)}${"debit".padStart(18)}${"credit".padStart(18)}${"net".padStart(18)}`,
   );

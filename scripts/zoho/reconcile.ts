@@ -1,5 +1,5 @@
 /**
- * Phase 4: EGGSY's trial balance against Zoho's, account by account.
+ * Phase 4: niko's trial balance against Zoho's, account by account.
  *
  *   npx tsx scripts/zoho/reconcile.ts
  *
@@ -10,7 +10,7 @@
  * sheet as at the cutoff for the position accounts, and the all-time profit
  * and loss for the rest. Between them they cover every account Zoho reports.
  *
- * Sign conventions differ and are converted rather than eyeballed. EGGSY
+ * Sign conventions differ and are converted rather than eyeballed. niko
  * stores debit minus credit throughout; Zoho reports every figure positive in
  * its natural direction, so liabilities, equity and income are negated to
  * compare.
@@ -20,7 +20,7 @@ import { and, eq, inArray, lte, sql } from "drizzle-orm";
 import { accounts, journalEntries, journalEntryLines, zohoIdMap } from "@shared/schema";
 import { db, pool } from "../../server/db";
 
-/** Zoho's reports are as at this date; EGGSY is measured to the same day. */
+/** Zoho's reports are as at this date; niko is measured to the same day. */
 const AS_AT = "2026-08-13";
 /** Last day of the financial year before AS_AT — India runs 1 April to 31 March. */
 const PRIOR_YEARS_END = "2026-03-31";
@@ -65,7 +65,7 @@ async function main() {
   console.log(`Zoho reports ${zoho.size} accounts`);
 
   // Retained earnings is derived in both systems rather than journalised —
-  // Zoho has never posted to the account, and neither has EGGSY. Comparing the
+  // Zoho has never posted to the account, and neither has niko. Comparing the
   // raw ledger balance against Zoho's reported figure would show the whole of
   // it as a difference, so the same derivation the balance sheet uses is
   // applied here: the accumulated result of every year before the current one.
@@ -143,7 +143,7 @@ async function main() {
   const zeroBoth = compared.filter((c) => c.zoho === null && Math.abs(c.eggsy) < 0.005);
 
   const out: string[] = [];
-  out.push(`TRIAL BALANCE — EGGSY against Zoho, as at ${AS_AT}`);
+  out.push(`TRIAL BALANCE — niko against Zoho, as at ${AS_AT}`);
   out.push("");
   out.push(`  accounts compared        ${compared.length - zeroBoth.length}`);
   out.push(`  agreeing exactly         ${matched.length}`);
@@ -157,7 +157,7 @@ async function main() {
   if (differing.length) {
     out.push("DIFFERENCES");
     out.push("");
-    out.push(`  ${"code".padEnd(7)}${"account".padEnd(40)}${"EGGSY".padStart(18)}${"Zoho".padStart(18)}${"difference".padStart(16)}`);
+    out.push(`  ${"code".padEnd(7)}${"account".padEnd(40)}${"niko".padStart(18)}${"Zoho".padStart(18)}${"difference".padStart(16)}`);
     for (const c of differing) {
       out.push(
         `  ${c.code.padEnd(7)}${c.name.slice(0, 38).padEnd(40)}${money(c.eggsy).padStart(18)}${money(c.zoho!).padStart(18)}${money(c.diff!).padStart(16)}`,
@@ -185,7 +185,7 @@ async function main() {
 
   console.log(`\n  agreeing exactly   ${matched.length}`);
   console.log(`  differing          ${differing.length}`);
-  console.log(`  in EGGSY only      ${notInZoho.length}`);
+  console.log(`  in niko only      ${notInZoho.length}`);
   console.log(`  nil in both        ${zeroBoth.length}`);
   console.log(`  net difference     ${money(differing.reduce((s, c) => s + c.diff!, 0))}`);
   if (differing.length) {

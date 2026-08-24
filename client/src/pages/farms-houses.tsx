@@ -9,7 +9,7 @@
  * The people reading this every morning know it, and the data coming across was
  * recorded through it.
  *
- * What changed is only where the numbers come from. EGGSY keeps flocks,
+ * What changed is only where the numbers come from. niko keeps flocks,
  * placements and a movement ledger rather than sheds with counts on them, so
  * one endpoint adapts its tables into the five collections this page expects —
  * see server/services/houses-board.ts. Nothing is adapted in here, because
@@ -415,7 +415,7 @@ export function FarmsHousesPage() {
 
   const fetchAllData = async () => {
     try {
-      // One request. EGGSY's tables are adapted into these five collections on
+      // One request. niko's tables are adapted into these five collections on
       // the server, so nothing below has to know how they are really stored.
       const data = await api<BoardData>("/api/farms/houses-board");
       setSheds(data.sheds);

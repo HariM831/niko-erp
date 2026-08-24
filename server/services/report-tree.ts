@@ -2,7 +2,7 @@
  * Turning flat account movements into the nested shape a financial statement
  * is actually read in.
  *
- * Every EGGSY report rendered accounts flat, so a chart like "Feed & Additives"
+ * Every niko report rendered accounts flat, so a chart like "Feed & Additives"
  * with "Loading & Unloading" beneath it read as two unrelated lines and no
  * subtotal tied them together. Statements are hierarchical; this builds that
  * hierarchy once so each report doesn't reinvent it.

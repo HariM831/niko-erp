@@ -29,9 +29,9 @@ export function LoginPage() {
       <form onSubmit={submit} className="relative w-[350px] rounded-2xl bg-white p-8 shadow-2xl">
         <div className="mb-1 flex items-center gap-2.5">
           <span className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 text-lg font-extrabold text-white shadow-md">
-            E
+            n
           </span>
-          <span className="text-xl font-bold tracking-tight">Eggsy Books</span>
+          <span className="text-xl font-bold tracking-tight">niko</span>
         </div>
         <p className="mb-6 text-[13px] text-gray-500">Sign in to manage your books</p>
         <label className="label">Username</label>

@@ -97,7 +97,7 @@ async function main() {
   const done = await idsOf("bank_transaction");
 
   // Offsets are named, not coded, so they have to be resolved by name. Match
-  // against Zoho's own chart rather than EGGSY's, because accounts can be
+  // against Zoho's own chart rather than niko's, because accounts can be
   // renamed on the way in — Chicks(Sales) is Bird (Sales) here.
   const zohoAccounts: Array<{ account_id: string; account_name: string }> = [];
   for (const file of ["chartofaccounts", "chartofaccounts-extra"]) {

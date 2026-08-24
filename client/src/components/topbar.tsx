@@ -82,7 +82,7 @@ export function TopBar() {
 
       <div className="flex items-center gap-1.5" ref={ref}>
         <button className="btn-ghost hidden items-center gap-1 font-semibold text-gray-700 sm:flex">
-          {org?.name || "Eggsy Books"}
+          {org?.name || "niko"}
           <ChevronDown size={13} className="text-gray-400" />
         </button>
 

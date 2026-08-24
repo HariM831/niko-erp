@@ -3,7 +3,7 @@
  *
  * Talks to the controllers in the sheds: discovers which houses exist, which
  * tags the controller template reports, and reads current and historical
- * values. It knows nothing about EGGSY — no database, no houses table — so it
+ * values. It knows nothing about niko — no database, no houses table — so it
  * can be pointed at the vendor and checked on its own.
  *
  * The protocol here is not guesswork and must not be "tidied": it is carried

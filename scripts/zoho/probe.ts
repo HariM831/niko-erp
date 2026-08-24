@@ -33,8 +33,8 @@ const MODULES: Array<{ path: string; key: string; note?: string }> = [
   { path: "banktransactions", key: "banktransactions" },
   { path: "settings/taxes", key: "taxes" },
   // Counted only to confirm we are ignoring them on purpose, not by accident.
-  { path: "estimates", key: "estimates", note: "excluded from EGGSY" },
-  { path: "salesorders", key: "salesorders", note: "excluded from EGGSY" },
+  { path: "estimates", key: "estimates", note: "excluded from niko" },
+  { path: "salesorders", key: "salesorders", note: "excluded from niko" },
 ];
 
 interface ModuleReport {

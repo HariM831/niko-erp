@@ -81,7 +81,7 @@ const statusViews = (statuses: string[]): ListView[] => [
 /**
  * Advanced-search fields per module.
  *
- * These mirror Zoho's Advanced Search, minus the fields EGGSY has no equivalent
+ * These mirror Zoho's Advanced Search, minus the fields niko has no equivalent
  * for — GST treatment, place of supply, TCS, tax exemptions and projects are
  * absent by design, and offering them as boxes that filter nothing would be
  * worse than not offering them.

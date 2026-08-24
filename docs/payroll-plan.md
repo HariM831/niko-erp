@@ -197,7 +197,7 @@ Bearer `Authorization: Bearer <token>`; `token_hash = sha256(token)`; `last_seen
 Nav module **Payroll** (`/payroll`): Overview · Employees · Time · Gate · Pay Inputs · Run ·
 Wages · Canteen · Devices. The masters (departments & designations, shifts, holidays, wage
 rate card, statutory & policy) are panels under **Settings → Payroll**, where every other
-module keeps its masters — not a page inside the module. Pages under `client/src/pages/payroll/`. EGGSY theme:
+module keeps its masters — not a page inside the module. Pages under `client/src/pages/payroll/`. niko theme:
 `card`, `chip`, `table-surface`/`table-head`/`table-th`, `btn-primary/secondary/ghost`,
 flat grey headers, no outer borders, `tabular-nums`, 25/page `table-pager`. Use `api()` from
 `../../api` and TanStack Query. Dialog from `@/components/ui/dialog`.

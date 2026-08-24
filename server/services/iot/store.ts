@@ -1,5 +1,5 @@
 /**
- * Getting readings out of the sheds and into EGGSY.
+ * Getting readings out of the sheds and into niko.
  *
  * The client in bhfarm.ts knows the vendor; this knows the farm. It maps a
  * controller to a house through `houses.bh_device_id`, writes what came back,
@@ -433,7 +433,7 @@ export async function pollOnce(): Promise<PollResult> {
 /**
  * Pull the vendor's own stored history.
  *
- * The one operation that recovers readings from before EGGSY existed — and it
+ * The one operation that recovers readings from before niko existed — and it
  * stops working for anything older than about six weeks, which is why it is
  * worth running early and often rather than once it is convenient.
  */
@@ -579,7 +579,7 @@ export async function findSampleGaps(sinceDays = 7): Promise<SampleGap[]> {
 }
 
 /**
- * Fetch the vendor's history for the stretches EGGSY missed.
+ * Fetch the vendor's history for the stretches niko missed.
  *
  * The poller only runs while the server does, so any restart, crash or deploy
  * leaves a hole. The vendor keeps roughly six weeks, which makes those holes

@@ -1,4 +1,4 @@
-# EGGSY v3
+# niko v3
 
 Farm ERP rebuilt on a Zoho Books-style accounting core. Books first; operational
 modules (feed mill, farms, egg sales, payroll) get ported on top afterwards.

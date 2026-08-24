@@ -187,7 +187,7 @@ interface Capacity {
  * The day, opened: the capacity breakdown first — shelf + lay = available,
  * minus committed = can still sell — then the orders as the bay will see
  * them, per size, with the per-day void (skip) for standing and edit/void for
- * spot. The same panel Amino's schedule had, on EGGSY's ledger.
+ * spot. The same panel Amino's schedule had, on niko's ledger.
  */
 function DayDrawer({
   date,

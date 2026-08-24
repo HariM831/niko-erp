@@ -2,8 +2,8 @@
  * Zoho's own statements, kept as the thing the migration is checked against.
  *
  * Pulled separately from the documents because they serve a different purpose:
- * the documents become EGGSY's data, these stay as evidence. Phase 4 compares
- * what EGGSY derived against what Zoho reported, and any difference that is not
+ * the documents become niko's data, these stay as evidence. Phase 4 compares
+ * what niko derived against what Zoho reported, and any difference that is not
  * the folded-in GST is a defect.
  *
  * Also used to settle the account mapping: when several accounts share a

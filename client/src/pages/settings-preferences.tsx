@@ -398,7 +398,7 @@ function PreferencesShell({ only }: { only: Module }) {
               disabled
               onChange={() => {}}
               label="Account code is mandatory and unique"
-              hint="Always on here, unlike Zoho: every account is referred to by its code throughout EGGSY, so one without a code would have nothing to show."
+              hint="Always on here, unlike Zoho: every account is referred to by its code throughout niko, so one without a code would have nothing to show."
             />
           </Group>
         )}

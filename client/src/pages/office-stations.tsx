@@ -14,7 +14,7 @@
  *
  * Each screen is single-column and stacks on a phone. They are used one-handed
  * in a weighbridge cabin and at an NIR bench, but they are the same components
- * as the rest of EGGSY — no second design system.
+ * as the rest of niko — no second design system.
  */
 import { useState } from "react";
 import { useLocation } from "wouter";

@@ -1,12 +1,12 @@
 /**
- * Phase 2: propose how Zoho's 398 accounts become EGGSY accounts.
+ * Phase 2: propose how Zoho's 398 accounts become niko accounts.
  *
- * Almost all of this is mechanical — Zoho's account_type maps onto EGGSY's
+ * Almost all of this is mechanical — Zoho's account_type maps onto niko's
  * subtype enum nearly one-for-one, because that enum was built from Zoho in the
  * first place. Two things are not mechanical and are why this step exists as a
  * review gate:
  *
- *   Codes. Only 6 of the 398 accounts carry an account_code, so EGGSY's
+ *   Codes. Only 6 of the 398 accounts carry an account_code, so niko's
  *   mandatory unique code has to be generated. They are assigned in bands by
  *   type and depth-first through the hierarchy, so a child sits next to its
  *   parent and the statement tree — which sorts siblings by code — reads in a
@@ -36,7 +36,7 @@ interface ZohoAccount {
   is_child_present: boolean;
 }
 
-/** Zoho's account_type -> EGGSY's broad type and granular subtype. */
+/** Zoho's account_type -> niko's broad type and granular subtype. */
 const TYPE_MAP: Record<string, { type: string; subtype: string }> = {
   other_asset: { type: "asset", subtype: "other_asset" },
   other_current_asset: { type: "asset", subtype: "other_current_asset" },
@@ -137,7 +137,7 @@ const SYSTEM_KEYS: Array<{
     // Zoho already has an account for these and I missed it, creating a new
     // "Advance to Suppliers" instead. The trial balance found it: Prepaid
     // Expenses was short by 1,08,68,516.87, exactly what the invented account
-    // held, and EGGSY's own 25,900 plus that figure is Zoho's balance to the
+    // held, and niko's own 25,900 plus that figure is Zoho's balance to the
     // rupee. Mapped, not created.
     key: "vendor_advances",
     exact: "Prepaid Expenses",
@@ -154,7 +154,7 @@ const SYSTEM_KEYS: Array<{
 ];
 
 /**
- * Accounts EGGSY needs that Zoho has no equivalent for.
+ * Accounts niko needs that Zoho has no equivalent for.
  *
  * Zoho never recorded accumulated depreciation or asset disposals — the ₹83.7
  * lakh charge went straight to an expense account with no contra-asset — so
@@ -236,7 +236,7 @@ async function main() {
   // Ten accounts referenced by real documents — Audit fee, SBI General
   // Insurance, Zoho's built-in Inventory Asset among them — are absent from the
   // list and were fetched by id into the second file. Without them the document
-  // import would post to accounts EGGSY does not have.
+  // import would post to accounts niko does not have.
   const files = [`${DIR}/list/chartofaccounts.jsonl`, `${DIR}/list/chartofaccounts-extra.jsonl`];
   const accounts: ZohoAccount[] = [];
   const seenIds = new Set<string>();
@@ -255,7 +255,7 @@ async function main() {
   );
   if (unknownTypes.length) {
     throw new Error(
-      `Zoho account types with no EGGSY equivalent: ${unknownTypes.join(", ")}. ` +
+      `Zoho account types with no niko equivalent: ${unknownTypes.join(", ")}. ` +
         `Add them to TYPE_MAP (and possibly to the accountSubtype enum) before loading.`,
     );
   }
@@ -473,7 +473,7 @@ async function main() {
     lines.push(
       "### Keys with no account in Zoho",
       "",
-      "These have to be created in EGGSY. Where several candidates exist the choice",
+      "These have to be created in niko. Where several candidates exist the choice",
       "is yours; where none do, the loader will add a new account.",
       "",
     );
@@ -491,7 +491,7 @@ async function main() {
   lines.push(
     "## Everything else is mechanical",
     "",
-    "| Zoho type | EGGSY type / subtype | Accounts |",
+    "| Zoho type | niko type / subtype | Accounts |",
     "| --- | --- | --- |",
     ...Object.entries(TYPE_MAP)
       .filter(([z]) => accounts.some((a) => a.account_type === z))
