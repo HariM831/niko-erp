@@ -23,6 +23,30 @@
   --color-amber-500: #f59e0b;
   --color-violet-500: #8b5cf6;
 
+  /* ── Yolk / soil — the Home page's own palette ───────────────────────────
+     Egg-yolk orange and a warm soil neutral, used only by home.tsx. Additive:
+     nothing above changes, so every other screen keeps the brand-blue system
+     exactly as it is. Kept here rather than inline so it is still one place
+     to retune, per this file's own rule. */
+  --color-yolk-50: #fff8ef;
+  --color-yolk-100: #ffecd2;
+  --color-yolk-200: #ffd8a3;
+  --color-yolk-300: #ffbd63;
+  --color-yolk-400: #ffa233;
+  --color-yolk-500: #f98a12;
+  --color-yolk-600: #e06d05;
+  --color-yolk-700: #b85406;
+  --color-yolk-800: #92420c;
+  --color-yolk-900: #75360e;
+
+  --color-soil-50: #faf7f1;
+  --color-soil-100: #f1ebdd;
+  --color-soil-200: #e2d5bd;
+  --color-soil-400: #a89572;
+  --color-soil-600: #6b5a3f;
+  --color-soil-800: #362b1c;
+  --color-soil-900: #241a10;
+
   /* ── Semantic tokens the Farms screens are written against ──────────────
      The Houses and House pages were ported markup-and-all from the farm's own
      app, which meant bringing its palette with them. These now point at
