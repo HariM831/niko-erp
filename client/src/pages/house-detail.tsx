@@ -1125,7 +1125,7 @@ export function HouseDetailPage() {
                 <Card className="rounded-2xl border-0 bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-base flex items-center gap-2">
-                      <Wheat className="w-4 h-4 text-warning" />
+                      <Wheat className="w-4 h-4 text-yolk-600" />
                       Feed per Bird (grams) vs Age
                     </CardTitle>
                   </CardHeader>
@@ -1151,7 +1151,7 @@ export function HouseDetailPage() {
                           <Line 
                             type="monotone" 
                             dataKey="feedPerBird" 
-                            stroke="#f59e0b" 
+                            stroke="#f98a12" 
                             strokeWidth={2}
                             dot={{ r: 3 }}
                             name="Actual"
@@ -1177,7 +1177,7 @@ export function HouseDetailPage() {
                 <Card className="rounded-2xl border-0 bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-base flex items-center gap-2">
-                      <Droplets className="w-4 h-4 text-info" />
+                      <Droplets className="w-4 h-4 text-soil-600" />
                       Water per Bird (ml) vs Age
                     </CardTitle>
                   </CardHeader>
@@ -1203,7 +1203,7 @@ export function HouseDetailPage() {
                           <Line 
                             type="monotone" 
                             dataKey="waterPerBird" 
-                            stroke="#408dfb" 
+                            stroke="#6b5a3f" 
                             strokeWidth={2}
                             dot={{ r: 3 }}
                             name="Actual"
@@ -1230,7 +1230,7 @@ export function HouseDetailPage() {
                   <Card className="md:col-span-2 rounded-2xl border-0 bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
                     <CardHeader className="pb-2">
                       <CardTitle className="text-base flex items-center gap-2">
-                        <Egg className="w-4 h-4 text-warning" />
+                        <Egg className="w-4 h-4 text-yolk-700" />
                         Egg Production (%) vs Age (weeks)
                       </CardTitle>
                     </CardHeader>
@@ -1256,7 +1256,7 @@ export function HouseDetailPage() {
                             <Line 
                               type="monotone" 
                               dataKey="eggPercent" 
-                              stroke="#2570eb" 
+                              stroke="#e06d05" 
                               strokeWidth={2}
                               dot={{ r: 3 }}
                               name="Actual"
@@ -1409,8 +1409,8 @@ export function HouseDetailPage() {
                             )}
                           </div>
 
-                          <div className="border rounded-lg p-4 space-y-3">
-                            <h4 className="font-semibold flex items-center gap-2 text-gray-700">
+                          <div className="rounded-2xl bg-white p-4 space-y-3 shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
+                            <h4 className="font-semibold flex items-center gap-2 text-soil-700">
                               <Bird className="w-4 h-4" />
                               Birds
                             </h4>
@@ -1478,8 +1478,8 @@ export function HouseDetailPage() {
                             </div>
                           </div>
 
-                          <div className="border rounded-lg p-4 space-y-3">
-                            <h4 className="font-semibold flex items-center gap-2 text-info">
+                          <div className="rounded-2xl bg-white p-4 space-y-3 shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
+                            <h4 className="font-semibold flex items-center gap-2 text-soil-800">
                               <Droplets className="w-4 h-4" />
                               Water
                             </h4>
@@ -1509,14 +1509,14 @@ export function HouseDetailPage() {
                                 />
                               </div>
                             </div>
-                            <div className="text-sm bg-info/10 p-2 rounded flex justify-between">
+                            <div className="text-sm bg-soil-100 p-2 rounded-lg flex justify-between">
                               <span>Total: <strong>{totalWater.toFixed(2)} kL</strong></span>
                               <span>Per Bird: <strong>{waterPerBird.toFixed(1)} ml</strong></span>
                             </div>
                           </div>
 
-                          <div className="border rounded-lg p-4 space-y-3">
-                            <h4 className="font-semibold flex items-center gap-2 text-warning">
+                          <div className="rounded-2xl bg-white p-4 space-y-3 shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
+                            <h4 className="font-semibold flex items-center gap-2 text-yolk-600">
                               <Wheat className="w-4 h-4" />
                               Feed
                             </h4>
@@ -1558,14 +1558,14 @@ export function HouseDetailPage() {
                                 />
                               </div>
                             </div>
-                            <div className="text-sm bg-warning/10 p-2 rounded">
+                            <div className="text-sm bg-yolk-50 p-2 rounded-lg">
                               Per Bird: <strong>{feedPerBird.toFixed(1)} grams</strong>
                             </div>
                           </div>
 
                           {shed.type === 'layer' && (
-                            <div className="border rounded-lg p-4 space-y-3 border-pink-200">
-                              <h4 className="font-semibold flex items-center gap-2 text-pink-700">
+                            <div className="rounded-2xl bg-white p-4 space-y-3 shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
+                              <h4 className="font-semibold flex items-center gap-2 text-yolk-700">
                                 <Egg className="w-4 h-4" />
                                 Eggs (Layer House)
                               </h4>
@@ -1580,7 +1580,7 @@ export function HouseDetailPage() {
                                   data-testid="input-eggs-produced"
                                 />
                               </div>
-                              <div className="text-sm bg-pink-50 p-2 rounded">
+                              <div className="text-sm bg-yolk-100 p-2 rounded-lg">
                                 Egg %: <strong>{eggPercent.toFixed(1)}%</strong> (per 100 birds)
                               </div>
                             </div>
@@ -2316,18 +2316,18 @@ export function HouseDetailPage() {
                     <div className="text-xs text-destructive mb-1">Mortality</div>
                     <div className="text-lg font-semibold text-destructive">{selectedRecord.mortality || 0}</div>
                   </div>
-                  <div className="bg-purple-50 p-3 rounded-lg">
-                    <div className="text-xs text-purple-600 mb-1">Male Birds</div>
-                    <div className="text-lg font-semibold text-purple-700">{selectedRecord.maleBirds || 0}</div>
+                  <div className="bg-soil-100 p-3 rounded-lg">
+                    <div className="text-xs text-soil-600 mb-1">Male Birds</div>
+                    <div className="text-lg font-semibold text-soil-800">{selectedRecord.maleBirds || 0}</div>
                   </div>
-                  <div className="bg-warning/10 p-3 rounded-lg">
-                    <div className="text-xs text-warning mb-1">Birds Culled</div>
-                    <div className="text-lg font-semibold text-warning">{selectedRecord.birdsCulled || 0}</div>
+                  <div className="bg-soil-100 p-3 rounded-lg">
+                    <div className="text-xs text-soil-600 mb-1">Birds Culled</div>
+                    <div className="text-lg font-semibold text-soil-800">{selectedRecord.birdsCulled || 0}</div>
                   </div>
                   {shed?.type === 'layer' && (
-                    <div className="bg-pink-50 p-3 rounded-lg">
-                      <div className="text-xs text-pink-600 mb-1">Eggs Produced</div>
-                      <div className="text-lg font-semibold text-pink-700">{(selectedRecord.eggsProduced || 0).toLocaleString()}</div>
+                    <div className="bg-yolk-100 p-3 rounded-lg">
+                      <div className="text-xs text-yolk-700 mb-1">Eggs Produced</div>
+                      <div className="text-lg font-semibold text-yolk-700">{(selectedRecord.eggsProduced || 0).toLocaleString()}</div>
                     </div>
                   )}
                 </div>
@@ -2341,11 +2341,11 @@ export function HouseDetailPage() {
                       </div>
                       <div className="text-lg font-semibold text-success">{selectedRecord.birdsTransferredIn || 0}</div>
                     </div>
-                    <div className="bg-info/10 p-3 rounded-lg">
-                      <div className="text-xs text-info mb-1 flex items-center gap-1">
+                    <div className="bg-warning/10 p-3 rounded-lg">
+                      <div className="text-xs text-warning mb-1 flex items-center gap-1">
                         <ArrowUpRight className="w-3 h-3" /> Transferred Out
                       </div>
-                      <div className="text-lg font-semibold text-info">{selectedRecord.birdsTransferredOut || 0}</div>
+                      <div className="text-lg font-semibold text-warning">{selectedRecord.birdsTransferredOut || 0}</div>
                     </div>
                   </div>
                 </div>
@@ -2353,13 +2353,13 @@ export function HouseDetailPage() {
                 <div className="border-t pt-3">
                   <h4 className="text-sm font-medium mb-2">Water</h4>
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-cyan-50 p-3 rounded-lg">
-                      <div className="text-xs text-cyan-600 mb-1">Upper Tank (KL)</div>
-                      <div className="text-lg font-semibold text-cyan-700">{selectedRecord.waterUpperKl || 0}</div>
+                    <div className="bg-soil-100 p-3 rounded-lg">
+                      <div className="text-xs text-soil-600 mb-1">Upper Tank (KL)</div>
+                      <div className="text-lg font-semibold text-soil-800">{selectedRecord.waterUpperKl || 0}</div>
                     </div>
-                    <div className="bg-cyan-50 p-3 rounded-lg">
-                      <div className="text-xs text-cyan-600 mb-1">Lower Tank (KL)</div>
-                      <div className="text-lg font-semibold text-cyan-700">{selectedRecord.waterLowerKl || 0}</div>
+                    <div className="bg-soil-100 p-3 rounded-lg">
+                      <div className="text-xs text-soil-600 mb-1">Lower Tank (KL)</div>
+                      <div className="text-lg font-semibold text-soil-800">{selectedRecord.waterLowerKl || 0}</div>
                     </div>
                   </div>
                 </div>
@@ -2367,17 +2367,17 @@ export function HouseDetailPage() {
                 <div className="border-t pt-3">
                   <h4 className="text-sm font-medium mb-2">Feed</h4>
                   <div className="grid grid-cols-3 gap-3">
-                    <div className="bg-warning/10 p-3 rounded-lg">
-                      <div className="text-xs text-warning mb-1">Delivered (kg)</div>
-                      <div className="text-lg font-semibold text-warning">{selectedRecord.feedDeliveredKg || 0}</div>
+                    <div className="bg-yolk-50 p-3 rounded-lg">
+                      <div className="text-xs text-yolk-700 mb-1">Delivered (kg)</div>
+                      <div className="text-lg font-semibold text-yolk-700">{selectedRecord.feedDeliveredKg || 0}</div>
                     </div>
-                    <div className="bg-warning/10 p-3 rounded-lg">
-                      <div className="text-xs text-warning mb-1">Intake (kg)</div>
-                      <div className="text-lg font-semibold text-warning">{selectedRecord.feedIntakeKg || 0}</div>
+                    <div className="bg-yolk-50 p-3 rounded-lg">
+                      <div className="text-xs text-yolk-700 mb-1">Intake (kg)</div>
+                      <div className="text-lg font-semibold text-yolk-700">{selectedRecord.feedIntakeKg || 0}</div>
                     </div>
-                    <div className="bg-warning/10 p-3 rounded-lg">
-                      <div className="text-xs text-warning mb-1">Stock (kg)</div>
-                      <div className="text-lg font-semibold text-warning">{selectedRecord.feedStockKg || 0}</div>
+                    <div className="bg-yolk-50 p-3 rounded-lg">
+                      <div className="text-xs text-yolk-700 mb-1">Stock (kg)</div>
+                      <div className="text-lg font-semibold text-yolk-700">{selectedRecord.feedStockKg || 0}</div>
                     </div>
                   </div>
                 </div>
