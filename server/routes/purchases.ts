@@ -1216,6 +1216,29 @@ const vendorCreditSchema = z.object({
   lines: z.array(lineSchema).min(1).max(200),
 });
 
+/** The gradient hero strip on the Vendor Credits list — same shape as Credit Notes'. */
+purchasesRouter.get(
+  "/vendor-credits/summary",
+  requirePermission("purchases", "view"),
+  async (_req, res) => {
+    const [agg] = await db.execute(sql`
+      SELECT
+        COALESCE(SUM(balance) FILTER (WHERE status = 'open'), 0)::numeric(14,2) AS open_balance,
+        COALESCE(SUM(total) FILTER (WHERE credit_date >= date_trunc('month', CURRENT_DATE)), 0)::numeric(14,2) AS issued_this_month,
+        COUNT(*) FILTER (WHERE status = 'open')::int AS open_count,
+        COALESCE(SUM(total) FILTER (WHERE status = 'closed'), 0)::numeric(14,2) AS closed_value
+      FROM vendor_credits
+    `).then((r) => r.rows as Array<Record<string, string>>);
+
+    res.json({
+      openBalance: agg?.open_balance ?? "0.00",
+      issuedThisMonth: agg?.issued_this_month ?? "0.00",
+      openCount: agg?.open_count ?? 0,
+      closedValue: agg?.closed_value ?? "0.00",
+    });
+  },
+);
+
 purchasesRouter.get(
   "/vendor-credits",
   requirePermission("purchases", "view"),
@@ -1419,6 +1442,25 @@ const expenseSchema = z.object({
   tagOptionIds: z.array(z.string().uuid()).max(10).optional(),
   /** Custom field values, keyed by field id. */
   customFields: z.record(z.string(), z.any()).optional(),
+});
+
+/** The gradient hero strip on the Expenses list — this month leads, no aging (expenses carry no status). */
+purchasesRouter.get("/expenses/summary", requirePermission("purchases", "view"), async (_req, res) => {
+  const [agg] = await db.execute(sql`
+    SELECT
+      COALESCE(SUM(amount) FILTER (WHERE expense_date >= date_trunc('month', CURRENT_DATE)), 0)::numeric(14,2) AS this_month,
+      COALESCE(SUM(amount) FILTER (WHERE expense_date >= date_trunc('week', CURRENT_DATE)), 0)::numeric(14,2) AS this_week,
+      COALESCE(SUM(amount) FILTER (WHERE expense_date >= CURRENT_DATE - INTERVAL '30 days'), 0)::numeric(14,2) AS last_30_days,
+      COALESCE(SUM(amount) FILTER (WHERE expense_date >= date_trunc('year', CURRENT_DATE)), 0)::numeric(14,2) AS this_year
+    FROM expenses
+  `).then((r) => r.rows as Array<Record<string, string>>);
+
+  res.json({
+    thisMonth: agg?.this_month ?? "0.00",
+    thisWeek: agg?.this_week ?? "0.00",
+    last30Days: agg?.last_30_days ?? "0.00",
+    thisYear: agg?.this_year ?? "0.00",
+  });
 });
 
 purchasesRouter.get("/expenses", requirePermission("purchases", "view"), async (req, res) => {

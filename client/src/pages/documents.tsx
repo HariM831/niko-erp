@@ -310,6 +310,48 @@ function CreditNoteSummaryBanner() {
   );
 }
 
+/** The Vendor Credits list's own hero — same shape as Credit Notes, the purchase side of it. */
+function VendorCreditSummaryBanner() {
+  const { data } = useQuery({
+    queryKey: ["/api/purchases/vendor-credits/summary"],
+    queryFn: () =>
+      api<{ openBalance: string; issuedThisMonth: string; openCount: number; closedValue: string }>(
+        "/api/purchases/vendor-credits/summary",
+      ),
+  });
+  return (
+    <SummaryBanner
+      primary={{ label: "Open credit balance", value: formatMoney(data?.openBalance ?? 0) }}
+      secondary={[
+        { label: "Issued this month", value: formatMoney(data?.issuedThisMonth ?? 0) },
+        { label: "Open vendor credits", value: String(data?.openCount ?? 0) },
+        { label: "Closed", value: formatMoney(data?.closedValue ?? 0) },
+      ]}
+    />
+  );
+}
+
+/** The Expenses list's own hero — this month leads. No alert dot: a spend record isn't a problem the way overdue money is. */
+function ExpenseSummaryBanner() {
+  const { data } = useQuery({
+    queryKey: ["/api/purchases/expenses/summary"],
+    queryFn: () =>
+      api<{ thisMonth: string; thisWeek: string; last30Days: string; thisYear: string }>(
+        "/api/purchases/expenses/summary",
+      ),
+  });
+  return (
+    <SummaryBanner
+      primary={{ label: "This month's expenses", value: formatMoney(data?.thisMonth ?? 0) }}
+      secondary={[
+        { label: "This week", value: formatMoney(data?.thisWeek ?? 0) },
+        { label: "Last 30 days", value: formatMoney(data?.last30Days ?? 0) },
+        { label: "This year", value: formatMoney(data?.thisYear ?? 0) },
+      ]}
+    />
+  );
+}
+
 export const InvoicesPage = () => (
   <ListPage<DocRow>
     title="Invoices"
@@ -476,6 +518,7 @@ export const VendorCreditsPage = () => (
     views={statusViews(["open", "closed", "void"])}
     newPath="/purchases/vendor-credits/new"
     rowPath={(r) => `/purchases/vendor-credits/${r.id}`}
+    banner={<VendorCreditSummaryBanner />}
     columns={[
       { key: "date", header: "Date", render: (r) => shortDate(r.creditDate as string) },
       { key: "number", header: "Credit Note#", render: (r) => <span className="font-medium text-brand-600">{r.number}</span> },
@@ -496,6 +539,7 @@ export const ExpensesPage = () => (
     rowKey={(r) => r.id}
     newPath="/purchases/expenses/new"
     rowPath={(r) => `/purchases/expenses/${r.id}`}
+    banner={<ExpenseSummaryBanner />}
     columns={[
       { key: "date", header: "Date", render: (r) => shortDate(r.expenseDate as string) },
       { key: "account", header: "Expense Account", render: (r) => <span className="text-gray-800">{(r.expenseAccountName as string) ?? "—"}</span> },
