@@ -150,7 +150,6 @@ const NAV: NavItem[] = [
       { label: "Wages", path: "/payroll/wages", perm: ["payroll", "view"] },
       { label: "Canteen", path: "/payroll/canteen", perm: ["payroll", "canteen"] },
       { label: "Devices", path: "/payroll/devices", perm: ["payroll", "devices"] },
-      { label: "Settings", path: "/payroll/settings", perm: ["payroll", "settings"] },
     ],
   },
   {

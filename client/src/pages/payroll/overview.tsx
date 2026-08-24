@@ -139,7 +139,7 @@ export function PayrollOverviewPage() {
         <div className="card p-4">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-[14px] font-semibold">Upcoming holidays</h2>
-            <Link href="/payroll/settings" className="text-[12px] text-brand-600 hover:underline">Manage</Link>
+            <Link href="/settings" className="text-[12px] text-brand-600 hover:underline">Manage</Link>
           </div>
           {upcoming.length ? (
             <div className="space-y-1 text-[13px]">

@@ -195,7 +195,9 @@ Bearer `Authorization: Bearer <token>`; `token_hash = sha256(token)`; `last_seen
 ## Client
 
 Nav module **Payroll** (`/payroll`): Overview · Employees · Time · Gate · Pay Inputs · Run ·
-Wages · Canteen · Devices · Settings. Pages under `client/src/pages/payroll/`. EGGSY theme:
+Wages · Canteen · Devices. The masters (departments & designations, shifts, holidays, wage
+rate card, statutory & policy) are panels under **Settings → Payroll**, where every other
+module keeps its masters — not a page inside the module. Pages under `client/src/pages/payroll/`. EGGSY theme:
 `card`, `chip`, `table-surface`/`table-head`/`table-th`, `btn-primary/secondary/ghost`,
 flat grey headers, no outer borders, `tabular-nums`, 25/page `table-pager`. Use `api()` from
 `../../api` and TanStack Query. Dialog from `@/components/ui/dialog`.
@@ -218,5 +220,7 @@ flat grey headers, no outer borders, `tabular-nums`, 25/page `table-pager`. Use 
 - **Wages**: daily-wage report by date range and role.
 - **Canteen**: canteens, meal windows, eligibility, today's plates, exceptions review, report.
 - **Devices**: registry, pair (code dialog with countdown), pending requests, staff PINs, reason codes.
-- **Settings**: Departments & designations, Shifts, Holidays, Wage rate card, Statutory & policy.
+- **Settings → Payroll** (in the main settings hub): Departments & designations, Shifts,
+  Holidays, Wage rate card, Statutory & policy — exported from `pages/payroll/settings.tsx`
+  and registered as the `m-payroll` section's extras in `pages/settings.tsx`.
 - **Home → People** card from `/api/payroll/reports/people` with drill-down.

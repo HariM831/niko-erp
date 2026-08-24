@@ -24,6 +24,13 @@ import { FarmHousesSection } from "./farm-houses";
 import { FarmStandardsSection } from "./farm-standards";
 import { FeedStandardsSection } from "./feed-standards";
 import {
+  DepartmentsTab,
+  HolidaysTab,
+  PolicyTab,
+  RatesTab,
+  ShiftsTab,
+} from "./payroll/settings";
+import {
   AccountantPrefsSection,
   ContactPrefsSection,
   InvoicePrefsSection,
@@ -85,6 +92,18 @@ const SECTIONS: SectionDef[] = [
     extras: [
       { key: "houses", label: "Houses" },
       { key: "standards", label: "Breeds & Standards" },
+    ],
+  },
+  {
+    key: "m-payroll",
+    label: "Payroll",
+    group: "Module Settings",
+    extras: [
+      { key: "departments", label: "Departments & designations" },
+      { key: "shifts", label: "Shifts" },
+      { key: "holidays", label: "Holidays" },
+      { key: "wage-rates", label: "Wage rate card" },
+      { key: "payroll-policy", label: "Statutory & policy" },
     ],
   },
   {
@@ -885,6 +904,11 @@ const MODULE_EXTRAS: Record<string, () => ReactElement> = {
   "feed-standards": FeedStandardsSection,
   houses: FarmHousesSection,
   standards: FarmStandardsSection,
+  departments: DepartmentsTab,
+  shifts: ShiftsTab,
+  holidays: HolidaysTab,
+  "wage-rates": RatesTab,
+  "payroll-policy": PolicyTab,
 };
 
 function ModuleSettings({ def }: { def: SectionDef }) {

@@ -86,7 +86,6 @@ import { PayrollRunPage } from "./pages/payroll/run";
 import { PayrollWagesPage } from "./pages/payroll/wages";
 import { PayrollCanteenPage } from "./pages/payroll/canteen";
 import { PayrollDevicesPage } from "./pages/payroll/devices";
-import { PayrollSettingsPage } from "./pages/payroll/settings";
 
 const SPLIT: Record<string, { endpoint: string; basePath: string; title: string; newPath: string; dateKey: string }> = {
   invoice: { endpoint: "/api/sales/invoices", basePath: "/sales/invoices", title: "Invoices", newPath: "/sales/invoices/new", dateKey: "invoiceDate" },
@@ -255,7 +254,8 @@ export function App() {
         <Route path="/payroll/wages" component={PayrollWagesPage} />
         <Route path="/payroll/canteen" component={PayrollCanteenPage} />
         <Route path="/payroll/devices" component={PayrollDevicesPage} />
-        <Route path="/payroll/settings" component={PayrollSettingsPage} />
+        {/* Payroll's masters moved to Settings, where every module keeps them. */}
+        <Route path="/payroll/settings">{() => <Redirect to="/settings" />}</Route>
         <Route path="/payroll" component={PayrollOverviewPage} />
         <Route path="/reports/weekly-management-summary" component={WeeklySummaryPage} />
         <Route path="/reports/:key">{(p) => <ReportViewPage reportKey={p.key!} />}</Route>

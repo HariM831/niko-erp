@@ -1,11 +1,14 @@
 /**
- * Payroll settings — the masters and the policy singleton.
+ * Payroll settings — the masters and the policy singleton, as five panels:
  *
  *   Departments & designations
  *   Shifts (with weekly-off days)
  *   Holidays (recurring supported)
  *   Wage rate card (daily-wage roles)
  *   Statutory & policy (PF / ESI / PT slabs, hours, leave accrual, review score)
+ *
+ * They are mounted under Settings → Payroll, alongside every other module's
+ * masters, rather than as a page of their own inside the module.
  */
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -13,7 +16,7 @@ import { Plus } from "lucide-react";
 import { api, formatMoney } from "../../api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  Badge, Empty, ErrorBanner, Field, PageHeader, PillTabs, Spinner, Td, Th, dmy, istToday, num, useErr,
+  Badge, Empty, ErrorBanner, Field, Spinner, Td, Th, dmy, istToday, num, useErr,
 } from "../../components/payroll/ui";
 
 interface Designation { id: string; name: string; displayOrder: number; isActive: boolean }
@@ -40,35 +43,13 @@ interface Settings {
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-type Tab = "departments" | "shifts" | "holidays" | "rates" | "policy";
-
-export function PayrollSettingsPage() {
-  const [tab, setTab] = useState<Tab>("departments");
-  return (
-    <div className="p-4 md:p-6">
-      <PageHeader title="Payroll settings" sub="Masters and policy. Changing a rate or a slab affects only runs processed after the change." />
-      <PillTabs
-        tabs={[
-          { key: "departments", label: "Departments & designations" },
-          { key: "shifts", label: "Shifts" },
-          { key: "holidays", label: "Holidays" },
-          { key: "rates", label: "Wage rate card" },
-          { key: "policy", label: "Statutory & policy" },
-        ]}
-        value={tab}
-        onChange={setTab}
-      />
-      {tab === "departments" && <DepartmentsTab />}
-      {tab === "shifts" && <ShiftsTab />}
-      {tab === "holidays" && <HolidaysTab />}
-      {tab === "rates" && <RatesTab />}
-      {tab === "policy" && <PolicyTab />}
-    </div>
-  );
-}
-
 /* ── Departments & designations ────────────────────────────────────────── */
-function DepartmentsTab() {
+/**
+ * The five payroll masters. They live as panels under Settings → Payroll
+ * (client/src/pages/settings.tsx), where every other module keeps its masters,
+ * rather than as a page inside the module itself.
+ */
+export function DepartmentsTab() {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
   const listQ = useQuery({ queryKey: ["payroll", "departments"], queryFn: () => api<Department[]>("/api/payroll/departments") });
@@ -152,7 +133,7 @@ function DepartmentsTab() {
 }
 
 /* ── Shifts ────────────────────────────────────────────────────────────── */
-function ShiftsTab() {
+export function ShiftsTab() {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
   const listQ = useQuery({ queryKey: ["payroll", "shifts"], queryFn: () => api<Shift[]>("/api/payroll/shifts") });
@@ -279,7 +260,7 @@ function ShiftDialog({ shift, onClose, onSaved }: { shift: Shift | null; onClose
 }
 
 /* ── Holidays ──────────────────────────────────────────────────────────── */
-function HolidaysTab() {
+export function HolidaysTab() {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
   const [year, setYear] = useState(Number(istToday().slice(0, 4)));
@@ -350,7 +331,7 @@ function HolidaysTab() {
 }
 
 /* ── Wage rate card ────────────────────────────────────────────────────── */
-function RatesTab() {
+export function RatesTab() {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
   const listQ = useQuery({ queryKey: ["payroll", "wage-roles"], queryFn: () => api<WageRole[]>("/api/payroll/wage-roles") });
@@ -426,7 +407,7 @@ function RatesTab() {
 }
 
 /* ── Statutory & policy ────────────────────────────────────────────────── */
-function PolicyTab() {
+export function PolicyTab() {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
   const setQ = useQuery({ queryKey: ["payroll", "settings"], queryFn: () => api<Settings>("/api/payroll/settings") });
