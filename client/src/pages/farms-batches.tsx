@@ -366,7 +366,7 @@ function NewBatchDialog({ onClose, onSaved }: { onClose: () => void; onSaved: ()
           </div>
           <button
             onClick={() => setHatches((cur) => [...cur, { hatchDate: today(), qty: "" }])}
-            className="mt-2 text-[12px] text-blue-600 hover:underline"
+            className="mt-2 text-[12px] text-yolk-600 hover:underline"
           >
             + Add hatch
           </button>
