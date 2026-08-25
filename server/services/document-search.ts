@@ -169,8 +169,14 @@ export function advancedSearch(
       case "dateRange": {
         const from = value(`${key}From`);
         const to = value(`${key}To`);
-        if (from) out.push(gte(field.col, from));
-        if (to) out.push(lte(field.col, to));
+        // Raw SQL rather than the typed gte/lte helpers: those serialise the
+        // bound value based on the column's TS type, and a `timestamp` column
+        // (createdAt/postedAt) expects a Date object there, not the plain
+        // "YYYY-MM-DD" string this field is fed — Postgres itself casts a
+        // date-shaped string against either a `date` or `timestamp` column
+        // without trouble, so letting it do that sidesteps the mismatch.
+        if (from) out.push(sql`${field.col} >= ${from}`);
+        if (to) out.push(sql`${field.col} <= ${to}`);
         break;
       }
       case "numberRange": {

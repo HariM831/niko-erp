@@ -11,6 +11,7 @@ import { ATTACHABLE_ENTITIES } from "@shared/entities";
 import { db } from "../db";
 import { nextDocumentNumber } from "../lib/numbering";
 import { requireAuth } from "../lib/rbac";
+import { entityExists } from "../services/entity-lookup";
 
 export const attachmentsRouter = Router();
 
@@ -75,6 +76,10 @@ attachmentsRouter.post("/", requireAuth, upload.single("file"), async (req, res)
   }
   if (!req.file) {
     return res.status(400).json({ error: "No file received (10 MB max; pdf/image/sheet/doc only)" });
+  }
+  if (!(await entityExists(db, parsed.data.entityType, parsed.data.entityId))) {
+    await unlink(req.file.path).catch(() => {});
+    return res.status(404).json({ error: "That record doesn't exist" });
   }
   // The filing reference and the row are claimed together: a number handed out
   // for a file that then failed to save would point at nothing on the shelf.

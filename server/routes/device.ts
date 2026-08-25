@@ -53,7 +53,8 @@ import {
 import { db, type Db, type Tx } from "../db";
 import { istDate, recomputeEmployeeDay } from "../services/day-resolution";
 import { requirePermission } from "../lib/rbac";
-import { validateBody } from "../lib/validate";
+import { looseNumber, validateBody } from "../lib/validate";
+import { respondToPgError } from "../lib/pg-errors";
 import { checkAttendancePresent } from "./canteen";
 
 type Conn = Db | Tx;
@@ -815,6 +816,11 @@ deviceRouter.use((req, res, next) => {
 });
 
 const serverError = (res: Response, what: string, err: unknown) => {
+  // A malformed id or the like is a client mistake, not a server fault — try
+  // the same translation the central handler would apply before defaulting
+  // to a flat 500. This route catches everything itself rather than calling
+  // next(err), so that central handler never gets a look at it otherwise.
+  if (respondToPgError(err, res)) return;
   console.error(`[device] ${what} failed:`, err);
   res.status(500).json({ error: `Failed to ${what}` });
 };
@@ -1196,7 +1202,7 @@ const reasonBody = z.object({
   code: z.string().trim().min(1).max(40),
   label: z.string().trim().min(1).max(120),
   requiresText: z.boolean().optional(),
-  displayOrder: z.coerce.number().int().optional(),
+  displayOrder: looseNumber(z.number().int()).optional(),
 });
 
 deviceRouter.post("/reason-codes", devicesAdmin, validateBody(reasonBody), async (req, res) => {
@@ -1214,7 +1220,7 @@ const reasonPatch = z.object({
   label: z.string().trim().min(1).max(120).optional(),
   requiresText: z.boolean().optional(),
   isActive: z.boolean().optional(),
-  displayOrder: z.coerce.number().int().optional(),
+  displayOrder: looseNumber(z.number().int()).optional(),
 });
 
 deviceRouter.patch("/reason-codes/:id", devicesAdmin, validateBody(reasonPatch), async (req, res) => {

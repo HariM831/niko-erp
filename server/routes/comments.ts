@@ -6,6 +6,7 @@ import { ATTACHABLE_ENTITIES } from "@shared/entities";
 import { db } from "../db";
 import { requireAuth } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
+import { entityExists } from "../services/entity-lookup";
 
 export const commentsRouter = Router();
 
@@ -44,6 +45,9 @@ commentsRouter.post(
   requireAuth,
   validateBody(querySchema.extend({ body: z.string().min(1).max(4000) })),
   async (req, res) => {
+    if (!(await entityExists(db, req.body.entityType, req.body.entityId))) {
+      return res.status(404).json({ error: "That record doesn't exist" });
+    }
     const [row] = await db
       .insert(comments)
       .values({

@@ -48,6 +48,7 @@ import { commentsRouter } from "./routes/comments";
 import { activityRouter } from "./routes/activity";
 import { activityLogger } from "./lib/activity";
 import { forwardAsyncErrors } from "./lib/async-errors";
+import { respondToPgError } from "./lib/pg-errors";
 import { requireAuth } from "./lib/rbac";
 
 const SESSION_SECRET = process.env.SESSION_SECRET;
@@ -160,6 +161,7 @@ app.use("/api/comments", commentsRouter);
 // Central error handler — no stack/message leaks.
 app.use(
   (err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    if (respondToPgError(err, res)) return;
     console.error(err);
     res.status(500).json({ error: "Internal server error" });
   },
