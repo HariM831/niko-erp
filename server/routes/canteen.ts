@@ -23,7 +23,7 @@ import {
 import { MEALS, SERVING_STATES } from "@shared/canteen";
 import { db, type Db, type Tx } from "../db";
 import { requirePermission } from "../lib/rbac";
-import { validateBody } from "../lib/validate";
+import { timeOfDay, validateBody } from "../lib/validate";
 
 type Conn = Db | Tx;
 
@@ -31,7 +31,6 @@ const IST = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" });
 const istToday = () => IST.format(new Date());
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const dateStr = z.string().regex(DATE_RE);
-const timeStr = z.string().regex(/^\d{2}:\d{2}$/);
 
 /**
  * The canteen's whole presence rule: any punch that day. Not the resolved
@@ -109,12 +108,17 @@ canteenRouter.get("/windows", view, async (req, res) => {
 
 const windowsBody = z
   .array(
-    z.object({
-      canteenId: z.string().uuid().nullable(),
-      meal: z.enum(MEALS),
-      startTime: timeStr,
-      endTime: timeStr,
-    }),
+    z
+      .object({
+        canteenId: z.string().uuid().nullable(),
+        meal: z.enum(MEALS),
+        startTime: timeOfDay,
+        endTime: timeOfDay,
+      })
+      .refine((w) => w.endTime > w.startTime, {
+        message: "End time must be after start time",
+        path: ["endTime"],
+      }),
   )
   .min(1);
 

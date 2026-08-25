@@ -21,7 +21,7 @@ import {
 } from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
-import { validateBody } from "../lib/validate";
+import { looseNumber, validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
 import {
   EGG_SIZES,
@@ -45,7 +45,7 @@ const view = requirePermission("sales", "view");
 const create = requirePermission("sales", "create");
 
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-const spread = z.coerce.number().min(-50).max(50);
+const spread = looseNumber(z.number().min(-50).max(50));
 
 const fail = (err: unknown, res: { status: (n: number) => { json: (b: unknown) => void } }) => {
   if (err instanceof PostingError) {
@@ -86,7 +86,7 @@ const agreementBody = z.object({
   customerId: z.string().uuid(),
   schedule: z.enum(["daily", "weekdays"]),
   daysOfWeek: z.array(z.number().int().min(0).max(6)).max(7).optional(),
-  boxes: z.coerce.number().int().positive(),
+  boxes: looseNumber(z.number().int().positive()),
   spreadPerEgg: spread,
   startDate: dateStr,
   notes: z.string().max(500).optional(),
@@ -116,7 +116,7 @@ eggSalesRouter.post("/agreements", create, validateBody(agreementBody), async (r
 const agreementPatch = z.object({
   schedule: z.enum(["daily", "weekdays"]).optional(),
   daysOfWeek: z.array(z.number().int().min(0).max(6)).max(7).nullish(),
-  boxes: z.coerce.number().int().positive().optional(),
+  boxes: looseNumber(z.number().int().positive()).optional(),
   spreadPerEgg: spread.optional(),
   status: z.enum(["active", "paused"]).optional(),
   /** Setting this ends the agreement — the void that keeps its history. */
@@ -155,7 +155,7 @@ eggSalesRouter.patch("/agreements/:id", create, validateBody(agreementPatch), as
 const exceptionBody = z.object({
   onDate: dateStr,
   kind: z.enum(["skip", "qty_override"]),
-  boxes: z.coerce.number().int().positive().optional(),
+  boxes: looseNumber(z.number().int().positive()).optional(),
   reason: z.string().max(300).optional(),
 });
 
@@ -218,9 +218,9 @@ eggSalesRouter.delete("/agreements/:id/exceptions/:date", create, async (req, re
 /* ── Spot orders ─────────────────────────────────────────────────────────── */
 
 const sizeBoxes = z.object(
-  Object.fromEntries(EGG_SIZES.map((s) => [s, z.coerce.number().int().min(0).default(0)])) as Record<
+  Object.fromEntries(EGG_SIZES.map((s) => [s, looseNumber(z.number().int().min(0)).default(0)])) as Record<
     (typeof EGG_SIZES)[number],
-    z.ZodDefault<z.ZodNumber>
+    z.ZodDefault<z.ZodEffects<z.ZodNumber, number, unknown>>
   >,
 );
 
@@ -347,7 +347,7 @@ eggSalesRouter.get("/benchmark", view, async (_req, res) => {
 
 const benchmarkBody = z.object({
   effectiveFrom: dateStr,
-  ratePerEgg: z.coerce.number().positive().max(100),
+  ratePerEgg: looseNumber(z.number().positive().max(100)),
   note: z.string().max(300).optional(),
 });
 
@@ -627,9 +627,9 @@ const closingBody = z.object({
       z.object({
         houseId: z.string().uuid(),
         boxes: z.object(
-          Object.fromEntries(EGG_SIZES.map((s) => [s, z.coerce.number().int().min(0).default(0)])) as Record<
+          Object.fromEntries(EGG_SIZES.map((s) => [s, looseNumber(z.number().int().min(0)).default(0)])) as Record<
             (typeof EGG_SIZES)[number],
-            z.ZodDefault<z.ZodNumber>
+            z.ZodDefault<z.ZodEffects<z.ZodNumber, number, unknown>>
           >,
         ),
       }),
@@ -671,9 +671,9 @@ const gradingBody = z.object({
       z.object({
         houseId: z.string().uuid(),
         boxes: z.object(
-          Object.fromEntries(EGG_SIZES.map((s) => [s, z.coerce.number().int().min(0).default(0)])) as Record<
+          Object.fromEntries(EGG_SIZES.map((s) => [s, looseNumber(z.number().int().min(0)).default(0)])) as Record<
             (typeof EGG_SIZES)[number],
-            z.ZodDefault<z.ZodNumber>
+            z.ZodDefault<z.ZodEffects<z.ZodNumber, number, unknown>>
           >,
         ),
       }),
@@ -705,9 +705,9 @@ const loadBody = z.object({
   agreementId: z.string().uuid().optional(),
   spotOrderId: z.string().uuid().optional(),
   loaded: z.object(
-    Object.fromEntries(EGG_SIZES.map((s) => [s, z.coerce.number().int().min(0).default(0)])) as Record<
+    Object.fromEntries(EGG_SIZES.map((s) => [s, looseNumber(z.number().int().min(0)).default(0)])) as Record<
       (typeof EGG_SIZES)[number],
-      z.ZodDefault<z.ZodNumber>
+      z.ZodDefault<z.ZodEffects<z.ZodNumber, number, unknown>>
     >,
   ),
   driverName: z.string().min(1).max(80),

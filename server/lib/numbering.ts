@@ -19,11 +19,18 @@ export async function nextDocumentNumber(
 ): Promise<string> {
   const resolvedSeriesId = seriesId ?? (await defaultSeriesId(tx));
 
+  // documentSeries carries the counter; isActive lives on its parent
+  // numberSeries — a deactivated series must stop handing out numbers even
+  // though the per-entity row it owns is otherwise perfectly usable.
   const [row] = await tx
     .update(documentSeries)
     .set({ nextNumber: sql`${documentSeries.nextNumber} + 1` })
     .where(
-      and(eq(documentSeries.entity, entity), eq(documentSeries.seriesId, resolvedSeriesId)),
+      and(
+        eq(documentSeries.entity, entity),
+        eq(documentSeries.seriesId, resolvedSeriesId),
+        sql`${documentSeries.seriesId} IN (SELECT id FROM ${numberSeries} WHERE is_active)`,
+      ),
     )
     .returning({
       prefix: documentSeries.prefix,

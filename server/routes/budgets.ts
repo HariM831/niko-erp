@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, asc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import { accounts, budgetLines, budgets, journalEntries, journalEntryLines } from "@shared/schema";
 import { db } from "../db";
@@ -122,6 +122,15 @@ budgetsRouter.patch(
     const budget = await db.query.budgets.findFirst({ where: eq(budgets.id, req.params.id!) });
     if (!budget) return res.status(404).json({ error: "Budget not found" });
     const body = req.body as z.infer<typeof linesPatchSchema>;
+
+    const wantedIds = [...new Set(body.lines.map((l) => l.accountId))];
+    const found = await db.select({ id: accounts.id }).from(accounts).where(inArray(accounts.id, wantedIds));
+    const foundIds = new Set(found.map((a) => a.id));
+    const missing = wantedIds.filter((id) => !foundIds.has(id));
+    if (missing.length) {
+      return res.status(422).json({ error: `No such account: ${missing.join(", ")}` });
+    }
+
     await db.transaction(async (tx) => {
       for (const l of body.lines) {
         await tx

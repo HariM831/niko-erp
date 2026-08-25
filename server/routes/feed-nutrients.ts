@@ -20,7 +20,9 @@ import { validateBody } from "../lib/validate";
 
 export const feedNutrientsRouter = Router();
 
-const decimal = z.string().regex(/^-?\d+(\.\d{1,4})?$/, "Enter a number");
+// No leading '-': every nutrient here is a physical quantity (a percentage,
+// ppm, or similar) that cannot be negative.
+const decimal = z.string().regex(/^\d+(\.\d{1,4})?$/, "Enter a number 0 or greater");
 
 const bodySchema = z.object({
   values: z

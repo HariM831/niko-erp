@@ -126,6 +126,24 @@ export interface ApplyInput {
 /** Validate and create a pending application. Throws PostingError on a policy breach. */
 export async function applyLeave(tx: Conn, input: ApplyInput) {
   if (input.toDate < input.fromDate) throw new PostingError("To-date cannot be before from-date");
+
+  const [overlap] = await tx
+    .select({ id: leaveApplications.id, fromDate: leaveApplications.fromDate, toDate: leaveApplications.toDate })
+    .from(leaveApplications)
+    .where(
+      and(
+        eq(leaveApplications.employeeId, input.employeeId),
+        inArray(leaveApplications.status, ["pending", "approved"]),
+        lte(leaveApplications.fromDate, input.toDate),
+        gte(leaveApplications.toDate, input.fromDate),
+      ),
+    );
+  if (overlap) {
+    throw new PostingError(
+      `Overlaps an existing application (${overlap.fromDate} to ${overlap.toDate})`,
+    );
+  }
+
   const days = spanDays(input.fromDate, input.toDate);
   const [settings] = await tx.select().from(payrollSettings);
   const year = Number(input.fromDate.slice(0, 4));

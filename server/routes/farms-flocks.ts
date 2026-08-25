@@ -25,7 +25,7 @@ import {
 } from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
-import { validateBody } from "../lib/validate";
+import { nonBlank, validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
 import { dayBoard, saveDay } from "../services/daily";
 import { housesBoard } from "../services/houses-board";
@@ -102,7 +102,7 @@ farmsFlockRouter.get("/breeds", view, async (_req, res) => {
 farmsFlockRouter.post(
   "/breeds",
   manage,
-  validateBody(z.object({ code: z.string().min(1).max(20), name: z.string().min(1).max(120) })),
+  validateBody(z.object({ code: nonBlank(20), name: nonBlank(120) })),
   async (req, res) => {
     const b = req.body as { code: string; name: string };
     try {
@@ -528,7 +528,11 @@ farmsFlockRouter.post(
   async (req, res) => {
     try {
       const row = await db.transaction((tx) =>
-        recordMovement(tx, { ...req.body, userId: req.session.user!.id }),
+        recordMovement(tx, {
+          ...req.body,
+          flockId: req.params.id!,
+          userId: req.session.user!.id,
+        }),
       );
       res.status(201).json(row);
     } catch (err) {

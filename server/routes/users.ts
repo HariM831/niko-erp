@@ -6,7 +6,7 @@ import { roles, users } from "@shared/schema";
 import { PERMISSION_MODULES, isAdminMap, sanitisePermissions } from "@shared/permissions";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
-import { validateBody } from "../lib/validate";
+import { nonBlank, validateBody } from "../lib/validate";
 
 export const usersRouter = Router();
 export const rolesRouter = Router();
@@ -20,21 +20,21 @@ const userSchema = z.object({
   username: z.string().min(3).max(64).regex(/^[a-zA-Z0-9._-]+$/, {
     message: "Letters, numbers, dot, dash and underscore only",
   }),
-  name: z.string().min(1),
+  name: nonBlank(),
   email: z.string().email().optional().or(z.literal("")),
   roleId: z.string().uuid(),
   password: z.string().min(8).max(128),
 });
 
 const userPatchSchema = z.object({
-  name: z.string().min(1).optional(),
+  name: nonBlank().optional(),
   email: z.string().email().optional().or(z.literal("")),
   roleId: z.string().uuid().optional(),
   isActive: z.boolean().optional(),
 });
 
 const roleSchema = z.object({
-  name: z.string().min(1).max(60),
+  name: nonBlank(60),
   description: z.string().optional(),
   permissions: z.record(z.string(), z.array(z.string())),
 });
@@ -75,8 +75,11 @@ usersRouter.post(
   validateBody(userSchema),
   async (req, res) => {
     const body = req.body as z.infer<typeof userSchema>;
+    // Case-insensitive: "Hari" and "hari" would otherwise sign in as two
+    // different people while looking, to anyone reading a list, like the same
+    // one twice.
     const existing = await db.query.users.findFirst({
-      where: eq(users.username, body.username),
+      where: sql`lower(${users.username}) = lower(${body.username})`,
     });
     if (existing) return res.status(422).json({ error: "That username is taken" });
 

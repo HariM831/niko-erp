@@ -8,18 +8,18 @@ import {
 } from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
-import { validateBody } from "../lib/validate";
+import { nonBlank, validateBody } from "../lib/validate";
 
 export const reportingTagsRouter = Router();
 
 const tagSchema = z.object({
-  name: z.string().min(1).max(60),
+  name: nonBlank(60),
   description: z.string().optional(),
   isActive: z.boolean().optional(),
 });
 
 const optionSchema = z.object({
-  name: z.string().min(1).max(60),
+  name: nonBlank(60),
   isActive: z.boolean().optional(),
   sortOrder: z.number().int().min(0).max(9999).optional(),
 });

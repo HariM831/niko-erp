@@ -13,9 +13,10 @@ import {
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { contains } from "../services/document-search";
-import { validateBody } from "../lib/validate";
+import { nonBlank, validateBody } from "../lib/validate";
 import { getPreferences } from "../services/preferences";
 import { readCustomFieldValues, saveCustomFieldValues } from "../services/custom-fields";
+import { PostingError } from "../services/posting";
 
 export const contactsRouter = Router();
 
@@ -46,17 +47,30 @@ const addressSchema = z.object({
   isDefault: z.boolean().optional(),
 });
 
-const contactSchema = z.object({
+/** A GST-registered treatment: the party is expected to carry a GSTIN. */
+const REGISTERED_TREATMENTS = new Set([
+  "registered_business",
+  "registered_composition",
+  "special_economic_zone",
+]);
+
+// Kept as a plain object (not the refined `contactSchema` below) so
+// contactPatchSchema can still call .omit/.partial/.extend on it — those are
+// ZodObject methods, unavailable once .refine() wraps a schema in ZodEffects.
+const contactObjectSchema = z.object({
   type: z.enum(contactType.enumValues),
-  displayName: z.string().min(1),
+  displayName: nonBlank(),
   companyName: z.string().optional(),
   email: z.string().email().optional(),
   phone: z.string().max(20).optional(),
   mobile: z.string().max(20).optional(),
   website: z.string().optional(),
   gstTreatment: z.enum(gstTreatment.enumValues).optional(),
-  gstin: z.string().length(15).optional(),
-  pan: z.string().length(10).optional(),
+  gstin: z
+    .string()
+    .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/, "Not a valid GSTIN")
+    .optional(),
+  pan: z.string().regex(/^[A-Z]{5}[0-9]{4}[A-Z]$/, "Not a valid PAN").optional(),
   placeOfSupplyState: z.string().max(4).optional(),
   paymentTermsDays: z.number().int().min(0).max(365).optional(),
   creditLimit: money.optional(),
@@ -67,6 +81,21 @@ const contactSchema = z.object({
   /** Custom field values, keyed by field id. */
   customFields: z.record(z.string(), z.any()).optional(),
 });
+
+// The cross-field GST check only makes sense where every relevant field is
+// guaranteed present in the same request — creation, not a partial edit,
+// where gstTreatment and gstin might be patched independently of each other
+// and this schema alone can't see what the other one currently holds in the
+// database.
+const contactSchema = contactObjectSchema
+  .refine(
+    (c) => !(c.gstTreatment && REGISTERED_TREATMENTS.has(c.gstTreatment) && !c.gstin),
+    { message: "A registered GST treatment needs a GSTIN", path: ["gstin"] },
+  )
+  .refine(
+    (c) => !(c.gstTreatment && !REGISTERED_TREATMENTS.has(c.gstTreatment) && c.gstin),
+    { message: "This GST treatment does not carry a GSTIN", path: ["gstin"] },
+  );
 
 // The module permission is "sales" for customers and "purchases" for vendors;
 // contact routes accept either, checking against the requested type.
@@ -212,7 +241,7 @@ contactsRouter.post("/", validateBody(contactSchema), async (req, res, next) => 
       });
       res.status(201).json(result);
     } catch (err) {
-      if (err instanceof DuplicateContactError) {
+      if (err instanceof DuplicateContactError || err instanceof PostingError) {
         return res.status(422).json({ error: err.message });
       }
       next(err);
@@ -220,7 +249,7 @@ contactsRouter.post("/", validateBody(contactSchema), async (req, res, next) => 
   });
 });
 
-const contactPatchSchema = contactSchema
+const contactPatchSchema = contactObjectSchema
   .omit({ type: true })
   .partial()
   .extend({ isActive: z.boolean().optional() });
@@ -265,6 +294,9 @@ contactsRouter.patch("/:id", validateBody(contactPatchSchema), async (req, res, 
       });
       res.json(result);
     } catch (err) {
+      if (err instanceof PostingError) {
+        return res.status(422).json({ error: err.message });
+      }
       next(err);
     }
   });

@@ -11,7 +11,7 @@ import {
 import { NUMBERED_ENTITIES } from "@shared/entities";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
-import { validateBody } from "../lib/validate";
+import { nonBlank, validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
 import { getOpeningBalances, saveOpeningBalances } from "../services/opening-balances";
 import { getPreferences } from "../services/preferences";
@@ -21,7 +21,7 @@ export const settingsRouter = Router();
 // ---------- Organisation profile ----------
 
 const orgSchema = z.object({
-  name: z.string().min(1),
+  name: nonBlank(),
   legalName: z.string().optional(),
   address: z.string().optional(),
   city: z.string().optional(),
@@ -79,7 +79,7 @@ const DEFAULT_PREFIX: Record<string, string> = {
 };
 
 const newSeriesSchema = z.object({
-  name: z.string().min(1).max(60),
+  name: nonBlank(60),
   /** Inserted between each module's prefix and its number, e.g. "EG-" → "A-INV-EG-". */
   prefixTag: z.string().max(12).optional(),
 });
@@ -110,7 +110,7 @@ settingsRouter.patch(
   requirePermission("settings", "edit"),
   validateBody(
     z.object({
-      name: z.string().min(1).max(60).optional(),
+      name: nonBlank(60).optional(),
       isActive: z.boolean().optional(),
       isDefault: z.boolean().optional(),
     }),
@@ -184,12 +184,25 @@ settingsRouter.post(
   requirePermission("settings", "create"),
   validateBody(
     z.object({
-      name: z.string().min(1),
+      name: nonBlank(),
       startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
       endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     }),
   ),
   async (req, res) => {
+    const { startDate, endDate } = req.body as { startDate: string; endDate: string };
+    if (endDate <= startDate) {
+      return res.status(422).json({ error: "The end date must be after the start date" });
+    }
+    // A year that shares even one day with an existing one would double-count
+    // that day's postings in whichever report groups by financial year.
+    const existing = await db.select().from(financialYears);
+    const overlaps = existing.find((y) => startDate <= y.endDate && endDate >= y.startDate);
+    if (overlaps) {
+      return res.status(422).json({
+        error: `Overlaps ${overlaps.name} (${overlaps.startDate} to ${overlaps.endDate})`,
+      });
+    }
     const [row] = await db.insert(financialYears).values(req.body).returning();
     res.status(201).json(row);
   },
@@ -205,9 +218,20 @@ settingsRouter.patch(
     }),
   ),
   async (req, res) => {
+    const body = req.body as { isActive?: boolean; lockedThrough?: string | null };
+    if (body.lockedThrough) {
+      const [year] = await db
+        .select()
+        .from(financialYears)
+        .where(eq(financialYears.id, req.params.id!));
+      if (!year) return res.status(404).json({ error: "Financial year not found" });
+      if (body.lockedThrough < year.startDate) {
+        return res.status(422).json({ error: "The lock date is before this year even starts" });
+      }
+    }
     const [row] = await db
       .update(financialYears)
-      .set(req.body)
+      .set(body)
       .where(eq(financialYears.id, req.params.id!))
       .returning();
     if (!row) return res.status(404).json({ error: "Financial year not found" });

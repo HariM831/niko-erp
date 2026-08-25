@@ -21,7 +21,7 @@ import { formulaLines, formulas, itemNutrients, items, lifeStage, productionOrde
 import { NUTRIENTS } from "@shared/feed";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
-import { validateBody } from "../lib/validate";
+import { nonBlank, validateBody } from "../lib/validate";
 import { getPreferences } from "../services/preferences";
 
 export const feedFormulasRouter = Router();
@@ -30,7 +30,7 @@ const qtyStr = z.string().regex(/^\d+(\.\d{1,3})?$/, "Enter a quantity");
 const pctStr = z.string().regex(/^\d+(\.\d{1,3})?$/, "Enter a percentage");
 
 const bodySchema = z.object({
-  name: z.string().min(1).max(120),
+  name: nonBlank(120),
   outputItemId: z.string().uuid(),
   stage: z.enum(lifeStage.enumValues).nullish(),
   batchSizeKg: qtyStr,

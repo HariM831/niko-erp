@@ -5,7 +5,7 @@ import { customFieldOptions, customFieldValues, customFields } from "@shared/sch
 import { CUSTOM_FIELD_ENTITIES, ENTITIES, LOOKUP_TARGETS } from "@shared/entities";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
-import { validateBody } from "../lib/validate";
+import { nonBlank, validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
 import { assertLookupTarget } from "../services/custom-fields";
 
@@ -18,7 +18,7 @@ const NEEDS_OPTIONS = ["dropdown", "multiselect"];
 
 const fieldSchema = z.object({
   entity: z.enum(CUSTOM_FIELD_ENTITIES as [string, ...string[]]),
-  label: z.string().min(1).max(60),
+  label: nonBlank(60),
   dataType: z.enum([
     "text",
     "textarea",
@@ -206,7 +206,7 @@ customFieldsRouter.delete("/:id", requirePermission("settings", "delete"), async
 customFieldsRouter.post(
   "/:id/options",
   requirePermission("settings", "edit"),
-  validateBody(z.object({ label: z.string().min(1).max(80) })),
+  validateBody(z.object({ label: nonBlank(80) })),
   async (req, res) => {
     const field = await db.query.customFields.findFirst({
       where: eq(customFields.id, req.params.id!),
@@ -234,15 +234,22 @@ customFieldsRouter.patch(
   "/options/:optionId",
   requirePermission("settings", "edit"),
   validateBody(
-    z.object({ label: z.string().min(1).max(80).optional(), isActive: z.boolean().optional() }),
+    z.object({ label: nonBlank(80).optional(), isActive: z.boolean().optional() }),
   ),
   async (req, res) => {
-    const [row] = await db
-      .update(customFieldOptions)
-      .set(req.body)
-      .where(eq(customFieldOptions.id, req.params.optionId!))
-      .returning();
-    if (!row) return res.status(404).json({ error: "Choice not found" });
-    res.json(row);
+    try {
+      const [row] = await db
+        .update(customFieldOptions)
+        .set(req.body)
+        .where(eq(customFieldOptions.id, req.params.optionId!))
+        .returning();
+      if (!row) return res.status(404).json({ error: "Choice not found" });
+      res.json(row);
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("uq_custom_field_option")) {
+        return res.status(422).json({ error: `"${req.body.label}" is already a choice` });
+      }
+      throw err;
+    }
   },
 );

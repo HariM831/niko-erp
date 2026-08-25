@@ -29,7 +29,7 @@ import {
 } from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
-import { validateBody } from "../lib/validate";
+import { looseNumber, nonBlank, timeOfDay, validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
 import {
   addDays,
@@ -67,9 +67,9 @@ const runPerm = requirePermission("payroll", "run");
 const gatePerm = requirePermission("payroll", "gate");
 
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-const moneyNum = z.coerce.number().min(0).max(99_99_99_999);
-const monthNum = z.coerce.number().int().min(1).max(12);
-const yearNum = z.coerce.number().int().min(2000).max(2100);
+const moneyNum = looseNumber(z.number().min(0).max(99_99_99_999));
+const monthNum = looseNumber(z.number().int().min(1).max(12));
+const yearNum = looseNumber(z.number().int().min(2000).max(2100));
 
 const fail = (err: unknown, res: { status: (n: number) => { json: (b: unknown) => void } }) => {
   if (err instanceof PostingError) {
@@ -101,7 +101,7 @@ payrollRouter.get("/departments", view, async (_req, res) => {
   );
 });
 
-payrollRouter.post("/departments", settingsPerm, validateBody(z.object({ name: z.string().min(1).max(80) })), async (req, res) => {
+payrollRouter.post("/departments", settingsPerm, validateBody(z.object({ name: nonBlank(80) })), async (req, res) => {
   const [row] = await db.insert(departments).values({ name: req.body.name.trim() }).returning();
   res.status(201).json(row);
 });
@@ -109,7 +109,7 @@ payrollRouter.post("/departments", settingsPerm, validateBody(z.object({ name: z
 payrollRouter.patch(
   "/departments/:id",
   settingsPerm,
-  validateBody(z.object({ name: z.string().min(1).max(80).optional(), isActive: z.boolean().optional() })),
+  validateBody(z.object({ name: nonBlank(80).optional(), isActive: z.boolean().optional() })),
   async (req, res) => {
     const [row] = await db.update(departments).set(req.body).where(eq(departments.id, req.params.id!)).returning();
     if (!row) return res.status(404).json({ error: "No such department" });
@@ -120,7 +120,7 @@ payrollRouter.patch(
 payrollRouter.post(
   "/departments/:id/designations",
   settingsPerm,
-  validateBody(z.object({ name: z.string().min(1).max(80), displayOrder: z.coerce.number().int().optional() })),
+  validateBody(z.object({ name: nonBlank(80), displayOrder: looseNumber(z.number().int()).optional() })),
   async (req, res) => {
     const [row] = await db
       .insert(designations)
@@ -135,8 +135,8 @@ payrollRouter.patch(
   settingsPerm,
   validateBody(
     z.object({
-      name: z.string().min(1).max(80).optional(),
-      displayOrder: z.coerce.number().int().optional(),
+      name: nonBlank(80).optional(),
+      displayOrder: looseNumber(z.number().int()).optional(),
       isActive: z.boolean().optional(),
     }),
   ),
@@ -164,7 +164,7 @@ payrollRouter.get("/wage-roles", view, async (_req, res) => {
 payrollRouter.post(
   "/wage-roles",
   settingsPerm,
-  validateBody(z.object({ name: z.string().min(1).max(80), dailyRate: moneyNum })),
+  validateBody(z.object({ name: nonBlank(80), dailyRate: moneyNum })),
   async (req, res) => {
     const [row] = await db
       .insert(wageRoles)
@@ -177,7 +177,7 @@ payrollRouter.post(
 payrollRouter.patch(
   "/wage-roles/:id",
   settingsPerm,
-  validateBody(z.object({ name: z.string().min(1).max(80).optional(), dailyRate: moneyNum.optional(), isActive: z.boolean().optional() })),
+  validateBody(z.object({ name: nonBlank(80).optional(), dailyRate: moneyNum.optional(), isActive: z.boolean().optional() })),
   async (req, res) => {
     const b = req.body as { name?: string; dailyRate?: number; isActive?: boolean };
     const [row] = await db
@@ -194,12 +194,11 @@ payrollRouter.patch(
   },
 );
 
-const timeStr = z.string().regex(/^\d{2}:\d{2}$/);
 const shiftBody = z.object({
-  name: z.string().min(1).max(80),
-  startTime: timeStr,
-  endTime: timeStr,
-  workingHours: z.coerce.number().positive().max(24),
+  name: nonBlank(80),
+  startTime: timeOfDay,
+  endTime: timeOfDay,
+  workingHours: looseNumber(z.number().positive().max(24)),
   weeklyOffDays: z.array(z.number().int().min(0).max(6)).max(7),
   color: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional(),
 });
@@ -279,7 +278,7 @@ payrollRouter.get("/holidays", view, async (req, res) => {
 });
 
 const holidayBody = z.object({
-  name: z.string().min(1).max(120),
+  name: nonBlank(120),
   date: dateStr,
   type: z.enum(["national", "regional", "company"]).optional(),
   isRecurring: z.boolean().optional(),
@@ -307,20 +306,20 @@ payrollRouter.get("/settings", view, async (_req, res) => {
 });
 
 const settingsPatch = z.object({
-  pfEmployeePct: z.coerce.number().min(0).max(100).optional(),
-  pfEmployerPct: z.coerce.number().min(0).max(100).optional(),
+  pfEmployeePct: looseNumber(z.number().min(0).max(100)).optional(),
+  pfEmployerPct: looseNumber(z.number().min(0).max(100)).optional(),
   pfWageCeiling: moneyNum.optional(),
-  esiEmployeePct: z.coerce.number().min(0).max(100).optional(),
-  esiEmployerPct: z.coerce.number().min(0).max(100).optional(),
+  esiEmployeePct: looseNumber(z.number().min(0).max(100)).optional(),
+  esiEmployerPct: looseNumber(z.number().min(0).max(100)).optional(),
   esiGrossCeiling: moneyNum.optional(),
   ptSlabs: z.array(z.object({ upTo: z.number().nullable(), amount: z.number().min(0) })).optional(),
-  fullDayHours: z.coerce.number().positive().max(24).optional(),
-  halfDayHours: z.coerce.number().positive().max(24).optional(),
-  clPerMonth: z.coerce.number().min(0).max(10).optional(),
-  clMaxConsecutive: z.coerce.number().int().min(1).max(31).optional(),
-  slPerMonth: z.coerce.number().min(0).max(10).optional(),
-  compOffValidityDays: z.coerce.number().int().min(1).max(365).optional(),
-  reviewBelowScore: z.coerce.number().min(0).max(1).optional(),
+  fullDayHours: looseNumber(z.number().positive().max(24)).optional(),
+  halfDayHours: looseNumber(z.number().positive().max(24)).optional(),
+  clPerMonth: looseNumber(z.number().min(0).max(10)).optional(),
+  clMaxConsecutive: looseNumber(z.number().int().min(1).max(31)).optional(),
+  slPerMonth: looseNumber(z.number().min(0).max(10)).optional(),
+  compOffValidityDays: looseNumber(z.number().int().min(1).max(365)).optional(),
+  reviewBelowScore: looseNumber(z.number().min(0).max(1)).optional(),
 });
 
 payrollRouter.patch("/settings", settingsPerm, validateBody(settingsPatch), async (req, res) => {
@@ -419,8 +418,8 @@ payrollRouter.get("/employees/gallery", gatePerm, async (_req, res) => {
 });
 
 const employeeFields = z.object({
-  empCode: z.string().min(1).max(20),
-  name: z.string().min(1).max(120),
+  empCode: nonBlank(20),
+  name: nonBlank(120),
   payType: z.enum(["salaried", "daily_wage"]),
   departmentId: z.string().uuid().nullish(),
   designationId: z.string().uuid().nullish(),
@@ -443,8 +442,8 @@ const employeeFields = z.object({
   allowances: moneyNum.optional(),
   pfEnabled: z.boolean().optional(),
   esiEnabled: z.boolean().optional(),
-  openingCl: z.coerce.number().min(0).max(60).optional(),
-  openingSl: z.coerce.number().min(0).max(60).optional(),
+  openingCl: looseNumber(z.number().min(0).max(60)).optional(),
+  openingSl: looseNumber(z.number().min(0).max(60)).optional(),
   emergencyContactName: z.string().max(120).nullish(),
   emergencyContactNumber: z.string().max(20).nullish(),
   emergencyContactRelation: z.string().max(60).nullish(),
@@ -469,6 +468,9 @@ function employeeWrite(b: Partial<z.infer<typeof employeeFields>>) {
 
 payrollRouter.post("/employees", employeesPerm, validateBody(employeeFields), async (req, res) => {
   const b = req.body as z.infer<typeof employeeFields>;
+  if (b.dateOfJoining && b.dateOfLeaving && b.dateOfLeaving < b.dateOfJoining) {
+    return res.status(422).json({ error: "Date of leaving is before date of joining" });
+  }
   const [dup] = await db.select({ id: employees.id }).from(employees).where(eq(employees.empCode, b.empCode));
   if (dup) return res.status(422).json({ error: `Employee code ${b.empCode} is already taken` });
   const [row] = await db
@@ -479,6 +481,19 @@ payrollRouter.post("/employees", employeesPerm, validateBody(employeeFields), as
 });
 
 payrollRouter.patch("/employees/:id", employeesPerm, validateBody(employeeFields.partial()), async (req, res) => {
+  const body = req.body as Partial<z.infer<typeof employeeFields>>;
+  if (body.dateOfJoining !== undefined || body.dateOfLeaving !== undefined) {
+    const [existing] = await db
+      .select({ dateOfJoining: employees.dateOfJoining, dateOfLeaving: employees.dateOfLeaving })
+      .from(employees)
+      .where(eq(employees.id, req.params.id!));
+    if (!existing) return res.status(404).json({ error: "No such employee" });
+    const joining = body.dateOfJoining !== undefined ? body.dateOfJoining : existing.dateOfJoining;
+    const leaving = body.dateOfLeaving !== undefined ? body.dateOfLeaving : existing.dateOfLeaving;
+    if (joining && leaving && leaving < joining) {
+      return res.status(422).json({ error: "Date of leaving is before date of joining" });
+    }
+  }
   const [row] = await db
     .update(employees)
     .set(employeeWrite(req.body))
@@ -1179,7 +1194,7 @@ const payInputBody = z.object({
   month: monthNum,
   year: yearNum,
   amount: moneyNum.optional(),
-  hours: z.coerce.number().positive().max(400).optional(),
+  hours: looseNumber(z.number().positive().max(400)).optional(),
   ratePerHour: moneyNum.optional(),
   category: z.string().max(120).nullish(),
   description: z.string().max(500).nullish(),

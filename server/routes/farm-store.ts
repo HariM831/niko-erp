@@ -30,7 +30,7 @@ import {
 } from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
-import { validateBody } from "../lib/validate";
+import { looseNumber, validateBody } from "../lib/validate";
 import { mainStore, moveStock } from "../services/inventory";
 
 export const farmStoreRouter = Router();
@@ -139,10 +139,10 @@ farmStoreRouter.get("/:locationId/entries", requirePermission("farms", "view"), 
 const receiveSchema = z.object({
   locationId: z.string().uuid(),
   itemId: z.string().uuid(),
-  quantity: z.coerce.number().positive(),
+  quantity: looseNumber(z.number().positive()),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   /** Optional: what one unit cost, if the paper says. Custody works without it. */
-  ratePerUnit: z.coerce.number().nonnegative().optional(),
+  ratePerUnit: looseNumber(z.number().nonnegative()).optional(),
   lotNo: z.string().max(60).optional(),
   expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   vendorName: z.string().max(120).optional(),
@@ -230,7 +230,7 @@ farmStoreRouter.post(
 const issueSchema = z.object({
   locationId: z.string().uuid(),
   itemId: z.string().uuid(),
-  quantity: z.coerce.number().positive(),
+  quantity: looseNumber(z.number().positive()),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   /** The shed it went to, when it went to one. */
   houseId: z.string().uuid().optional(),

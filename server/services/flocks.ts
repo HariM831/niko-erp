@@ -380,7 +380,7 @@ export async function setFlockHatches(
 /** Mortality, culls, male removals and adjustments. */
 export async function recordMovement(
   tx: Tx,
-  args: MovementInput & { placementId: string; userId: string },
+  args: MovementInput & { placementId: string; flockId: string; userId: string },
 ) {
   if (args.kind === "transfer_in" || args.kind === "transfer_out") {
     throw new PostingError("Use a transfer for that — it needs both ends");
@@ -398,6 +398,9 @@ export async function recordMovement(
     .from(flockPlacements)
     .where(eq(flockPlacements.id, args.placementId));
   if (!placement) throw new PostingError("No such placement");
+  if (placement.flockId !== args.flockId) {
+    throw new PostingError("That placement does not belong to this flock");
+  }
   if (placement.toDate && args.eventDate > placement.toDate) {
     throw new PostingError("That date is after the flock left this house");
   }

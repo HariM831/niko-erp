@@ -20,7 +20,7 @@ import { db } from "../db";
 import { stockOnHand } from "../services/inventory";
 import { requirePermission } from "../lib/rbac";
 import { contains } from "../services/document-search";
-import { validateBody } from "../lib/validate";
+import { nonBlank, validateBody } from "../lib/validate";
 import { getPreferences } from "../services/preferences";
 import { findNameHolder, mergeItems } from "../services/item-names";
 import { PostingError } from "../services/posting";
@@ -32,7 +32,7 @@ const quantity = z.string().regex(/^\d+(\.\d{1,3})?$/);
 
 const itemSchema = z.object({
   type: z.enum(itemType.enumValues).optional(),
-  name: z.string().min(1),
+  name: nonBlank(),
   sku: z.string().max(60).optional(),
   unit: z.string().max(20).optional(),
   hsnOrSac: z.string().max(10).optional(),
