@@ -42,7 +42,7 @@ import {
 } from "./pages/documents";
 import { TransactionNewPage } from "./pages/transaction-new";
 import { PaymentNewPage } from "./pages/payment-new";
-import { PaymentsPage } from "./pages/payments";
+import { VendorSheetPage } from "./pages/vendor-sheet";
 import { ExpenseNewPage } from "./pages/expense-new";
 import { DocumentDetailPage } from "./pages/document-detail";
 import { ContactNewPage } from "./pages/contact-new";
@@ -167,7 +167,7 @@ export function App() {
         {/* What we owe and have not paid, and the file that pays it. Its own
             path rather than a tab on Payments Made: one is a list of money
             about to leave, the other of money already gone. */}
-        <Route path="/purchases/payables" component={PaymentsPage} />
+        <Route path="/purchases/vendor-sheet" component={VendorSheetPage} />
         <Route path="/purchases/payments/new">{() => <PaymentNewPage side="vendor" />}</Route>
         <Route path="/purchases/payments/:id/edit">{(p) => <PaymentNewPage side="vendor" editId={p.id!} />}</Route>
         <Route path="/purchases/payments/:id">{(p) => <PaymentDetailPage side="vendor" id={p.id!} />}</Route>

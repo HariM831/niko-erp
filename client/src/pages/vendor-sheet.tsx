@@ -6,8 +6,8 @@ import { SummaryBanner } from "../components/summary-banner";
 import { shortDate } from "./documents";
 
 /**
- * Payments — the one screen that answers "what do we owe, and what goes to the
- * bank today".
+ * Vendor Sheet — the one screen that answers "what do we owe, and what goes to
+ * the bank today".
  *
  * Bills and unpaid expenses sit in one list because they are the same thing to
  * whoever is paying: money owed to a vendor with a date on it. Tick the rows,
@@ -61,7 +61,7 @@ const docPath = (r: Payable) =>
 
 const today = () => new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10);
 
-export function PaymentsPage() {
+export function VendorSheetPage() {
   const [, navigate] = useLocation();
   const qc = useQueryClient();
   const [showSent, setShowSent] = useState(false);
@@ -111,7 +111,7 @@ export function PaymentsPage() {
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between bg-white px-5 py-3">
         <div className="flex items-center gap-3">
-          <h1 className="text-lg font-semibold text-gray-800">Payments</h1>
+          <h1 className="text-lg font-semibold text-gray-800">Vendor Sheet</h1>
           <div className="flex rounded-md border border-gray-200 p-0.5 text-[12px]">
             {[
               { label: "To pay", value: false },
