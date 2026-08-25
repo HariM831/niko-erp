@@ -4,6 +4,9 @@ import { z } from "zod";
 import {
   accounts,
   bankAccounts,
+  orgProfile,
+  paymentBatchLines,
+  paymentBatches,
   billLineTags,
   billLines,
   bills,
@@ -64,6 +67,12 @@ import {
   vendorCreditLineInputs,
 } from "../services/purchases";
 import { describeSpecsForOrder } from "../services/qc";
+import {
+  buildPaymentFile,
+  listPayables,
+  transferMode,
+  type PaymentFilePayer,
+} from "../services/payment-file";
 import { syncPurchaseRates } from "../services/purchases";
 
 export const purchasesRouter = Router();
@@ -1455,8 +1464,16 @@ const expenseSchema = z.object({
   seriesId: z.string().uuid().optional(),
   expenseDate: dateStr,
   expenseAccountId: z.string().uuid(),
-  paidThroughId: z.string().uuid(),
+  /**
+   * Null — or absent on a new expense — means it has not been paid yet: the
+   * cost is owed to the vendor rather than gone from an account. Explicitly
+   * nullable so a patch can un-pay one; leaving it out of a patch keeps
+   * whatever is already there, like every other field here.
+   */
+  paidThroughId: z.string().uuid().nullable().optional(),
   vendorId: z.string().uuid().optional(),
+  /** Only meaningful while unpaid; defaults to the vendor's payment terms. */
+  dueDate: dateStr.nullable().optional(),
   amount: money,
   taxId: z.string().uuid().optional(),
   reference: z.string().optional(),
@@ -1466,6 +1483,35 @@ const expenseSchema = z.object({
   /** Custom field values, keyed by field id. */
   customFields: z.record(z.string(), z.any()).optional(),
 });
+
+/**
+ * When an unpaid expense falls due.
+ *
+ * A typed date wins. Otherwise the vendor's own terms decide, the way they do
+ * on a bill — an expense charged to a vendor who is paid in 30 days is not due
+ * the afternoon somebody entered it. With no vendor and no terms it falls back
+ * to the expense date, which is what "due on receipt" means.
+ */
+async function resolveExpenseDueDate(
+  tx: Tx,
+  args: {
+    given: string | null | undefined;
+    existing: string | null;
+    expenseDate: string;
+    vendorId: string | null | undefined;
+  },
+): Promise<string> {
+  if (args.given) return args.given;
+  if (args.existing) return args.existing;
+  const [vendor] = args.vendorId
+    ? await tx
+        .select({ terms: contacts.paymentTermsDays })
+        .from(contacts)
+        .where(eq(contacts.id, args.vendorId))
+        .limit(1)
+    : [];
+  return computeDueDate(args.expenseDate, vendor?.terms ?? 0);
+}
 
 /** The gradient hero strip on the Expenses list — this month leads, no aging (expenses carry no status). */
 purchasesRouter.get("/expenses/summary", requirePermission("purchases", "view"), async (_req, res) => {
@@ -1522,11 +1568,13 @@ purchasesRouter.get("/expenses/:id", requirePermission("purchases", "view"), asy
     .from(accounts)
     .where(eq(accounts.id, expense.expenseAccountId))
     .limit(1);
-  const [paidThrough] = await db
-    .select({ name: bankAccounts.name })
-    .from(bankAccounts)
-    .where(eq(bankAccounts.id, expense.paidThroughId))
-    .limit(1);
+  const [paidThrough] = expense.paidThroughId
+    ? await db
+        .select({ name: bankAccounts.name })
+        .from(bankAccounts)
+        .where(eq(bankAccounts.id, expense.paidThroughId))
+        .limit(1)
+    : [];
   const vendor = expense.vendorId
     ? await db.query.contacts.findFirst({ where: eq(contacts.id, expense.vendorId) })
     : null;
@@ -1602,9 +1650,14 @@ async function expenseTagOptionIds(
   return rows.map((r) => r.optionId);
 }
 
+/**
+ * DR the cost, CR wherever the money came from — a bank account when the
+ * expense was paid, Accounts Payable when it is still owed.
+ */
 export function buildExpenseJeLines(args: {
   expenseAccountId: string;
-  bankGlAccountId: string;
+  /** Null on an unpaid expense, which credits Accounts Payable instead. */
+  bankGlAccountId: string | null;
   amount: string;
   taxP: number;
   number: string;
@@ -1631,7 +1684,9 @@ export function buildExpenseJeLines(args: {
       // the money came from, not what it was spent on.
       tagOptionIds: args.tagOptionIds,
     },
-    { accountId: args.bankGlAccountId, credit: fromPaise(grossP) },
+    args.bankGlAccountId
+      ? { accountId: args.bankGlAccountId, credit: fromPaise(grossP) }
+      : { systemKey: "ap", credit: fromPaise(grossP), description: `Expense ${args.number}` },
   ];
   return jeLines;
 }
@@ -1650,14 +1705,20 @@ purchasesRouter.patch(
         });
         if (!expense) throw new PostingError("Expense not found");
 
-        const paidThroughId = body.paidThroughId ?? expense.paidThroughId;
-        const [bank] = await tx
-          .select()
-          .from(bankAccounts)
-          .where(eq(bankAccounts.id, paidThroughId))
-          .limit(1);
-        if (!bank) throw new PostingError("Paid-through account not found");
+        // undefined means "not mentioned", null means "un-pay it" — the two
+        // cannot collapse, or filling in an account would be the only edit a
+        // patch could ever make to this field.
+        const paidThroughId =
+          body.paidThroughId === undefined ? expense.paidThroughId : body.paidThroughId;
+        const [bank] = paidThroughId
+          ? await tx.select().from(bankAccounts).where(eq(bankAccounts.id, paidThroughId)).limit(1)
+          : [];
+        if (paidThroughId && !bank) throw new PostingError("Paid-through account not found");
         if (body.vendorId) await loadVendor(tx, body.vendorId);
+        const vendorId = body.vendorId ?? expense.vendorId;
+        if (!paidThroughId && !vendorId) {
+          throw new PostingError("An unpaid expense must name the vendor it is owed to");
+        }
 
         const amount = body.amount ?? expense.amount;
         const amountP = toPaise(amount);
@@ -1687,7 +1748,7 @@ purchasesRouter.patch(
           postedBy: req.session.user!.id,
           lines: buildExpenseJeLines({
             expenseAccountId,
-            bankGlAccountId: bank.glAccountId,
+            bankGlAccountId: bank?.glAccountId ?? null,
             amount,
             taxP,
             number: expense.number,
@@ -1700,11 +1761,22 @@ purchasesRouter.patch(
           .set({
             expenseDate,
             expenseAccountId,
-            paidThroughId: bank.id,
-            vendorId: body.vendorId ?? expense.vendorId,
+            paidThroughId: bank?.id ?? null,
+            vendorId,
             amount,
             taxId: taxId ?? null,
             taxAmount: fromPaise(taxP),
+            // A due date is a fact about money still owed. Paying the expense
+            // retires it rather than leaving a date that has stopped meaning
+            // anything on the row.
+            dueDate: bank
+              ? null
+              : await resolveExpenseDueDate(tx, {
+                  given: body.dueDate,
+                  existing: expense.dueDate,
+                  expenseDate,
+                  vendorId,
+                }),
             reference: body.reference ?? expense.reference,
             notes: body.notes ?? expense.notes,
             journalEntryId: jeId,
@@ -1728,13 +1800,18 @@ purchasesRouter.post(
     const body = req.body as z.infer<typeof expenseSchema>;
     try {
       const result = await db.transaction(async (tx) => {
-        const [bank] = await tx
-          .select()
-          .from(bankAccounts)
-          .where(eq(bankAccounts.id, body.paidThroughId))
-          .limit(1);
-        if (!bank) throw new PostingError("Paid-through account not found");
+        const [bank] = body.paidThroughId
+          ? await tx
+              .select()
+              .from(bankAccounts)
+              .where(eq(bankAccounts.id, body.paidThroughId))
+              .limit(1)
+          : [];
+        if (body.paidThroughId && !bank) throw new PostingError("Paid-through account not found");
         if (body.vendorId) await loadVendor(tx, body.vendorId);
+        if (!bank && !body.vendorId) {
+          throw new PostingError("An unpaid expense must name the vendor it is owed to");
+        }
 
         const amountP = toPaise(body.amount);
         if (amountP <= 0) throw new PostingError("Expense amount must be positive");
@@ -1748,11 +1825,19 @@ purchasesRouter.post(
             number,
             expenseDate: body.expenseDate,
             expenseAccountId: body.expenseAccountId,
-            paidThroughId: bank.id,
+            paidThroughId: bank?.id ?? null,
             vendorId: body.vendorId,
             amount: body.amount,
             taxId: body.taxId,
             taxAmount: fromPaise(taxP),
+            dueDate: bank
+              ? null
+              : await resolveExpenseDueDate(tx, {
+                  given: body.dueDate,
+                  existing: null,
+                  expenseDate: body.expenseDate,
+                  vendorId: body.vendorId ?? null,
+                }),
             reference: body.reference,
             notes: body.notes,
             createdBy: req.session.user!.id,
@@ -1761,7 +1846,7 @@ purchasesRouter.post(
 
         const jeLines = buildExpenseJeLines({
           expenseAccountId: body.expenseAccountId,
-          bankGlAccountId: bank.glAccountId,
+          bankGlAccountId: bank?.glAccountId ?? null,
           amount: body.amount,
           taxP,
           number,
@@ -1988,12 +2073,14 @@ export async function repostVendorCredit(tx: Tx, id: string, userId: string): Pr
 export async function repostExpense(tx: Tx, id: string, userId: string): Promise<void> {
   const expense = await tx.query.expenses.findFirst({ where: eq(expenses.id, id) });
   if (!expense) throw new PostingError("Expense not found");
-  const [bank] = await tx
-    .select()
-    .from(bankAccounts)
-    .where(eq(bankAccounts.id, expense.paidThroughId))
-    .limit(1);
-  if (!bank) throw new PostingError("Paid-through account not found");
+  const [bank] = expense.paidThroughId
+    ? await tx
+        .select()
+        .from(bankAccounts)
+        .where(eq(bankAccounts.id, expense.paidThroughId))
+        .limit(1)
+    : [];
+  if (expense.paidThroughId && !bank) throw new PostingError("Paid-through account not found");
 
   // Read the tags before the reversal, or they vanish with the old journal.
   const tagOptionIds = await expenseTagOptionIds(
@@ -2012,7 +2099,7 @@ export async function repostExpense(tx: Tx, id: string, userId: string): Promise
     postedBy: userId,
     lines: buildExpenseJeLines({
       expenseAccountId: expense.expenseAccountId,
-      bankGlAccountId: bank.glAccountId,
+      bankGlAccountId: bank?.glAccountId ?? null,
       amount: expense.amount,
       taxP: await expenseTaxPaise(tx, expense.amount, expense.taxId ?? undefined),
       number: expense.number,
@@ -2024,3 +2111,356 @@ export async function repostExpense(tx: Tx, id: string, userId: string): Promise
 
 /** Purchase orders never reach the ledger, so there is nothing to re-post. */
 export async function repostPurchaseOrder(_tx: Tx, _id: string, _userId: string): Promise<void> {}
+
+
+/* ══ Payments: what is owed, and the file that pays it ═══════════════════ */
+
+/**
+ * Everything unpaid, bills and expenses together, for the Payments screen.
+ *
+ * Documents already in a bank batch drop off by default — the money is on its
+ * way and sending it again is the expensive mistake this screen exists to
+ * prevent — and come back with ?includeSent=1 when somebody needs to see what
+ * went out.
+ */
+purchasesRouter.get("/payables", requirePermission("purchases", "view"), async (req, res) => {
+  const rows = await listPayables(db, {
+    vendorId: typeof req.query.vendorId === "string" ? req.query.vendorId : undefined,
+    includeSent: req.query.includeSent === "1" || req.query.includeSent === "true",
+  });
+  res.json(rows);
+});
+
+/** The bank accounts a payment file can be raised from — ours, with a code. */
+purchasesRouter.get(
+  "/payment-batches/accounts",
+  requirePermission("purchases", "view"),
+  async (_req, res) => {
+    const rows = await db
+      .select({
+        id: bankAccounts.id,
+        name: bankAccounts.name,
+        bankName: bankAccounts.bankName,
+        accountNumber: bankAccounts.accountNumber,
+        ifsc: bankAccounts.ifsc,
+        bankCustomerCode: bankAccounts.bankCustomerCode,
+      })
+      .from(bankAccounts)
+      .where(and(eq(bankAccounts.isActive, true), eq(bankAccounts.kind, "bank")))
+      .orderBy(asc(bankAccounts.name));
+    res.json(rows);
+  },
+);
+
+purchasesRouter.get("/payment-batches", requirePermission("purchases", "view"), async (_req, res) => {
+  const rows = await db
+    .select({
+      ...getTableColumns(paymentBatches),
+      bankAccountName: bankAccounts.name,
+      createdByName: users.name,
+      lineCount: sql<number>`(SELECT COUNT(*)::int FROM ${paymentBatchLines} WHERE batch_id = ${paymentBatches.id})`,
+    })
+    .from(paymentBatches)
+    .leftJoin(bankAccounts, eq(bankAccounts.id, paymentBatches.bankAccountId))
+    .leftJoin(users, eq(users.id, paymentBatches.createdBy))
+    .orderBy(desc(paymentBatches.batchDate), desc(paymentBatches.createdAt))
+    .limit(200);
+  res.json(rows);
+});
+
+purchasesRouter.get(
+  "/payment-batches/:id",
+  requirePermission("purchases", "view"),
+  async (req, res) => {
+    const [batch] = await db
+      .select({
+        ...getTableColumns(paymentBatches),
+        bankAccountName: bankAccounts.name,
+        createdByName: users.name,
+      })
+      .from(paymentBatches)
+      .leftJoin(bankAccounts, eq(bankAccounts.id, paymentBatches.bankAccountId))
+      .leftJoin(users, eq(users.id, paymentBatches.createdBy))
+      .where(eq(paymentBatches.id, req.params.id!))
+      .limit(1);
+    if (!batch) return res.status(404).json({ error: "Payment batch not found" });
+    const lines = await db
+      .select({
+        ...getTableColumns(paymentBatchLines),
+        vendorName: contacts.displayName,
+        billNumber: bills.number,
+        expenseNumber: expenses.number,
+      })
+      .from(paymentBatchLines)
+      .leftJoin(contacts, eq(contacts.id, paymentBatchLines.vendorId))
+      .leftJoin(bills, eq(bills.id, paymentBatchLines.billId))
+      .leftJoin(expenses, eq(expenses.id, paymentBatchLines.expenseId))
+      .where(eq(paymentBatchLines.batchId, batch.id))
+      .orderBy(asc(paymentBatchLines.lineOrder));
+    res.json({ ...batch, lines });
+  },
+);
+
+/** Re-download a batch, months later, exactly as it was sent. */
+purchasesRouter.get(
+  "/payment-batches/:id/file",
+  requirePermission("purchases", "view"),
+  async (req, res) => {
+    const [batch] = await db
+      .select()
+      .from(paymentBatches)
+      .where(eq(paymentBatches.id, req.params.id!))
+      .limit(1);
+    if (!batch) return res.status(404).json({ error: "Payment batch not found" });
+    const [bank] = await db
+      .select()
+      .from(bankAccounts)
+      .where(eq(bankAccounts.id, batch.bankAccountId))
+      .limit(1);
+    const lines = await db
+      .select()
+      .from(paymentBatchLines)
+      .where(eq(paymentBatchLines.batchId, batch.id))
+      .orderBy(asc(paymentBatchLines.lineOrder));
+    sendPaymentFile(res, {
+      number: batch.number,
+      batchDate: batch.batchDate,
+      payer: await paymentFilePayer(bank),
+      lines: lines.map((l) => ({
+        beneficiaryName: l.beneficiaryName,
+        accountNumber: l.accountNumber,
+        ifsc: l.ifsc,
+        amount: l.amount,
+        transferMode: l.transferMode,
+        remarks: l.remarks,
+      })),
+    });
+  },
+);
+
+const paymentBatchSchema = z.object({
+  seriesId: z.string().uuid().optional(),
+  /** The account the bank debits. */
+  bankAccountId: z.string().uuid(),
+  /** Value date on the instruction; defaults to today. */
+  batchDate: dateStr.optional(),
+  notes: z.string().optional(),
+  /**
+   * Send a document that is already in an earlier batch. Off by default: the
+   * likeliest reason a bill is on this list twice is that somebody forgot it
+   * went out on Tuesday, and the second transfer is real money.
+   */
+  allowResend: z.boolean().optional(),
+  items: z
+    .array(
+      z.object({
+        kind: z.enum(["bill", "expense"]),
+        id: z.string().uuid(),
+        /** Part-payment; defaults to the whole outstanding amount. */
+        amount: money.optional(),
+      }),
+    )
+    .min(1)
+    .max(500),
+});
+
+/**
+ * Raise a bank file for the selected documents.
+ *
+ * This writes an instruction, not a payment: nothing here posts to the ledger
+ * and nothing here marks a bill paid, because the money has not moved — the
+ * bank still has to accept the file, and a line can bounce on a stale IFSC. The
+ * payment itself is recorded the usual way once the bank confirms it.
+ */
+purchasesRouter.post(
+  "/payment-batches",
+  requirePermission("purchases", "create"),
+  validateBody(paymentBatchSchema),
+  async (req, res) => {
+    const body = req.body as z.infer<typeof paymentBatchSchema>;
+    try {
+      const { batch, payer, lines } = await db.transaction(async (tx) => {
+        const [bank] = await tx
+          .select()
+          .from(bankAccounts)
+          .where(eq(bankAccounts.id, body.bankAccountId))
+          .limit(1);
+        if (!bank) throw new PostingError("Paying bank account not found");
+        if (!bank.isActive) throw new PostingError("That bank account is no longer active");
+
+        // The bank rejects a file whose first four columns do not identify us,
+        // and it rejects it after the accounts team has uploaded it and gone
+        // home. Cheaper to refuse here, naming the screen that fixes it.
+        const payer = await paymentFilePayer(bank, tx);
+        const unset: string[] = [];
+        if (!payer.customerCode) unset.push("the bank's customer code on this account (Banking)");
+        if (!payer.accountNumber) unset.push("this account's number (Banking)");
+        if (!payer.customerName) unset.push("the organisation name (Settings)");
+        if (unset.length) {
+          throw new PostingError(`The bank file needs ${unset.join(", and ")}`);
+        }
+
+        // The same document twice in one file is two transfers for one debt.
+        const keys = body.items.map((i) => `${i.kind}:${i.id}`);
+        if (new Set(keys).size !== keys.length) {
+          throw new PostingError("The same document is selected more than once");
+        }
+
+        const payables = await listPayables(tx, { includeSent: true });
+        const byKey = new Map(payables.map((p) => [`${p.kind}:${p.id}`, p]));
+
+        // Everything wrong with the selection is worth saying at once: a person
+        // fixing four vendors' bank details wants all four names, not the first.
+        const missingRows: string[] = [];
+        const missingBank: string[] = [];
+        const alreadySent: string[] = [];
+        const badAmount: string[] = [];
+
+        const resolved = body.items.map((item, index) => {
+          const row = byKey.get(`${item.kind}:${item.id}`);
+          if (!row) {
+            missingRows.push(item.id);
+            return null;
+          }
+          if (!row.beneficiaryName || !row.bankAccountNumber || !row.bankIfsc) {
+            missingBank.push(row.vendorName);
+          }
+          if (row.sentBatchId && !body.allowResend) {
+            alreadySent.push(`${row.number} (${row.sentBatchNumber})`);
+          }
+          const amountP = item.amount ? toPaise(item.amount) : toPaise(row.amount);
+          if (amountP <= 0 || amountP > toPaise(row.amount)) {
+            badAmount.push(row.number);
+          }
+          return { item, row, amountP, index };
+        });
+
+        if (missingRows.length) {
+          throw new PostingError(
+            `${missingRows.length} of the selected documents are no longer unpaid — reload the page`,
+          );
+        }
+        if (missingBank.length) {
+          throw new PostingError(
+            `No bank details on file for ${[...new Set(missingBank)].join(", ")}`,
+          );
+        }
+        if (alreadySent.length) {
+          throw new PostingError(`Already sent to the bank: ${alreadySent.join(", ")}`);
+        }
+        if (badAmount.length) {
+          throw new PostingError(
+            `The amount to pay must be positive and no more than the outstanding balance: ${badAmount.join(", ")}`,
+          );
+        }
+
+        const batchDate = body.batchDate ?? todayInIndia();
+        const number = await nextDocumentNumber(tx, "payment_batch", body.seriesId);
+        const totalP = resolved.reduce((sum, r) => sum + (r?.amountP ?? 0), 0);
+
+        const [created] = await tx
+          .insert(paymentBatches)
+          .values({
+            number,
+            batchDate,
+            bankAccountId: bank.id,
+            total: fromPaise(totalP),
+            notes: body.notes,
+            createdBy: req.session.user!.id,
+          })
+          .returning();
+
+        const values = resolved.filter((r) => r !== null).map((r) => ({
+          batchId: created!.id,
+          billId: r.row.kind === "bill" ? r.row.id : null,
+          expenseId: r.row.kind === "expense" ? r.row.id : null,
+          vendorId: r.row.vendorId,
+          amount: fromPaise(r.amountP),
+          beneficiaryName: r.row.beneficiaryName!,
+          accountNumber: r.row.bankAccountNumber!,
+          ifsc: r.row.bankIfsc!,
+          transferMode: transferMode(r.row.bankIfsc!, bank.ifsc),
+          // What the vendor sees against the credit. Their own bill number
+          // where we have it, since that is the one they can look up.
+          remarks: r.row.billNumber,
+          lineOrder: r.index,
+        }));
+        const insertedLines = await tx.insert(paymentBatchLines).values(values).returning();
+
+        return { batch: created!, payer, lines: insertedLines };
+      });
+
+      sendPaymentFile(res, {
+        number: batch.number,
+        batchDate: batch.batchDate,
+        payer,
+        lines: lines.map((l) => ({
+          beneficiaryName: l.beneficiaryName,
+          accountNumber: l.accountNumber,
+          ifsc: l.ifsc,
+          amount: l.amount,
+          transferMode: l.transferMode,
+          remarks: l.remarks,
+        })),
+        batchId: batch.id,
+      });
+    } catch (err) {
+      if (!handlePostingError(err, res)) throw err;
+    }
+  },
+);
+
+/** Today, where the farm is — the same clock every other date on this screen uses. */
+function todayInIndia(): string {
+  return new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10);
+}
+
+/**
+ * Who the bank is debiting, as their file wants it named: our customer code and
+ * account from the bank account, the account name from the org profile.
+ */
+async function paymentFilePayer(
+  bank: typeof bankAccounts.$inferSelect | undefined,
+  conn: Tx | typeof db = db,
+): Promise<PaymentFilePayer> {
+  const [org] = await conn
+    .select({ name: orgProfile.name, legalName: orgProfile.legalName })
+    .from(orgProfile)
+    .limit(1);
+  return {
+    customerCode: bank?.bankCustomerCode ?? null,
+    customerName: org?.legalName || org?.name || "",
+    accountNumber: bank?.accountNumber ?? null,
+  };
+}
+
+function sendPaymentFile(
+  res: import("express").Response,
+  args: {
+    number: string;
+    batchDate: string;
+    payer: PaymentFilePayer;
+    lines: Parameters<typeof buildPaymentFile>[0]["lines"];
+    batchId?: string;
+  },
+) {
+  const file = buildPaymentFile({
+    payer: args.payer,
+    batchDate: args.batchDate,
+    lines: args.lines,
+  });
+  res.setHeader(
+    "Content-Type",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  );
+  res.setHeader("Content-Disposition", `attachment; filename="${args.number}.xlsx"`);
+  // The batch number rides in a header so the page that just POSTed a download
+  // can tell the user what it raised without a second round trip.
+  res.setHeader("X-Payment-Batch-Number", args.number);
+  if (args.batchId) res.setHeader("X-Payment-Batch-Id", args.batchId);
+  res.setHeader(
+    "Access-Control-Expose-Headers",
+    "X-Payment-Batch-Number, X-Payment-Batch-Id",
+  );
+  res.send(file);
+}

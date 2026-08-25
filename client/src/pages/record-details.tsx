@@ -321,7 +321,11 @@ export function ExpenseDetailPage({ id }: { id: string }) {
       <div className="grid grid-cols-2 gap-x-8 gap-y-4 sm:grid-cols-3">
         <Field label="Date">{shortDate(doc.expenseDate)}</Field>
         <Field label="Expense Account">{doc.expenseAccountName ?? "—"}</Field>
-        <Field label="Paid Through">{doc.paidThroughName ?? "—"}</Field>
+        <Field label="Paid Through">
+          {doc.paidThroughName ?? (
+            <span className="text-amber-700">Unpaid — owed to the vendor</span>
+          )}
+        </Field>
         <Field label="Vendor">
           {doc.vendorId ? (
             <Link href={`/purchases/vendors/${doc.vendorId}`} className="text-brand-600 hover:underline">

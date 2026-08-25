@@ -605,11 +605,17 @@ export const ExpensesPage = () => (
       { key: "contact", header: "Vendor Name", render: (r) => r.contactName ?? "—" },
       { key: "paidThrough", header: "Paid Through", render: (r) => <span className="text-gray-600">{(r.paidThroughName as string) ?? "—"}</span> },
       {
+        // An expense entered with no paid-through account is money still owed:
+        // it sits on the Payments screen with the unpaid bills until it is
+        // settled, so the list has to say which kind it is.
         key: "status",
         header: "Status",
-        render: () => (
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Non-Billable</span>
-        ),
+        render: (r) =>
+          r.paidThroughName ? (
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Paid</span>
+          ) : (
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Unpaid</span>
+          ),
       },
       { key: "amount", header: "Amount", align: "right", render: (r) => formatMoney(r.amount) },
       {

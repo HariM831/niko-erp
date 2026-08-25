@@ -78,6 +78,7 @@ const NAV: NavItem[] = [
       { label: "Expenses", path: "/purchases/expenses" },
       { label: "Purchase Orders", path: "/purchases/orders" },
       { label: "Bills", path: "/purchases/bills" },
+      { label: "Vendor Sheet", path: "/purchases/vendor-sheet" },
       { label: "Payments Made", path: "/purchases/payments" },
       { label: "Vendor Credits", path: "/purchases/vendor-credits" },
     ],

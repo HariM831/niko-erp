@@ -34,7 +34,7 @@ interface AddressForm {
 const emptyAddress: AddressForm = { line1: "", line2: "", city: "", state: "", pincode: "" };
 const emptyPerson = (): PersonForm => ({ salutation: "", firstName: "", lastName: "", email: "", phone: "", isPrimary: false });
 
-type SubTab = "other" | "address" | "persons";
+type SubTab = "other" | "address" | "persons" | "bank";
 
 export function ContactNewPage({ type, editId }: { type: "customer" | "vendor" | "both"; editId?: string }) {
   const [, navigate] = useLocation();
@@ -53,6 +53,10 @@ export function ContactNewPage({ type, editId }: { type: "customer" | "vendor" |
     placeOfSupplyState: "",
     paymentTermsDays: "0",
     openingBalance: "",
+    bankBeneficiaryName: "",
+    bankAccountNumber: "",
+    bankIfsc: "",
+    bankName: "",
   });
   const [billing, setBilling] = useState<AddressForm>(emptyAddress);
   const [shipping, setShipping] = useState<AddressForm>(emptyAddress);
@@ -88,6 +92,10 @@ export function ContactNewPage({ type, editId }: { type: "customer" | "vendor" |
       placeOfSupplyState: (existing.placeOfSupplyState as string) ?? "",
       paymentTermsDays: String(existing.paymentTermsDays ?? 0),
       openingBalance: existing.openingBalance && Number(existing.openingBalance) !== 0 ? String(existing.openingBalance) : "",
+      bankBeneficiaryName: (existing.bankBeneficiaryName as string) ?? "",
+      bankAccountNumber: (existing.bankAccountNumber as string) ?? "",
+      bankIfsc: (existing.bankIfsc as string) ?? "",
+      bankName: (existing.bankName as string) ?? "",
     });
     setBilling(b ? { line1: b.line1 ?? "", line2: b.line2 ?? "", city: b.city ?? "", state: b.state ?? "", pincode: b.pincode ?? "" } : emptyAddress);
     setShipping(s ? { line1: s.line1 ?? "", line2: s.line2 ?? "", city: s.city ?? "", state: s.state ?? "", pincode: s.pincode ?? "" } : emptyAddress);
@@ -150,6 +158,15 @@ export function ContactNewPage({ type, editId }: { type: "customer" | "vendor" |
           placeOfSupplyState: form.placeOfSupplyState || undefined,
           paymentTermsDays: Number(form.paymentTermsDays) || 0,
           openingBalance: form.openingBalance || undefined,
+          // Only vendors are ever paid, so only a vendor carries bank details.
+          ...(type === "vendor"
+            ? {
+                bankBeneficiaryName: form.bankBeneficiaryName || undefined,
+                bankAccountNumber: form.bankAccountNumber || undefined,
+                bankIfsc: form.bankIfsc.toUpperCase() || undefined,
+                bankName: form.bankName || undefined,
+              }
+            : {}),
           customFields,
           addresses: addresses.length ? addresses : undefined,
           persons: validPersons.length
@@ -234,7 +251,10 @@ export function ContactNewPage({ type, editId }: { type: "customer" | "vendor" |
 
         <div className="mt-6 max-w-2xl">
           <nav className="mb-4 flex gap-5 border-b text-[13px]">
-            {(["other", "address", "persons"] as SubTab[]).map((t) => (
+            {(type === "vendor"
+              ? (["other", "address", "persons", "bank"] as SubTab[])
+              : (["other", "address", "persons"] as SubTab[])
+            ).map((t) => (
               <button
                 key={t}
                 onClick={() => setSubTab(t)}
@@ -242,7 +262,13 @@ export function ContactNewPage({ type, editId }: { type: "customer" | "vendor" |
                   subTab === t ? "border-brand-500 font-medium text-brand-700" : "border-transparent text-gray-600 hover:text-gray-900"
                 }`}
               >
-                {t === "other" ? "Other Details" : t === "address" ? "Address" : `Contact Persons${validPersons.length > 1 ? ` (${validPersons.length})` : ""}`}
+                {t === "other"
+                  ? "Other Details"
+                  : t === "address"
+                    ? "Address"
+                    : t === "bank"
+                      ? "Bank Details"
+                      : `Contact Persons${validPersons.length > 1 ? ` (${validPersons.length})` : ""}`}
               </button>
             ))}
           </nav>
@@ -286,6 +312,47 @@ export function ContactNewPage({ type, editId }: { type: "customer" | "vendor" |
                   onChange={setCustomFields}
                   columns={2}
                 />
+              </div>
+            </div>
+          )}
+
+          {subTab === "bank" && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2 text-[12.5px] text-gray-500">
+                Where this vendor is paid. All three of beneficiary name, account number and
+                IFSC are needed before a bill can go into a bank payment file.
+              </div>
+              <div className="col-span-2">
+                <label className={label}>Beneficiary Name</label>
+                <input
+                  value={form.bankBeneficiaryName}
+                  onChange={set("bankBeneficiaryName")}
+                  placeholder="Exactly as the bank holds it"
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label className={label}>Account Number</label>
+                <input
+                  value={form.bankAccountNumber}
+                  onChange={set("bankAccountNumber")}
+                  maxLength={30}
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label className={label}>IFSC</label>
+                <input
+                  value={form.bankIfsc}
+                  onChange={(e) => setForm((f) => ({ ...f, bankIfsc: e.target.value.toUpperCase() }))}
+                  maxLength={11}
+                  placeholder="SBIN0001234"
+                  className={inputCls}
+                />
+              </div>
+              <div className="col-span-2">
+                <label className={label}>Bank Name</label>
+                <input value={form.bankName} onChange={set("bankName")} className={inputCls} />
               </div>
             </div>
           )}

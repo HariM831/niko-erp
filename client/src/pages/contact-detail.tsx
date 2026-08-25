@@ -81,6 +81,10 @@ interface Contact {
   gstin?: string;
   pan?: string;
   placeOfSupplyState?: string;
+  bankBeneficiaryName?: string;
+  bankAccountNumber?: string;
+  bankIfsc?: string;
+  bankName?: string;
   paymentTermsDays: number;
   openingBalance: string;
   isActive: boolean;
@@ -336,6 +340,44 @@ export function OverviewTab({
             </div>
           </dl>
         </div>
+
+        {/* Where this vendor is paid. On the overview rather than behind Edit:
+            the question "have we got their account details" is asked far more
+            often than it is answered, and the Vendor Sheet cannot pay a vendor
+            without all three. */}
+        {contact.type !== "customer" && (
+          <div className="mb-4 border-t pt-4">
+            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+              Bank Details
+            </div>
+            {contact.bankBeneficiaryName && contact.bankAccountNumber && contact.bankIfsc ? (
+              <dl className="space-y-1.5 text-gray-700">
+                <div className="flex justify-between gap-3">
+                  <dt className="text-gray-500">Beneficiary</dt>
+                  <dd className="text-right">{contact.bankBeneficiaryName}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-gray-500">Account</dt>
+                  <dd className="text-right tabular-nums">{contact.bankAccountNumber}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-gray-500">IFSC</dt>
+                  <dd className="text-right">{contact.bankIfsc}</dd>
+                </div>
+                {contact.bankName && (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-gray-500">Bank</dt>
+                    <dd className="text-right">{contact.bankName}</dd>
+                  </div>
+                )}
+              </dl>
+            ) : (
+              <p className="text-amber-700">
+                Not on file — this vendor cannot go into a bank payment file yet.
+              </p>
+            )}
+          </div>
+        )}
 
         {contact.persons.length > 0 && (
           <div className="border-t pt-4">

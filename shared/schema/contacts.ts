@@ -33,6 +33,18 @@ export const contacts = pgTable("contacts", {
     .default("0"),
   notes: text("notes"),
   /**
+   * Where money owed to this vendor is sent.
+   *
+   * Held on the contact rather than derived from the name, because a bank
+   * credits on the name it holds, not the one we trade under: the beneficiary
+   * name has to be typed as the passbook prints it or the transfer bounces.
+   * Read by the purchase payment file — see server/services/payment-file.ts.
+   */
+  bankBeneficiaryName: text("bank_beneficiary_name"),
+  bankAccountNumber: varchar("bank_account_number", { length: 30 }),
+  bankIfsc: varchar("bank_ifsc", { length: 11 }),
+  bankName: text("bank_name"),
+  /**
    * One of the group's own companies — Nandamuri, Luit Valley. Their
    * documents post to the GL like anyone's, but they are the group, not the
    * market: excluded from every customer- and vendor-scoped list, report and
