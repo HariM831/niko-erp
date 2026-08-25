@@ -15,7 +15,7 @@ import {
 } from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
-import { validateBody } from "../lib/validate";
+import { nonBlank, validateBody } from "../lib/validate";
 import { PostingError, postJournal, reverseJournal } from "../services/posting";
 import { advancedSearch, listLimit, quickSearch } from "../services/document-search";
 import { journalSearch } from "../services/search-specs";
@@ -34,8 +34,8 @@ accountingRouter.get(
 );
 
 const accountSchema = z.object({
-  code: z.string().min(1).max(12),
-  name: z.string().min(1),
+  code: nonBlank(12),
+  name: nonBlank(),
   type: z.enum(accountType.enumValues),
   subtype: z.enum(accountSubtype.enumValues).optional(),
   isGroup: z.boolean().optional(),
@@ -82,7 +82,7 @@ const journalSchema = z.object({
   /** Draw the entry number from this series; omitted means the default. */
   seriesId: z.string().uuid().optional(),
   entryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  narration: z.string().min(1),
+  narration: nonBlank(),
   reference: z.string().optional(),
   lines: z.array(journalLineSchema).min(2).max(200),
 });
@@ -94,10 +94,10 @@ accountingRouter.get(
   async (_req, res) => {
     const [agg] = await db.execute(sql`
       SELECT
-        COALESCE(SUM(jel.debit) FILTER (WHERE je.entry_date >= date_trunc('month', (NOW() AT TIME ZONE 'Asia/Kolkata')::date)), 0)::numeric(14,2) AS this_month,
+        COALESCE(SUM(jel.debit) FILTER (WHERE je.entry_date >= date_trunc('month', (NOW() AT TIME ZONE 'Asia/Kolkata')::date)), 0)::numeric(20,2) AS this_month,
         COUNT(DISTINCT je.id) FILTER (WHERE je.entry_date >= date_trunc('month', (NOW() AT TIME ZONE 'Asia/Kolkata')::date))::int AS entries_this_month,
         COUNT(DISTINCT je.id) FILTER (WHERE je.status = 'draft')::int AS draft_count,
-        COALESCE(SUM(jel.debit) FILTER (WHERE je.entry_date >= date_trunc('year', (NOW() AT TIME ZONE 'Asia/Kolkata')::date)), 0)::numeric(14,2) AS this_year
+        COALESCE(SUM(jel.debit) FILTER (WHERE je.entry_date >= date_trunc('year', (NOW() AT TIME ZONE 'Asia/Kolkata')::date)), 0)::numeric(20,2) AS this_year
       FROM journal_entries je
       JOIN journal_entry_lines jel ON jel.entry_id = je.id
       WHERE je.source_type = 'manual'
@@ -374,6 +374,14 @@ accountingRouter.get(
     const conditions = [eq(journalEntries.status, "posted")];
     if (from) conditions.push(gte(journalEntries.entryDate, from));
     if (to) conditions.push(lte(journalEntries.entryDate, to));
+    // Evaluated per row inside the aggregate rather than in the join's ON
+    // clause: an ON-clause condition on the second leftJoin only decides
+    // whether journalEntries' own columns come back NULL, it doesn't drop the
+    // line — the SUM would still see debit/credit from an entry the filter
+    // was supposed to exclude. A CASE WHEN here means a non-matching entry
+    // (wrong status, outside the window, or simply absent — an account with
+    // no activity at all) contributes zero instead of surviving the filter.
+    const matches = and(...conditions);
 
     const rows = await db
       .select({
@@ -381,15 +389,12 @@ accountingRouter.get(
         code: accounts.code,
         name: accounts.name,
         type: accounts.type,
-        totalDebit: sql<string>`COALESCE(SUM(${journalEntryLines.debit}), 0)::numeric(14,2)`,
-        totalCredit: sql<string>`COALESCE(SUM(${journalEntryLines.credit}), 0)::numeric(14,2)`,
+        totalDebit: sql<string>`COALESCE(SUM(CASE WHEN ${matches} THEN ${journalEntryLines.debit} ELSE 0 END), 0)::numeric(20,2)`,
+        totalCredit: sql<string>`COALESCE(SUM(CASE WHEN ${matches} THEN ${journalEntryLines.credit} ELSE 0 END), 0)::numeric(20,2)`,
       })
       .from(accounts)
       .leftJoin(journalEntryLines, eq(journalEntryLines.accountId, accounts.id))
-      .leftJoin(
-        journalEntries,
-        and(eq(journalEntries.id, journalEntryLines.entryId), ...conditions),
-      )
+      .leftJoin(journalEntries, eq(journalEntries.id, journalEntryLines.entryId))
       .groupBy(accounts.id, accounts.code, accounts.name, accounts.type)
       .orderBy(asc(accounts.code));
 

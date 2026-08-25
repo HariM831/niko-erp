@@ -45,11 +45,14 @@ async function accountMovements(from?: string, to?: string, tagOptionId?: string
 
   // A line counts only when its entry fell in the window, and — when the report
   // is scoped to a tag — only when it actually carries that tag. Both are guards
-  // inside the sum rather than WHERE clauses, because the query starts from
-  // accounts and a WHERE would throw away the ones with no matching lines.
+  // inside the sum rather than the join's ON clause: the query starts from
+  // accounts (so a WHERE would throw away the ones with no matching lines at
+  // all), but a condition placed in a LEFT JOIN's own ON clause only decides
+  // whether that join's columns come back NULL — it never drops the line, so
+  // the window was previously not being applied to anything.
   const counts = tagOptionId
-    ? sql`${journalEntries.id} IS NOT NULL AND ${journalEntryLineTags.id} IS NOT NULL`
-    : sql`${journalEntries.id} IS NOT NULL`;
+    ? and(...windowConditions, sql`${journalEntryLineTags.id} IS NOT NULL`)
+    : and(...windowConditions);
 
   // Starts from accounts, not from lines: a parent account is a heading and
   // never carries a posting, so joining the other way round dropped every
@@ -67,14 +70,11 @@ async function accountMovements(from?: string, to?: string, tagOptionId?: string
       net: sql<string>`COALESCE(SUM(
         CASE WHEN ${counts} THEN ${journalEntryLines.debit} - ${journalEntryLines.credit}
         ELSE 0 END
-      ), 0)::numeric(14,2)`,
+      ), 0)::numeric(20,2)`,
     })
     .from(accounts)
     .leftJoin(journalEntryLines, eq(journalEntryLines.accountId, accounts.id))
-    .leftJoin(
-      journalEntries,
-      and(eq(journalEntries.id, journalEntryLines.entryId), ...windowConditions),
-    );
+    .leftJoin(journalEntries, eq(journalEntries.id, journalEntryLines.entryId));
 
   const scoped = tagOptionId
     ? base.leftJoin(
@@ -288,8 +288,8 @@ reportsRouter.get("/tag-summary", requirePermission("reports", "view"), async (r
       tagName: reportingTags.name,
       optionId: reportingTagOptions.id,
       optionName: reportingTagOptions.name,
-      income: sql<string>`COALESCE(SUM(CASE WHEN ${accounts.type} = 'income' THEN ${journalEntryLines.credit} - ${journalEntryLines.debit} ELSE 0 END), 0)::numeric(14,2)`,
-      expense: sql<string>`COALESCE(SUM(CASE WHEN ${accounts.type} = 'expense' THEN ${journalEntryLines.debit} - ${journalEntryLines.credit} ELSE 0 END), 0)::numeric(14,2)`,
+      income: sql<string>`COALESCE(SUM(CASE WHEN ${accounts.type} = 'income' THEN ${journalEntryLines.credit} - ${journalEntryLines.debit} ELSE 0 END), 0)::numeric(20,2)`,
+      expense: sql<string>`COALESCE(SUM(CASE WHEN ${accounts.type} = 'expense' THEN ${journalEntryLines.debit} - ${journalEntryLines.credit} ELSE 0 END), 0)::numeric(20,2)`,
       lineCount: sql<number>`count(*)::int`,
     })
     .from(journalEntryLineTags)
@@ -438,7 +438,7 @@ reportsRouter.get("/cash-flow", requirePermission("reports", "view"), async (req
 
   const [openingRow] = await db
     .select({
-      net: sql<string>`COALESCE(SUM(${journalEntryLines.debit} - ${journalEntryLines.credit}), 0)::numeric(14,2)`,
+      net: sql<string>`COALESCE(SUM(${journalEntryLines.debit} - ${journalEntryLines.credit}), 0)::numeric(20,2)`,
     })
     .from(journalEntryLines)
     .innerJoin(journalEntries, eq(journalEntries.id, journalEntryLines.entryId))
@@ -589,6 +589,16 @@ reportsRouter.get("/ap-aging", requirePermission("reports", "view"), async (req,
 
 // ---------- GST summary (GSTR-3B style) ----------
 
+/**
+ * Tax as it appeared on paperwork, for the period.
+ *
+ * Read from the documents' own tax columns, NOT from tax accounts: eggs are
+ * exempt and this business claims no input credit, so nothing posts to a tax
+ * account in either direction (see docs/procurement-plan.md §3) and the ledger
+ * has nothing to report. What survives here is the record of what a vendor
+ * charged — useful for checking a bill, not a return to be filed. `netPayable`
+ * is arithmetic on those figures, not a liability the books carry.
+ */
 reportsRouter.get("/gst-summary", requirePermission("reports", "view"), async (req, res) => {
   const { from, to } = req.query as Record<string, string | undefined>;
   if (!from || !to) return res.status(400).json({ error: "from and to are required" });
