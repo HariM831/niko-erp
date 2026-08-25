@@ -45,7 +45,11 @@ const lineSchema = z.object({
   quantity: z.string().regex(/^\d+(\.\d{1,3})?$/),
   unit: z.string().max(20).optional(),
   rate,
-  discountPercent: z.string().regex(/^\d+(\.\d{1,3})?$/).optional(),
+  discountPercent: z
+    .string()
+    .regex(/^\d+(\.\d{1,3})?$/)
+    .refine((v) => Number(v) <= 100, "Discount cannot exceed 100%")
+    .optional(),
   taxId: z.string().uuid().optional(),
 });
 
@@ -249,8 +253,11 @@ function buildCreditNoteJeLines(
     credit?: string;
     description?: string;
   }> = [];
+  // Mirrors the invoice: tax folds back into revenue, never a payable, so a
+  // credit for the whole invoice reverses it exactly.
+  const taxP = toPaise(totals.cgst) + toPaise(totals.sgst) + toPaise(totals.igst);
   let first = true;
-  for (const g of groupRevenueByAccount(lines, toPaise(totals.roundOff))) {
+  for (const g of groupRevenueByAccount(lines, toPaise(totals.roundOff), taxP)) {
     const description = first ? `Credit note ${number}` : undefined;
     first = false;
     jeLines.push(
@@ -260,9 +267,6 @@ function buildCreditNoteJeLines(
     );
   }
   jeLines.push({ systemKey: "ar", credit: totals.total });
-  if (toPaise(totals.cgst) > 0) jeLines.push({ systemKey: "cgst_payable", debit: totals.cgst } as never);
-  if (toPaise(totals.sgst) > 0) jeLines.push({ systemKey: "sgst_payable", debit: totals.sgst } as never);
-  if (toPaise(totals.igst) > 0) jeLines.push({ systemKey: "igst_payable", debit: totals.igst } as never);
   return jeLines;
 }
 

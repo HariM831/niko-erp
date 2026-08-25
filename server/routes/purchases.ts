@@ -87,7 +87,11 @@ const lineSchema = z.object({
   quantity: z.string().regex(/^\d+(\.\d{1,3})?$/),
   unit: z.string().max(20).optional(),
   rate,
-  discountPercent: z.string().regex(/^\d+(\.\d{1,3})?$/).optional(),
+  discountPercent: z
+    .string()
+    .regex(/^\d+(\.\d{1,3})?$/)
+    .refine((v) => Number(v) <= 100, "Discount cannot exceed 100%")
+    .optional(),
   taxId: z.string().uuid().optional(),
 });
 
@@ -1606,6 +1610,11 @@ export function buildExpenseJeLines(args: {
   number: string;
   tagOptionIds?: string[];
 }) {
+  // Eggs are exempt, so there is no output tax and no input credit to claim.
+  // Any GST a vendor charges is simply part of what the thing cost — it goes
+  // into the expense account with the rest of the value, never to a separate
+  // recoverable tax account. See docs/procurement-plan.md §3.
+  const grossP = toPaise(args.amount) + args.taxP;
   const jeLines: Array<{
     accountId?: string;
     systemKey?: string;
@@ -1616,15 +1625,14 @@ export function buildExpenseJeLines(args: {
   }> = [
     {
       accountId: args.expenseAccountId,
-      debit: args.amount,
+      debit: fromPaise(grossP),
       description: `Expense ${args.number}`,
       // The cost line is the one worth tagging: the bank credit is just where
       // the money came from, not what it was spent on.
       tagOptionIds: args.tagOptionIds,
     },
-    { accountId: args.bankGlAccountId, credit: fromPaise(toPaise(args.amount) + args.taxP) },
+    { accountId: args.bankGlAccountId, credit: fromPaise(grossP) },
   ];
-  if (args.taxP > 0) jeLines.push({ systemKey: "input_gst", debit: fromPaise(args.taxP) });
   return jeLines;
 }
 

@@ -126,9 +126,14 @@ export function computeDueDate(billDate: string, termsDays: number): string {
 }
 
 /**
- * Bill journal: DR each line's account (net of discount), DR input GST,
+ * Bill journal: DR each line's account (net of discount, tax folded in),
  * CR Accounts Payable for the grand total. Round-off folds into the
  * first line's account group.
+ *
+ * Eggs are exempt, so there is no input credit to claim: any GST the vendor
+ * charged is part of what the goods cost and is spread back across the same
+ * accounts the goods landed on, never posted to a recoverable tax account.
+ * See docs/procurement-plan.md §3.
  */
 export function buildBillJeLines(
   grouped: Map<string, { accountId: string; netP: number; tagOptionIds?: string[] }>,
@@ -147,9 +152,39 @@ export function buildBillJeLines(
     description?: string;
     tagOptionIds?: string[];
   }> = [];
+
+  // Tax rides on the value it was charged on, so it is apportioned by each
+  // group's share of the positive line value. Only positive groups take a
+  // share — a deduction credit is not something GST was charged on — and the
+  // last one absorbs the rounding remainder so the total lands exactly.
+  const groups = [...grouped.values()];
+  const positive = groups.filter((g) => g.netP > 0);
+  const positiveTotalP = positive.reduce((s, g) => s + g.netP, 0);
+  const taxShare = new Map<string, number>();
+  if (taxTotalP > 0) {
+    // Nothing positive to attach it to would strand the tax: the payable
+    // credit below includes it, so it has to land on a debit somewhere or
+    // the entry will not balance. In practice a bill is never all-deductions,
+    // and refusing here is clearer than silently posting a broken journal.
+    if (!positive.length) {
+      throw new PostingError(
+        `Bill ${billNumber} carries tax but no positive line to absorb it into`,
+      );
+    }
+    let allocated = 0;
+    positive.forEach((g, i) => {
+      const share =
+        i === positive.length - 1
+          ? taxTotalP - allocated
+          : Math.round((taxTotalP * g.netP) / positiveTotalP);
+      allocated += share;
+      taxShare.set(g.accountId, (taxShare.get(g.accountId) ?? 0) + share);
+    });
+  }
+
   let first = true;
-  for (const { accountId, netP, tagOptionIds } of grouped.values()) {
-    const withRound = first ? netP + roundOffP : netP;
+  for (const { accountId, netP, tagOptionIds } of groups) {
+    const withRound = (first ? netP + roundOffP : netP) + (taxShare.get(accountId) ?? 0);
     first = false;
     if (withRound !== 0) {
       // Normally a debit: goods increase an expense. A bill may also carry
@@ -167,7 +202,6 @@ export function buildBillJeLines(
       });
     }
   }
-  if (taxTotalP > 0) jeLines.push({ systemKey: "input_gst", debit: fromPaise(taxTotalP) });
 
   // The adjustment is inside the payable, so its own account takes the other
   // side — debited when it increases what is owed, credited when it reduces it.
@@ -611,7 +645,13 @@ export async function createBill(tx: Tx, args: CreateBillArgs) {
   return updated!;
 }
 
-/** Reverse of a bill's posting: DR AP, CR the line accounts + input GST. */
+/**
+ * Reverse of a bill's posting: DR AP, CR the line accounts.
+ *
+ * Tax folds back into the same accounts it was folded into on the way in —
+ * eggs are exempt, so no input credit was ever claimed to reverse. See
+ * docs/procurement-plan.md §3.
+ */
 export function buildVendorCreditJeLines(
   computedLines: Awaited<ReturnType<typeof computeDocumentTotals>>["lines"],
   resolvedLines: Awaited<ReturnType<typeof resolveLineAccounts>>,
@@ -625,6 +665,29 @@ export function buildVendorCreditJeLines(
   });
   const taxTotalP = toPaise(totals.cgst) + toPaise(totals.sgst) + toPaise(totals.igst);
 
+  // Apportioned by each account's share of value, mirroring the bill side so
+  // a credit for the whole bill reverses it exactly.
+  const entries = [...grouped.entries()];
+  const positive = entries.filter(([, netP]) => netP > 0);
+  const positiveTotalP = positive.reduce((s, [, netP]) => s + netP, 0);
+  const taxShare = new Map<string, number>();
+  if (taxTotalP > 0) {
+    if (!positive.length) {
+      throw new PostingError(
+        `Vendor credit ${number} carries tax but no positive line to absorb it into`,
+      );
+    }
+    let allocated = 0;
+    positive.forEach(([accountId, netP], i) => {
+      const share =
+        i === positive.length - 1
+          ? taxTotalP - allocated
+          : Math.round((taxTotalP * netP) / positiveTotalP);
+      allocated += share;
+      taxShare.set(accountId, (taxShare.get(accountId) ?? 0) + share);
+    });
+  }
+
   const jeLines: Array<{
     accountId?: string;
     systemKey?: string;
@@ -633,12 +696,12 @@ export function buildVendorCreditJeLines(
     description?: string;
   }> = [{ systemKey: "ap", debit: totals.total, description: `Vendor credit ${number}` }];
   let first = true;
-  for (const [accountId, netP] of grouped) {
-    const withRound = first ? netP + toPaise(totals.roundOff) : netP;
+  for (const [accountId, netP] of entries) {
+    const withRound =
+      (first ? netP + toPaise(totals.roundOff) : netP) + (taxShare.get(accountId) ?? 0);
     first = false;
     if (withRound !== 0) jeLines.push({ accountId, credit: fromPaise(withRound) });
   }
-  if (taxTotalP > 0) jeLines.push({ systemKey: "input_gst", credit: fromPaise(taxTotalP) });
   return jeLines;
 }
 

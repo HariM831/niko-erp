@@ -2,6 +2,7 @@ import { inArray } from "drizzle-orm";
 import { items, orgProfile, taxes } from "@shared/schema";
 import type { Tx } from "../db";
 import { applyRounding, getPreferences } from "./preferences";
+import { PostingError } from "./posting";
 
 /** All arithmetic in integer paise to avoid float drift; output as "0.00" strings. */
 const toPaise = (s: string | number | undefined): number =>
@@ -66,7 +67,7 @@ export async function computeDocumentTotals(
     : [];
   const rateByTax = new Map(taxRows.map((t) => [t.id, Number(t.rate)]));
   for (const id of taxIds) {
-    if (!rateByTax.has(id)) throw new Error(`Unknown tax: ${id}`);
+    if (!rateByTax.has(id)) throw new PostingError(`Unknown tax: ${id}`);
   }
 
   const [org] = await tx
@@ -161,10 +162,17 @@ export async function applyDefaultSalesAccounts<T extends ComputedLine>(
  * Revenue totals per income account, in paise. Round-off rides on the largest
  * group so the journal still balances to the document total to the rupee.
  * A null accountId means "post to the `sales` system account".
+ *
+ * `taxPaise` folds any tax charged back into revenue rather than splitting it
+ * to a payable: eggs are exempt, so there is no output tax standing separately
+ * to remit. It is apportioned across the positive groups by their share of
+ * value, the last absorbing the remainder so the parts sum exactly.
+ * See docs/procurement-plan.md §3.
  */
 export function groupRevenueByAccount(
   lines: Array<{ accountId?: string | null; amount: string }>,
   roundOffPaise: number,
+  taxPaise = 0,
 ): Array<{ accountId: string | null; paise: number }> {
   const byAccount = new Map<string | null, number>();
   for (const l of lines) {
@@ -172,11 +180,30 @@ export function groupRevenueByAccount(
     byAccount.set(key, (byAccount.get(key) ?? 0) + toPaise(l.amount));
   }
   const groups = [...byAccount.entries()].map(([accountId, paise]) => ({ accountId, paise }));
-  if (groups.length === 0) return [{ accountId: null, paise: roundOffPaise }];
+  if (groups.length === 0) return [{ accountId: null, paise: roundOffPaise + taxPaise }];
   if (roundOffPaise !== 0) {
     let largest = groups[0]!;
     for (const g of groups) if (Math.abs(g.paise) > Math.abs(largest.paise)) largest = g;
     largest.paise += roundOffPaise;
+  }
+  if (taxPaise !== 0) {
+    const positive = groups.filter((g) => g.paise > 0);
+    // Nothing positive to carry it: put it on the catch-all sales account
+    // rather than dropping it, which would unbalance the entry.
+    if (!positive.length) {
+      groups.push({ accountId: null, paise: taxPaise });
+    } else {
+      const positiveTotal = positive.reduce((s, g) => s + g.paise, 0);
+      let allocated = 0;
+      positive.forEach((g, i) => {
+        const share =
+          i === positive.length - 1
+            ? taxPaise - allocated
+            : Math.round((taxPaise * g.paise) / positiveTotal);
+        allocated += share;
+        g.paise += share;
+      });
+    }
   }
   return groups.filter((g) => g.paise !== 0);
 }

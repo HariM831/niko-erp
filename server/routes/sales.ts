@@ -63,7 +63,11 @@ const lineSchema = z.object({
   quantity: z.string().regex(/^\d+(\.\d{1,3})?$/),
   unit: z.string().max(20).optional(),
   rate,
-  discountPercent: z.string().regex(/^\d+(\.\d{1,3})?$/).optional(),
+  discountPercent: z
+    .string()
+    .regex(/^\d+(\.\d{1,3})?$/)
+    .refine((v) => Number(v) <= 100, "Discount cannot exceed 100%")
+    .optional(),
   taxId: z.string().uuid().optional(),
 });
 
@@ -152,16 +156,16 @@ export async function postInvoiceJournal(
   const lines: PostingLineInput[] = [
     { systemKey: "ar", debit: inv.total, description: `Invoice ${inv.number}` },
   ];
-  for (const g of groupRevenueByAccount(revenue, toPaise(inv.roundOff))) {
+  // Tax folds into revenue rather than a payable — eggs are exempt, so there
+  // is no output tax to remit. See docs/procurement-plan.md §3.
+  const taxP = toPaise(inv.cgst) + toPaise(inv.sgst) + toPaise(inv.igst);
+  for (const g of groupRevenueByAccount(revenue, toPaise(inv.roundOff), taxP)) {
     lines.push(
       g.accountId
         ? { accountId: g.accountId, credit: fromPaise(g.paise) }
         : { systemKey: "sales", credit: fromPaise(g.paise) },
     );
   }
-  if (toPaise(inv.cgst) > 0) lines.push({ systemKey: "cgst_payable", credit: inv.cgst });
-  if (toPaise(inv.sgst) > 0) lines.push({ systemKey: "sgst_payable", credit: inv.sgst });
-  if (toPaise(inv.igst) > 0) lines.push({ systemKey: "igst_payable", credit: inv.igst });
 
   // The adjustment rides in the receivable, so its own account takes the other
   // side. Credited when it increases the total, debited when it reduces it —
@@ -308,6 +312,9 @@ salesRouter.post(
             cgst: totals.cgst,
             sgst: totals.sgst,
             igst: totals.igst,
+            adjustment: totals.adjustment,
+            adjustmentAccountId: totals.adjustmentAccountId,
+            adjustmentDescription: totals.adjustmentDescription,
             roundOff: totals.roundOff,
             total: totals.total,
             balanceDue: totals.total,
