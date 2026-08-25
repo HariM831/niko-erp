@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useAuth } from "../auth";
+import logoMark from "../assets/logo-mark.png";
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -27,11 +28,8 @@ export function LoginPage() {
       <div className="pointer-events-none absolute -left-24 -top-24 h-96 w-96 rounded-full bg-white/5" />
       <div className="pointer-events-none absolute -bottom-32 -right-16 h-[28rem] w-[28rem] rounded-full bg-yolk-400/20" />
       <form onSubmit={submit} className="relative w-[350px] rounded-2xl bg-white p-8 shadow-2xl">
-        <div className="mb-1 flex items-center gap-2.5">
-          <span className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-brand-400 to-brand-600 text-lg font-extrabold text-white shadow-md">
-            n
-          </span>
-          <span className="text-xl font-bold tracking-tight">niko</span>
+        <div className="mb-1 flex items-center">
+          <img src={logoMark} alt="niko" className="h-10 w-auto" />
         </div>
         <p className="mb-6 text-[13px] text-gray-500">Sign in to manage your books</p>
         <label className="label">Username</label>

@@ -13,6 +13,7 @@ import {
   SettingsHeader,
   SettingsTable,
 } from "../components/settings-ui";
+import { getAccent, setAccent, type Accent } from "../theme";
 import { RolesSection, UsersSection } from "./settings-users";
 import { OpeningBalancesSection } from "./settings-opening";
 import { LocationsSection } from "./settings-locations";
@@ -60,6 +61,7 @@ interface SectionDef {
 const SECTIONS: SectionDef[] = [
   { key: "org", label: "Organisation Profile", group: "Organisation" },
   { key: "locations", label: "Locations", group: "Organisation" },
+  { key: "appearance", label: "Appearance", group: "Organisation" },
   { key: "users", label: "Users", group: "Users & Roles" },
   { key: "roles", label: "Roles", group: "Users & Roles" },
   { key: "taxes", label: "Taxes", group: "Setup" },
@@ -116,7 +118,7 @@ const SECTIONS: SectionDef[] = [
 ];
 
 /** Sections that are a form rather than a table, and so want a narrow measure. */
-const FORM_SECTIONS = new Set<Section>(["org"]);
+const FORM_SECTIONS = new Set<Section>(["org", "appearance"]);
 
 export function SettingsPage() {
   const [active, setActive] = useState<Section>("org");
@@ -150,6 +152,7 @@ export function SettingsPage() {
         <div className={FORM_SECTIONS.has(active) ? "max-w-3xl" : ""}>
           {active === "org" && <OrgSection />}
           {active === "locations" && <LocationsSection />}
+          {active === "appearance" && <AppearanceSection />}
           {active === "users" && <UsersSection />}
           {active === "roles" && <RolesSection />}
           {active === "taxes" && <TaxesSection />}
@@ -163,6 +166,52 @@ export function SettingsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+const ACCENTS: Array<{ key: Accent; label: string; note: string; swatch: string }> = [
+  { key: "yolk", label: "Yolk", note: "The original egg-yolk orange", swatch: "#e06d05" },
+  { key: "crimson", label: "Crimson", note: "The niko logo red", swatch: "#ce0d0d" },
+];
+
+function AppearanceSection() {
+  const [accent, setLocal] = useState<Accent>(() => getAccent());
+
+  const choose = (key: Accent) => {
+    setAccent(key);
+    setLocal(key);
+  };
+
+  return (
+    <>
+      <SettingsHeader
+        title="Appearance"
+        description="The accent colour used across every screen. Applies instantly and is remembered on this device."
+      />
+      <div className="flex gap-3">
+        {ACCENTS.map((a) => (
+          <button
+            key={a.key}
+            onClick={() => choose(a.key)}
+            aria-pressed={accent === a.key}
+            className={`flex flex-1 items-center gap-3 rounded-lg border p-3 text-left transition-colors ${
+              accent === a.key
+                ? "border-brand-500 bg-brand-50 ring-1 ring-brand-500"
+                : "border-gray-200 hover:bg-gray-50"
+            }`}
+          >
+            <span
+              className="h-8 w-8 shrink-0 rounded-full"
+              style={{ backgroundColor: a.swatch }}
+            />
+            <span className="min-w-0">
+              <span className="block text-[13px] font-medium">{a.label}</span>
+              <span className="block truncate text-[12px] text-gray-500">{a.note}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </>
   );
 }
 

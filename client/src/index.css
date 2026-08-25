@@ -77,6 +77,45 @@
   --color-ring: #f98a12;
 }
 
+/* ── Crimson accent ───────────────────────────────────────────────────────
+   The niko logo's red, offered as an alternative to the yolk orange and
+   switched from Settings → Appearance. Only the accent ramps are redefined
+   here: every screen reads a brand or yolk token rather than a literal hex,
+   so this block is the whole switch. Status colours (success, warning, info,
+   destructive) and the neutral ramps deliberately stay put — they carry
+   meaning, not brand. */
+[data-accent="crimson"] {
+  --color-brand-50: #fef2f2;
+  --color-brand-100: #fde0e0;
+  --color-brand-200: #fbc4c4;
+  --color-brand-400: #ef5a5a;
+  --color-brand-500: #de2020;
+  --color-brand-600: #ce0d0d;
+  --color-brand-700: #a90f0f;
+
+  --color-yolk-50: #fef2f2;
+  --color-yolk-100: #fde0e0;
+  --color-yolk-200: #fbc4c4;
+  --color-yolk-300: #f79494;
+  --color-yolk-400: #ef5a5a;
+  --color-yolk-500: #de2020;
+  --color-yolk-600: #ce0d0d;
+  --color-yolk-700: #a90f0f;
+  --color-yolk-800: #8b1313;
+  --color-yolk-900: #741616;
+
+  --color-primary: #ce0d0d;
+  --color-ring: #de2020;
+}
+
+/* Held for one frame while the accent swaps — see setAccent in theme.ts. */
+.accent-swapping,
+.accent-swapping *,
+.accent-swapping *::before,
+.accent-swapping *::after {
+  transition: none !important;
+}
+
 body {
   @apply bg-surface text-gray-900 antialiased;
   font-family: var(--font-sans);

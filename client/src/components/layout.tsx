@@ -1,5 +1,6 @@
 import { type ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
+import logoMark from "../assets/logo-mark.png";
 import {
   Banknote,
   BookOpen,
@@ -213,11 +214,8 @@ function SidebarBody({
 
   return (
     <>
-      <div className="flex h-14 items-center gap-2.5 px-4">
-        <span className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-brand-400 to-brand-600 text-[15px] font-extrabold text-white shadow-md">
-          n
-        </span>
-        <span className="text-[15px] font-bold tracking-tight text-white">niko</span>
+      <div className="flex h-14 items-center px-4">
+        <img src={logoMark} alt="niko" className="h-8 w-auto" />
       </div>
       <nav className="flex-1 overflow-y-auto px-2.5 py-2 text-[13px]">
         {navItems.map((item) => {
