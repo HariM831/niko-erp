@@ -1,6 +1,6 @@
 import { type ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
-import logoMark from "../assets/logo-mark.png";
+import { LogoMark } from "./logo";
 import {
   Banknote,
   BookOpen,
@@ -215,7 +215,9 @@ function SidebarBody({
   return (
     <>
       <div className="flex h-14 items-center px-4">
-        <img src={logoMark} alt="niko" className="h-8 w-auto" />
+        {/* brand-500 rather than 600: the deeper step goes muddy on the rail's
+            dark ground, in either accent. */}
+        <LogoMark className="h-8" color="bg-brand-500" />
       </div>
       <nav className="flex-1 overflow-y-auto px-2.5 py-2 text-[13px]">
         {navItems.map((item) => {
