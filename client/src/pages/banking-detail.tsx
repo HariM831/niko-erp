@@ -1143,7 +1143,15 @@ function TransferPanel({ bankAccountId, onDone, onCancel }: { bankAccountId: str
 export function BankAccountNewPage({ editId }: { editId?: string }) {
   const [, navigate] = useLocation();
   const qc = useQueryClient();
-  const [form, setForm] = useState({ name: "", kind: "bank", bankName: "", accountNumber: "", ifsc: "", branch: "" });
+  const [form, setForm] = useState({
+    name: "",
+    kind: "bank",
+    bankName: "",
+    accountNumber: "",
+    ifsc: "",
+    branch: "",
+    bankCustomerCode: "",
+  });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -1161,6 +1169,7 @@ export function BankAccountNewPage({ editId }: { editId?: string }) {
       accountNumber: existing.accountNumber ?? "",
       ifsc: existing.ifsc ?? "",
       branch: existing.branch ?? "",
+      bankCustomerCode: existing.bankCustomerCode ?? "",
     });
   }, [existing]);
 
@@ -1180,6 +1189,7 @@ export function BankAccountNewPage({ editId }: { editId?: string }) {
           accountNumber: form.accountNumber || undefined,
           ifsc: form.ifsc || undefined,
           branch: form.branch || undefined,
+          bankCustomerCode: form.bankCustomerCode || undefined,
         },
       });
       await qc.invalidateQueries();
@@ -1230,6 +1240,20 @@ export function BankAccountNewPage({ editId }: { editId?: string }) {
           <div>
             <label className={label}>Branch</label>
             <input value={form.branch} onChange={set("branch")} className={inputCls} />
+          </div>
+          <div>
+            <label className={label}>Bank Customer Code</label>
+            <input
+              value={form.bankCustomerCode}
+              onChange={set("bankCustomerCode")}
+              maxLength={20}
+              placeholder="e.g. 307242"
+              className={inputCls}
+            />
+            <p className="mt-1 text-[11px] text-gray-500">
+              Our code with the bank, printed on their bulk-payment file. Needed to pay vendors
+              from this account.
+            </p>
           </div>
         </div>
         {!editId && (

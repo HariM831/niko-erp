@@ -22,6 +22,12 @@ export const bankAccounts = pgTable("bank_accounts", {
   accountNumber: varchar("account_number", { length: 30 }),
   ifsc: varchar("ifsc", { length: 11 }),
   branch: text("branch"),
+  /**
+   * Our own customer code with the bank, as it appears on their bulk-payment
+   * template — SBI calls it "Cus Code" and rejects a file that omits it.
+   * Null on a cash box or on an account no payment file is ever raised from.
+   */
+  bankCustomerCode: varchar("bank_customer_code", { length: 20 }),
   /** GL account this bank account posts to. */
   glAccountId: uuid("gl_account_id")
     .notNull()

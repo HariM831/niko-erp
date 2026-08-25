@@ -43,9 +43,16 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
     vendorId: "",
     amount: "",
     taxId: "",
+    dueDate: "",
     reference: "",
     notes: "",
   });
+  /**
+   * Whether the money has actually gone. Unpaid posts to Accounts Payable
+   * instead of a bank account and puts the expense on the Payments screen with
+   * the unpaid bills, where it can go into a bank file like any other payable.
+   */
+  const [unpaid, setUnpaid] = useState(false);
   /** Chosen option per tag — one select each, so two vehicles cannot both be picked. */
   const [lineTags, setLineTags] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -90,9 +97,11 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
       vendorId: str("vendorId"),
       amount: existing.amount ? String(Number(existing.amount)) : "",
       taxId: str("taxId"),
+      dueDate: str("dueDate"),
       reference: str("reference"),
       notes: str("notes"),
     });
+    setUnpaid(!existing.paidThroughId);
     setLineTags(
       Object.fromEntries(
         ((existing.tags ?? []) as Array<{ tagId: string; optionId: string }>).map((t) => [
@@ -123,7 +132,10 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
         body: {
           expenseDate: form.expenseDate,
           expenseAccountId: form.expenseAccountId,
-          paidThroughId: form.paidThroughId,
+          // null, not undefined: a patch reads undefined as "leave it alone",
+          // so marking a paid expense unpaid has to say so out loud.
+          paidThroughId: unpaid ? null : form.paidThroughId,
+          dueDate: unpaid ? form.dueDate || undefined : null,
           vendorId: form.vendorId || undefined,
           amount: Number(form.amount).toFixed(2),
           taxId: form.taxId || undefined,
@@ -180,23 +192,55 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
             </select>
           </div>
           <div>
-            <label className="label-required">Paid Through *</label>
-            <select value={form.paidThroughId} onChange={set("paidThroughId")} className={inputCls}>
+            <label className={unpaid ? label : "label-required"}>
+              Paid Through {unpaid ? "" : "*"}
+            </label>
+            <select
+              value={unpaid ? "" : form.paidThroughId}
+              onChange={set("paidThroughId")}
+              disabled={unpaid}
+              className={`${inputCls} disabled:bg-gray-50 disabled:text-gray-400`}
+            >
               <option value="">Select account…</option>
               {banks?.map((b) => (
                 <option key={b.id} value={b.id}>{b.name}</option>
               ))}
             </select>
+            <label className="mt-1.5 flex items-center gap-1.5 text-[12px] text-gray-600">
+              <input
+                type="checkbox"
+                checked={unpaid}
+                onChange={(e) => setUnpaid(e.target.checked)}
+                className="accent-brand-500"
+              />
+              Not paid yet — owed to the vendor
+            </label>
           </div>
           <div>
-            <label className={label}>Vendor</label>
+            <label className={unpaid ? "label-required" : label}>
+              Vendor {unpaid ? "*" : ""}
+            </label>
             <select value={form.vendorId} onChange={set("vendorId")} className={inputCls}>
               <option value="">None</option>
               {vendors?.map((v) => (
                 <option key={v.id} value={v.id}>{v.displayName}</option>
               ))}
             </select>
+            {unpaid && !form.vendorId && (
+              <p className="mt-1 text-[11px] text-amber-700">
+                An unpaid expense has to say who it is owed to.
+              </p>
+            )}
           </div>
+          {unpaid && (
+            <div>
+              <label className={label}>Due Date</label>
+              <input type="date" value={form.dueDate} onChange={set("dueDate")} className={inputCls} />
+              <p className="mt-1 text-[11px] text-gray-500">
+                Left blank, the vendor's payment terms decide.
+              </p>
+            </div>
+          )}
           {/* No tax field: with no GST input to claim, an expense is recorded
               at what was actually paid, tax included. Splitting it out here
               would understate the cost and imply a credit we cannot take. */}
@@ -242,7 +286,13 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
       <footer className="flex items-center gap-2 border-t bg-white px-6 py-3">
         <button
           onClick={() => void save()}
-          disabled={busy || !form.expenseDate || !form.expenseAccountId || !form.paidThroughId || Number(form.amount) <= 0}
+          disabled={
+            busy ||
+            !form.expenseDate ||
+            !form.expenseAccountId ||
+            (unpaid ? !form.vendorId : !form.paidThroughId) ||
+            Number(form.amount) <= 0
+          }
           className="btn-primary"
         >
           {editId ? "Save Changes" : "Save Expense"}

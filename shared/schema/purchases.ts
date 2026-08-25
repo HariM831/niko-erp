@@ -280,14 +280,26 @@ export const expenses = pgTable("expenses", {
   expenseAccountId: uuid("expense_account_id")
     .notNull()
     .references(() => accounts.id),
-  paidThroughId: uuid("paid_through_id")
-    .notNull()
-    .references(() => bankAccounts.id),
+  /**
+   * The account the money left, or null while it has not left yet.
+   *
+   * Most expenses are entered after the fact — somebody paid for diesel and
+   * the entry records which account it came out of. But a bill is not the only
+   * thing that can sit unpaid: a vendor's charge with no goods behind it is
+   * still owed, and pretending the bank was credited on the day it was typed
+   * puts money in the ledger that is still in the account. So a null here
+   * means unpaid: the journal credits Accounts Payable instead of a bank, the
+   * expense shows on the Payments screen with the unpaid bills, and setting
+   * this later re-posts it against the account that actually paid.
+   */
+  paidThroughId: uuid("paid_through_id").references(() => bankAccounts.id),
   vendorId: uuid("vendor_id").references(() => contacts.id),
   amount: money("amount").notNull(),
   taxId: uuid("tax_id").references(() => taxes.id),
   taxAmount: money("tax_amount").notNull().default("0"),
   isTaxInclusive: integer("is_tax_inclusive").notNull().default(0),
+  /** When an unpaid expense falls due. Null once it is paid, or on entry with no term. */
+  dueDate: date("due_date"),
   reference: text("reference"),
   notes: text("notes"),
   journalEntryId: uuid("journal_entry_id").references(() => journalEntries.id),
@@ -296,3 +308,73 @@ export const expenses = pgTable("expenses", {
     .references(() => users.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+/**
+ * One upload to the bank: the rows of a bulk-transfer file, as they were sent.
+ *
+ * A batch is a record of an instruction, not of a payment. The money has not
+ * moved when this row is written — the file has merely been handed to the
+ * bank, and the bank may still reject a line for a stale IFSC or a closed
+ * account. So nothing here touches the ledger and nothing here marks a bill
+ * paid; the batch exists so the same bill is not sent twice on Tuesday and
+ * again on Wednesday, and so the file that went out can be re-read months
+ * later when a vendor asks what we sent.
+ *
+ * The payment itself is recorded the usual way, once the bank confirms it:
+ * a vendor payment against the bill, or the paid-through account filled in on
+ * the expense.
+ */
+export const paymentBatches = pgTable("payment_batches", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  number: varchar("number", { length: 30 }).notNull().unique(),
+  /** Value date on the instruction — what goes in the file's Date column. */
+  batchDate: date("batch_date").notNull(),
+  /** The account the bank is told to debit. */
+  bankAccountId: uuid("bank_account_id")
+    .notNull()
+    .references(() => bankAccounts.id),
+  total: money("total").notNull().default("0"),
+  notes: text("notes"),
+  createdBy: uuid("created_by")
+    .notNull()
+    .references(() => users.id),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+/**
+ * One transfer in a batch — one row of the file.
+ *
+ * The beneficiary's name, account and IFSC are copied rather than joined:
+ * they are what was actually sent to the bank that day, and a vendor whose
+ * account changes next month must not rewrite the history of a transfer that
+ * already succeeded or failed on the old one.
+ */
+export const paymentBatchLines = pgTable(
+  "payment_batch_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    batchId: uuid("batch_id")
+      .notNull()
+      .references(() => paymentBatches.id, { onDelete: "cascade" }),
+    /** Exactly one of these is set — the document being paid. */
+    billId: uuid("bill_id").references(() => bills.id),
+    expenseId: uuid("expense_id").references(() => expenses.id),
+    vendorId: uuid("vendor_id")
+      .notNull()
+      .references(() => contacts.id),
+    amount: money("amount").notNull(),
+    beneficiaryName: text("beneficiary_name").notNull(),
+    accountNumber: varchar("account_number", { length: 30 }).notNull(),
+    ifsc: varchar("ifsc", { length: 11 }).notNull(),
+    /** "DCR" for an in-bank credit, "NEFT" for anything else. */
+    transferMode: varchar("transfer_mode", { length: 8 }).notNull(),
+    /** What the vendor sees against the credit — the document number. */
+    remarks: text("remarks"),
+    lineOrder: integer("line_order").notNull().default(0),
+  },
+  (t) => [
+    index("ix_pbl_batch").on(t.batchId),
+    index("ix_pbl_bill").on(t.billId),
+    index("ix_pbl_expense").on(t.expenseId),
+  ],
+);

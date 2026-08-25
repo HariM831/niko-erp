@@ -76,6 +76,20 @@ const contactObjectSchema = z.object({
   creditLimit: money.optional(),
   openingBalance: money.optional(),
   notes: z.string().optional(),
+  /**
+   * Where a vendor is paid. The beneficiary name is whatever the bank prints
+   * on the account, which is not always what we call them, so it is typed
+   * rather than derived. Blank strings are kept as blanks: half-entered bank
+   * details are the same as none, and the payment file refuses either.
+   */
+  bankBeneficiaryName: z.string().max(120).optional(),
+  bankAccountNumber: z.string().max(30).optional(),
+  bankIfsc: z
+    .string()
+    .regex(/^[A-Z]{4}0[A-Z0-9]{6}$/, "Not a valid IFSC")
+    .optional()
+    .or(z.literal("")),
+  bankName: z.string().max(120).optional(),
   persons: z.array(personSchema).max(10).optional(),
   addresses: z.array(addressSchema).max(10).optional(),
   /** Custom field values, keyed by field id. */

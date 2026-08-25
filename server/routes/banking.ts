@@ -63,6 +63,8 @@ const bankAccountSchema = z.object({
   accountNumber: z.string().max(30).optional(),
   ifsc: z.string().max(11).optional(),
   branch: z.string().optional(),
+  /** Our customer code with the bank, printed on their bulk-payment file. */
+  bankCustomerCode: z.string().max(20).optional(),
   glAccountId: z.string().uuid().optional(),
 });
 
@@ -77,6 +79,7 @@ bankingRouter.get("/accounts", requirePermission("banking", "view"), async (_req
       accountNumber: bankAccounts.accountNumber,
       ifsc: bankAccounts.ifsc,
       branch: bankAccounts.branch,
+      bankCustomerCode: bankAccounts.bankCustomerCode,
       glAccountId: bankAccounts.glAccountId,
       isActive: bankAccounts.isActive,
       balance: sql<string>`COALESCE((
@@ -139,6 +142,7 @@ const bankAccountEditSchema = z.object({
   accountNumber: z.string().max(30).optional(),
   ifsc: z.string().max(11).optional(),
   branch: z.string().optional(),
+  bankCustomerCode: z.string().max(20).optional(),
   isActive: z.boolean().optional(),
 });
 
