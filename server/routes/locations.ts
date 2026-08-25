@@ -4,7 +4,7 @@ import { z } from "zod";
 import { locations } from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
-import { validateBody } from "../lib/validate";
+import { gstStateCode, validateBody } from "../lib/validate";
 
 export const locationsRouter = Router();
 
@@ -21,7 +21,7 @@ const locationSchema = z.object({
   addressLine2: z.string().optional(),
   city: z.string().optional(),
   state: z.string().optional(),
-  stateCode: z.string().max(4).optional(),
+  stateCode: gstStateCode.optional(),
   pincode: z.string().max(10).optional(),
   phone: z.string().max(20).optional(),
   inCharge: z.string().optional(),

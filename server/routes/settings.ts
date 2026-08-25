@@ -11,7 +11,7 @@ import {
 import { NUMBERED_ENTITIES } from "@shared/entities";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
-import { nonBlank, validateBody } from "../lib/validate";
+import { gstStateCode, nonBlank, validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
 import { getOpeningBalances, saveOpeningBalances } from "../services/opening-balances";
 import { getPreferences } from "../services/preferences";
@@ -26,7 +26,7 @@ const orgSchema = z.object({
   address: z.string().optional(),
   city: z.string().optional(),
   state: z.string().optional(),
-  stateCode: z.string().max(4).optional(),
+  stateCode: gstStateCode.optional(),
   pincode: z.string().max(10).optional(),
   phone: z.string().max(20).optional(),
   email: z.string().email().optional().or(z.literal("")),
