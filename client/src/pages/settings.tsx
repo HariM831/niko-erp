@@ -169,9 +169,15 @@ export function SettingsPage() {
   );
 }
 
-const ACCENTS: Array<{ key: Accent; label: string; note: string; swatch: string }> = [
+// Swatches are each palette's own 600, the step the hero banners and links
+// use, so the dot shows the colour the screens will actually be built from.
+const ACCENT_CHOICES: Array<{ key: Accent; label: string; note: string; swatch: string }> = [
   { key: "yolk", label: "Yolk", note: "The original egg-yolk orange", swatch: "#e06d05" },
   { key: "crimson", label: "Crimson", note: "The niko logo red", swatch: "#ce0d0d" },
+  { key: "terracotta", label: "Terracotta", note: "Earthier, deeper cousin of the yolk", swatch: "#b44a1e" },
+  { key: "forest", label: "Forest", note: "Farm green, held dark to stay clear of success", swatch: "#2f7038" },
+  { key: "teal", label: "Teal", note: "Cool and modern; darkens the sidebar", swatch: "#0d7c72" },
+  { key: "indigo", label: "Indigo", note: "Deep blue for a finance feel; darkens the sidebar", swatch: "#3a4ab8" },
 ];
 
 function AppearanceSection() {
@@ -188,13 +194,13 @@ function AppearanceSection() {
         title="Appearance"
         description="The accent colour used across every screen. Applies instantly and is remembered on this device."
       />
-      <div className="flex gap-3">
-        {ACCENTS.map((a) => (
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {ACCENT_CHOICES.map((a) => (
           <button
             key={a.key}
             onClick={() => choose(a.key)}
             aria-pressed={accent === a.key}
-            className={`flex flex-1 items-center gap-3 rounded-lg border p-3 text-left transition-colors ${
+            className={`flex items-center gap-3 rounded-lg border p-3 text-left transition-colors ${
               accent === a.key
                 ? "border-brand-500 bg-brand-50 ring-1 ring-brand-500"
                 : "border-gray-200 hover:bg-gray-50"

@@ -10,8 +10,12 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/favicon-180.png" />
     <script>
       // Before first paint, or the app flashes the default accent on every load.
-      if (localStorage.getItem("niko.accent") === "crimson")
-        document.documentElement.setAttribute("data-accent", "crimson");
+      // Yolk is the stylesheet's own :root palette, so it carries no attribute.
+      // The pattern test keeps a hand-edited value from writing anything odd
+      // into the attribute; an unknown-but-clean name simply matches no rule.
+      var a = localStorage.getItem("niko.accent");
+      if (a && a !== "yolk" && /^[a-z]+$/.test(a))
+        document.documentElement.setAttribute("data-accent", a);
     </script>
   </head>
   <body>

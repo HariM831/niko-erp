@@ -108,6 +108,124 @@
   --color-ring: #de2020;
 }
 
+/* ── Teal accent ──────────────────────────────────────────────────────────
+   Kept well clear of the mint used for "success", so a teal button never
+   reads as a status. The rail moves off its warm brown here: charcoal sits
+   with a cool accent, the brown fights it. */
+[data-accent="teal"] {
+  --color-brand-50: #eefbf8;
+  --color-brand-100: #d3f4ee;
+  --color-brand-200: #a6e9df;
+  --color-brand-400: #34bcae;
+  --color-brand-500: #0f9488;
+  --color-brand-600: #0d7c72;
+  --color-brand-700: #0b635c;
+
+  --color-yolk-50: #eefbf8;
+  --color-yolk-100: #d3f4ee;
+  --color-yolk-200: #a6e9df;
+  --color-yolk-300: #6dd5c8;
+  --color-yolk-400: #34bcae;
+  --color-yolk-500: #0f9488;
+  --color-yolk-600: #0d7c72;
+  --color-yolk-700: #0b635c;
+  --color-yolk-800: #0a4f4a;
+  --color-yolk-900: #08403c;
+
+  --color-sidebar: #1e2227;
+  --color-sidebar-deep: #14171a;
+  --color-sidebar-hover: #2b3138;
+
+  --color-primary: #0d7c72;
+  --color-ring: #0f9488;
+}
+
+/* ── Forest accent ────────────────────────────────────────────────────────
+   The most literally agricultural of the set, and the one that has to be
+   held dark. Brightened, it drifts into the mint that means "success" on a
+   status pill, and the accent stops reading as brand. */
+[data-accent="forest"] {
+  --color-brand-50: #f0f8f1;
+  --color-brand-100: #dcefdf;
+  --color-brand-200: #bbdfc1;
+  --color-brand-400: #5aa96b;
+  --color-brand-500: #3e8e4e;
+  --color-brand-600: #2f7038;
+  --color-brand-700: #265a2d;
+
+  --color-yolk-50: #f0f8f1;
+  --color-yolk-100: #dcefdf;
+  --color-yolk-200: #bbdfc1;
+  --color-yolk-300: #8ec79a;
+  --color-yolk-400: #5aa96b;
+  --color-yolk-500: #3e8e4e;
+  --color-yolk-600: #2f7038;
+  --color-yolk-700: #265a2d;
+  --color-yolk-800: #204a26;
+  --color-yolk-900: #1a3c1f;
+
+  --color-primary: #2f7038;
+  --color-ring: #3e8e4e;
+}
+
+/* ── Terracotta accent ────────────────────────────────────────────────────
+   A neighbour of the yolk rather than a departure from it: earthier and
+   deeper, the same warm family the rail was built for. */
+[data-accent="terracotta"] {
+  --color-brand-50: #fdf4ef;
+  --color-brand-100: #fae4d6;
+  --color-brand-200: #f4c6ad;
+  --color-brand-400: #e07c4c;
+  --color-brand-500: #d2622e;
+  --color-brand-600: #b44a1e;
+  --color-brand-700: #933a17;
+
+  --color-yolk-50: #fdf4ef;
+  --color-yolk-100: #fae4d6;
+  --color-yolk-200: #f4c6ad;
+  --color-yolk-300: #eb9f79;
+  --color-yolk-400: #e07c4c;
+  --color-yolk-500: #d2622e;
+  --color-yolk-600: #b44a1e;
+  --color-yolk-700: #933a17;
+  --color-yolk-800: #782f14;
+  --color-yolk-900: #632812;
+
+  --color-primary: #b44a1e;
+  --color-ring: #d2622e;
+}
+
+/* ── Indigo accent ────────────────────────────────────────────────────────
+   Pushed deep on purpose: a mid blue would sit on top of the info blue that
+   edit icons and neutral badges use. Cool, so the rail turns charcoal too. */
+[data-accent="indigo"] {
+  --color-brand-50: #f0f2fd;
+  --color-brand-100: #dfe3fa;
+  --color-brand-200: #c2c9f5;
+  --color-brand-400: #6f7ee0;
+  --color-brand-500: #4c5fd5;
+  --color-brand-600: #3a4ab8;
+  --color-brand-700: #2e3b93;
+
+  --color-yolk-50: #f0f2fd;
+  --color-yolk-100: #dfe3fa;
+  --color-yolk-200: #c2c9f5;
+  --color-yolk-300: #9aa5ec;
+  --color-yolk-400: #6f7ee0;
+  --color-yolk-500: #4c5fd5;
+  --color-yolk-600: #3a4ab8;
+  --color-yolk-700: #2e3b93;
+  --color-yolk-800: #283178;
+  --color-yolk-900: #232a61;
+
+  --color-sidebar: #1e2227;
+  --color-sidebar-deep: #14171a;
+  --color-sidebar-hover: #2b3138;
+
+  --color-primary: #3a4ab8;
+  --color-ring: #4c5fd5;
+}
+
 /* Held for one frame while the accent swaps — see setAccent in theme.ts. */
 .accent-swapping,
 .accent-swapping *,
