@@ -8,7 +8,7 @@ import { api, formatMoney } from "../../api";
 import { Empty, PageHeader, Pager, Spinner, Td, Th, istToday, num, usePaged } from "../../components/payroll/ui";
 
 interface WageRow {
-  employeeId: string;
+  id: string;
   empCode: string;
   name: string;
   role: string | null;
@@ -88,7 +88,7 @@ export function PayrollWagesPage() {
             </thead>
             <tbody>
               {paged.page.map((r) => (
-                <tr key={r.employeeId} className="table-row">
+                <tr key={r.id} className="table-row">
                   <Td><span className="font-medium">{r.name}</span> <span className="text-[11px] text-gray-400">{r.empCode}</span></Td>
                   <Td>{r.role ?? <span className="text-red-600">no role</span>}</Td>
                   <Td right>{formatMoney(r.dailyRate)}</Td>

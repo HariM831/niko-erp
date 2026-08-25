@@ -86,7 +86,15 @@ export function Select({
       )}
       {items.map((it) => (
         <option key={it.value} value={it.value} disabled={it.disabled}>
-          {typeof it.children === "string" ? it.children : String(it.children ?? it.value)}
+          {typeof it.children === "string"
+            ? it.children
+            : // JSX with an embedded expression splits into several children —
+              // "Text ({x} more)" becomes ["Text (", x, " more)"] — and
+              // String() on an array joins with commas, which is how a plain
+              // label like "All Batches (69,14,171 birds)" grew a stray comma
+              // on each side of the number. Joining with "" concatenates them
+              // as written instead.
+              Children.toArray(it.children ?? it.value).join("")}
         </option>
       ))}
     </select>

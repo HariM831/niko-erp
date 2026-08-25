@@ -60,7 +60,10 @@ function ContactSummaryBanner({ type }: { type: "customer" | "vendor" }) {
   return (
     <SummaryBanner
       primary={{
-        label: type === "customer" ? "Total receivables outstanding" : "Total payables outstanding",
+        label:
+          type === "customer"
+            ? "Total receivables outstanding (market only)"
+            : "Total payables outstanding (market only)",
         value: formatMoney(data?.totalOutstanding ?? 0),
       }}
       secondary={[

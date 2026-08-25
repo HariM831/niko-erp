@@ -157,7 +157,9 @@ export function SettingsPage() {
           {active === "reporting-tags" && <ReportingTagsSection />}
           {active === "opening-balances" && <OpeningBalancesSection />}
           {active === "financial-years" && <FinancialYearsSection />}
-          {activeDef?.group === "Module Settings" && <ModuleSettings def={activeDef} />}
+          {activeDef?.group === "Module Settings" && (
+            <ModuleSettings key={activeDef.key} def={activeDef} />
+          )}
         </div>
       </div>
     </div>
@@ -920,7 +922,10 @@ function ModuleSettings({ def }: { def: SectionDef }) {
     ...(def.entity ? ["fields"] : []),
   ];
   const [tab, setTab] = useState<string>(tabs[0] ?? "fields");
-  const Extra = MODULE_EXTRAS[tab] ?? null;
+  // Looked up within this module's own extras, not the global map — a screen
+  // this module doesn't declare must never render just because some other
+  // module happens to use the same tab key.
+  const Extra = (def.extras ?? []).some((e) => e.key === tab) ? (MODULE_EXTRAS[tab] ?? null) : null;
 
   const PREFS = {
     transactions: TransactionPrefsSection,

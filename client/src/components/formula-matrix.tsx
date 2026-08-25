@@ -10,6 +10,7 @@
  * Every figure is computed on the server — the cost a person reads here is the
  * one production will charge, from the same milling preferences.
  */
+import { Fragment } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
 
@@ -203,8 +204,8 @@ export function FormulaMatrix({ onPick }: { onPick?: (name: string) => void }) {
                 const rows = data.nutrients.filter((n) => n.group === group);
                 if (!rows.length) return null;
                 return (
-                  <>
-                    <tr key={group}>
+                  <Fragment key={group}>
+                    <tr>
                       <td
                         colSpan={f.length + 1}
                         className="px-3 pb-1 pt-3 text-[12px] text-gray-500"
@@ -246,7 +247,7 @@ export function FormulaMatrix({ onPick }: { onPick?: (name: string) => void }) {
                         })}
                       </tr>
                     ))}
-                  </>
+                  </Fragment>
                 );
               })}
             </tbody>

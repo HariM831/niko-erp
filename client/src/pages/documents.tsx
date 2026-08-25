@@ -255,7 +255,10 @@ function PaymentSummaryBanner({ endpoint, side }: { endpoint: string; side: "rec
   return (
     <SummaryBanner
       primary={{
-        label: side === "receivable" ? "Total outstanding receivables" : "Total outstanding payables",
+        label:
+          side === "receivable"
+            ? "Total outstanding receivables (incl. group)"
+            : "Total outstanding payables (incl. group)",
         value: formatMoney(data?.totalOutstanding ?? 0),
       }}
       secondary={secondary}
