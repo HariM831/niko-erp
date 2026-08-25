@@ -76,6 +76,29 @@ export async function benchmarkOn(tx: Conn, on: string) {
   return row ?? null;
 }
 
+/**
+ * What a box of eggs is worth in stock, on a date.
+ *
+ * Stock is valued at the last benchmark in force plus ₹0.50 an egg — one rate
+ * for every size, deliberately. It is a valuation, not a price: the same figure
+ * has to go in at grading and come out at dispatch, or the stock ledger drifts
+ * (a box entering at zero and leaving at its selling price is what drove the
+ * on-hand value negative). Selling price is a separate calculation — benchmark
+ * plus the customer's own spread — and lives in `loadAndInvoice`.
+ *
+ * Returns paise per box. Zero when no benchmark is on file yet, which values
+ * that stock at nothing rather than guessing.
+ */
+export const STOCK_VALUATION_MARKUP_PER_EGG = 0.5;
+
+export async function eggStockRatePerBoxP(tx: Conn, on: string): Promise<number> {
+  const bm = await benchmarkOn(tx, on);
+  if (!bm) return 0;
+  const prefs = await eggPrefs(tx);
+  const perEgg = Number(bm.ratePerEgg) + STOCK_VALUATION_MARKUP_PER_EGG;
+  return Math.round(perEgg * prefs.eggsPerBox * 100);
+}
+
 /** The size differentials in force on a date. */
 export async function sizeOffsetsOn(tx: Conn, on: string) {
   const [row] = await tx
@@ -488,9 +511,13 @@ export async function saveGrading(tx: Tx, input: GradingInput, userId: string) {
       AND transaction_date = ${input.gradedOn}
   `);
   const map = await sizeItems(tx);
+  // Valued in at the same rate dispatch takes it out at, so the ledger nets to
+  // zero on a box that came in and went out — see eggStockRatePerBoxP.
+  const rateP = await eggStockRatePerBoxP(tx, input.gradedOn);
   const movements = EGG_SIZES.filter((s) => qty(s) > 0).map((s) => ({
     itemId: map.get(s)!,
     quantity: qty(s).toFixed(3),
+    value: ((qty(s) * rateP) / 100).toFixed(2),
   }));
   if (movements.length) {
     await moveStock(tx, {
@@ -615,12 +642,17 @@ export async function settleCountAgainstLedger(
       createdBy: userId,
     })
     .returning();
+  // Boxes found or lost carry the same stock rate as boxes graded in, so a
+  // count correction moves value with quantity instead of leaving the two
+  // telling different stories.
+  const countRateP = await eggStockRatePerBoxP(tx, on);
+  const varianceValue = (s: EggSize) => ((variance[s] * countRateP) / 100).toFixed(2);
   await tx.insert(inventoryAdjustmentLines).values(
     lines.map((s, i) => ({
       adjustmentId: adj!.id,
       itemId: map.get(s)!,
       quantityChange: variance[s].toFixed(3),
-      valueChange: "0.00",
+      valueChange: varianceValue(s),
       notes: `${SIZE_LABEL[s]}: counted ${counted[s]}, ledger ${closing[s]}`,
       lineOrder: i,
     })),
@@ -629,6 +661,7 @@ export async function settleCountAgainstLedger(
     movements: lines.map((s) => ({
       itemId: map.get(s)!,
       quantity: variance[s].toFixed(3),
+      value: varianceValue(s),
       notes: `Count ${number}`,
     })),
     transactionDate: on,
@@ -868,13 +901,19 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
    * void path can find and reverse them. Only once stock has begun counting —
    * a dispatch before stockFrom (backdated paperwork) moves no stock, same as
    * grading before it wrote none.
+   *
+   * Valued at the stock rate, NOT at what the customer paid. The invoice
+   * records the sale; the stock ledger records what left the shelf, and the
+   * two are different figures — taking stock out at the selling price is what
+   * drove on-hand value negative, since it entered at a lower one.
    */
   if (input.dispatchDate >= prefs.stockFrom) {
+    const stockRateP = await eggStockRatePerBoxP(tx, input.dispatchDate);
     await moveStock(tx, {
       movements: EGG_SIZES.filter((s) => qty(s) > 0).map((s) => ({
         itemId: map.get(s)!,
         quantity: `-${qty(s).toFixed(3)}`,
-        value: `-${(qty(s) * prefs.eggsPerBox * perEgg(s)).toFixed(2)}`,
+        value: `-${((qty(s) * stockRateP) / 100).toFixed(2)}`,
         notes: `Invoice ${number}`,
       })),
       transactionDate: input.dispatchDate,
