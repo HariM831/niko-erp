@@ -13,7 +13,7 @@ import {
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { contains } from "../services/document-search";
-import { nonBlank, validateBody } from "../lib/validate";
+import { gstStateCode, nonBlank, validateBody } from "../lib/validate";
 import { getPreferences } from "../services/preferences";
 import { readCustomFieldValues, saveCustomFieldValues } from "../services/custom-fields";
 import { PostingError } from "../services/posting";
@@ -71,7 +71,7 @@ const contactObjectSchema = z.object({
     .regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/, "Not a valid GSTIN")
     .optional(),
   pan: z.string().regex(/^[A-Z]{5}[0-9]{4}[A-Z]$/, "Not a valid PAN").optional(),
-  placeOfSupplyState: z.string().max(4).optional(),
+  placeOfSupplyState: gstStateCode.optional(),
   paymentTermsDays: z.number().int().min(0).max(365).optional(),
   creditLimit: money.optional(),
   openingBalance: money.optional(),

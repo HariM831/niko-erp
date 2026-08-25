@@ -14,7 +14,7 @@ import {
 } from "@shared/schema";
 import { db, type Tx } from "../db";
 import { requirePermission } from "../lib/rbac";
-import { validateBody } from "../lib/validate";
+import { gstStateCode, validateBody } from "../lib/validate";
 import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, postJournal, reverseJournal } from "../services/posting";
 import { moveStock } from "../services/inventory";
@@ -78,7 +78,7 @@ const invoiceSchema = z.object({
   invoiceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   reference: z.string().optional(),
-  placeOfSupplyState: z.string().max(4).optional(),
+  placeOfSupplyState: gstStateCode.optional(),
   customerNotes: z.string().optional(),
   termsAndConditions: z.string().optional(),
   /**
