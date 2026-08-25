@@ -5,6 +5,7 @@ import { SummaryBanner } from "../components/summary-banner";
 import type { SearchField } from "../components/advanced-search";
 import { AttachmentsButton } from "../components/attachments";
 import { api, formatMoney } from "../api";
+import logoMark from "../assets/logo-mark.png";
 
 export interface DocRow {
   id: string;
@@ -512,22 +513,36 @@ export const PurchaseOrdersPage = () => (
 export const BillsPage = () => {
   const [, navigate] = useLocation();
   return (
-    <ListPage<DocRow>
-      title="Bills"
-      endpoint="/api/purchases/bills"
-      searchFields={BILL_SEARCH}
-      rowKey={(r) => r.id}
-      views={BILL_VIEWS}
-      newPath="/purchases/bills/new"
-      rowPath={(r) => `/purchases/bills/${r.id}`}
-      columns={BILL_COLUMNS}
-      banner={<PaymentSummaryBanner endpoint="/api/purchases/bills/summary" side="payable" />}
-      extraActions={
-        <button onClick={() => navigate("/purchases/bills/new?upload=1")} className="btn-secondary">
-          Upload Bill
-        </button>
-      }
-    />
+    <div className="relative h-full">
+      {/* Bills only, by choice — not a shared ListPage feature. The rows are
+          opaque white, so this sits over them rather than behind, sits low
+          enough to clear the banner and the dense top rows, and ignores the
+          pointer entirely. */}
+      <img
+        src={logoMark}
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute left-1/2 top-2/3 z-10 w-[38%] max-w-md -translate-x-1/2 -translate-y-1/2 select-none opacity-[0.05]"
+      />
+      <div className="h-full">
+        <ListPage<DocRow>
+          title="Bills"
+          endpoint="/api/purchases/bills"
+          searchFields={BILL_SEARCH}
+          rowKey={(r) => r.id}
+          views={BILL_VIEWS}
+          newPath="/purchases/bills/new"
+          rowPath={(r) => `/purchases/bills/${r.id}`}
+          columns={BILL_COLUMNS}
+          banner={<PaymentSummaryBanner endpoint="/api/purchases/bills/summary" side="payable" />}
+          extraActions={
+            <button onClick={() => navigate("/purchases/bills/new?upload=1")} className="btn-secondary">
+              Upload Bill
+            </button>
+          }
+        />
+      </div>
+    </div>
   );
 };
 
