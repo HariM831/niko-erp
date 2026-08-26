@@ -29,7 +29,7 @@ set -euo pipefail
 PROD_URL="${PROD_DATABASE_URL:-}"
 STAGING_URL="${STAGING_DATABASE_URL:-}"
 SERVICE="${STAGING_SERVICE:-niko-staging}"
-STAGING_PW="${STAGING_PASSWORD:-staging}"
+STAGING_PW="${STAGING_PASSWORD:-staging123}"
 
 die() { echo "refresh-staging: $*" >&2; exit 1; }
 
