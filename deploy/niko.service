@@ -1,0 +1,45 @@
+[Unit]
+Description=niko (production)
+Documentation=https://github.com/HariM831/niko-erp
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=niko
+Group=niko
+WorkingDirectory=/srv/niko
+
+# Config lives here, not in a .env inside the checkout. Two reasons: a deploy
+# that pulls the repo can never overwrite it, and a service whose file is
+# missing fails to start instead of quietly falling back to some other .env
+# that happens to be lying next to the code.
+EnvironmentFile=/etc/niko/prod.env
+Environment=NODE_ENV=production
+
+ExecStart=/usr/bin/node dist/server.js
+
+Restart=always
+RestartSec=3
+# Five failures inside a minute is a bad deploy, not a blip. Stop and leave it
+# stopped so the failure is visible rather than an endless restart loop.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=niko
+
+# The app writes uploaded bills and photos under WorkingDirectory/uploads and
+# needs nothing else on the box, so the rest of the filesystem is read-only.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/niko/uploads
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

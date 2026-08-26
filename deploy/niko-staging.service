@@ -1,0 +1,49 @@
+[Unit]
+Description=niko (staging)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=niko
+Group=niko
+
+# A separate checkout, deliberately. Staging and production sharing a
+# directory means a `git pull` for one silently redeploys the other, and the
+# uploads directory would be shared between them too.
+WorkingDirectory=/srv/niko-staging
+
+# Its own config file, holding the staging DATABASE_URL. Nothing here falls
+# back to production: if this file is missing the unit fails to start, which
+# is the outcome you want. A staging service that quietly connected to the
+# real books would look completely normal right up until it wrote to them.
+#
+# Leave BH_TOKEN and GEMINI_API_KEY *out* of this file. Both integrations are
+# gated on their key being present — the IoT poller logs one line and stops —
+# so omitting them is what keeps staging from polling the sheds' controllers
+# and burning Gemini quota alongside production.
+EnvironmentFile=/etc/niko/staging.env
+Environment=NODE_ENV=production
+
+ExecStart=/usr/bin/node dist/server.js
+
+Restart=always
+RestartSec=3
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=niko-staging
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/niko-staging/uploads
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

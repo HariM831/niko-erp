@@ -1,3 +1,4 @@
+import path from "node:path";
 import express from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
@@ -157,6 +158,39 @@ app.use("/api/device", deviceRouter);
 app.use("/api/settings", requireAuth, settingsRouter);
 app.use("/api/attachments", attachmentsRouter);
 app.use("/api/comments", commentsRouter);
+
+// ── The built client, in production only ──────────────────────────────────
+// In dev, Vite serves the client and proxies /api here. In production this
+// same process serves both, so there is one service to run and one port to
+// proxy: nginx terminates TLS and forwards everything, without needing to
+// know a single one of the app's routes.
+//
+// Mounted after every /api route, so an unmatched API path still falls
+// through to the 404 below rather than being answered with the SPA shell —
+// a fetch for a mistyped endpoint should fail, not receive HTML.
+if (isProd) {
+  const clientDir = path.resolve(process.cwd(), "dist/client");
+
+  // Asset filenames carry a content hash, so they can be cached hard. The
+  // shell must not be: it is the file that points at the new hashes, and a
+  // cached one strands browsers on the previous deploy's bundle.
+  app.use(
+    "/assets",
+    express.static(path.join(clientDir, "assets"), { immutable: true, maxAge: "1y" }),
+  );
+  app.use(express.static(clientDir, { index: false, maxAge: "1h" }));
+
+  app.use((req, res, next) => {
+    if (req.method !== "GET" || req.path.startsWith("/api/")) return next();
+    res.sendFile(path.join(clientDir, "index.html"));
+  });
+}
+
+// An unmatched API route answers as the API, not as a web page — Express's
+// default 404 is HTML, which a fetch() only discovers when JSON parsing dies.
+app.use("/api", (_req, res) => {
+  res.status(404).json({ error: "No such endpoint" });
+});
 
 // Central error handler — no stack/message leaks.
 app.use(
