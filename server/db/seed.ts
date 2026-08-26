@@ -1,4 +1,5 @@
 import { scryptSync, randomBytes } from "node:crypto";
+import { sql } from "drizzle-orm";
 import { db, pool } from "./index";
 import {
   accounts,
@@ -88,12 +89,16 @@ const COA: Array<[string, string, AcctType, AcctSubtype, string?, string?, boole
   ["2123", "PF Payable", "liability", "other_current_liability", "pf_payable", "2120"],
   ["2124", "Unsecured Loans", "liability", "other_current_liability", undefined, "2120"],
   ["2125", "Expenses Payable (Salaries and others)", "liability", "other_current_liability", "salary_payable", "2120"],
-  ["2129", "Professional Tax Payable", "liability", "other_current_liability", "pt_payable", "2120"],
   ["2126", "CGST Payable", "liability", "other_current_liability", "cgst_payable", "2120"],
   ["2127", "SGST Payable", "liability", "other_current_liability", "sgst_payable", "2120"],
   ["2128", "IGST Payable", "liability", "other_current_liability", "igst_payable", "2120"],
   ["2129", "Customer Advances", "liability", "other_current_liability", "customer_advances", "2120"],
   ["2130", "Vendor Advances Applied", "liability", "other_current_liability", "vendor_advances", "2120"],
+  // 2131, not 2129: this sat on the same code as Customer Advances below it,
+  // and the loop resolves conflicts on `code`, so the later row won and
+  // pt_payable was left assigned to no account at all. Payroll's professional
+  // tax posting had nowhere to go on any freshly seeded database.
+  ["2131", "Professional Tax Payable", "liability", "other_current_liability", "pt_payable", "2120"],
 
   // ---------------- Equity ----------------
   ["3000", "Equity", "equity", "equity", undefined, undefined, true],
@@ -232,6 +237,42 @@ const TAXES: Array<[string, string]> = [
 ];
 
 await db.transaction(async (tx) => {
+  /*
+   * Free any system_key held under the wrong code before inserting the chart.
+   *
+   * On a brand new database the migrations run first, and 0081 wants to file
+   * Professional Tax Payable as 2129 beneath its parent — a parent that does
+   * not exist yet, because the chart below is what creates it. Its fallback
+   * puts the account in as "PT-1" instead, holding the pt_payable key.
+   *
+   * The insert underneath then conflicts on `code`, which is the one thing it
+   * is prepared for. 2129 does not exist, so it inserts, and trips over
+   * accounts_system_key_unique on a row it never looked at — a fresh install
+   * failing at the last step of a deploy, on a constraint that names none of
+   * this.
+   *
+   * Nothing is deleted here. This seed is also run against databases whose
+   * chart came from elsewhere — the live books were imported from Zoho and
+   * share none of the codes below — so an existing account is adopted rather
+   * than replaced: it takes the code this chart assigns, and keeps whatever
+   * has been posted to it. Only where the target code is already occupied
+   * does the stray give up its key instead, leaving the insert below to
+   * create the account cleanly.
+   */
+  const keyed = COA.filter((r) => r[4]).map((r) => ({ code: r[0], systemKey: r[4]! }));
+  for (const { code, systemKey } of keyed) {
+    await tx.execute(sql`
+      UPDATE accounts SET code = ${code}
+       WHERE system_key = ${systemKey}
+         AND code <> ${code}
+         AND NOT EXISTS (SELECT 1 FROM accounts b WHERE b.code = ${code})
+    `);
+    await tx.execute(sql`
+      UPDATE accounts SET system_key = NULL
+       WHERE system_key = ${systemKey} AND code <> ${code}
+    `);
+  }
+
   // Chart of accounts (two passes so parent ids resolve)
   const idByCode = new Map<string, string>();
   for (const [code, name, type, subtype, systemKey, , isGroup] of COA) {
