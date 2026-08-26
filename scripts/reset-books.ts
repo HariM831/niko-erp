@@ -75,41 +75,38 @@ async function main() {
    * wrong the day somebody adds a third.
    */
   const links = await db.execute(sql`
-    SELECT tc.table_name AS from_table, kcu.column_name AS from_column,
-           ccu.table_name AS to_table, c.is_nullable
-      FROM information_schema.table_constraints tc
-      JOIN information_schema.key_column_usage kcu
-        ON kcu.constraint_name = tc.constraint_name
-      JOIN information_schema.constraint_column_usage ccu
-        ON ccu.constraint_name = tc.constraint_name
-      JOIN information_schema.columns c
-        ON c.table_name = tc.table_name AND c.column_name = kcu.column_name
-     WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public'
+    SELECT con.conname AS name,
+           src.relname AS from_table,
+           tgt.relname AS to_table,
+           pg_get_constraintdef(con.oid) AS definition
+      FROM pg_constraint con
+      JOIN pg_class src ON src.oid = con.conrelid
+      JOIN pg_class tgt ON tgt.oid = con.confrelid
+      JOIN pg_namespace n ON n.oid = src.relnamespace
+     WHERE con.contype = 'f' AND n.nspname = 'public'
   `);
   const dangling = (
     links.rows as Array<{
+      name: string;
       from_table: string;
-      from_column: string;
       to_table: string;
-      is_nullable: string;
+      definition: string;
     }>
   ).filter((l) => KEEP.has(l.from_table) && !KEEP.has(l.to_table));
 
-  const notNullable = dangling.filter((l) => l.is_nullable !== "YES");
-  if (notNullable.length) {
-    const names = notNullable.map((l) => `${l.from_table}.${l.from_column}`).join(", ");
-    throw new Error(
-      `Cannot empty the books: ${names} is NOT NULL but points at a table being cleared. ` +
-        `Either make it nullable or move its table out of KEEP.`,
-    );
-  }
-
   await db.transaction(async (tx) => {
+    /*
+     * The constraint has to go, not just the values in it.
+     *
+     * Nulling the columns is not enough: TRUNCATE's check is structural, so
+     * Postgres refuses while a foreign key merely *exists* pointing at a table
+     * in the list, however few rows actually use it. Dropping and restoring it
+     * around the truncate is the only way to keep the referencing row — and
+     * DDL is transactional here, so a failure anywhere puts the constraint
+     * back with the data.
+     */
     for (const l of dangling) {
-      await tx.execute(
-        sql.raw(`UPDATE "${l.from_table}" SET "${l.from_column}" = NULL WHERE "${l.from_column}" IS NOT NULL`),
-      );
-      console.log(`  ${l.from_table}.${l.from_column} cleared (pointed at ${l.to_table})`);
+      await tx.execute(sql.raw(`ALTER TABLE "${l.from_table}" DROP CONSTRAINT "${l.name}"`));
     }
 
     // One TRUNCATE for the whole set. Postgres refuses to truncate a table that
@@ -118,6 +115,20 @@ async function main() {
     // listing them all rather than cascading.
     const list = targets.map((t) => `"${t}"`).join(", ");
     await tx.execute(sql.raw(`TRUNCATE ${list} RESTART IDENTITY`));
+
+    // The rows in the kept table survived; what they pointed at did not, so
+    // the column is emptied before the constraint goes back on — otherwise
+    // restoring it would fail against an id that no longer exists.
+    for (const l of dangling) {
+      const cols = /FOREIGN KEY \(([^)]+)\)/.exec(l.definition)?.[1] ?? "";
+      for (const col of cols.split(",").map((c) => c.trim().replace(/"/g, ""))) {
+        await tx.execute(sql.raw(`UPDATE "${l.from_table}" SET "${col}" = NULL`));
+      }
+      await tx.execute(
+        sql.raw(`ALTER TABLE "${l.from_table}" ADD CONSTRAINT "${l.name}" ${l.definition}`),
+      );
+      console.log(`  ${l.from_table} → ${l.to_table}: link cleared, constraint restored`);
+    }
     // Fresh books start their numbering at 1 again.
     await tx.execute(sql`UPDATE document_series SET next_number = 1`);
   });
