@@ -3,6 +3,9 @@ Description=niko (staging)
 After=network-online.target
 Wants=network-online.target
 
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
 [Service]
 Type=simple
 User=niko
@@ -29,9 +32,6 @@ ExecStart=/usr/bin/node dist/server.js
 
 Restart=always
 RestartSec=3
-StartLimitIntervalSec=60
-StartLimitBurst=5
-
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=niko-staging

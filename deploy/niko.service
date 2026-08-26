@@ -4,6 +4,13 @@ Documentation=https://github.com/HariM831/niko-erp
 After=network-online.target
 Wants=network-online.target
 
+# Five failures inside a minute is a bad deploy, not a blip. Stop and leave it
+# stopped so the failure is visible rather than an endless restart loop. These
+# belong in [Unit]: systemd ignores them under [Service] and says so in the
+# journal, which is easy to miss when the service starts anyway.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
 [Service]
 Type=simple
 User=niko
@@ -21,10 +28,6 @@ ExecStart=/usr/bin/node dist/server.js
 
 Restart=always
 RestartSec=3
-# Five failures inside a minute is a bad deploy, not a blip. Stop and leave it
-# stopped so the failure is visible rather than an endless restart loop.
-StartLimitIntervalSec=60
-StartLimitBurst=5
 
 StandardOutput=journal
 StandardError=journal
