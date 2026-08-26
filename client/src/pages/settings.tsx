@@ -1,6 +1,7 @@
 import { type ReactElement, useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate } from "../api";
+import { useAuth } from "../auth";
 import {
   Badge,
   Banner,
@@ -56,14 +57,17 @@ interface SectionDef {
   prefs?: "transactions" | "contacts" | "items" | "invoices" | "accountant" | "office";
   /** Screens a module owns beyond preferences and custom fields. */
   extras?: Array<{ key: string; label: string }>;
+  /** [module, action] required to see this section at all. */
+  perm?: [string, string];
 }
 
 const SECTIONS: SectionDef[] = [
   { key: "org", label: "Organisation Profile", group: "Organisation" },
   { key: "locations", label: "Locations", group: "Organisation" },
   { key: "appearance", label: "Appearance", group: "Organisation" },
-  { key: "users", label: "Users", group: "Users & Roles" },
-  { key: "roles", label: "Roles", group: "Users & Roles" },
+  // Behind "Manage accounts" rather than Settings — see shared/permissions.ts.
+  { key: "users", label: "Users", group: "Users & Roles", perm: ["users", "manage"] },
+  { key: "roles", label: "Roles", group: "Users & Roles", perm: ["users", "manage"] },
   { key: "taxes", label: "Taxes", group: "Setup" },
   { key: "series", label: "Transaction Number Series", group: "Setup" },
   { key: "reporting-tags", label: "Reporting Tags", group: "Setup" },
@@ -122,17 +126,21 @@ const FORM_SECTIONS = new Set<Section>(["org", "appearance"]);
 
 export function SettingsPage() {
   const [active, setActive] = useState<Section>("org");
-  const activeDef = SECTIONS.find((x) => x.key === active);
+  const { can } = useAuth();
+  // Hiding the entry is presentation only — every route behind it enforces the
+  // same permission server-side, so a guessed URL gains nothing.
+  const sections = SECTIONS.filter((s) => !s.perm || can(s.perm[0], s.perm[1]));
+  const activeDef = sections.find((x) => x.key === active);
   return (
     <div className="flex h-full">
       <aside className="w-60 shrink-0 border-r bg-white p-4">
         <h2 className="mb-3 text-sm font-semibold">Settings</h2>
-        {[...new Set(SECTIONS.map((s) => s.group))].map((group) => (
+        {[...new Set(sections.map((s) => s.group))].map((group) => (
           <div key={group} className="mb-3">
             <div className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
               {group}
             </div>
-            {SECTIONS.filter((s) => s.group === group).map((s) => (
+            {sections.filter((s) => s.group === group).map((s) => (
               <button
                 key={s.key}
                 onClick={() => setActive(s.key)}

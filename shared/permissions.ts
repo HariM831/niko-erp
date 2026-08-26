@@ -137,7 +137,26 @@ export const PERMISSION_MODULES: PermissionModule[] = [
   {
     key: "settings",
     label: "Settings",
-    description: "Organisation profile, taxes, number series, users and roles",
+    description: "Organisation profile, taxes, number series, financial years",
+  },
+  {
+    /*
+     * Separate from `settings` on purpose.
+     *
+     * These two were one permission, which made "can configure taxes and
+     * number series" the same right as "can reset anybody's password and
+     * rewrite any role" — including their own. A role meant to be limited
+     * could hand itself the admin wildcard, or reset the admin's password
+     * and sign in as them, without being granted anything extra.
+     *
+     * Splitting it means account management has to be granted deliberately.
+     * Admin holds it through the "*" wildcard; nobody else has it unless
+     * somebody ticks this box.
+     */
+    key: "users",
+    label: "Manage accounts",
+    description: "Create users, set roles, reset passwords, edit role permissions",
+    actions: [{ key: "manage", label: "Manage accounts" }],
   },
 ];
 

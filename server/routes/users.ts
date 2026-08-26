@@ -49,7 +49,7 @@ async function otherActiveAdmins(excludeUserId?: string): Promise<number> {
   return rows.filter((r) => r.id !== excludeUserId && isAdminMap(r.permissions)).length;
 }
 
-usersRouter.get("/", requirePermission("settings", "view"), async (_req, res) => {
+usersRouter.get("/", requirePermission("users", "manage"), async (_req, res) => {
   const rows = await db
     .select({
       id: users.id,
@@ -71,7 +71,7 @@ usersRouter.get("/", requirePermission("settings", "view"), async (_req, res) =>
 
 usersRouter.post(
   "/",
-  requirePermission("settings", "create"),
+  requirePermission("users", "manage"),
   validateBody(userSchema),
   async (req, res) => {
     const body = req.body as z.infer<typeof userSchema>;
@@ -102,7 +102,7 @@ usersRouter.post(
 
 usersRouter.patch(
   "/:id",
-  requirePermission("settings", "edit"),
+  requirePermission("users", "manage"),
   validateBody(userPatchSchema),
   async (req, res) => {
     const body = req.body as z.infer<typeof userPatchSchema>;
@@ -151,7 +151,7 @@ usersRouter.patch(
 /** Admin-set password. The user should change it themselves after signing in. */
 usersRouter.post(
   "/:id/reset-password",
-  requirePermission("settings", "edit"),
+  requirePermission("users", "manage"),
   validateBody(z.object({ password: z.string().min(8).max(128) })),
   async (req, res) => {
     const target = await db.query.users.findFirst({ where: eq(users.id, req.params.id!) });
@@ -172,7 +172,7 @@ usersRouter.post(
 /** Clear a lockout after too many failed sign-ins, without touching the password. */
 usersRouter.post(
   "/:id/unlock",
-  requirePermission("settings", "edit"),
+  requirePermission("users", "manage"),
   async (req, res) => {
     const [updated] = await db
       .update(users)
@@ -184,7 +184,7 @@ usersRouter.post(
   },
 );
 
-rolesRouter.get("/", requirePermission("settings", "view"), async (_req, res) => {
+rolesRouter.get("/", requirePermission("users", "manage"), async (_req, res) => {
   const rows = await db
     .select({
       id: roles.id,
@@ -204,13 +204,13 @@ rolesRouter.get("/", requirePermission("settings", "view"), async (_req, res) =>
 });
 
 /** The module/action catalogue the editor renders. */
-rolesRouter.get("/modules", requirePermission("settings", "view"), (_req, res) => {
+rolesRouter.get("/modules", requirePermission("users", "manage"), (_req, res) => {
   res.json(PERMISSION_MODULES);
 });
 
 rolesRouter.post(
   "/",
-  requirePermission("settings", "create"),
+  requirePermission("users", "manage"),
   validateBody(roleSchema),
   async (req, res) => {
     const body = req.body as z.infer<typeof roleSchema>;
@@ -230,7 +230,7 @@ rolesRouter.post(
 
 rolesRouter.patch(
   "/:id",
-  requirePermission("settings", "edit"),
+  requirePermission("users", "manage"),
   validateBody(roleSchema.partial()),
   async (req, res) => {
     const body = req.body as Partial<z.infer<typeof roleSchema>>;
@@ -264,7 +264,7 @@ rolesRouter.patch(
   },
 );
 
-rolesRouter.delete("/:id", requirePermission("settings", "delete"), async (req, res) => {
+rolesRouter.delete("/:id", requirePermission("users", "manage"), async (req, res) => {
   const role = await db.query.roles.findFirst({ where: eq(roles.id, req.params.id!) });
   if (!role) return res.status(404).json({ error: "Role not found" });
   if (role.isSystem) return res.status(422).json({ error: "Built-in roles cannot be deleted" });
