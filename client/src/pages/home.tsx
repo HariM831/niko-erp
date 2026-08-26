@@ -79,7 +79,9 @@ interface PeopleView {
   insideNow: { id: string; empCode: string; name: string; department?: string | null; since?: string | null }[];
   absentToday: { id: string; empCode: string; name: string; department?: string | null }[];
   byDepartment: { department: string; present: number; total: number }[];
-  attendancePct: number;
+  /** Null where there are no work days to divide by — a new farm, or a range
+   *  with no roster in it. Not zero: nobody was absent, there was nothing. */
+  attendancePct: number | null;
   wagesCost: number;
 }
 
@@ -114,7 +116,18 @@ function rangeDates(r: Range): { from: string; to: string } {
 }
 
 /* ── Formatting ────────────────────────────────────────────────────────── */
-const num = (v: number, d = 0) => v.toLocaleString("en-IN", { maximumFractionDigits: d, minimumFractionDigits: d });
+/**
+ * Nullish renders as a dash rather than throwing.
+ *
+ * This is a whole dashboard of figures behind one error boundary's worth of
+ * nothing: a single null reaching `.toLocaleString()` blanks the entire page,
+ * which is exactly what a brand new database did — no employees means no
+ * attendance percentage, the API rightly says null, and the app showed a white
+ * screen instead of a farm with nothing in it yet. A metric with no value is
+ * not an error, so it is not treated as one.
+ */
+const num = (v: number | null | undefined, d = 0) =>
+  v == null ? "—" : v.toLocaleString("en-IN", { maximumFractionDigits: d, minimumFractionDigits: d });
 const tons = (kg: number) => `${num(kg / 1000, 1)} t`;
 const lakh = (v: number) => {
   const a = Math.abs(v);
@@ -462,7 +475,11 @@ export function HomePage() {
                   <Metric label="Present" value={num(people.presentToday)} tone="good" onClick={() => setDetail("absent")} />
                   <Metric label="Inside now" value={num(people.insideNow.length)} onClick={() => setDetail("inside")} />
                   <Metric label="Absent" value={num(people.absentToday.length)} tone={people.absentToday.length ? "bad" : undefined} onClick={() => setDetail("absent")} />
-                  <Metric label="Attend." value={`${num(people.attendancePct, 1)}%`} sub="range" />
+                  <Metric
+                    label="Attend."
+                    value={people.attendancePct == null ? "—" : `${num(people.attendancePct, 1)}%`}
+                    sub="range"
+                  />
                   <Metric label="Wages" value={lakh(people.wagesCost)} sub="daily wage" />
                 </div>
                 <div className="mt-2 space-y-1.5 border-t border-soil-100 pt-2.5">
