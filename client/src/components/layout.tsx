@@ -1,6 +1,7 @@
 import { type ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { LogoMark } from "./logo";
+import { ChangePasswordModal } from "./change-password";
 import {
   Banknote,
   BookOpen,
@@ -9,6 +10,7 @@ import {
   ChevronRight,
   Home,
   Landmark,
+  KeyRound,
   LogOut,
   PieChart,
   ScrollText,
@@ -213,6 +215,10 @@ function SidebarBody({
   const isGroupActive = (item: NavItem) =>
     item.children?.some((c) => location.startsWith(c.path)) ?? false;
 
+  // Lives here rather than in Settings: that section is behind the `settings`
+  // permission, and everyone needs to be able to change their own password.
+  const [pwOpen, setPwOpen] = useState(false);
+
   return (
     <>
       <div className="flex h-14 items-center px-4">
@@ -305,12 +311,20 @@ function SidebarBody({
             <div className="truncate text-[11px] text-gray-500">{user?.roleName}</div>
           </div>
           <button
+            onClick={() => setPwOpen(true)}
+            className="rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-sidebar-hover hover:text-white"
+            title="Change password"
+          >
+            <KeyRound size={15} />
+          </button>
+          <button
             onClick={() => void logout()}
             className="rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-sidebar-hover hover:text-white"
             title="Sign out"
           >
             <LogOut size={15} />
           </button>
+          {pwOpen && <ChangePasswordModal onClose={() => setPwOpen(false)} />}
         </div>
       </div>
     </>
