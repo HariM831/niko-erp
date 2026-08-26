@@ -61,7 +61,57 @@ async function main() {
     before.set(t, (r.rows[0] as { n: number }).n);
   }
 
+  /*
+   * Config that points *into* the books has to let go first.
+   *
+   * A kept table is allowed to reference a cleared one — `preferences` names
+   * the item used for egg purchases and the one used for bird sales. Those are
+   * settings, not books, so the row stays; but the item it names is about to
+   * cease existing, and Postgres will not truncate a table something outside
+   * the list still points at.
+   *
+   * Found by asking the database rather than listing them, for the same reason
+   * the target list is discovered: a hardcoded pair here would be silently
+   * wrong the day somebody adds a third.
+   */
+  const links = await db.execute(sql`
+    SELECT tc.table_name AS from_table, kcu.column_name AS from_column,
+           ccu.table_name AS to_table, c.is_nullable
+      FROM information_schema.table_constraints tc
+      JOIN information_schema.key_column_usage kcu
+        ON kcu.constraint_name = tc.constraint_name
+      JOIN information_schema.constraint_column_usage ccu
+        ON ccu.constraint_name = tc.constraint_name
+      JOIN information_schema.columns c
+        ON c.table_name = tc.table_name AND c.column_name = kcu.column_name
+     WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public'
+  `);
+  const dangling = (
+    links.rows as Array<{
+      from_table: string;
+      from_column: string;
+      to_table: string;
+      is_nullable: string;
+    }>
+  ).filter((l) => KEEP.has(l.from_table) && !KEEP.has(l.to_table));
+
+  const notNullable = dangling.filter((l) => l.is_nullable !== "YES");
+  if (notNullable.length) {
+    const names = notNullable.map((l) => `${l.from_table}.${l.from_column}`).join(", ");
+    throw new Error(
+      `Cannot empty the books: ${names} is NOT NULL but points at a table being cleared. ` +
+        `Either make it nullable or move its table out of KEEP.`,
+    );
+  }
+
   await db.transaction(async (tx) => {
+    for (const l of dangling) {
+      await tx.execute(
+        sql.raw(`UPDATE "${l.from_table}" SET "${l.from_column}" = NULL WHERE "${l.from_column}" IS NOT NULL`),
+      );
+      console.log(`  ${l.from_table}.${l.from_column} cleared (pointed at ${l.to_table})`);
+    }
+
     // One TRUNCATE for the whole set. Postgres refuses to truncate a table that
     // something outside the list still points at, so an incomplete list fails
     // loudly here instead of leaving orphans behind — which is the point of
