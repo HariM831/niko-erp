@@ -36,11 +36,39 @@ async function main() {
     accounts: MappedAccount[];
   };
 
-  // Parents before children, so a parent's niko id exists by the time a child
-  // needs it. The map is already in depth-first order but sorting on depth
-  // makes that a property of this script rather than an assumption about
-  // another one.
-  const ordered = [...map.accounts].sort((a, b) => a.depth - b.depth);
+  /*
+   * Parents before children, worked out from the parent links themselves
+   * rather than from the recorded depth.
+   *
+   * Sorting on `depth` looked equivalent and was not: the accounts added by
+   * pull-missing-accounts.ts arrive with depth 0 and a parent several levels
+   * down, so eight of them sorted ahead of parents that did not exist yet and
+   * the load stopped on the first one. Depth is a number somebody else
+   * computed; the parent link is the thing actually being relied on, so that
+   * is what decides the order.
+   *
+   * A cycle would loop forever, so it is detected and named instead.
+   */
+  const byZohoId = new Map(map.accounts.map((a) => [String(a.zohoId), a]));
+  const ordered: MappedAccount[] = [];
+  const placed = new Set<string>();
+  let remaining = [...map.accounts];
+  while (remaining.length) {
+    const ready = remaining.filter(
+      (a) => !a.parentZohoId || !byZohoId.has(String(a.parentZohoId)) || placed.has(String(a.parentZohoId)),
+    );
+    if (!ready.length) {
+      throw new Error(
+        `Parent links form a cycle among: ${remaining.slice(0, 5).map((a) => `${a.code} ${a.name}`).join(", ")}`,
+      );
+    }
+    for (const a of ready) {
+      ordered.push(a);
+      placed.add(String(a.zohoId));
+    }
+    const readySet = new Set(ready.map((a) => String(a.zohoId)));
+    remaining = remaining.filter((a) => !readySet.has(String(a.zohoId)));
+  }
 
   const existing = await db
     .select({ zohoId: zohoIdMap.zohoId, eggsyId: zohoIdMap.eggsyId })
