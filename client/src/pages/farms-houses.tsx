@@ -91,6 +91,8 @@ interface DailyRecord {
   birdsTransferredIn: number;
   birdsTransferredOut: number;
   birdsCulled: number;
+  /** Signed: a shortage is negative, birds found are positive. */
+  adjustment: number;
   waterUpperKl: number;
   waterLowerKl: number;
   feedIntakeKg: number;
@@ -221,7 +223,9 @@ function calculateClosingStock(
         (r.mortality || 0) -
         (r.birdsTransferredOut || 0) -
         (r.birdsCulled || 0) -
-        (r.maleBirds || 0),
+        (r.maleBirds || 0) +
+        // Already signed by the query, so it adds either way.
+        (r.adjustment || 0),
       0,
     );
   return Math.max(0, totalOpening + totalChanges);

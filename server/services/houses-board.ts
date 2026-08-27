@@ -129,7 +129,16 @@ export async function housesBoard(tx: Tx) {
       coalesce(SUM(m.qty) FILTER (WHERE m.kind = 'male_removal'), 0)::int   AS "maleBirds",
       coalesce(SUM(m.qty) FILTER (WHERE m.kind = 'transfer_in'), 0)::int    AS "birdsTransferredIn",
       coalesce(SUM(m.qty) FILTER (WHERE m.kind IN ('transfer_out','depletion')), 0)::int
-                                                                            AS "birdsTransferredOut"
+                                                                            AS "birdsTransferredOut",
+      /*
+       * Adjustments, signed. Left out of this list until now, which meant a
+       * shortage written off against a house never reached the board: the
+       * count is rebuilt here from opening plus daily change, and a change the
+       * query does not select simply does not exist. Two pullet sheds read as
+       * holding 1,919 birds that had already been written off the ledger.
+       */
+      coalesce(SUM(m.qty * coalesce(m.adjustment_sign, 1))
+               FILTER (WHERE m.kind = 'adjustment'), 0)::int                 AS "adjustment"
     FROM days d
     JOIN flock_placements p ON p.id = d.placement_id
     JOIN flocks f           ON f.id = p.flock_id

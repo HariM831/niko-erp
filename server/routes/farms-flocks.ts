@@ -358,6 +358,14 @@ const newFlockSchema = z.object({
     .min(1)
     .max(50),
   note: z.string().max(2000).nullish(),
+  /**
+   * House this batch beside one already in the shed.
+   *
+   * Off by default, so the usual refusal stands: a shed still holding birds is
+   * far more often a remainder nobody wrote off than a second cohort somebody
+   * meant to put there. Ticked, it is a decision on the record.
+   */
+  alongsideExisting: z.boolean().optional(),
 });
 
 farmsFlockRouter.post("/flocks", manage, validateBody(newFlockSchema), async (req, res) => {

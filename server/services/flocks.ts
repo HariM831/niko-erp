@@ -104,7 +104,17 @@ async function liveHouse(tx: Tx, houseId: string) {
  * Both ways in have to ask — createFlock places a new batch, setFlockTransfers
  * moves an existing one — and they insert their placements separately.
  */
-async function assertHouseFree(tx: Tx, houseId: string, forFlockId: string | null) {
+async function assertHouseFree(
+  tx: Tx,
+  houseId: string,
+  forFlockId: string | null,
+  alongside = false,
+) {
+  // Two batches in one shed is a real thing — a straggler cohort kept back, a
+  // staged move — but it has to be meant. Ticked, it proceeds; unticked, the
+  // refusal below names who is in there, which is usually a remainder nobody
+  // wrote off rather than a decision anybody made.
+  if (alongside) return;
   const others = await tx
     .select({ id: flockPlacements.id, code: flocks.code })
     .from(flockPlacements)
@@ -207,6 +217,8 @@ export async function createFlock(
     houseId: string;
     hatches: Array<{ hatchDate: string; qty: number }>;
     note?: string | null;
+    /** House this batch alongside one already in the shed. Deliberate only. */
+    alongsideExisting?: boolean;
     userId: string;
   },
 ) {
@@ -257,7 +269,7 @@ export async function createFlock(
 
   // The placement opens on the first hatch: the house is holding birds from the
   // moment the earliest of them arrives.
-  await assertHouseFree(tx, args.houseId, null);
+  await assertHouseFree(tx, args.houseId, null, args.alongsideExisting);
 
   const [placement] = await tx
     .insert(flockPlacements)
