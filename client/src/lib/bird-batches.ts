@@ -23,11 +23,15 @@ export interface BatchStockLike {
 
 export interface BatchRecordLike {
   batchNumber?: string | null;
+  /** ISO day. Needed to read a shed as it was on a past date. */
+  date?: string;
   mortality?: number;
   birdsTransferredIn?: number;
   birdsTransferredOut?: number;
   birdsCulled?: number;
   maleBirds?: number;
+  /** Signed by the query: a shortage is negative, birds found are positive. */
+  adjustment?: number;
 }
 
 /** A batch counts unless it has been explicitly marked inactive. */
@@ -35,9 +39,25 @@ export function isBatchActive(stock: BatchStockLike): boolean {
   return stock.isActive !== false;
 }
 
-/** Current live birds in a single batch (opening count net of all movements). */
-export function batchLiveCount(stock: BatchStockLike, records: BatchRecordLike[]): number {
-  const batchRecords = records.filter(r => r.batchNumber === stock.batchNumber);
+/**
+ * Current live birds in a single batch (opening count net of all movements).
+ *
+ * Adjustments count. Leaving them out kept written-off birds alive here long
+ * after the ledger had let them go, and this number decides which batch a shed's
+ * AGE is taken from — so two emptied pullet batches, 1,111 and 203 birds written
+ * off months earlier, still voted on the age and produced 13 weeks for a shed
+ * holding a 10-week flock. Wrong age means the wrong week of the breed curve,
+ * so every guide figure on the row was being compared against the wrong target.
+ */
+export function batchLiveCount(
+  stock: BatchStockLike,
+  records: BatchRecordLike[],
+  /** Read the shed as it stood on this day. Omitted means now. */
+  upTo?: string,
+): number {
+  const batchRecords = records.filter(
+    r => r.batchNumber === stock.batchNumber && (!upTo || !r.date || r.date.substring(0, 10) <= upTo),
+  );
   return batchRecords.reduce(
     (sum, r) =>
       sum +
@@ -45,7 +65,9 @@ export function batchLiveCount(stock: BatchStockLike, records: BatchRecordLike[]
       (r.mortality || 0) -
       (r.birdsTransferredOut || 0) -
       (r.birdsCulled || 0) -
-      (r.maleBirds || 0),
+      (r.maleBirds || 0) +
+      // Already signed, so it adds either way.
+      (r.adjustment || 0),
     stock.openingCount || 0,
   );
 }
@@ -60,13 +82,25 @@ export function batchLiveCount(stock: BatchStockLike, records: BatchRecordLike[]
 export function getAgeRefStock<T extends BatchStockLike>(
   stocks: T[],
   records: BatchRecordLike[],
+  /**
+   * Read the shed as it stood on this day.
+   *
+   * Without it the counts are always TODAY's, so looking back at a past date
+   * chose the batch that happens to be biggest NOW. P1 on 1 May showed 13 weeks
+   * for a shed holding a 10-week flock, because the batch that arrived in June
+   * was already voting on the answer.
+   */
+  upTo?: string,
 ): T | null {
   if (!stocks || stocks.length === 0) return null;
 
-  const active = stocks.filter(isBatchActive);
-  const candidates = active.length > 0 ? active : stocks;
+  const arrived = upTo ? stocks.filter(s => s.dateIn.substring(0, 10) <= upTo) : stocks;
+  if (!arrived.length) return null;
 
-  const withLive = candidates.map(s => ({ s, live: batchLiveCount(s, records) }));
+  const active = arrived.filter(isBatchActive);
+  const candidates = active.length > 0 ? active : arrived;
+
+  const withLive = candidates.map(s => ({ s, live: batchLiveCount(s, records, upTo) }));
   const liveOnes = withLive.filter(x => x.live > 0);
   const pool = liveOnes.length > 0 ? liveOnes : withLive;
 
@@ -101,12 +135,15 @@ function batchAgeDate(stock: BatchStockLike): Date {
 export function getBatchAgeRefDate(
   stocks: BatchStockLike[],
   records: BatchRecordLike[],
+  /** Read the shed as it stood on this day. See `getAgeRefStock`. */
+  upTo?: string,
 ): Date | null {
-  const ref = getAgeRefStock(stocks, records);
+  const ref = getAgeRefStock(stocks, records, upTo);
   if (!ref) return null;
 
-  const weighted = (stocks.filter(isBatchActive).length > 0 ? stocks.filter(isBatchActive) : stocks)
-    .map(s => ({ at: batchAgeDate(s).getTime(), live: batchLiveCount(s, records) }))
+  const arrived = upTo ? stocks.filter(s => s.dateIn.substring(0, 10) <= upTo) : stocks;
+  const weighted = (arrived.filter(isBatchActive).length > 0 ? arrived.filter(isBatchActive) : arrived)
+    .map(s => ({ at: batchAgeDate(s).getTime(), live: batchLiveCount(s, records, upTo) }))
     .filter(x => x.live > 0 && Number.isFinite(x.at));
 
   const birds = weighted.reduce((sum, x) => sum + x.live, 0);

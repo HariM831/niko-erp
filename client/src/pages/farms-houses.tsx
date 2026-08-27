@@ -191,10 +191,11 @@ function getEffectiveBreedId(
   shed: Shed,
   shedStocks: BirdStock[],
   allRecords: DailyRecord[] = [],
+  upTo?: string,
 ): string | undefined {
   // Breed should come from the same batch that drives the shed's age (the
   // current flock), so age standards line up with the right breed.
-  const ageRef = getAgeRefStock(shedStocks, allRecords as never);
+  const ageRef = getAgeRefStock(shedStocks, allRecords as never, upTo);
   if (ageRef?.breedId) return ageRef.breedId;
   const activeWithBreed = shedStocks.find((s) => isBatchActive(s) && s.breedId);
   if (activeWithBreed?.breedId) return activeWithBreed.breedId;
@@ -351,7 +352,7 @@ function buildShedMetrics(
   const dayRecords = mergeShedDays(allRecords);
   const dateRecord = dayRecords.find((r) => r.date === displayDate);
 
-  const ageRef = getBatchAgeRefDate(shedStocks, allRecords as never);
+  const ageRef = getBatchAgeRefDate(shedStocks, allRecords as never, displayDate);
   const ageWeeks =
     ageRef && closingStock > 0
       ? Math.max(
@@ -364,7 +365,7 @@ function buildShedMetrics(
       ? Math.max(0, differenceInDays(new Date(displayDate), ageRef) % 7)
       : null;
 
-  const breedId = getEffectiveBreedId(shed, shedStocks, allRecords);
+  const breedId = getEffectiveBreedId(shed, shedStocks, allRecords, displayDate);
   const standards = breedId ? breedStandards[breedId] || [] : [];
   const weekStandard =
     ageWeeks !== null ? standards.find((s) => s.weekNumber === ageWeeks) : null;
