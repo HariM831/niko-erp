@@ -47,18 +47,24 @@ async function main() {
   await db.transaction(async (tx) => {
     const plan: string[] = [];
 
+    // Everything below WRITES, whether or not --apply was passed; a dry run is
+    // the same transaction rolled back at the end. Guarding each insert instead
+    // would make the report a description of what the script intends rather than
+    // of what it does — on empty books the site would not exist yet, so nothing
+    // downstream could be resolved and the plan would trail off into "after the
+    // site". Rehearsing it for real also means a constraint that would fail on
+    // apply fails here, where it costs nothing.
+
     // ── The site ──
     let [site] = await tx.select().from(locations).where(eq(locations.code, SITE.code));
     if (site) {
       plan.push(`site      ${SITE.code} exists`);
     } else {
       plan.push(`site      ${SITE.code} — ${SITE.name}   CREATE`);
-      if (apply) {
-        [site] = await tx
-          .insert(locations)
-          .values({ code: SITE.code, name: SITE.name, type: SITE.type, isActive: true })
-          .returning();
-      }
+      [site] = await tx
+        .insert(locations)
+        .values({ code: SITE.code, name: SITE.name, type: SITE.type, isActive: true })
+        .returning();
     }
 
     // ── The site's main store ──
@@ -66,47 +72,37 @@ async function main() {
     // Every location is expected to have one: it is where anything not yet in a
     // shed sits, and the Farm store screen opens on it.
     const mainName = `${SITE.name} — main store`;
-    if (site) {
-      const [main] = await tx
-        .select()
-        .from(stockLocations)
-        .where(and(eq(stockLocations.locationId, site.id), eq(stockLocations.code, "MAIN")));
-      if (main) plan.push(`store     MAIN exists`);
-      else {
-        plan.push(`store     MAIN — ${mainName}   CREATE`);
-        if (apply) {
-          await tx
-            .insert(stockLocations)
-            .values({ locationId: site.id, code: "MAIN", name: mainName, kind: "main", isActive: true });
-        }
-      }
+    const [main] = await tx
+      .select()
+      .from(stockLocations)
+      .where(and(eq(stockLocations.locationId, site!.id), eq(stockLocations.code, "MAIN")));
+    if (main) {
+      plan.push(`store     MAIN exists`);
+    } else {
+      plan.push(`store     MAIN — ${mainName}   CREATE`);
+      await tx
+        .insert(stockLocations)
+        .values({ locationId: site!.id, code: "MAIN", name: mainName, kind: "main", isActive: true });
     }
 
     // ── A feed store and a house for each shed ──
     for (const h of HOUSES) {
-      if (!site) {
-        plan.push(`house     ${h.code}   CREATE (after the site)`);
-        continue;
-      }
-
       let [store] = await tx
         .select()
         .from(stockLocations)
-        .where(and(eq(stockLocations.locationId, site.id), eq(stockLocations.code, h.code)));
+        .where(and(eq(stockLocations.locationId, site!.id), eq(stockLocations.code, h.code)));
       if (!store) {
         plan.push(`store     ${h.code} — feed   CREATE`);
-        if (apply) {
-          [store] = await tx
-            .insert(stockLocations)
-            .values({
-              locationId: site.id,
-              code: h.code,
-              name: `${h.code} — feed`,
-              kind: "house",
-              isActive: true,
-            })
-            .returning();
-        }
+        [store] = await tx
+          .insert(stockLocations)
+          .values({
+            locationId: site!.id,
+            code: h.code,
+            name: `${h.code} — feed`,
+            kind: "house",
+            isActive: true,
+          })
+          .returning();
       }
 
       // The owner is linked only if it is already on the books.
@@ -125,7 +121,7 @@ async function main() {
       const [existing] = await tx
         .select()
         .from(houses)
-        .where(and(eq(houses.locationId, site.id), eq(houses.code, h.code)));
+        .where(and(eq(houses.locationId, site!.id), eq(houses.code, h.code)));
       if (existing) {
         plan.push(`house     ${h.code} exists`);
         continue;
@@ -134,18 +130,16 @@ async function main() {
       plan.push(
         `house     ${h.code.padEnd(3)} ${h.purpose.padEnd(6)} order ${h.order}  ${h.device}  CREATE${ownerNote ? `   ${ownerNote}` : ""}`,
       );
-      if (apply && store) {
-        await tx.insert(houses).values({
-          locationId: site.id,
-          stockLocationId: store.id,
-          ownerId,
-          code: h.code,
-          purpose: h.purpose,
-          displayOrder: h.order,
-          bhDeviceId: h.device,
-          isActive: true,
-        });
-      }
+      await tx.insert(houses).values({
+        locationId: site!.id,
+        stockLocationId: store!.id,
+        ownerId,
+        code: h.code,
+        purpose: h.purpose,
+        displayOrder: h.order,
+        bhDeviceId: h.device,
+        isActive: true,
+      });
     }
 
     console.log(plan.map((p) => `  ${p}`).join("\n"));
