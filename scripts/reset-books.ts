@@ -34,6 +34,28 @@ const KEEP = new Set([
   "document_series",
   "preferences",
   "financial_years",
+
+  /*
+   * Reference data, seeded by migrations rather than entered by anybody.
+   *
+   * These read like books because they live beside them, but nothing here is
+   * a transaction: they are the vocabulary the books are written in — the
+   * ways a bird can die, the reasons a payroll line is adjusted, the shape of
+   * a canteen shift. Migrations create them once, so once they are deleted
+   * nothing puts them back: `db:migrate` has already run and will not run the
+   * inserts again.
+   *
+   * Emptying the books used to take them with it, and the damage showed up
+   * later and elsewhere — a farm import refusing every daily record on a
+   * foreign key to mortality_causes, with nothing to say the table had been
+   * emptied hours earlier by a different script.
+   */
+  "mortality_causes",
+  "reason_codes",
+  "canteen_meal_windows",
+  "egg_size_offsets",
+  "payroll_settings",
+  "egg_sales_preferences",
 ]);
 
 async function main() {
