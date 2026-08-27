@@ -137,6 +137,13 @@ interface IotRow {
   waterL: number | null;
   feedKg: number | null;
   birdCount: number | null;
+  /** Struck through when the controller has stopped moving the figure. */
+  feedStale?: boolean;
+  waterStale?: boolean;
+  siloStale?: boolean;
+  feedChangedAt?: string | null;
+  waterChangedAt?: string | null;
+  siloChangedAt?: string | null;
 }
 
 interface IotBoard {
@@ -273,6 +280,44 @@ function mergeShedDays(records: DailyRecord[]): DailyRecord[] {
     acc.birdsCulled += r.birdsCulled || 0;
   }
   return [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date));
+}
+
+/**
+ * A consumption reading that says so when it has stopped moving.
+ *
+ * The controller keeps answering with the last figure it managed to publish, so
+ * a frozen feed total is indistinguishable from a real one by looking at it —
+ * which is exactly how a shed came to show 289 kg for thirteen days. Struck
+ * through and dimmed, with the date it stuck: still visible, because the
+ * engineer chasing it wants the number, but no longer readable as today's.
+ */
+function StaleCell({
+  v,
+  unit,
+  stale,
+  since,
+}: {
+  v: number | null;
+  unit: string;
+  stale?: boolean;
+  since?: string | null;
+}) {
+  if (v == null) return <td className="px-3 py-2 text-right tabular-nums">—</td>;
+  const day = since ? since.slice(0, 10) : null;
+  return (
+    <td className="px-3 py-2 text-right tabular-nums">
+      {stale ? (
+        <span
+          className="text-muted-foreground/60 line-through decoration-destructive/50"
+          title={day ? `Unchanged since ${day} — the controller has stopped sending this` : "Never seen to change — the controller has stopped sending this"}
+        >
+          {fmtNum(v)} {unit}
+        </span>
+      ) : (
+        `${fmtNum(v)} ${unit}`
+      )}
+    </td>
+  );
 }
 
 function fmtNum(n: number, decimals = 0): string {
@@ -1087,15 +1132,9 @@ export function FarmsHousesPage() {
                         <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
                           {r.pressurePa == null ? "—" : fmtNum(r.pressurePa)}
                         </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {r.siloKg == null ? "—" : `${fmtNum(r.siloKg)} kg`}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {r.waterL == null ? "—" : `${fmtNum(r.waterL)} L`}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums">
-                          {r.feedKg == null ? "—" : `${fmtNum(r.feedKg)} kg`}
-                        </td>
+                        <StaleCell v={r.siloKg} unit="kg" stale={r.siloStale} since={r.siloChangedAt} />
+                        <StaleCell v={r.waterL} unit="L" stale={r.waterStale} since={r.waterChangedAt} />
+                        <StaleCell v={r.feedKg} unit="kg" stale={r.feedStale} since={r.feedChangedAt} />
                       </tr>
                     );
                   })}
@@ -1104,7 +1143,9 @@ export function FarmsHousesPage() {
           </div>
           <p className="mt-1 text-[11px] text-muted-foreground">
             Straight from the controllers, not from the daily sheet. Water and feed are
-            the controller's own running totals for today. Click a shed for its charts.
+            the controller's own running totals for today. A figure struck through has
+            stopped changing — the controller is still answering, but with an old number,
+            so read the shed's own panel for it. Click a shed for its charts.
             {iot.tokenExpires && ` Access expires ${iot.tokenExpires}.`}
           </p>
         </div>

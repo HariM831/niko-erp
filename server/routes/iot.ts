@@ -53,6 +53,16 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
     feedKg: number | null;
     birdCount: number | null;
     birdAgeDays: number | null;
+    /**
+     * When each consumption figure last actually changed, and whether it is
+     * therefore still today's. See `staleness` below.
+     */
+    feedChangedAt: Date | null;
+    waterChangedAt: Date | null;
+    siloChangedAt: Date | null;
+    feedStale: boolean;
+    waterStale: boolean;
+    siloStale: boolean;
   }
 
   const byHouse = new Map<string, Board>();
@@ -77,6 +87,12 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
         feedKg: null,
         birdCount: null,
         birdAgeDays: null,
+        feedChangedAt: null,
+        waterChangedAt: null,
+        siloChangedAt: null,
+        feedStale: false,
+        waterStale: false,
+        siloStale: false,
       };
       byHouse.set(r.houseId, b);
       named.set(r.houseId, new Map());
@@ -110,6 +126,61 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
     b.siloKg = metric(m, METRIC_TAGS.siloKg);
     b.waterL = metric(m, METRIC_TAGS.waterL);
     b.feedKg = metric(m, METRIC_TAGS.feedKg);
+  }
+
+  /**
+   * Is each consumption figure still TODAY's, or a number that stopped moving?
+   *
+   * On 2026-08-27 every tag in the controller's water-and-feed category had
+   * frozen farm-wide while the environment category kept flowing: L5 read the
+   * same 289 kg, 4,900 L and 15,260 kg silo for thirteen days straight, and L3
+   * held 7,004 kg across midnight. The values still arrive on every poll, so
+   * nothing looks broken — the panel just shows July's number as today's.
+   *
+   * The test is not a staleness threshold, which would have to guess how long a
+   * shed may legitimately go without feeding. These are DAILY counters: they
+   * reset to zero at midnight. So a figure that has not changed since the start
+   * of the current day cannot be today's, and one that has, is. No threshold to
+   * tune, and no false positive from a quiet night.
+   *
+   * `*ChangedAt` is the last instant the value was seen DIFFERENT, so the figure
+   * has held since roughly one sample after it. NULL means it never differed in
+   * everything retained — stale for certain.
+   */
+  const nowIst = new Date(Date.now() + 5.5 * 3_600_000);
+  const istMidnight = new Date(
+    Date.UTC(nowIst.getUTCFullYear(), nowIst.getUTCMonth(), nowIst.getUTCDate()) - 5.5 * 3_600_000,
+  );
+
+  const changed = await db.execute(sql`
+    WITH latest AS (
+      SELECT DISTINCT ON (house_id) house_id, feed_kg, water_l, silo_kg
+        FROM iot_house_sample ORDER BY house_id, at DESC
+    )
+    SELECT l.house_id AS "houseId",
+           (SELECT max(s.at) FROM iot_house_sample s
+             WHERE s.house_id = l.house_id AND s.feed_kg IS DISTINCT FROM l.feed_kg)  AS "feedChangedAt",
+           (SELECT max(s.at) FROM iot_house_sample s
+             WHERE s.house_id = l.house_id AND s.water_l IS DISTINCT FROM l.water_l)  AS "waterChangedAt",
+           (SELECT max(s.at) FROM iot_house_sample s
+             WHERE s.house_id = l.house_id AND s.silo_kg IS DISTINCT FROM l.silo_kg)  AS "siloChangedAt"
+      FROM latest l`);
+
+  for (const row of changed.rows as Array<Record<string, unknown>>) {
+    const b = byHouse.get(String(row.houseId));
+    if (!b) continue;
+    const at = (v: unknown) => (v == null ? null : new Date(String(v)));
+    b.feedChangedAt = at(row.feedChangedAt);
+    b.waterChangedAt = at(row.waterChangedAt);
+    b.siloChangedAt = at(row.siloChangedAt);
+    // Null was never read at all — missing, not stale. Zero is excluded too: an
+    // empty shed's meter sits at 0 forever and that is the truth, not a frozen
+    // number, and flagging it would put a warning on every idle house.
+    const held = (v: number | null, at: Date | null) =>
+      v != null && v !== 0 && !(at && at >= istMidnight);
+    b.feedStale = held(b.feedKg, b.feedChangedAt);
+    b.waterStale = held(b.waterL, b.waterChangedAt);
+    b.siloStale = held(b.siloKg, b.siloChangedAt);
   }
 
   const board = [...byHouse.values()].sort((a, b) => {
