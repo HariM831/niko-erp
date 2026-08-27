@@ -20,6 +20,19 @@ BRANCH="${BRANCH:-main}"
 
 die() { echo "deploy: $*" >&2; exit 1; }
 
+# The service reads its environment from here via systemd. The migration runs
+# in this shell instead, which systemd never touches, so it has to be loaded by
+# hand or db:migrate dies on "DATABASE_URL must be set". Kept out of the log and
+# out of the exported environment of anything but the migrate — the file holds
+# the database password and the session secret.
+# An `x && y` statement would be the last command in the script's eyes, and a
+# false test makes it return 1 — which under `set -e` exits the deploy.
+if [ "$SERVICE" = "niko" ]; then
+  ENV_FILE="/etc/niko/prod.env"
+else
+  ENV_FILE="/etc/niko/${SERVICE#niko-}.env"
+fi
+
 cd "$APP_DIR" || die "no such directory: $APP_DIR"
 [ -d .git ] || die "$APP_DIR is not a git checkout"
 
@@ -57,6 +70,11 @@ fi
 # dependency. Pruning first left every build-and-deploy failing on
 # "sh: 1: tsx: not found" — after the new code was already on disk.
 echo "==> migrating"
+if [ -r "$ENV_FILE" ]; then
+  set -a; . "$ENV_FILE"; set +a
+else
+  die "cannot read $ENV_FILE — the migration needs DATABASE_URL"
+fi
 npm run db:migrate
 
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
@@ -68,7 +86,7 @@ sudo systemctl restart "$SERVICE"
 
 # systemd reports a start as successful the moment the process is spawned, so
 # "restarted" on its own proves nothing. Wait for the port to actually answer.
-PORT="$(grep -oP '^PORT=\K.*' "/etc/niko/${SERVICE#niko-}.env" 2>/dev/null || echo 3000)"
+PORT="$(grep -oP '^PORT=\K.*' "$ENV_FILE" 2>/dev/null || echo 3000)"
 for i in $(seq 1 20); do
   if curl -fsS -o /dev/null "http://127.0.0.1:${PORT}/api/auth/me" \
      || [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/api/auth/me")" = "401" ]; then
