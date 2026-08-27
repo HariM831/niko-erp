@@ -14,9 +14,13 @@
 #
 set -euo pipefail
 
-APP_DIR="${APP_DIR:-/srv/niko}"
-SERVICE="${SERVICE:-niko}"
-BRANCH="${BRANCH:-main}"
+# Exported so the re-exec below inherits them rather than falling back to the
+# production defaults — a staging deploy that forgot which checkout it was in
+# would restart the wrong service.
+export APP_DIR="${APP_DIR:-/srv/niko}"
+export SERVICE="${SERVICE:-niko}"
+export BRANCH="${BRANCH:-main}"
+export SKIP_BUILD="${SKIP_BUILD:-0}"
 
 die() { echo "deploy: $*" >&2; exit 1; }
 
@@ -52,6 +56,17 @@ git reset --hard "origin/$BRANCH"
 AFTER="$(git rev-parse --short HEAD)"
 echo "    $BEFORE -> $AFTER"
 
+# This script is inside the checkout it just replaced. bash reads a script
+# lazily, by byte offset, so when the reset above rewrites deploy.sh the running
+# shell carries on at the same offset into a different file — executing whatever
+# now happens to sit there. That is how a fix to this file appeared not to work
+# twice in a row: the corrected version was on disk and the old one was running.
+# Start the new file over from the top, once.
+if [ "${NIKO_DEPLOY_REEXEC:-0}" != "1" ] && [ "$BEFORE" != "$AFTER" ]; then
+  echo "==> deploy.sh may have changed; restarting it"
+  NIKO_DEPLOY_REEXEC=1 exec bash "$APP_DIR/scripts/deploy.sh"
+fi
+
 # --omit=dev: the server bundle leaves every dependency external, so runtime
 # deps must be present, but nothing needs vite, esbuild or typescript here.
 echo "==> installing"
@@ -70,11 +85,28 @@ fi
 # dependency. Pruning first left every build-and-deploy failing on
 # "sh: 1: tsx: not found" — after the new code was already on disk.
 echo "==> migrating"
-if [ -r "$ENV_FILE" ]; then
-  set -a; . "$ENV_FILE"; set +a
-else
-  die "cannot read $ENV_FILE — the migration needs DATABASE_URL"
-fi
+[ -r "$ENV_FILE" ] || die "cannot read $ENV_FILE — the migration needs DATABASE_URL"
+#
+# Read, don't source. systemd parses an EnvironmentFile literally; bash does
+# not, and DATABASE_URL carries an `&` from `&sslrootcert=`. Sourcing it ran
+# everything up to the ampersand as a background job, so the assignment landed
+# in a subshell and DATABASE_URL arrived empty — the service was fine the whole
+# time, because systemd never went through a shell.
+#
+# The expansion below is quoted, so `&`, `?` and spaces in a value stay put.
+while IFS= read -r line || [ -n "$line" ]; do
+  case "$line" in ''|'#'*) continue ;; esac
+  case "$line" in *=*) ;; *) continue ;; esac
+  key="${line%%=*}"
+  val="${line#*=}"
+  # systemd strips a single layer of matching quotes; match that.
+  case "$val" in
+    \"*\") val="${val#\"}"; val="${val%\"}" ;;
+    \'*\') val="${val#\'}"; val="${val%\'}" ;;
+  esac
+  export "$key=$val"
+done < "$ENV_FILE"
+[ -n "${DATABASE_URL:-}" ] || die "no DATABASE_URL in $ENV_FILE"
 npm run db:migrate
 
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
