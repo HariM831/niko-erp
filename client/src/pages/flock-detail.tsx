@@ -262,7 +262,7 @@ export function FlockDetailPage() {
           />
         )}
         {tab === "culling" && <CullTab flock={f} onSaved={refresh} onError={setError} />}
-        {tab === "movements" && <MovementTab flock={f} />}
+        {tab === "movements" && <MovementTab flock={f} onSaved={refresh} />}
       </div>
     </div>
   );
@@ -582,8 +582,177 @@ function CullTab({
 
 /* ── Movements ───────────────────────────────────────────────────────────── */
 
-function MovementTab({ flock }: { flock: Flock }) {
+/**
+ * Book a movement the day sheet has no column for.
+ *
+ * Mortality and culls arrive through the daily record; this is for the rest —
+ * chiefly the shortage found when a shed is counted after a batch has moved
+ * out and the books still carry a few hundred birds nobody can find. Until
+ * that is written off the placement stays open and the shed reads occupied,
+ * so a new batch cannot be housed in it.
+ *
+ * An adjustment must say which way it goes. The server refuses one that does
+ * not, and a shortage entered as a positive number would quietly invent birds.
+ */
+function RecordMovement({ flock, onSaved }: { flock: Flock; onSaved: () => void }) {
+  const open = flock.placements.filter((p) => !p.toDate);
+  const [placementId, setPlacementId] = useState(open[0]?.id ?? "");
+  const [kind, setKind] = useState<"adjustment" | "cull" | "male_removal">("adjustment");
+  const [sign, setSign] = useState<-1 | 1>(-1);
+  const [qty, setQty] = useState("");
+  const [eventDate, setEventDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [causeCode, setCauseCode] = useState("");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const { data: causes } = useQuery({
+    queryKey: ["mortality-causes"],
+    queryFn: () => api<Array<{ code: string; label: string }>>("/api/farms/mortality-causes"),
+  });
+
+  const placement = open.find((p) => p.id === placementId);
+  const needsCause = kind === "cull";
+  const count = Number(qty);
+  // Refused server-side too; caught here so the reason is next to the field.
+  const tooMany = kind !== "adjustment" || sign === -1
+    ? !!placement && count > placement.birds
+    : false;
+  const ready =
+    !!placementId && Number.isInteger(count) && count > 0 && !tooMany && (!needsCause || !!causeCode);
+
+  const save = useMutation({
+    mutationFn: () =>
+      api(`/api/farms/flocks/${flock.id}/movements`, {
+        method: "POST",
+        body: {
+          placementId,
+          kind,
+          qty: count,
+          eventDate,
+          causeCode: needsCause ? causeCode : null,
+          adjustmentSign: kind === "adjustment" ? sign : null,
+          note: note.trim() || null,
+        },
+      }),
+    onSuccess: () => {
+      setQty("");
+      setNote("");
+      setError(null);
+      onSaved();
+    },
+    onError: (e) => setError(e instanceof ApiError ? e.message : "Could not record that"),
+  });
+
+  if (!open.length) {
+    return (
+      <p className="mb-3 rounded border border-gray-200 bg-gray-50 px-3 py-2 text-[13px] text-gray-600">
+        This batch is in no house — every placement has closed, so there is nothing to adjust.
+      </p>
+    );
+  }
+
   return (
+    <div className="mb-4 rounded-lg border border-gray-200 p-3">
+      <div className="mb-2 flex flex-wrap items-end gap-2">
+        <div className="w-40">
+          <label className="label">House</label>
+          <select value={placementId} onChange={(e) => setPlacementId(e.target.value)} className="input">
+            {open.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.houseCode} · {p.birds.toLocaleString("en-IN")} birds
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="w-36">
+          <label className="label">Event</label>
+          <select
+            value={kind}
+            onChange={(e) => setKind(e.target.value as typeof kind)}
+            className="input"
+          >
+            <option value="adjustment">Adjustment</option>
+            <option value="cull">Cull</option>
+            <option value="male_removal">Male removal</option>
+          </select>
+        </div>
+        {kind === "adjustment" && (
+          <div className="w-32">
+            <label className="label">Direction</label>
+            <select
+              value={sign}
+              onChange={(e) => setSign(Number(e.target.value) as -1 | 1)}
+              className="input"
+            >
+              <option value={-1}>Shortage (−)</option>
+              <option value={1}>Found (+)</option>
+            </select>
+          </div>
+        )}
+        {needsCause && (
+          <div className="w-44">
+            <label className="label">Cause</label>
+            <select value={causeCode} onChange={(e) => setCauseCode(e.target.value)} className="input">
+              <option value="">Choose…</option>
+              {(causes ?? []).map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        <div className="w-28">
+          <label className="label">Birds</label>
+          <input
+            value={qty}
+            onChange={(e) => setQty(e.target.value.replace(/[^0-9]/g, ""))}
+            inputMode="numeric"
+            className="input tabular-nums"
+          />
+        </div>
+        <div className="w-40">
+          <label className="label">Date</label>
+          <input
+            type="date"
+            value={eventDate}
+            onChange={(e) => setEventDate(e.target.value)}
+            className="input"
+          />
+        </div>
+        <div className="min-w-[10rem] flex-1">
+          <label className="label">Note</label>
+          <input value={note} onChange={(e) => setNote(e.target.value)} className="input" />
+        </div>
+        <button
+          onClick={() => save.mutate()}
+          disabled={!ready || save.isPending}
+          className="btn-primary"
+        >
+          {save.isPending ? "Recording…" : "Record"}
+        </button>
+      </div>
+      {tooMany && placement && (
+        <p className="text-[12px] text-destructive">
+          {placement.houseCode} holds {placement.birds.toLocaleString("en-IN")} birds — it cannot lose{" "}
+          {count.toLocaleString("en-IN")}.
+        </p>
+      )}
+      {error && <p className="text-[12px] text-destructive">{error}</p>}
+      {kind === "adjustment" && sign === -1 && !tooMany && (
+        <p className="text-[12px] text-gray-500">
+          Writes the birds off the books. Taking a house to zero closes its placement, which frees
+          the shed for the next batch.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function MovementTab({ flock, onSaved }: { flock: Flock; onSaved: () => void }) {
+  return (
+    <>
+      <RecordMovement flock={flock} onSaved={onSaved} />
     <div className="table-surface overflow-x-auto">
       <table className="w-full text-[13px]">
         <thead className="table-head">
@@ -633,6 +802,7 @@ function MovementTab({ flock }: { flock: Flock }) {
         </tbody>
       </table>
     </div>
+    </>
   );
 }
 

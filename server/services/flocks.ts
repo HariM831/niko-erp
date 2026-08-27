@@ -11,7 +11,7 @@
  * another, writing a paired transfer_out/transfer_in so the ledger balances and
  * the timeline still reads correctly years from now.
  */
-import { and, asc, desc, eq, inArray, isNull, like, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, like, lte, ne, sql } from "drizzle-orm";
 import {
   CAUSE_REQUIRED,
   flockHatches,
@@ -84,6 +84,51 @@ async function liveHouse(tx: Tx, houseId: string) {
   if (!h) throw new PostingError("No such house");
   if (!h.isActive) throw new PostingError(`${h.code} is retired — nothing can be placed in it`);
   return h;
+}
+
+/**
+ * A house holds one batch at a time.
+ *
+ * Nothing enforced this: the unique index is on (flock, house), so it catches
+ * the same batch twice and not two different ones. The books then carry two
+ * cohorts of different ages in one building, and every per-bird figure derived
+ * from that house — feed, water, lay rate, mortality — becomes an average of
+ * two flocks that describes neither.
+ *
+ * Emptying is what frees a shed. Transfer the batch out, write off whatever the
+ * count cannot find, and reconcilePlacements closes the placement on the day
+ * the last bird left. A remainder nobody has written off keeps the shed
+ * occupied, which is the intended pressure: the birds are either there or they
+ * are not.
+ *
+ * Both ways in have to ask — createFlock places a new batch, setFlockTransfers
+ * moves an existing one — and they insert their placements separately.
+ */
+async function assertHouseFree(tx: Tx, houseId: string, forFlockId: string | null) {
+  const others = await tx
+    .select({ id: flockPlacements.id, code: flocks.code })
+    .from(flockPlacements)
+    .innerJoin(flocks, eq(flocks.id, flockPlacements.flockId))
+    .where(
+      forFlockId
+        ? and(eq(flockPlacements.houseId, houseId), ne(flockPlacements.flockId, forFlockId))
+        : eq(flockPlacements.houseId, houseId),
+    );
+  if (!others.length) return;
+
+  const held = await placementCounts(
+    tx,
+    others.map((o) => o.id),
+  );
+  const occupant = others.find((o) => (held.get(o.id) ?? 0) > 0);
+  if (!occupant) return;
+
+  const [house] = await tx.select({ code: houses.code }).from(houses).where(eq(houses.id, houseId));
+  throw new PostingError(
+    `${house?.code ?? "That house"} still holds ` +
+      `${(held.get(occupant.id) ?? 0).toLocaleString("en-IN")} bird(s) of ${occupant.code}. ` +
+      `Move them out or write the shortage off before housing another batch.`,
+  );
 }
 
 /**
@@ -212,6 +257,8 @@ export async function createFlock(
 
   // The placement opens on the first hatch: the house is holding birds from the
   // moment the earliest of them arrives.
+  await assertHouseFree(tx, args.houseId, null);
+
   const [placement] = await tx
     .insert(flockPlacements)
     .values({ flockId: flock!.id, houseId: args.houseId, fromDate: profile.firstHatch })
@@ -521,6 +568,8 @@ async function placementIn(tx: Tx, flockId: string, houseId: string, from: strin
     }
     return existing;
   }
+  await assertHouseFree(tx, houseId, flockId);
+
   const [made] = await tx
     .insert(flockPlacements)
     .values({ flockId, houseId, fromDate: from })
