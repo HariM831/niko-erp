@@ -100,7 +100,20 @@ async function main() {
       await tx
         .update(items)
         .set({
-          isFeedIngredient: true,
+          /*
+           * Only a material with an analysis is a feed ingredient.
+           *
+           * Amino's export lists its whole item master, not its feed shelf:
+           * 155 entries of which 55 carry nutrients and 13 appear in a
+           * formula. Flagging every match put cement, TMT bars, a JCB and a
+           * tractor on the Nutrient Profiles screen and in the formulator's
+           * ingredient list — which is the one thing this flag exists to
+           * prevent. Cement has no crude protein.
+           *
+           * Left alone where there is no analysis, so a material somebody has
+           * already classified by hand is not un-flagged by an import.
+           */
+          ...(values.length ? { isFeedIngredient: true } : {}),
           // The export's price fills a blank; a price niko already has wins,
           // because niko's came through office and is newer.
           ...(m.costPerKg && !Number(item.costPrice) ? { costPrice: String(m.costPerKg) } : {}),
