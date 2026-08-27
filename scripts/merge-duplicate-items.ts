@@ -46,11 +46,14 @@ async function main() {
   await db
     .transaction(async (tx) => {
       const all = await tx.select({ id: items.id, name: items.name }).from(items);
-      const byName = new Map(all.map((i) => [i.name.toLowerCase(), i]));
+      // Keyed on the exact name, deliberately. One of these pairs differs only
+      // by case, so a lower-cased key collapses the two into one entry and the
+      // merge is asked to fold an item into itself.
+      const byName = new Map(all.map((i) => [i.name, i]));
 
       for (const [sourceName, targetName, why] of PAIRS) {
-        const source = byName.get(sourceName.toLowerCase());
-        const target = byName.get(targetName.toLowerCase());
+        const source = byName.get(sourceName);
+        const target = byName.get(targetName);
         if (!source || !target) {
           console.log(`  SKIP  ${sourceName} → ${targetName}  (${!source ? "source" : "target"} not found — already merged?)`);
           continue;
@@ -63,7 +66,7 @@ async function main() {
       }
 
       for (const [from, to] of RENAME) {
-        const item = byName.get(from.toLowerCase());
+        const item = byName.get(from);
         if (!item) continue;
         await tx.update(items).set({ name: to, updatedAt: new Date() }).where(eq(items.id, item.id));
         console.log(`  renamed "${from}" → "${to}"`);
