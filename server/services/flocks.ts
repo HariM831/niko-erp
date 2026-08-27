@@ -478,6 +478,15 @@ export async function recordMovement(
       recordedBy: args.userId,
     })
     .returning();
+  /*
+   * A single movement can empty a house, so this has to reconcile too.
+   *
+   * The transfer and cull paths always did; this one did not, and a shortage
+   * written off against the last few birds left the placement open at zero —
+   * the exact state reconcilePlacements exists to prevent, showing a shed as
+   * holding a flock that is no longer in it.
+   */
+  await reconcilePlacements(tx, placement.flockId);
   await refreshFlockDay(tx, placement.flockId);
   return row!;
 }
