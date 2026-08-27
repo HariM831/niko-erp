@@ -402,6 +402,14 @@ try {
         continue;
       }
 
+      // `alongsideExisting` on both calls: the services refuse to house a batch
+      // where another still holds birds, because when a person does it that is
+      // nearly always a remainder nobody wrote off. Here it is neither a mistake
+      // nor a decision — L3 held B240925 and B161025 together, three weeks apart
+      // in age, and that is simply what happened. The arithmetic was already
+      // reconciled against the export by `check-amino-export.ts`, which is the
+      // check that belongs at this end; refusing here would only stop niko from
+      // being able to state what the farm did.
       const { flock } = await createFlock(tx, {
         code: batch,
         locationId: house.locationId,
@@ -410,10 +418,13 @@ try {
         hatches: hatchLines,
         note: `Imported from Amino ${exp.exportedAt.slice(0, 10)}`,
         userId,
+        alongsideExisting: true,
       });
       flockIdOf.set(batch, flock.id);
 
-      if (moves.length) await setFlockTransfers(tx, flock.id, moves, userId);
+      if (moves.length) {
+        await setFlockTransfers(tx, flock.id, moves, userId, { alongsideExisting: true });
+      }
     }
 
     /* ── 5. The daily sheet ─────────────────────────────────────────────── */

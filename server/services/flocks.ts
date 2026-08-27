@@ -571,7 +571,13 @@ async function otherEvents(tx: Tx, flockId: string, excludeKinds: readonly strin
  * house it has stood in is the same occupancy; `reconcilePlacements` decides
  * afterwards whether it is still open.
  */
-async function placementIn(tx: Tx, flockId: string, houseId: string, from: string) {
+async function placementIn(
+  tx: Tx,
+  flockId: string,
+  houseId: string,
+  from: string,
+  alongside = false,
+) {
   const [existing] = await tx
     .select()
     .from(flockPlacements)
@@ -589,7 +595,7 @@ async function placementIn(tx: Tx, flockId: string, houseId: string, from: strin
     }
     return existing;
   }
-  await assertHouseFree(tx, houseId, flockId);
+  await assertHouseFree(tx, houseId, flockId, alongside);
 
   const [made] = await tx
     .insert(flockPlacements)
@@ -675,6 +681,16 @@ export async function setFlockTransfers(
   flockId: string,
   lines: TransferLine[],
   userId: string,
+  /**
+   * Let a move land in a shed another cohort is still in.
+   *
+   * Off for anything a person drives, where an occupied shed is nearly always a
+   * remainder nobody wrote off. An IMPORT is the other case: it is replaying
+   * moves that already happened, and L3 really did hold two batches three weeks
+   * apart. Refusing there does not prevent a mistake, it just makes niko unable
+   * to state what the farm did.
+   */
+  opts: { alongsideExisting?: boolean } = {},
 ) {
   const [flock] = await tx.select().from(flocks).where(eq(flocks.id, flockId));
   if (!flock) throw new PostingError("No such flock");
@@ -738,8 +754,8 @@ export async function setFlockTransfers(
 
   // In with the new, oldest first so a placement opens on its earliest line.
   for (const l of [...lines].sort((a, b) => a.eventDate.localeCompare(b.eventDate))) {
-    const from = await placementIn(tx, flockId, l.fromHouseId, l.eventDate);
-    const to = await placementIn(tx, flockId, l.toHouseId, l.eventDate);
+    const from = await placementIn(tx, flockId, l.fromHouseId, l.eventDate, opts.alongsideExisting);
+    const to = await placementIn(tx, flockId, l.toHouseId, l.eventDate, opts.alongsideExisting);
     await tx.insert(flockMovements).values([
       {
         placementId: from.id,
