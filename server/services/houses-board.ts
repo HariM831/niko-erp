@@ -112,7 +112,8 @@ export async function housesBoard(tx: Tx) {
       SELECT placement_id, day FROM placement_days
       UNION
       SELECT placement_id, event_date AS day FROM flock_movements
-       WHERE kind IN ('mortality','cull','male_removal','transfer_in','transfer_out','depletion')
+       WHERE kind IN ('mortality','cull','male_removal','transfer_in','transfer_out',
+                      'depletion','adjustment')
     )
     SELECT
       d.placement_id                                   AS "placementId",
