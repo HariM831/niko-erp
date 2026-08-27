@@ -96,32 +96,36 @@ async function main() {
     );
     profiled++;
     if (!WRITE) continue;
+    /*
+     * Only a material with an analysis is a feed ingredient.
+     *
+     * Amino's export lists its whole item master, not its feed shelf: 155
+     * entries of which 55 carry nutrients and 13 appear in a formula.
+     * Flagging every match put cement, TMT bars, a JCB and a tractor on the
+     * Nutrient Profiles screen and in the formulator's ingredient list —
+     * which is the one thing this flag exists to prevent. Cement has no
+     * crude protein.
+     *
+     * Left alone where there is no analysis, so a material somebody has
+     * already classified by hand is not un-flagged by an import.
+     */
+    const changes = {
+      ...(values.length ? { isFeedIngredient: true } : {}),
+      // The export's price fills a blank; a price niko already has wins,
+      // because niko's came through office and is newer.
+      ...(m.costPerKg && !Number(item.costPrice) ? { costPrice: String(m.costPerKg) } : {}),
+      ...(m.bagWeightKg && item.unitBagWeightKg == null
+        ? { unitBagWeightKg: String(m.bagWeightKg) }
+        : {}),
+    };
+
     await db.transaction(async (tx) => {
-      await tx
-        .update(items)
-        .set({
-          /*
-           * Only a material with an analysis is a feed ingredient.
-           *
-           * Amino's export lists its whole item master, not its feed shelf:
-           * 155 entries of which 55 carry nutrients and 13 appear in a
-           * formula. Flagging every match put cement, TMT bars, a JCB and a
-           * tractor on the Nutrient Profiles screen and in the formulator's
-           * ingredient list — which is the one thing this flag exists to
-           * prevent. Cement has no crude protein.
-           *
-           * Left alone where there is no analysis, so a material somebody has
-           * already classified by hand is not un-flagged by an import.
-           */
-          ...(values.length ? { isFeedIngredient: true } : {}),
-          // The export's price fills a blank; a price niko already has wins,
-          // because niko's came through office and is newer.
-          ...(m.costPerKg && !Number(item.costPrice) ? { costPrice: String(m.costPerKg) } : {}),
-          ...(m.bagWeightKg && item.unitBagWeightKg == null
-            ? { unitBagWeightKg: String(m.bagWeightKg) }
-            : {}),
-        })
-        .where(eq(items.id, item.id));
+      // Every field can legitimately be absent — an already-priced material
+      // with no analysis leaves nothing to say — and Drizzle rejects an empty
+      // .set() rather than treating it as a no-op.
+      if (Object.keys(changes).length) {
+        await tx.update(items).set(changes).where(eq(items.id, item.id));
+      }
       for (const [nutrient, value] of values) {
         await tx
           .insert(itemNutrients)
