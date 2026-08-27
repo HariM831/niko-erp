@@ -44,9 +44,13 @@ echo "==> $SERVICE  ($APP_DIR, branch $BRANCH)"
 
 # A deploy that would silently discard someone's hand-edit on the server is a
 # deploy that loses work. Refuse instead.
-if [ -n "$(git status --porcelain)" ]; then
-  git status --short
-  die "working tree is not clean — commit, stash or revert on the server first"
+#
+# TRACKED changes only. `git reset --hard` below leaves untracked files alone,
+# so they are never the work at risk — refusing on them only means a stray
+# scratch file in the checkout blocks every future deploy for no reason.
+if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+  git status --short --untracked-files=no
+  die "working tree has local changes — commit, stash or revert on the server first"
 fi
 
 BEFORE="$(git rev-parse --short HEAD)"
