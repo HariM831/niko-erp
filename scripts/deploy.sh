@@ -51,11 +51,17 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
   echo "==> building"
   npm ci
   npm run build
-  npm prune --omit=dev
 fi
 
+# Before the prune, not after: db:migrate runs through tsx, which is a dev
+# dependency. Pruning first left every build-and-deploy failing on
+# "sh: 1: tsx: not found" — after the new code was already on disk.
 echo "==> migrating"
 npm run db:migrate
+
+if [ "${SKIP_BUILD:-0}" != "1" ]; then
+  npm prune --omit=dev
+fi
 
 echo "==> restarting $SERVICE"
 sudo systemctl restart "$SERVICE"
