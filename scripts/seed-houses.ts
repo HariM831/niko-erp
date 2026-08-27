@@ -123,7 +123,19 @@ async function main() {
         .from(houses)
         .where(and(eq(houses.locationId, site!.id), eq(houses.code, h.code)));
       if (existing) {
-        plan.push(`house     ${h.code} exists`);
+        // The owning LLPs arrive with the Zoho dump, after the houses. Re-running
+        // then is what links them: without this the script would report "exists"
+        // and quietly leave every layer unowned forever, and the only way to
+        // notice would be an owner-billing run that produced nothing.
+        //
+        // Only ever fills an EMPTY owner. Re-pointing a shed at a different
+        // company is a decision about who gets billed, not a seed's business.
+        if (!existing.ownerId && ownerId) {
+          plan.push(`house     ${h.code} exists — LINK ${ownerNote}`);
+          await tx.update(houses).set({ ownerId }).where(eq(houses.id, existing.id));
+        } else {
+          plan.push(`house     ${h.code} exists${ownerNote && !existing.ownerId ? `   ${ownerNote}` : ""}`);
+        }
         continue;
       }
 
