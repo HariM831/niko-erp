@@ -78,12 +78,39 @@ export function getAgeRefStock<T extends BatchStockLike>(
   return best!.s;
 }
 
-/** Age reference date for a shed (batch birth date, or placement date if unset). */
+/** The date a single batch's age counts from. */
+function batchAgeDate(stock: BatchStockLike): Date {
+  return stock.batchBirthDate ? new Date(stock.batchBirthDate) : new Date(stock.dateIn);
+}
+
+/**
+ * Age reference date for a shed, weighted by live birds across the batches in it.
+ *
+ * A shed holding two cohorts has one age on screen, and the honest one is the
+ * average bird's — the same bird-weighted rule the flock itself already uses to
+ * arrive at its hatch date. Taking the biggest batch's date instead would judge
+ * every bird in the house against the majority's point on the lay curve.
+ *
+ * With one batch this is that batch's date exactly, so the common case is
+ * untouched. Weighting by LIVE birds also means a spent batch still sitting in
+ * the shed at zero contributes nothing, rather than dragging the age backwards.
+ *
+ * Breed stays winner-takes-all in `getAgeRefStock`: a date can be averaged, a
+ * breed cannot.
+ */
 export function getBatchAgeRefDate(
   stocks: BatchStockLike[],
   records: BatchRecordLike[],
 ): Date | null {
-  const stock = getAgeRefStock(stocks, records);
-  if (!stock) return null;
-  return stock.batchBirthDate ? new Date(stock.batchBirthDate) : new Date(stock.dateIn);
+  const ref = getAgeRefStock(stocks, records);
+  if (!ref) return null;
+
+  const weighted = (stocks.filter(isBatchActive).length > 0 ? stocks.filter(isBatchActive) : stocks)
+    .map(s => ({ at: batchAgeDate(s).getTime(), live: batchLiveCount(s, records) }))
+    .filter(x => x.live > 0 && Number.isFinite(x.at));
+
+  const birds = weighted.reduce((sum, x) => sum + x.live, 0);
+  if (birds <= 0) return batchAgeDate(ref);
+
+  return new Date(weighted.reduce((sum, x) => sum + x.at * x.live, 0) / birds);
 }

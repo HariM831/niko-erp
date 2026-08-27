@@ -231,6 +231,50 @@ function calculateClosingStock(
   return Math.max(0, totalOpening + totalChanges);
 }
 
+/**
+ * One row per DAY for a shed, summing across the batches sharing it.
+ *
+ * The board's rows arrive per placement, because that is how the daily sheet is
+ * entered. Every figure on the Houses screen is a shed figure, though: the feed
+ * auger, the water meter and the egg trolley serve the house, not a cohort, so
+ * there is no way to attribute them to one batch even in principle. Summing the
+ * numerators here and dividing by the shed's combined bird count — which
+ * `calculateClosingStock` already sums — makes each per-bird figure the
+ * bird-weighted average across the cohorts present, which is the only honest
+ * reading of a shared house.
+ *
+ * Before this, the day was picked with `.find()`: the first row for the date won
+ * and the rest were dropped. A shed with two batches showed one batch's feed
+ * against both batches' birds, and on a day whose second row was a bare movement
+ * — no feed, no eggs — the whole shed could read zero.
+ *
+ * Records stay ungrouped for the bird-count and age paths, which match rows to
+ * batches by `batchNumber` to exclude the inactive ones; merging first would
+ * throw that away.
+ */
+function mergeShedDays(records: DailyRecord[]): DailyRecord[] {
+  const byDate = new Map<string, DailyRecord>();
+  for (const r of records) {
+    const date = r.date.substring(0, 10);
+    const acc = byDate.get(date);
+    if (!acc) {
+      byDate.set(date, { ...r, date });
+      continue;
+    }
+    acc.mortality += r.mortality || 0;
+    acc.maleBirds += r.maleBirds || 0;
+    acc.birdsTransferredIn += r.birdsTransferredIn || 0;
+    acc.birdsTransferredOut += r.birdsTransferredOut || 0;
+    acc.adjustment += r.adjustment || 0;
+    acc.waterUpperKl += r.waterUpperKl || 0;
+    acc.waterLowerKl += r.waterLowerKl || 0;
+    acc.feedIntakeKg += r.feedIntakeKg || 0;
+    acc.eggsProduced += r.eggsProduced || 0;
+    acc.birdsCulled += r.birdsCulled || 0;
+  }
+  return [...byDate.values()].sort((a, b) => b.date.localeCompare(a.date));
+}
+
 function fmtNum(n: number, decimals = 0): string {
   return n.toLocaleString("en-IN", {
     minimumFractionDigits: decimals,
@@ -252,14 +296,15 @@ function buildShedMetrics(
   formulaTransfers: FormulaTransfer[],
   displayDate: string,
 ) {
+  // Counts and age read the per-batch rows; every shed figure below reads the
+  // merged per-day series. See `mergeShedDays`.
   const closingStock = calculateClosingStock(
     shedStocks,
     allRecords,
     displayDate,
   );
-  const dateRecord = allRecords.find(
-    (r) => r.date.substring(0, 10) === displayDate,
-  );
+  const dayRecords = mergeShedDays(allRecords);
+  const dateRecord = dayRecords.find((r) => r.date === displayDate);
 
   const ageRef = getBatchAgeRefDate(shedStocks, allRecords as never);
   const ageWeeks =
@@ -306,8 +351,8 @@ function buildShedMetrics(
     0,
   );
   const dateConsumedKg = dateRecord?.feedIntakeKg || 0;
-  const allTimeConsumedKg = allRecords
-    .filter((r) => r.date.substring(0, 10) <= displayDate)
+  const allTimeConsumedKg = dayRecords
+    .filter((r) => r.date <= displayDate)
     .reduce((sum, r) => sum + (r.feedIntakeKg || 0), 0);
   const feedStockKg = Math.max(0, totalDeliveredKg - allTimeConsumedKg);
 
@@ -322,9 +367,7 @@ function buildShedMetrics(
   const prevDateObj = new Date(displayDate + "T00:00:00");
   prevDateObj.setDate(prevDateObj.getDate() - 1);
   const prevDate = `${prevDateObj.getFullYear()}-${String(prevDateObj.getMonth() + 1).padStart(2, "0")}-${String(prevDateObj.getDate()).padStart(2, "0")}`;
-  const prevDateRecord = allRecords.find(
-    (r) => r.date.substring(0, 10) === prevDate,
-  );
+  const prevDateRecord = dayRecords.find((r) => r.date === prevDate);
   const prevClosingStock = calculateClosingStock(
     shedStocks,
     allRecords,
@@ -346,11 +389,10 @@ function buildShedMetrics(
   const actualMortalityPct =
     closingStock > 0 ? (mortality / (closingStock + mortality)) * 100 : 0;
 
-  const last7Records = allRecords
-    .filter((r) => {
-      const d = r.date.substring(0, 10);
-      return d <= displayDate;
-    })
+  // Seven DAYS. Taking seven rows off the per-batch series gave a shed with two
+  // batches three and a half days, and divided the week's deaths by seven.
+  const last7Records = dayRecords
+    .filter((r) => r.date <= displayDate)
     .sort((a, b) => b.date.localeCompare(a.date))
     .slice(0, 7);
   const weekTotalMort = last7Records.reduce(
