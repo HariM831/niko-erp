@@ -176,7 +176,7 @@ export function OwnerBillingPage() {
 
   return (
     <div className="flex min-h-full flex-col">
-      <header className="border-b bg-white px-6 pt-3">
+      <header className="page-header px-4 pt-3 sm:px-6">
         <div className="mb-2 flex items-center justify-between">
           <div className="flex items-center gap-3">
             {/* The picker stands where the contact page puts the name. There

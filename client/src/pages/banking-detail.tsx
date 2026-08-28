@@ -94,7 +94,7 @@ export function BankingDetailPage({ bankAccountId }: { bankAccountId: string }) 
 
   return (
     <div className="flex h-full flex-col">
-      <header className="border-b bg-white px-6 pt-3">
+      <header className="page-header px-4 pt-3 sm:px-6">
         <div className="mb-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button onClick={() => navigate("/banking")} className="text-gray-400 hover:text-gray-700">←</button>

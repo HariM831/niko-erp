@@ -89,7 +89,7 @@ export function ChartOfAccountsPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between bg-white px-5 py-3">
+      <header className="page-header flex flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-5">
         <div className="relative">
           <button
             onClick={() => setViewsOpen((o) => !o)}
