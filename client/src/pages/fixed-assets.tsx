@@ -80,7 +80,7 @@ export function FixedAssetsPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b bg-white px-6 py-3">
+      <header className="page-header flex flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-6">
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-semibold">Fixed Assets</h1>
           <select
@@ -106,7 +106,7 @@ export function FixedAssetsPage() {
 
       <div className="flex-1 overflow-y-auto p-6">
         {summary && (
-          <div className="mb-5 grid max-w-4xl grid-cols-4 gap-3">
+          <div className="mb-5 grid max-w-4xl grid-cols-2 gap-3 lg:grid-cols-4">
             <Stat label="Assets" value={String(summary.count)} />
             <Stat label="Total cost" value={formatMoney(summary.cost)} />
             <Stat label="Accumulated depreciation" value={formatMoney(summary.accumulated)} />
@@ -390,7 +390,7 @@ export function FixedAssetNewPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b bg-white px-6 py-3">
+      <header className="page-header flex flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-6">
         <h1 className="text-lg font-semibold">New Fixed Asset</h1>
         <button
           onClick={() => navigate("/accountant/assets")}
@@ -595,7 +595,7 @@ export function FixedAssetDetailPage({ id }: { id: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b bg-white px-6 py-3">
+      <header className="page-header flex flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-6">
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-semibold">
             {asset.number} · {asset.name}

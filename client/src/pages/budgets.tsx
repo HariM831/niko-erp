@@ -245,7 +245,7 @@ export function BudgetNewPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b bg-white px-6 py-3">
+      <header className="page-header flex flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-6">
         <h1 className="text-lg font-medium">New Budget</h1>
         <button onClick={() => navigate("/accountant/budgets")} className="text-xl text-gray-400 hover:text-gray-700">
           ×

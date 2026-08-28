@@ -474,7 +474,7 @@ function ReceiptEditor({
       ) : (
         <>
           <SectionLabel>On the weighbridge</SectionLabel>
-          <div className="mb-4 grid grid-cols-4 gap-3">
+          <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
             <div>
               <label className="label">Their slip — gross</label>
               <input
