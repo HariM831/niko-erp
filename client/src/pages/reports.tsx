@@ -919,7 +919,7 @@ function ItemTable({ data }: { data: Record<string, unknown> }) {
             <th className={`${HEAD_CELL} pl-5 text-left`}>Item Name</th>
             <th className={`${HEAD_CELL} w-32 text-right`}>Quantity</th>
             <th className={`${HEAD_CELL} w-36 text-right`}>Amount</th>
-            <th className={`${HEAD_CELL} w-36 text-right`}>Average Price</th>
+            <th className={`col-portrait-hide ${HEAD_CELL} w-36 text-right`}>Average Price</th>
           </tr>
         </thead>
         <tbody>
@@ -937,7 +937,7 @@ function ItemTable({ data }: { data: Record<string, unknown> }) {
                 {Number(r.quantity).toLocaleString("en-IN")} {r.unit}
               </td>
               <td className="px-2 py-2 text-right tabular-nums">{num(r.amount)}</td>
-              <td className="px-2 py-2 text-right tabular-nums">{num(r.averagePrice)}</td>
+              <td className="col-portrait-hide px-2 py-2 text-right tabular-nums">{num(r.averagePrice)}</td>
             </tr>
           ))}
           <tr className="border-t-[0.7px] border-[#eee] font-bold">
@@ -975,8 +975,8 @@ function SalesByCustomer({ data }: { data: Record<string, unknown> }) {
         <thead>
           <tr>
             <th className={`${HEAD_CELL} pl-5 text-left`}>Name</th>
-            <th className={`${HEAD_CELL} w-32 text-right`}>Invoice Count</th>
-            <th className={`${HEAD_CELL} w-40 text-right`}>Sales</th>
+            <th className={`col-portrait-hide ${HEAD_CELL} w-32 text-right`}>Invoice Count</th>
+            <th className={`col-portrait-hide ${HEAD_CELL} w-40 text-right`}>Sales</th>
             <th className={`${HEAD_CELL} w-40 text-right`}>Sales with Tax</th>
           </tr>
         </thead>
@@ -991,8 +991,8 @@ function SalesByCustomer({ data }: { data: Record<string, unknown> }) {
                   {r.name}
                 </Link>
               </td>
-              <td className="px-2 py-2 text-right tabular-nums">{r.invoiceCount}</td>
-              <td className="px-2 py-2 text-right tabular-nums">{num(r.sales)}</td>
+              <td className="col-portrait-hide px-2 py-2 text-right tabular-nums">{r.invoiceCount}</td>
+              <td className="col-portrait-hide px-2 py-2 text-right tabular-nums">{num(r.sales)}</td>
               <td className="px-2 py-2 text-right tabular-nums">{num(r.salesWithTax)}</td>
             </tr>
           ))}
