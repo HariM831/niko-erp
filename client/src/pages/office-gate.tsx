@@ -465,7 +465,7 @@ export function GateInPage() {
 
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-6">
-      <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+      <div className="page-header -mx-4 mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-3 sm:-mx-6 sm:px-6">
         <div>
           <h1 className="text-[19px] font-semibold text-gray-900">Gate In</h1>
           </div>
