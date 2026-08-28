@@ -221,7 +221,7 @@ export function EggGradingPage() {
                       <span className="lg:hidden">{SHORT[z]}</span><span className="hidden lg:inline">{LABEL[z]}</span>
                     </th>
                   ))}
-                  <th className="whitespace-nowrap px-3 py-2 text-right">Total</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-right"><span className="lg:hidden">Tot</span><span className="hidden lg:inline">Total</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -298,8 +298,8 @@ export function EggGradingPage() {
                       <span className="lg:hidden">{SHORT[z]}</span><span className="hidden lg:inline">{LABEL[z]}</span>
                     </th>
                   ))}
-                  <th className="whitespace-nowrap px-3 py-2 text-right">Total</th>
-                  <th className="whitespace-nowrap px-3 py-2 text-right">Lifted</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-right"><span className="lg:hidden">Tot</span><span className="hidden lg:inline">Total</span></th>
+                  <th className="whitespace-nowrap px-3 py-2 text-right"><span className="lg:hidden">Lift</span><span className="hidden lg:inline">Lifted</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -403,7 +403,7 @@ export function EggGradingPage() {
                       <span className="lg:hidden">{SHORT[z]}</span><span className="hidden lg:inline">{LABEL[z]}</span>
                     </th>
                   ))}
-                  <th className="whitespace-nowrap px-3 py-2 text-right">Total</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-right"><span className="lg:hidden">Tot</span><span className="hidden lg:inline">Total</span></th>
                 </tr>
               </thead>
               <tbody>
