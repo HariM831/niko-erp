@@ -104,6 +104,20 @@ export function ListPage<T>({
     ? columns.filter((c) => c.portrait).length
     : (portraitCols ?? 3);
 
+  /**
+   * Which column soaks up the width the hidden ones leave behind.
+   *
+   * A fixed table divides by column COUNT, and display:none leaves the slot
+   * there — so the Items list, ten columns of which eight are hidden, gave its
+   * NAME 29px and clipped every row to nothing. Dates, document numbers and
+   * figures are sized deliberately (see the portrait block in index.css); the
+   * first column that is none of those is the elastic one, and it takes the
+   * remainder.
+   */
+  const fillKey = columns.find(
+    (c) => c.portrait && c.align !== "right" && c.key !== "date" && c.key !== "number",
+  )?.key;
+
   const [, navigate] = useLocation();
   const [activeView, setActiveView] = useState(0);
   const [viewsOpen, setViewsOpen] = useState(false);
@@ -276,7 +290,7 @@ export function ListPage<T>({
                 {columns.map((c) => (
                   <th
                     key={c.key}
-                    className={`col-${c.key} border-b border-[#ece3d5] font-semibold ${cellPad} ${c.align === "right" ? "text-right" : ""} ${
+                    className={`col-${c.key} ${c.key === fillKey ? "col-fill" : ""} border-b border-[#ece3d5] font-semibold ${cellPad} ${c.align === "right" ? "text-right" : ""} ${
                       namedPortrait && !c.portrait ? "col-portrait-hide" : ""
                     }`}
                   >
@@ -352,7 +366,7 @@ export function ListPage<T>({
                     {columns.map((c) => (
                       <td
                         key={c.key}
-                        className={`col-${c.key} border-b border-[#ece3d5] ${cellPad} ${c.align === "right" ? "text-right tabular-nums" : ""} ${
+                        className={`col-${c.key} ${c.key === fillKey ? "col-fill" : ""} border-b border-[#ece3d5] ${cellPad} ${c.align === "right" ? "text-right tabular-nums" : ""} ${
                           namedPortrait && !c.portrait ? "col-portrait-hide" : ""
                         }`}
                       >
