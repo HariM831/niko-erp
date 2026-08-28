@@ -34,6 +34,16 @@ interface ListPageProps<T> {
   /** Highlighted row (used by the split view). */
   activeKey?: string;
   compact?: boolean;
+  /**
+   * How many columns survive on a phone held upright. Default 3.
+   *
+   * These lists run to 22 columns and 1,266px. They scroll, so nothing is
+   * unreachable, but finding one figure means dragging through a dozen screens.
+   * Portrait keeps the columns that say which row this is; turning the phone
+   * gives the rest. Set it per page — the useful count is however many it takes
+   * to identify a row, which for a bill is date, number and vendor.
+   */
+  portraitCols?: number;
   /** Optional content rendered between the header and the table, e.g. a stats banner. */
   banner?: ReactNode;
   /** Extra buttons placed before "+ New" in the header, e.g. "Upload Bill". */
@@ -72,6 +82,7 @@ export function ListPage<T>({
   rowKey,
   activeKey,
   compact,
+  portraitCols,
   banner,
   extraActions,
   searchFields,
@@ -226,7 +237,10 @@ export function ListPage<T>({
             )}
           </div>
         ) : (
-          <table className="w-full border-separate border-spacing-0 text-[13px]">
+          // +1 because the checkbox is column one and always stays.
+          <table
+            className={`w-full border-separate border-spacing-0 text-[13px] pcols-${Math.min(6, Math.max(2, (portraitCols ?? 3) + 1))}`}
+          >
             <thead className="table-head sticky top-0 z-10">
               <tr>
                 <th className={`w-9 border-b border-[#ece3d5] ${cellPad}`}>
@@ -319,6 +333,12 @@ export function ListPage<T>({
               })}
             </tbody>
           </table>
+        )}
+        {/* Only worth saying when columns are actually being held back. */}
+        {(data?.length ?? 0) > 0 && columns.length > (portraitCols ?? 3) && (
+          <div className="portrait-note">
+            Showing {portraitCols ?? 3} of {columns.length} columns — turn the phone for the rest.
+          </div>
         )}
       </div>
 

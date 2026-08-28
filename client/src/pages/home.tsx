@@ -190,10 +190,23 @@ function Metric({
     <button
       onClick={onClick}
       disabled={!onClick}
-      className={`group rounded-xl px-2.5 py-2 text-left transition ${invert ? "hover:bg-white/10" : "hover:bg-yolk-50"} disabled:cursor-default ${invert ? "" : "disabled:hover:bg-transparent"}`}
+      // min-w-0 so a grid cell can hold it to its share of the row: without it a
+      // long figure sets the cell's width and pushes into its neighbour.
+      className={`group min-w-0 rounded-xl px-2 py-2 text-left transition sm:px-2.5 ${invert ? "hover:bg-white/10" : "hover:bg-yolk-50"} disabled:cursor-default ${invert ? "" : "disabled:hover:bg-transparent"}`}
     >
-      <div className={`text-[10.5px] font-bold uppercase tracking-wider ${invert ? "text-yolk-100/80" : "text-soil-400"}`}>{label}</div>
-      <div className={`${big ? "text-3xl" : "text-xl"} font-extrabold tabular-nums leading-tight ${color}`}>{value}</div>
+      <div className={`truncate text-[10.5px] font-bold uppercase tracking-wider ${invert ? "text-yolk-100/80" : "text-soil-400"}`}>{label}</div>
+      {/*
+        Sized down a step on a phone, and allowed to break.
+        At 375px a two-column hero cell is ~111px wide and `65,79,709` set at
+        text-3xl wants 152px. It did not clip — nothing here hides overflow — it
+        drew straight over the cell beside it, so LAY RATE 94.5% read as 4.5%.
+        A wrong number is worse than a small one, and worse than a wrapped one.
+      */}
+      <div
+        className={`${big ? "text-2xl sm:text-3xl" : "text-base sm:text-xl"} break-all font-extrabold tabular-nums leading-tight ${color}`}
+      >
+        {value}
+      </div>
       {sub && <div className={`mt-0.5 text-[11px] ${invert ? "text-yolk-50/85" : "text-soil-400"}`}>{sub}</div>}
       {onClick && (
         <div className={`mt-0.5 text-[10px] font-semibold opacity-0 transition group-hover:opacity-100 ${invert ? "text-white" : "text-yolk-600"}`}>

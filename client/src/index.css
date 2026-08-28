@@ -347,8 +347,61 @@ body {
 /* The white panel a table sits on. Rounded with a soft shadow and NO border —
    `.card` is for a card; ringing a table in one makes a page of data read as a
    stack of boxes. Add `overflow-x-auto` instead when the table is wide. */
+/*
+ * A table's card. Scrolls sideways rather than cutting the table off.
+ *
+ * This was `overflow-hidden`, to clip the table's corners to the radius. On a
+ * desktop that is invisible, because the table fits. On a phone it silently ate
+ * the right-hand half of every wide table — and it beat the `overflow-x-auto`
+ * several pages had already put on the very same element, because a component
+ * class and a utility class have equal specificity and this one is declared
+ * later. `class="table-surface overflow-x-auto"` computed to `overflow-x:
+ * hidden`, and 455px of the employee table simply could not be reached.
+ *
+ * Explicitly per-axis: x scrolls, y still clips so the corners stay round.
+ */
 .table-surface {
-  @apply overflow-hidden rounded-lg bg-white shadow-sm;
+  @apply overflow-x-auto overflow-y-hidden rounded-lg bg-white shadow-sm;
+}
+
+/*
+ * Wide tables on a phone: the identifying columns in portrait, everything in
+ * landscape.
+ *
+ * A bill list is 22 columns and 1,266px. It scrolls, so nothing is lost, but
+ * reading it on a phone means dragging sideways through a dozen screens to find
+ * one figure. Held upright you get the few columns that say WHICH row this is —
+ * date, number, who — and turning the phone gives you the whole table.
+ *
+ * Put `pcols-N` on the <table>: N columns survive in portrait. Counting is by
+ * position, so it only holds for a plain header row — a table with colspans in
+ * its head needs doing by hand.
+ *
+ * Landscape is not treated as "mobile" here on purpose: a phone on its side has
+ * ~660px, which is enough for the full table with a sideways scroll, and the
+ * person turned it precisely because they wanted more.
+ */
+@media (orientation: portrait) and (max-width: 1023px) {
+  .pcols-2 :is(th, td):nth-child(n + 3),
+  .pcols-3 :is(th, td):nth-child(n + 4),
+  .pcols-4 :is(th, td):nth-child(n + 5),
+  .pcols-5 :is(th, td):nth-child(n + 6),
+  .pcols-6 :is(th, td):nth-child(n + 7) {
+    display: none;
+  }
+}
+
+/*
+ * "Turn the phone for the rest." Only shown where columns are actually being
+ * held back — a table that fits says nothing.
+ */
+.portrait-note {
+  display: none;
+}
+@media (orientation: portrait) and (max-width: 1023px) {
+  .portrait-note {
+    @apply block px-3 py-1.5 text-[11px] text-gray-500;
+  }
 }
 
 /* A header cell. Right-align a numeric column by adding `text-right`. */
