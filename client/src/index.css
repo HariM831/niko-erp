@@ -444,6 +444,19 @@ body {
   .data-table :is(th, td).text-right {
     width: 7.5rem;
   }
+  /*
+   * The identifiers get what they need, and the free-text column takes what is
+   * left over. A fixed table divides equally by default, which gave BILL-001906
+   * 81px when it needs 90 — and a truncated document number identifies nothing,
+   * where a truncated vendor name still does. So the two columns that must be
+   * read whole are sized, and the name absorbs the remainder.
+   */
+  .list-table :is(th, td).col-date {
+    width: 5.5rem;
+  }
+  .list-table :is(th, td).col-number {
+    width: 5.75rem;
+  }
 }
 
 @media (orientation: portrait) and (max-width: 1023px) {
