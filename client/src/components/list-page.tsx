@@ -138,7 +138,7 @@ export function ListPage<T>({
   const unsizedPortrait = columns.filter(
     (c) => c.portrait && c.align !== "right" && c.key !== "date" && c.key !== "number",
   );
-  const fillKey = unsizedPortrait.length === 1 ? unsizedPortrait[0].key : undefined;
+  const fillKey = unsizedPortrait.length === 1 ? unsizedPortrait[0]?.key : undefined;
 
   const [, navigate] = useLocation();
   const [activeView, setActiveView] = useState(0);
