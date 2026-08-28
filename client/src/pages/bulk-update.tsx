@@ -297,9 +297,11 @@ export function BulkUpdatePage() {
   if (!result) {
     return (
       <div className="flex h-full flex-col">
+        <header className="page-header px-6 py-3">
+          <h1 className="text-lg font-medium">Bulk Update Accounts in Transactions</h1>
+        </header>
         <div className="mx-auto mt-16 max-w-2xl px-6 text-center">
-          <h1 className="text-xl font-medium text-gray-800">Bulk Update Accounts in Transactions</h1>
-          <div className="mt-6 flex items-start gap-3 rounded border border-[#f2d9a0] bg-[#fdf6e3] px-4 py-3 text-left">
+          <div className="flex items-start gap-3 rounded border border-[#f2d9a0] bg-[#fdf6e3] px-4 py-3 text-left">
             <span className="mt-0.5 text-[#d69e2e]">!</span>
             <p className="text-[13px] text-gray-700">
               Bulk-updating accounts in transactions will cause significant changes to the financial
