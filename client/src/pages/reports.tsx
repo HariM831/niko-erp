@@ -550,7 +550,14 @@ const TotalRow = ({
     <td className="px-2 py-2 first:pl-5" style={{ paddingLeft: `${20 + indent}px` }}>
       {label}
     </td>
-    <td />
+    {/*
+      The account-code placeholder, and it must hide with that column.
+      Left visible, this row alone kept three columns while every other row had
+      dropped to two, so the total's own figure was pushed past the edge and
+      "Total for Cost of Goods Sold" read 27,. The totals are the one part of a
+      P&L you cannot afford to lose.
+    */}
+    <td className="col-portrait-hide" />
     <Amount value={value} />
   </tr>
 );
