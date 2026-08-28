@@ -570,6 +570,18 @@ body {
 }
 
 /*
+ * A document number never breaks at its hyphen on a desktop. Auto layout under
+ * width pressure at 1280 split BILL-001906 across two lines — the number is
+ * the one string that must read whole, and the surface scrolls anyway. Kept
+ * out of the portrait block above, where wrapping is the deliberate choice.
+ */
+@media (min-width: 1024px) {
+  .list-table :is(th, td).col-number {
+    white-space: nowrap;
+  }
+}
+
+/*
  * "Turn the phone for the rest." Only shown where columns are actually being
  * held back — a table that fits says nothing.
  */
