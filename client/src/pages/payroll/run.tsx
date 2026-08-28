@@ -188,34 +188,34 @@ export function PayrollRunPage() {
             {detailQ.isLoading ? (
               <Spinner />
             ) : (
-              <table className="w-full whitespace-nowrap">
+              <table className="data-table w-full whitespace-nowrap">
                 <thead className="table-head">
                   <tr>
-                    <Th>Employee</Th><Th>Pay</Th>
-                    <Th right>Paid days</Th><Th right>LOP</Th>
-                    <Th right>Earned</Th><Th right>Extras</Th>
-                    <Th right>PF</Th><Th right>ESI</Th><Th right>PT</Th>
-                    <Th right>Advance</Th><Th right>Other</Th>
+                    <Th className="col-fill">Employee</Th><Th className="col-portrait-hide">Pay</Th>
+                    <Th right className="col-portrait-hide">Paid days</Th><Th right className="col-portrait-hide">LOP</Th>
+                    <Th right className="col-portrait-hide">Earned</Th><Th right className="col-portrait-hide">Extras</Th>
+                    <Th right className="col-portrait-hide">PF</Th><Th right className="col-portrait-hide">ESI</Th><Th right className="col-portrait-hide">PT</Th>
+                    <Th right className="col-portrait-hide">Advance</Th><Th right className="col-portrait-hide">Other</Th>
                     <Th right>Net pay</Th>
                   </tr>
                 </thead>
                 <tbody>
                   {paged.page.map((s) => (
                     <tr key={s.id} className="table-row cursor-pointer" onClick={() => setSlipOpen(s)}>
-                      <Td>
+                      <Td className="col-fill">
                         <span className="font-medium">{slipName(s)}</span>
                         <span className="ml-1 text-[11px] text-gray-400">{s.empCode}</span>
                       </Td>
-                      <Td><Badge tone={s.payType === "salaried" ? "blue" : "gray"}>{s.payType === "salaried" ? "S" : "W"}</Badge></Td>
-                      <Td right>{num(s.paidDays, 1)}/{s.totalDays}</Td>
-                      <Td right className={Number(s.lopDays) > 0 ? "text-red-600" : ""}>{num(s.lopDays, 1)}</Td>
-                      <Td right>{formatMoney(s.earnedGross)}</Td>
-                      <Td right>{formatMoney(Number(s.bonus) + Number(s.overtime) + Number(s.reimbursement))}</Td>
-                      <Td right>{formatMoney(s.pfEmployee)}</Td>
-                      <Td right>{formatMoney(s.esiEmployee)}</Td>
-                      <Td right>{formatMoney(s.professionalTax)}</Td>
-                      <Td right>{formatMoney(s.advanceRecovery)}</Td>
-                      <Td right>{formatMoney(s.otherDeductions)}</Td>
+                      <Td className="col-portrait-hide"><Badge tone={s.payType === "salaried" ? "blue" : "gray"}>{s.payType === "salaried" ? "S" : "W"}</Badge></Td>
+                      <Td right className="col-portrait-hide">{num(s.paidDays, 1)}/{s.totalDays}</Td>
+                      <Td right className={`col-portrait-hide ${Number(s.lopDays) > 0 ? "text-red-600" : ""}`}>{num(s.lopDays, 1)}</Td>
+                      <Td right className="col-portrait-hide">{formatMoney(s.earnedGross)}</Td>
+                      <Td right className="col-portrait-hide">{formatMoney(Number(s.bonus) + Number(s.overtime) + Number(s.reimbursement))}</Td>
+                      <Td right className="col-portrait-hide">{formatMoney(s.pfEmployee)}</Td>
+                      <Td right className="col-portrait-hide">{formatMoney(s.esiEmployee)}</Td>
+                      <Td right className="col-portrait-hide">{formatMoney(s.professionalTax)}</Td>
+                      <Td right className="col-portrait-hide">{formatMoney(s.advanceRecovery)}</Td>
+                      <Td right className="col-portrait-hide">{formatMoney(s.otherDeductions)}</Td>
                       <Td right className="font-semibold">{formatMoney(s.netPay)}</Td>
                     </tr>
                   ))}
