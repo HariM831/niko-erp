@@ -28,7 +28,7 @@ export function BankingOverviewPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-surface">
-      <header className="flex items-center justify-between border-b bg-white px-6 py-3.5">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b bg-white px-4 py-3 sm:px-6 sm:py-3.5">
         <h1 className="text-lg font-semibold">Banking Overview</h1>
         <div className="flex items-center gap-2">
           <button onClick={() => navigate("/banking/new")} className="btn-primary">
@@ -37,15 +37,15 @@ export function BankingOverviewPage() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-4xl p-6">
-        <div className="card mb-6 grid grid-cols-2 divide-x divide-gray-100 p-0">
+      <div className="mx-auto max-w-4xl p-4 sm:p-6">
+        <div className="card mb-6 grid grid-cols-1 divide-y divide-gray-100 p-0 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
           <div className="flex items-center gap-3 p-5">
             <span className="chip bg-amber-50 text-amber-600">
               <Wallet size={18} />
             </span>
             <div>
               <div className="text-[13px] text-gray-500">Cash in Hand</div>
-              <div className="text-xl font-bold tabular-nums">{formatMoney(data?.cashInHand ?? 0)}</div>
+              <div className="text-[clamp(1rem,4.6vw,1.25rem)] font-bold tabular-nums">{formatMoney(data?.cashInHand ?? 0)}</div>
             </div>
           </div>
           <div className="flex items-center gap-3 p-5">
@@ -54,7 +54,7 @@ export function BankingOverviewPage() {
             </span>
             <div>
               <div className="text-[13px] text-gray-500">Bank Balance</div>
-              <div className="text-xl font-bold tabular-nums">{formatMoney(data?.bankBalance ?? 0)}</div>
+              <div className="text-[clamp(1rem,4.6vw,1.25rem)] font-bold tabular-nums">{formatMoney(data?.bankBalance ?? 0)}</div>
             </div>
           </div>
         </div>

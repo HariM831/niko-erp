@@ -415,9 +415,18 @@ body {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /*
+   * An absolute share, not a proportional one.
+   *
+   * 30% is 110px on a phone, and a crore figure — ₹-2,47,42,444.82 — needs 117.
+   * The banking list truncated its balances, which is the one thing this whole
+   * arrangement exists to prevent. A percentage also means the amount gets less
+   * room the more columns a table has, which is backwards: the figure is the
+   * same width whatever sits beside it.
+   */
   .list-table :is(th, td).text-right,
   .data-table :is(th, td).text-right {
-    width: 30%;
+    width: 7.5rem;
   }
 }
 
