@@ -456,7 +456,7 @@ export function ReportViewPage({ reportKey }: { reportKey: string }) {
         </Link>
       </div>
 
-      <div className="flex-1 overflow-auto p-4">
+      <div className="flex-1 overflow-auto p-2 sm:p-4">
         <div className="min-h-full bg-white">
           {hasTree && (
             <div className="flex items-center gap-2 border-b px-6 py-2.5">
@@ -471,7 +471,7 @@ export function ReportViewPage({ reportKey }: { reportKey: string }) {
             </div>
           )}
 
-          <div className="px-6 py-8">
+          <div className="px-3 py-5 sm:px-6 sm:py-8">
             <div className="mb-6 text-center">
               <div className="text-[13px] text-[#222536]">{org?.name}</div>
               <h2 className="mt-1 text-[18px] font-medium text-black">{def.label}</h2>
