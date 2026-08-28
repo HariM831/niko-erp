@@ -196,14 +196,21 @@ function Metric({
     >
       <div className={`truncate text-[10.5px] font-bold uppercase tracking-wider ${invert ? "text-yolk-100/80" : "text-soil-400"}`}>{label}</div>
       {/*
-        Sized down a step on a phone, and allowed to break.
-        At 375px a two-column hero cell is ~111px wide and `65,79,709` set at
-        text-3xl wants 152px. It did not clip — nothing here hides overflow — it
-        drew straight over the cell beside it, so LAY RATE 94.5% read as 4.5%.
-        A wrong number is worse than a small one, and worse than a wrapped one.
+        Sized off the viewport, not off a breakpoint.
+        At 375px a two-column hero cell is ~111px and `65,79,709` set at text-3xl
+        wants 152px. It did not clip — nothing here hides overflow — it drew over
+        the cell beside it, so LAY RATE 94.5% read as 4.5%.
+
+        A breakpoint step fixed the overlap but broke the number across two lines
+        instead, which is barely better. clamp() scales it with the screen and
+        stops at the old desktop size, so the figure stays on one line from a
+        small phone up. break-all is left as a floor for a number longer than any
+        we have: wrapped is still better than drawn over the neighbour.
       */}
       <div
-        className={`${big ? "text-2xl sm:text-3xl" : "text-base sm:text-xl"} break-all font-extrabold tabular-nums leading-tight ${color}`}
+        className={`break-all font-extrabold tabular-nums leading-tight ${color} ${
+          big ? "text-[clamp(1rem,5vw,1.875rem)]" : "text-[clamp(0.8125rem,3.8vw,1.25rem)]"
+        }`}
       >
         {value}
       </div>
