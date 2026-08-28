@@ -243,7 +243,7 @@ export function PayrollRunPage() {
           ) : (
             <table className="w-full">
               <thead className="table-head">
-                <tr><Th className="col-fill">Month</Th><Th>Status</Th><Th right className="col-portrait-hide">Employees</Th><Th right className="col-portrait-hide">Gross</Th><Th right>Net</Th><Th right className="col-portrait-hide">Employer cost</Th><Th className="col-portrait-hide">Journal</Th></tr>
+                <tr><Th className="col-fill">Month</Th><Th className="col-status">Status</Th><Th right className="col-portrait-hide">Employees</Th><Th right className="col-portrait-hide">Gross</Th><Th right>Net</Th><Th right className="col-portrait-hide">Employer cost</Th><Th className="col-portrait-hide">Journal</Th></tr>
               </thead>
               <tbody>
                 {(runsQ.data ?? []).map((r) => (
@@ -253,7 +253,7 @@ export function PayrollRunPage() {
                     onClick={() => { setYear(r.year); setMonth(r.month); setOpenRunId(r.id); }}
                   >
                     <Td className="col-fill font-medium">{MONTHS_LONG[r.month - 1]} {r.year}</Td>
-                    <Td><Badge tone={statusTone(r.status)}>{r.status}</Badge></Td>
+                    <Td className="col-status"><Badge tone={statusTone(r.status)}>{r.status}</Badge></Td>
                     <Td right className="col-portrait-hide">{r.employeeCount}</Td>
                     <Td right className="col-portrait-hide">{formatMoney(r.totalGross)}</Td>
                     <Td right>{formatMoney(r.totalNet)}</Td>

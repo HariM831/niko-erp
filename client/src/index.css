@@ -547,6 +547,16 @@ body {
   .data-table :is(th, td).col-qty {
     width: 4.25rem;
   }
+  /*
+   * The heading is the long part — "Paid days" wants 75px where the figure
+   * under it wants 20. Wrapping the words costs a few pixels of row height and
+   * keeps the label whole; widening the column to suit it would have taken 20px
+   * back off the name.
+   */
+  .list-table th.col-qty,
+  .data-table th.col-qty {
+    white-space: normal;
+  }
 }
 
 @media (orientation: portrait) and (max-width: 1023px) {
