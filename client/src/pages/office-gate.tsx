@@ -624,7 +624,20 @@ export function GateInPage() {
       </div>
 
       <div className="table-surface mb-4">
-        <table className="w-full text-[13px]">
+        {/*
+          Two layouts, not one that scrolls.
+
+          A line here is five inputs wide. On a desk that is a grid and reads
+          well; on a phone it is a form the gatekeeper fills standing at a truck,
+          and a grid that scrolls sideways hides the field he is about to type
+          into. Every other table in the app can drop columns on a phone because
+          you only read them — this one you fill, so nothing may be dropped.
+
+          So the table is held back to lg and a stacked card takes its place: one
+          card per line, every field labelled and reachable, the amount computed
+          underneath. Same state, same handlers, different shape.
+        */}
+        <table className="hidden w-full text-[13px] lg:table">
           <thead className="table-head">
             <tr>
               <th className="px-3 py-2 text-left">Material</th>
@@ -697,7 +710,80 @@ export function GateInPage() {
             ))}
           </tbody>
         </table>
-        <div className="flex items-center justify-between px-3 py-2">
+
+        {/* The same lines, as cards, below lg. */}
+        <div className="divide-y divide-gray-100 lg:hidden">
+          {lines.map((l, i) => (
+            <div key={i} className="p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                  Line {i + 1}
+                </span>
+                {lines.length > 1 && (
+                  <button
+                    onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))}
+                    className="px-2 text-[13px] text-gray-400"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              <label className="label">Material</label>
+              <select
+                value={l.itemId}
+                onChange={(e) => {
+                  const item = ctx.items.find((it) => it.id === e.target.value);
+                  setLine(i, { itemId: e.target.value, itemName: item?.name ?? "" });
+                }}
+                className="input mb-2"
+              >
+                <option value="">Choose a material…</option>
+                {ctx.items.map((it) => (
+                  <option key={it.id} value={it.id}>
+                    {it.name}
+                  </option>
+                ))}
+              </select>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="label">Quantity (kg)</label>
+                  <input
+                    value={l.billQuantityKg}
+                    onChange={(e) => setLine(i, { billQuantityKg: e.target.value })}
+                    className="input text-right"
+                    inputMode="decimal"
+                  />
+                </div>
+                <div>
+                  <label className="label">Rate / kg</label>
+                  <input
+                    value={l.billRatePerKg}
+                    onChange={(e) => setLine(i, { billRatePerKg: e.target.value })}
+                    className="input text-right"
+                    inputMode="decimal"
+                  />
+                </div>
+                <div>
+                  <label className="label">Bags</label>
+                  <input
+                    value={l.billBagCount}
+                    onChange={(e) => setLine(i, { billBagCount: e.target.value })}
+                    className="input text-right"
+                    inputMode="numeric"
+                  />
+                </div>
+              </div>
+              <div className="mt-2 flex justify-between border-t border-gray-100 pt-2 text-[13px]">
+                <span className="text-gray-500">Amount</span>
+                <span className="font-semibold tabular-nums text-gray-900">
+                  {inr((Number(l.billQuantityKg) || 0) * (Number(l.billRatePerKg) || 0))}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
           <button onClick={() => setLines((ls) => [...ls, emptyLine()])} className="btn-ghost">
             + Add line
           </button>
