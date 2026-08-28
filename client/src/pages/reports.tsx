@@ -863,8 +863,8 @@ function HorizontalStatement({
   // items-start stops the shorter side's rows being stretched to match the
   // taller one — a grid item that is a <table> fills its track otherwise.
   return (
-    <div className="grid grid-cols-2 items-start gap-6">
-      <div className="border-r pr-6">
+    <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
+      <div className="border-b pb-6 lg:border-b-0 lg:border-r lg:pb-0 lg:pr-6">
         <Side side={left} drill={isPnl ? "purchases" : "ledger"} />
       </div>
       <div>
