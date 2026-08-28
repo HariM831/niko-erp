@@ -10,6 +10,16 @@ export interface Column<T> {
   header: string;
   align?: "left" | "right";
   render: (row: T) => ReactNode;
+  /**
+   * Keep this column on a phone held upright.
+   *
+   * Mark the ones that let someone recognise a row — for a bill that is the
+   * date, the number, who it is from and how much. Position is no guide: a bill
+   * list has Reference Number third and the amount ninth, and it is the amount
+   * people are looking for. If no column on a list is marked, the first
+   * `portraitCols` are kept instead.
+   */
+  portrait?: boolean;
 }
 
 export interface ListView {
@@ -87,6 +97,13 @@ export function ListPage<T>({
   extraActions,
   searchFields,
 }: ListPageProps<T>) {
+  // A list that names its portrait columns gets exactly those; one that does not
+  // falls back to keeping the first few.
+  const namedPortrait = columns.some((c) => c.portrait);
+  const shownInPortrait = namedPortrait
+    ? columns.filter((c) => c.portrait).length
+    : (portraitCols ?? 3);
+
   const [, navigate] = useLocation();
   const [activeView, setActiveView] = useState(0);
   const [viewsOpen, setViewsOpen] = useState(false);
@@ -237,9 +254,13 @@ export function ListPage<T>({
             )}
           </div>
         ) : (
-          // +1 because the checkbox is column one and always stays.
+          // Named columns win; the positional fallback only runs when a list has
+          // not said which of its columns matter. +1 there for the checkbox,
+          // which is column one and always stays.
           <table
-            className={`w-full border-separate border-spacing-0 text-[13px] pcols-${Math.min(6, Math.max(2, (portraitCols ?? 3) + 1))}`}
+            className={`w-full border-separate border-spacing-0 text-[13px] ${
+              namedPortrait ? "" : `pcols-${Math.min(6, Math.max(2, (portraitCols ?? 3) + 1))}`
+            }`}
           >
             <thead className="table-head sticky top-0 z-10">
               <tr>
@@ -249,7 +270,9 @@ export function ListPage<T>({
                 {columns.map((c) => (
                   <th
                     key={c.key}
-                    className={`border-b border-[#ece3d5] font-semibold ${cellPad} ${c.align === "right" ? "text-right" : ""}`}
+                    className={`border-b border-[#ece3d5] font-semibold ${cellPad} ${c.align === "right" ? "text-right" : ""} ${
+                      namedPortrait && !c.portrait ? "col-portrait-hide" : ""
+                    }`}
                   >
                     {c.header}
                   </th>
@@ -323,7 +346,9 @@ export function ListPage<T>({
                     {columns.map((c) => (
                       <td
                         key={c.key}
-                        className={`border-b border-[#ece3d5] ${cellPad} ${c.align === "right" ? "text-right tabular-nums" : ""}`}
+                        className={`border-b border-[#ece3d5] ${cellPad} ${c.align === "right" ? "text-right tabular-nums" : ""} ${
+                          namedPortrait && !c.portrait ? "col-portrait-hide" : ""
+                        }`}
                       >
                         {c.render(row)}
                       </td>
@@ -335,9 +360,9 @@ export function ListPage<T>({
           </table>
         )}
         {/* Only worth saying when columns are actually being held back. */}
-        {(data?.length ?? 0) > 0 && columns.length > (portraitCols ?? 3) && (
+        {(data?.length ?? 0) > 0 && columns.length > shownInPortrait && (
           <div className="portrait-note">
-            Showing {portraitCols ?? 3} of {columns.length} columns — turn the phone for the rest.
+            Showing {shownInPortrait} of {columns.length} columns — turn the phone for the rest.
           </div>
         )}
       </div>

@@ -463,7 +463,9 @@ purchasesRouter.get("/bills/summary", requirePermission("purchases", "view"), as
       COALESCE(SUM(balance_due) FILTER (WHERE status IN ('open', 'partially_paid') AND due_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date), 0)::numeric(14,2) AS due_today,
       COALESCE(SUM(balance_due) FILTER (WHERE status IN ('open', 'partially_paid') AND due_date > (NOW() AT TIME ZONE 'Asia/Kolkata')::date AND due_date <= (NOW() AT TIME ZONE 'Asia/Kolkata')::date + INTERVAL '30 days'), 0)::numeric(14,2) AS due_within_30,
       COALESCE(SUM(balance_due) FILTER (WHERE status IN ('open', 'partially_paid') AND due_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date), 0)::numeric(14,2) AS overdue
-    FROM bills
+    FROM bills b
+    LEFT JOIN contacts c ON c.id = b.vendor_id
+    WHERE COALESCE(c.is_group_company, FALSE) = FALSE
   `).then((r) => r.rows as Array<Record<string, string>>);
   res.json({
     totalOutstanding: agg?.total_outstanding ?? "0.00",
@@ -478,6 +480,18 @@ purchasesRouter.get("/bills", requirePermission("purchases", "view"), async (req
   const { vendorId, status, from, to, search } = query;
   const conditions = [];
   if (vendorId) conditions.push(eq(bills.vendorId, vendorId));
+  /**
+   * Group companies belong on the group page and nowhere else.
+   *
+   * Billing between our own companies is a different act from buying maize on
+   * the market: it nets off inside the group, and mixed into this list it
+   * inflates the payables figure people read every morning. Owner billing has
+   * its own screen and its own endpoints, which is where these belong.
+   *
+   * Only when no vendor was named — asking for one counterparty is an explicit
+   * request, and a drill-down that silently returned nothing is its own bug.
+   */
+  else conditions.push(sql`COALESCE(${contacts.isGroupCompany}, FALSE) = FALSE`);
   if (status) conditions.push(eq(bills.status, status as typeof bills.$inferSelect.status));
   if (from) conditions.push(gte(bills.billDate, from));
   if (to) conditions.push(lte(bills.billDate, to));

@@ -205,6 +205,8 @@ salesRouter.get("/invoices", requirePermission("sales", "view"), async (req, res
   const { customerId, status, from, to, search } = query;
   const conditions = [];
   if (customerId) conditions.push(eq(invoices.customerId, customerId));
+  /** Group sales live on the group page — see the note on the bills list. */
+  else conditions.push(sql`COALESCE(${contacts.isGroupCompany}, FALSE) = FALSE`);
   if (status) conditions.push(eq(invoices.status, status as typeof invoices.$inferSelect.status));
   if (from) conditions.push(gte(invoices.invoiceDate, from));
   if (to) conditions.push(lte(invoices.invoiceDate, to));
@@ -231,7 +233,9 @@ salesRouter.get("/invoices/summary", requirePermission("sales", "view"), async (
       COALESCE(SUM(balance_due) FILTER (WHERE status IN ('sent', 'partially_paid') AND due_date = (NOW() AT TIME ZONE 'Asia/Kolkata')::date), 0)::numeric(14,2) AS due_today,
       COALESCE(SUM(balance_due) FILTER (WHERE status IN ('sent', 'partially_paid') AND due_date > (NOW() AT TIME ZONE 'Asia/Kolkata')::date AND due_date <= (NOW() AT TIME ZONE 'Asia/Kolkata')::date + INTERVAL '30 days'), 0)::numeric(14,2) AS due_within_30,
       COALESCE(SUM(balance_due) FILTER (WHERE status IN ('sent', 'partially_paid') AND due_date < (NOW() AT TIME ZONE 'Asia/Kolkata')::date), 0)::numeric(14,2) AS overdue
-    FROM invoices
+    FROM invoices i
+    LEFT JOIN contacts c ON c.id = i.customer_id
+    WHERE COALESCE(c.is_group_company, FALSE) = FALSE
   `).then((r) => r.rows as Array<Record<string, string>>);
 
   const [avg] = await db.execute(sql`

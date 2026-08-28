@@ -382,6 +382,13 @@ body {
  * person turned it precisely because they wanted more.
  */
 @media (orientation: portrait) and (max-width: 1023px) {
+  /* Named columns: the list said which ones identify a row. */
+  .col-portrait-hide {
+    display: none;
+  }
+}
+
+@media (orientation: portrait) and (max-width: 1023px) {
   .pcols-2 :is(th, td):nth-child(n + 3),
   .pcols-3 :is(th, td):nth-child(n + 4),
   .pcols-4 :is(th, td):nth-child(n + 5),

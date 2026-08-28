@@ -37,15 +37,19 @@ interface DocColumnOpts {
 
 export function docColumns(dateKey: string, opts: DocColumnOpts): Column<DocRow>[] {
   const cols: Column<DocRow>[] = [
-    { key: "date", header: "Date", render: (r) => shortDate(r[dateKey] as string) },
+    // portrait: the four that let you recognise a row on a phone held upright —
+    // when, which one, who with, how much. Everything else waits for landscape.
+    { key: "date", header: "Date", portrait: true, render: (r) => shortDate(r[dateKey] as string) },
     {
       key: "number",
       header: opts.numberHeader ?? "Number",
+      portrait: true,
       render: (r) => <span className="font-medium text-brand-600">{r.number}</span>,
     },
     {
       key: "contact",
       header: opts.contactHeader ?? "Customer Name",
+      portrait: true,
       render: (r) => <span className="text-gray-800">{r.contactName ?? "—"}</span>,
     },
     {
@@ -61,6 +65,7 @@ export function docColumns(dateKey: string, opts: DocColumnOpts): Column<DocRow>
     key: "amount",
     header: "Amount",
     align: "right",
+    portrait: true,
     render: (r) => formatMoney((r[opts.amountKey ?? "total"] as string) ?? r.total),
   });
   if (opts.balance) {
@@ -258,8 +263,8 @@ function PaymentSummaryBanner({ endpoint, side }: { endpoint: string; side: "rec
       primary={{
         label:
           side === "receivable"
-            ? "Total outstanding receivables (incl. group)"
-            : "Total outstanding payables (incl. group)",
+            ? "Total outstanding receivables (market only)"
+            : "Total outstanding payables (market only)",
         value: formatMoney(data?.totalOutstanding ?? 0),
       }}
       secondary={secondary}
