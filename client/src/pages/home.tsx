@@ -192,24 +192,28 @@ function Metric({
       disabled={!onClick}
       // min-w-0 so a grid cell can hold it to its share of the row: without it a
       // long figure sets the cell's width and pushes into its neighbour.
-      className={`group min-w-0 rounded-xl px-2 py-2 text-left transition sm:px-2.5 ${invert ? "hover:bg-white/10" : "hover:bg-yolk-50"} disabled:cursor-default ${invert ? "" : "disabled:hover:bg-transparent"}`}
+      className={`group min-w-0 rounded-xl px-2 py-2 text-left transition [container-type:inline-size] sm:px-2.5 ${invert ? "hover:bg-white/10" : "hover:bg-yolk-50"} disabled:cursor-default ${invert ? "" : "disabled:hover:bg-transparent"}`}
     >
       <div className={`truncate text-[10.5px] font-bold uppercase tracking-wider ${invert ? "text-yolk-100/80" : "text-soil-400"}`}>{label}</div>
       {/*
-        Sized off the viewport, not off a breakpoint.
+        Sized off the CELL, not the viewport.
         At 375px a two-column hero cell is ~111px and `65,79,709` set at text-3xl
         wants 152px. It did not clip — nothing here hides overflow — it drew over
         the cell beside it, so LAY RATE 94.5% read as 4.5%.
 
-        A breakpoint step fixed the overlap but broke the number across two lines
-        instead, which is barely better. clamp() scales it with the screen and
-        stops at the old desktop size, so the figure stays on one line from a
-        small phone up. break-all is left as a floor for a number longer than any
-        we have: wrapped is still better than drawn over the neighbour.
+        A viewport clamp fixed the phone but missed the middle: at 1280 the vw
+        term is past the cap, so the font sat at its 30px maximum while the
+        four-way hero split gave the cell 130px — and the number needs 157 at
+        that size. The cell's own width is the only measure that tracks both
+        grids, so the button above is a container and the font follows cqw:
+        `65,79,709` runs about 5.2px of width per font px, making 18cqw the
+        largest size that always fits with a little slack. break-all stays as
+        the floor for a number longer than any we have: wrapped is still better
+        than drawn over the neighbour.
       */}
       <div
         className={`break-all font-extrabold tabular-nums leading-tight ${color} ${
-          big ? "text-[clamp(1rem,5vw,1.875rem)]" : "text-[clamp(0.8125rem,3.8vw,1.25rem)]"
+          big ? "text-[clamp(1rem,18cqw,1.875rem)]" : "text-[clamp(0.8125rem,14cqw,1.25rem)]"
         }`}
       >
         {value}
