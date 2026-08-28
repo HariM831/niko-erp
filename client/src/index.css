@@ -397,16 +397,25 @@ body {
    * pushes the figure out; clipped to one line it still says which vendor, and
    * the full name is a tap away on the bill itself.
    */
+  .list-table {
+    font-size: 12px;
+  }
   .list-table :is(th, td) {
-    @apply px-2 py-2;
-    max-width: 7.5rem;
+    @apply px-1.5 py-2;
+    max-width: 5rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /* The figure never truncates — it is why the row is being read. */
+  /*
+   * The figure never truncates — it is why the row is being read at all. The
+   * text columns give up their width for it instead, which is the whole trade:
+   * "Ajmer Agro pr…" still identifies the vendor, whereas "₹3,95" is not a
+   * number, it is a lie with a currency symbol.
+   */
   .list-table :is(th, td).text-right {
     max-width: none;
+    white-space: nowrap;
   }
 }
 
