@@ -71,11 +71,11 @@ export function BankingOverviewPage() {
               </button>
             </div>
           ) : (
-            <table className="w-full text-[13px]">
+            <table className="data-table w-full text-[13px]">
               <thead className="table-head">
                 <tr>
                   <th className="border-b border-[#ece3d5] px-4 py-2.5">Account Details</th>
-                  <th className="border-b border-[#ece3d5] px-4 py-2.5 text-right">Uncategorized</th>
+                  <th className="col-portrait-hide border-b border-[#ece3d5] px-4 py-2.5 text-right">Uncategorized</th>
                   <th className="border-b border-[#ece3d5] px-4 py-2.5 text-right">Amount in Zoho Books</th>
                 </tr>
               </thead>
