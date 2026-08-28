@@ -975,7 +975,7 @@ export function HouseDetailPage() {
   return (
     <div className="min-h-screen bg-soil-50 p-4">
       <div className="max-w-6xl mx-auto">
-        <div className="flex items-center gap-4 mb-6">
+        <div className="page-header -mx-4 mb-6 flex items-center gap-4 px-4 py-3">
           <Button
             variant="ghost"
             size="icon"

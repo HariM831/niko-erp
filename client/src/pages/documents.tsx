@@ -594,7 +594,7 @@ export const ExpensesPage = () => (
         key: "description",
         header: "Description",
         portrait: true,
-        clamp: 16,
+        clamp: 13,
         render: (r) => <span className="text-gray-600">{(r.notes as string) || "—"}</span>,
       },
       { key: "paidThrough", header: "Paid Through", render: (r) => <span className="text-gray-600">{(r.paidThroughName as string) ?? "—"}</span> },

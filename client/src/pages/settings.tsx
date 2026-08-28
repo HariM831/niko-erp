@@ -303,10 +303,6 @@ function OrgSection() {
         ))}
       </div>
 
-      <p className="mt-3 max-w-2xl text-[12px] text-gray-500">
-        The state code decides CGST/SGST versus IGST on every invoice and bill.
-      </p>
-
       <div className="mt-5">
         <button onClick={() => void save()} disabled={!form.name?.trim()} className="btn-primary">
           Save

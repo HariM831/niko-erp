@@ -130,15 +130,16 @@ export function FlockDetailPage() {
 
   return (
     <div className="p-6">
-      {/* wouter's Link IS the anchor — an <a> inside it nests <a> in <a>. */}
-      <Link
-        href="/farms"
-        className="mb-3 inline-flex items-center gap-1 text-[12px] text-gray-500 hover:text-gray-800"
-      >
-        <ArrowLeft size={13} /> Farms
-      </Link>
+      <div className="page-header -mx-6 -mt-6 mb-4 px-6 pb-3 pt-4">
+        {/* wouter's Link IS the anchor — an <a> inside it nests <a> in <a>. */}
+        <Link
+          href="/farms"
+          className="mb-2 inline-flex items-center gap-1 text-[12px] text-gray-500 hover:text-gray-800"
+        >
+          <ArrowLeft size={13} /> Farms
+        </Link>
 
-      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-semibold text-gray-900">{f.code}</h1>
@@ -181,6 +182,7 @@ export function FlockDetailPage() {
         {f.status !== "depleted" && f.status === "rearing" && (
           <StartLay flock={f} onSaved={refresh} onError={setError} />
         )}
+        </div>
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
