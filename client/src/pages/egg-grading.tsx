@@ -397,7 +397,7 @@ export function EggGradingPage() {
             <table className="data-table cols-auto w-full text-sm">
               <thead className="bg-soil-50 text-left text-[11px] font-semibold uppercase text-soil-400">
                 <tr className="border-b border-soil-100">
-                  <th className="whitespace-nowrap px-3 py-2 text-left" />
+                  <th className="col-fill whitespace-nowrap px-3 py-2 text-left" />
                   {SIZES.map((z) => (
                     <th key={z} className="whitespace-nowrap px-3 py-2 text-right">
                       <span className="lg:hidden">{SHORT[z]}</span><span className="hidden lg:inline">{LABEL[z]}</span>
@@ -424,7 +424,7 @@ export function EggGradingPage() {
                       key={key}
                       className={`border-b border-soil-100/70 last:border-0 ${strong ? "bg-soil-50 font-semibold" : ""}`}
                     >
-                      <td className="px-3 py-1.5">{label}</td>
+                      <td className="col-fill px-3 py-1.5">{label}</td>
                       {SIZES.map((z) => {
                         const v = sheet.summary[z]?.[key] ?? 0;
                         return (
