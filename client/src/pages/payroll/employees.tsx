@@ -223,7 +223,7 @@ export function PayrollEmployeesPage() {
                 <Th className="col-fill">Employee</Th>
                 <Th className="col-portrait-hide">Code</Th>
                 <Th className="col-portrait-hide">Department</Th>
-                <Th>Designation / role</Th>
+                <Th className="col-portrait-hide">Designation / role</Th>
                 <Th className="col-portrait-hide">Pay</Th>
                 <Th right>Gross / rate</Th>
                 <Th className="col-portrait-hide">Shift</Th>
@@ -243,7 +243,7 @@ export function PayrollEmployeesPage() {
                   </Td>
                   <Td className="col-portrait-hide tabular-nums text-gray-500">{e.empCode}</Td>
                   <Td className="col-portrait-hide">{e.department ?? "—"}</Td>
-                  <Td>{e.payType === "daily_wage" ? e.wageRole ?? <span className="text-red-600">no role</span> : e.designation ?? "—"}</Td>
+                  <Td className="col-portrait-hide">{e.payType === "daily_wage" ? e.wageRole ?? <span className="text-red-600">no role</span> : e.designation ?? "—"}</Td>
                   <Td className="col-portrait-hide"><Badge tone={e.payType === "salaried" ? "blue" : "gray"}>{e.payType === "salaried" ? "Salaried" : "Daily wage"}</Badge></Td>
                   <Td right>{e.payType === "salaried" ? formatMoney(e.gross) : e.dailyRate != null ? `${formatMoney(e.dailyRate)}/day` : "—"}</Td>
                   <Td className="col-portrait-hide">{typeof e.shift === "string" ? e.shift : e.shift?.name ?? "—"}</Td>

@@ -538,6 +538,15 @@ body {
     width: 3.25rem;
     @apply px-1;
   }
+  /*
+   * A count, not an amount. The money width is sized for a crore, and on the
+   * wages sheet it was handing 120px of a 343px screen to a two-digit day
+   * count — taken straight off the worker's name beside it.
+   */
+  .list-table :is(th, td).col-qty,
+  .data-table :is(th, td).col-qty {
+    width: 4.25rem;
+  }
 }
 
 @media (orientation: portrait) and (max-width: 1023px) {

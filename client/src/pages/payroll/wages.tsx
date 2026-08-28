@@ -83,7 +83,7 @@ export function PayrollWagesPage() {
             <thead className="table-head">
               <tr>
                 <Th className="col-fill">Worker</Th><Th className="col-portrait-hide">Role</Th><Th right className="col-portrait-hide">Rate/day</Th>
-                <Th right className="col-portrait-hide">Present</Th><Th right className="col-portrait-hide">Half</Th><Th right>Paid days</Th><Th right>Amount</Th>
+                <Th right className="col-portrait-hide">Present</Th><Th right className="col-portrait-hide">Half</Th><Th right className="col-qty">Paid days</Th><Th right>Amount</Th>
               </tr>
             </thead>
             <tbody>
@@ -94,7 +94,7 @@ export function PayrollWagesPage() {
                   <Td right className="col-portrait-hide">{formatMoney(r.dailyRate)}</Td>
                   <Td right className="col-portrait-hide">{num(r.presentDays, 1)}</Td>
                   <Td right className="col-portrait-hide">{num(r.halfDays, 1)}</Td>
-                  <Td right>{num(r.presentDays + r.halfDays * 0.5, 1)}</Td>
+                  <Td right className="col-qty">{num(r.presentDays + r.halfDays * 0.5, 1)}</Td>
                   <Td right className="font-semibold">{formatMoney(r.amount)}</Td>
                 </tr>
               ))}
