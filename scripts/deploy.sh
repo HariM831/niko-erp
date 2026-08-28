@@ -48,8 +48,15 @@ echo "==> $SERVICE  ($APP_DIR, branch $BRANCH)"
 # TRACKED changes only. `git reset --hard` below leaves untracked files alone,
 # so they are never the work at risk — refusing on them only means a stray
 # scratch file in the checkout blocks every future deploy for no reason.
-if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
-  git status --short --untracked-files=no
+#
+# Except the lockfile, which this script dirties itself. The Droplet's npm is
+# older than the one the lockfile was written with and drops the `libc` fields
+# it doesn't know, so every `npm ci` below rewrites the file and every NEXT
+# deploy refused to start. Nobody hand-edits a lockfile on a server, and the
+# reset restores it a few lines down regardless.
+DIRTY="$(git status --porcelain --untracked-files=no -- . ':(exclude)package-lock.json')"
+if [ -n "$DIRTY" ]; then
+  echo "$DIRTY"
   die "working tree has local changes — commit, stash or revert on the server first"
 fi
 
