@@ -448,6 +448,24 @@ body {
   .data-table :is(th, td).text-right {
     width: 7.5rem;
   }
+  /*
+   * ...unless the table is mostly figures.
+   *
+   * That width assumes ONE money column. Egg stock has seven — the six sizes
+   * and a total — so each claimed 7.5rem, the table came to 840px, and the Shed
+   * column was squeezed to nothing. A grading sheet is a grid of numbers, not a
+   * list with an amount on the end.
+   *
+   * Here the columns divide evenly and the headings wrap instead of being held
+   * on one line, so "Extra Large" takes two lines rather than a column's worth
+   * of width.
+   */
+  .data-table.cols-auto :is(th, td).text-right {
+    width: auto;
+  }
+  .data-table.cols-auto th {
+    white-space: normal;
+  }
   .list-table :is(th, td).text-right {
     width: 6.75rem;
   }
