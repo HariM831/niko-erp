@@ -501,7 +501,7 @@ export function GateInPage() {
       )}
 
       <div className="card mb-4 p-4">
-        <div className="mb-3 flex gap-3">
+        <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           {SLOTS.map((slot) => (
             <PhotoSlot
               key={slot.kind}
@@ -519,7 +519,7 @@ export function GateInPage() {
           ))}
         </div>
 
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <span className="text-[12px] text-gray-500">
             {fix
               ? `Location fixed to ±${Math.round(fix.accuracy)} m`
@@ -550,7 +550,7 @@ export function GateInPage() {
       </div>
 
       <div className="card mb-4 p-4">
-        <div className="mb-3 grid grid-cols-3 gap-4">
+        <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
           <div>
             <label className="label-required">Site *</label>
             <select value={site} onChange={(e) => setLocationId(e.target.value)} className="input">
@@ -582,7 +582,7 @@ export function GateInPage() {
             </select>
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
           <div>
             <label className="label">Bill number</label>
             <input value={billNumber} onChange={(e) => setBillNumber(e.target.value)} className="input" />
