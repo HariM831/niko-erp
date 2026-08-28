@@ -94,7 +94,7 @@ export function FormulaMatrix({ onPick }: { onPick?: (name: string) => void }) {
                 <th className="px-3 py-1.5 text-left text-[12px] font-medium text-gray-500">
                   Ingredient
                 </th>
-                <th className={`${head} w-[70px]`}>₹/kg</th>
+                <th className={`col-portrait-hide ${head} w-[70px]`}>₹/kg</th>
                 {f.map((x) => (
                   <th key={x.id} className={`${head} w-[86px]`}>
                     <button
@@ -113,7 +113,7 @@ export function FormulaMatrix({ onPick }: { onPick?: (name: string) => void }) {
               {data.ingredients.map((ing) => (
                 <tr key={ing.itemId} className="border-b border-gray-100">
                   <td className="whitespace-nowrap px-3 py-1.5">{ing.name}</td>
-                  <td className={`${col} w-[70px] text-gray-500`}>{money(ing.ratePerKg)}</td>
+                  <td className={`col-portrait-hide ${col} w-[70px] text-gray-500`}>{money(ing.ratePerKg)}</td>
                   {f.map((x) => (
                     <td
                       key={x.id}
@@ -128,7 +128,7 @@ export function FormulaMatrix({ onPick }: { onPick?: (name: string) => void }) {
             <tfoot className="text-gray-700">
               <tr className="border-t border-gray-200 font-semibold">
                 <td className="px-3 py-2">Batch total, kg</td>
-                <td />
+                <td className="col-portrait-hide" />
                 {f.map((x) => (
                   <td key={x.id} className={col}>
                     {kgs(x.totalKg)}
@@ -137,7 +137,7 @@ export function FormulaMatrix({ onPick }: { onPick?: (name: string) => void }) {
               </tr>
               <tr className="text-gray-500">
                 <td className="px-3 py-1">Material cost</td>
-                <td />
+                <td className="col-portrait-hide" />
                 {f.map((x) => (
                   <td key={x.id} className={col}>
                     {money(x.materialCost)}
@@ -148,7 +148,7 @@ export function FormulaMatrix({ onPick }: { onPick?: (name: string) => void }) {
                   changes its overhead should see which figure moved. */}
               <tr className="text-gray-500">
                 <td className="px-3 py-1">Milling overhead</td>
-                <td />
+                <td className="col-portrait-hide" />
                 {f.map((x) => (
                   <td key={x.id} className={col}>
                     {money(x.overhead)}
@@ -157,7 +157,7 @@ export function FormulaMatrix({ onPick }: { onPick?: (name: string) => void }) {
               </tr>
               <tr className="text-gray-500">
                 <td className="px-3 py-1">Yield after moisture, kg</td>
-                <td />
+                <td className="col-portrait-hide" />
                 {f.map((x) => (
                   <td key={x.id} className={col}>
                     {kgs(x.outputKg)}
@@ -168,7 +168,7 @@ export function FormulaMatrix({ onPick }: { onPick?: (name: string) => void }) {
                 <td className="px-3 py-2.5 text-[14px] font-semibold text-gray-900">
                   Cost per finished kg
                 </td>
-                <td />
+                <td className="col-portrait-hide" />
                 {f.map((x) => (
                   <td key={x.id} className={`${col} text-[15px] font-semibold text-gray-900`}>
                     ₹{money(x.costPerFinishedKg)}
