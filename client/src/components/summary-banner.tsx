@@ -36,10 +36,10 @@ export function SummaryBanner({ primary, secondary }: { primary: BannerStat; sec
      * fixed sizes needed 423px in a 375px box and a crore-scale total lost its
      * last digits, which is the one thing the strip exists to show.
      */
-    <div className="border-b border-soil-100 bg-yolk-50/40 px-4 py-3.5 sm:px-6 sm:py-4">
+    <div className="border-b border-yolk-200/70 bg-gradient-to-r from-yolk-100 via-yolk-50 to-transparent px-4 py-3.5 sm:px-6 sm:py-4">
       <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
         <div className="min-w-0">
-          <div className="text-[10.5px] font-semibold uppercase tracking-wider text-soil-400">
+          <div className="text-[10.5px] font-semibold uppercase tracking-wider text-yolk-700/80">
             {primary.label}
           </div>
           <div className="mt-0.5 inline-block border-b-2 border-yolk-400 pb-0.5 text-[clamp(1.125rem,5.2vw,1.625rem)] font-extrabold leading-tight tabular-nums text-soil-900">

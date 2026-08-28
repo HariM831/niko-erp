@@ -547,7 +547,13 @@ export const VendorPaymentsPage = () => (
       { key: "date", header: "Date", portrait: true, render: (r) => shortDate(r.paymentDate as string) },
       { key: "number", header: "Payment #", portrait: true, render: (r) => <span className="font-medium text-brand-600">{r.number}</span> },
       { key: "reference", header: "Reference#", render: (r) => <span className="text-gray-600">{(r.reference as string) || "—"}</span> },
-      { key: "contact", header: "Vendor Name", portrait: true, render: (r) => r.contactName ?? "—" },
+      { key: "contact", header: "Vendor Name", render: (r) => r.contactName ?? "—" },
+      {
+        key: "description",
+        header: "Description",
+        portrait: true,
+        render: (r) => <span className="text-gray-600">{(r.notes as string) || "—"}</span>,
+      },
       { key: "bills", header: "Bill#", render: (r) => <span className="text-gray-600">{(r.billNumbers as string) || "—"}</span> },
       { key: "mode", header: "Mode", render: (r) => <span className="capitalize">{String(r.mode ?? "").replace(/_/g, " ")}</span> },
       { key: "status", header: "Status", render: () => <StatusBadge status="paid" /> },
@@ -590,9 +596,17 @@ export const ExpensesPage = () => (
     banner={<ExpenseSummaryBanner />}
     columns={[
       { key: "date", header: "Date", portrait: true, render: (r) => shortDate(r.expenseDate as string) },
-      { key: "account", header: "Expense Account", render: (r) => <span className="text-gray-800">{(r.expenseAccountName as string) ?? "—"}</span> },
+      { key: "account", header: "Expense Account", portrait: true, render: (r) => <span className="text-gray-800">{(r.expenseAccountName as string) ?? "—"}</span> },
       { key: "ref", header: "Reference#", render: (r) => <span className="text-gray-600">{(r.reference as string) || "—"}</span> },
-      { key: "contact", header: "Vendor Name", portrait: true, render: (r) => r.contactName ?? "—" },
+      { key: "contact", header: "Vendor Name", render: (r) => r.contactName ?? "—" },
+      // What the money was actually spent on. It lives in notes and was
+      // never shown; on a phone it matters more than which vendor took it.
+      {
+        key: "description",
+        header: "Description",
+        portrait: true,
+        render: (r) => <span className="text-gray-600">{(r.notes as string) || "—"}</span>,
+      },
       { key: "paidThrough", header: "Paid Through", render: (r) => <span className="text-gray-600">{(r.paidThroughName as string) ?? "—"}</span> },
       {
         // An expense entered with no paid-through account is money still owed:

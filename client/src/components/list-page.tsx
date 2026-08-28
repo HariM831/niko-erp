@@ -176,11 +176,17 @@ export function ListPage<T>({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between bg-white px-5 py-3">
+      {/*
+        Wraps rather than squeezes. At 375px the title, Advanced, an extra
+        action, + New and the overflow button were all fighting for one row:
+        "All Bills" broke across two lines and every button lost its padding.
+        The title takes the row it needs and the actions drop beneath it.
+      */}
+      <header className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2 bg-white px-3 py-2.5 sm:px-5 sm:py-3">
         <div className="relative" ref={viewsRef}>
           <button
             onClick={() => views && setViewsOpen((o) => !o)}
-            className="flex items-center gap-1.5 text-lg font-semibold text-gray-800"
+            className="flex items-center gap-1.5 whitespace-nowrap text-base font-semibold text-gray-800 sm:text-lg"
           >
             {viewLabel === "All" ? `All ${title}` : `${viewLabel} ${title}`}
             {views && <span className="text-xs text-brand-500">▼</span>}
@@ -207,7 +213,7 @@ export function ListPage<T>({
             </div>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-1 items-center justify-end gap-1.5 sm:flex-none sm:gap-2">
           {searchFields && (
             <button
               onClick={() => setAdvancedOpen(true)}
@@ -270,7 +276,7 @@ export function ListPage<T>({
                 {columns.map((c) => (
                   <th
                     key={c.key}
-                    className={`border-b border-[#ece3d5] font-semibold ${cellPad} ${c.align === "right" ? "text-right" : ""} ${
+                    className={`col-${c.key} border-b border-[#ece3d5] font-semibold ${cellPad} ${c.align === "right" ? "text-right" : ""} ${
                       namedPortrait && !c.portrait ? "col-portrait-hide" : ""
                     }`}
                   >
@@ -346,7 +352,7 @@ export function ListPage<T>({
                     {columns.map((c) => (
                       <td
                         key={c.key}
-                        className={`border-b border-[#ece3d5] ${cellPad} ${c.align === "right" ? "text-right tabular-nums" : ""} ${
+                        className={`col-${c.key} border-b border-[#ece3d5] ${cellPad} ${c.align === "right" ? "text-right tabular-nums" : ""} ${
                           namedPortrait && !c.portrait ? "col-portrait-hide" : ""
                         }`}
                       >

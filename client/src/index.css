@@ -402,20 +402,36 @@ body {
   }
   .list-table :is(th, td) {
     @apply px-1.5 py-2;
-    max-width: 5rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   /*
-   * The figure never truncates — it is why the row is being read at all. The
-   * text columns give up their width for it instead, which is the whole trade:
-   * "Ajmer Agro pr…" still identifies the vendor, whereas "₹3,95" is not a
-   * number, it is a lie with a currency symbol.
+   * Only the free-text columns give up width, and only they.
+   *
+   * A blanket cap clipped Bill# to "BILL-0019…", which identifies nothing — the
+   * number IS the row. Names are the opposite: "Ajmer Agro pr…" still tells you
+   * which vendor, and the full name is a tap away. So the elastic columns are
+   * named, and everything else — dates, document numbers, figures — keeps
+   * whatever width it needs.
+   *
+   * The figure especially: "₹3,95" is not a number, it is a lie with a currency
+   * symbol in front of it.
    */
-  .list-table :is(th, td).text-right {
-    max-width: none;
-    white-space: nowrap;
+  .list-table
+    :is(th, td):is(
+      .col-contact,
+      .col-description,
+      .col-notes,
+      .col-name,
+      .col-item,
+      .col-account,
+      .col-head,
+      .col-reference,
+      .col-narration,
+      .col-address
+    ) {
+    max-width: 5.5rem;
   }
 }
 

@@ -28,13 +28,14 @@ const contactColumns = (balanceHeader: string) => [
   {
     key: "name",
     header: "Name",
+    portrait: true,
     render: (r: ContactRow) => (
       <span className="font-medium text-brand-600">{r.displayName}</span>
     ),
   },
-  { key: "company", header: "Company Name", render: (r: ContactRow) => r.companyName ?? "—" },
+  { key: "company", header: "Company Name", portrait: true, render: (r: ContactRow) => r.companyName ?? "—" },
   { key: "email", header: "Email", render: (r: ContactRow) => r.email ?? "—" },
-  { key: "phone", header: "Work Phone", render: (r: ContactRow) => r.phone ?? "—" },
+  { key: "phone", header: "Work Phone", portrait: true, render: (r: ContactRow) => r.phone ?? "—" },
   {
     key: "gstt",
     header: "GST Treatment",
@@ -164,6 +165,7 @@ export const ItemsPage = () => (
       {
         key: "name",
         header: "Name",
+        portrait: true,
         render: (r) => (
           <div className="flex items-center gap-2.5">
             {r.imageId ? (
