@@ -438,6 +438,14 @@ body {
     ) {
     max-width: 5.5rem;
   }
+  /*
+   * A number needs more room than a name fragment but less than it was taking:
+   * some contacts hold two numbers in one field, which stretched the column to
+   * 260px and pushed the row past the screen. Enough for one full number.
+   */
+  .list-table :is(th, td).col-phone {
+    max-width: 7rem;
+  }
 }
 
 @media (orientation: portrait) and (max-width: 1023px) {
