@@ -7,7 +7,7 @@
  */
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, api } from "../api";
+import { ApiError, api, formatMoney } from "../api";
 import { StatusBadge } from "../components/status-badge";
 import type { LineMatch } from "@shared/po-match-types";
 import { Modal } from "../components/settings-ui";
@@ -708,7 +708,7 @@ function ReceiptEditor({
         <div className="text-[13px] text-gray-600">
           <span className="mr-4">{totalKg.toLocaleString("en-IN")} kg billed</span>
           <span className="font-semibold text-gray-900">
-            ₹{totalValue.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+            {formatMoney(totalValue)}
           </span>
         </div>
       </div>

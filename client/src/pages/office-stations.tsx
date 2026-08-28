@@ -166,7 +166,7 @@ function GrossPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
               <span>Variance</span>
               <span className="tabular-nums">
                 {gross - slip > 0 ? "+" : ""}
-                {(gross - slip).toFixed(0)} kg · {variance.toFixed(3)}%
+                {kg(Math.round(gross - slip))} · {variance.toFixed(3)}%
               </span>
             </div>
           )}
@@ -584,7 +584,7 @@ function TarePanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
               <span className="tabular-nums text-gray-600">
                 {kg(p.share)}
                 <span className="ml-2 text-gray-400">
-                  short {(Number(p.billQuantityKg) - p.share).toFixed(0)}
+                  short {kg(Math.round(Number(p.billQuantityKg) - p.share))}
                 </span>
               </span>
             </div>

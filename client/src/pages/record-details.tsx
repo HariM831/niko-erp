@@ -538,7 +538,9 @@ export function AccountLedgerPage({ id }: { id: string }) {
                     {r.entryNumber}
                   </Link>
                 </td>
-                <td className="max-w-64 truncate px-3 py-2.5 text-gray-600">{r.narration}</td>
+                <td className="px-3 py-2.5 text-gray-600">
+                  <span className="block max-w-64 truncate" title={r.narration ?? ""}>{r.narration}</span>
+                </td>
                 <td className="px-3 py-2.5 text-right tabular-nums">
                   {Number(r.debit) > 0 ? formatMoney(r.debit) : ""}
                 </td>

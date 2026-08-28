@@ -496,7 +496,8 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
           onChange={setCustomFields}
         />
 
-        <table className="mb-3 hidden w-full text-[13px] lg:table">
+        <div className={tags.length ? "mb-3 hidden overflow-x-auto lg:block" : "mb-3 hidden lg:block"}>
+        <table className={`text-[13px] ${tags.length ? "w-max min-w-full" : "w-full"}`}>
           <thead className="table-head">
             <tr>
               <th className="w-56 border border-[#ece3d5] px-2 py-2">Item</th>
@@ -614,6 +615,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
             })}
           </tbody>
         </table>
+        </div>
 
         {/*
           The same lines, as cards, below lg.

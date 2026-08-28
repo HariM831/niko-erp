@@ -238,8 +238,8 @@ export function VendorSheetPage() {
                         </div>
                       )}
                     </td>
-                    <td className="col-portrait-hide max-w-xs border-b border-[#ece3d5] px-3 py-2">
-                      <div className="truncate text-gray-700" title={r.description ?? ""}>
+                    <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2">
+                      <div className="max-w-xs truncate text-gray-700" title={r.description ?? ""}>
                         {r.description || "—"}
                       </div>
                     </td>
@@ -260,8 +260,8 @@ export function VendorSheetPage() {
                         <span className="text-gray-400">—</span>
                       )}
                     </td>
-                    <td className="col-portrait-hide max-w-[16rem] border-b border-[#ece3d5] px-3 py-2 text-gray-600">
-                      <div className="truncate" title={r.notes ?? ""}>
+                    <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 text-gray-600">
+                      <div className="max-w-[16rem] truncate" title={r.notes ?? ""}>
                         {r.notes || "—"}
                       </div>
                     </td>

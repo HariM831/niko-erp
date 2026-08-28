@@ -769,10 +769,10 @@ function ImportStatementWizard({
                     <td className="border-b border-[#ece3d5] px-2 py-1.5">{r.description ?? "—"}</td>
                     <td className="border-b border-[#ece3d5] px-2 py-1.5">{r.utr ?? "—"}</td>
                     <td className="border-b border-[#ece3d5] px-2 py-1.5 text-right tabular-nums">
-                      {r.direction === "debit" ? r.amount?.toFixed(2) : ""}
+                      {r.direction === "debit" && r.amount != null ? formatMoney(r.amount) : ""}
                     </td>
                     <td className="border-b border-[#ece3d5] px-2 py-1.5 text-right tabular-nums">
-                      {r.direction === "credit" ? r.amount?.toFixed(2) : ""}
+                      {r.direction === "credit" && r.amount != null ? formatMoney(r.amount) : ""}
                     </td>
                   </tr>
                 ))}
