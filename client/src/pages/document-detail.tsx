@@ -320,6 +320,19 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
 
+  const [busy, setBusy] = useState(false);
+
+  const { data: prefs } = useQuery({
+    queryKey: ["preferences"],
+    queryFn: () => api<{ hideZeroValueLines: boolean }>("/api/settings/preferences"),
+  });
+  const { data: doc, isLoading } = useQuery({
+    queryKey: ["doc", kind, id],
+    queryFn: () => api<DetailDoc>(`${config!.endpoint}/${id}`),
+    enabled: !!config,
+  });
+  const contactId = (doc?.customerId ?? doc?.vendorId) as string | undefined;
+
   /*
    * Scale the sheet to the screen rather than reflow it.
    *
@@ -340,32 +353,21 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
   useEffect(() => {
     const A4_PX = 794; // 210mm at 96dpi
     const fit = () => {
-      const el = sheetWrapRef.current;
-      if (!el) return;
       // clientWidth is inside the padding, which is what the sheet actually gets.
-      const avail = el.clientWidth;
-      setSheetZoom(avail > 0 && avail < A4_PX ? avail / A4_PX : 1);
+      const avail = sheetWrapRef.current?.clientWidth ?? 0;
+      if (avail === 0) return;
+      setSheetZoom(avail < A4_PX ? avail / A4_PX : 1);
     };
     fit();
-    window.addEventListener("resize", fit);
-    window.addEventListener("orientationchange", fit);
-    return () => {
-      window.removeEventListener("resize", fit);
-      window.removeEventListener("orientationchange", fit);
-    };
-  }, []);
-  const [busy, setBusy] = useState(false);
-
-  const { data: prefs } = useQuery({
-    queryKey: ["preferences"],
-    queryFn: () => api<{ hideZeroValueLines: boolean }>("/api/settings/preferences"),
-  });
-  const { data: doc, isLoading } = useQuery({
-    queryKey: ["doc", kind, id],
-    queryFn: () => api<DetailDoc>(`${config!.endpoint}/${id}`),
-    enabled: !!config,
-  });
-  const contactId = (doc?.customerId ?? doc?.vendorId) as string | undefined;
+    // An observer rather than a resize listener: on the first render this page
+    // is a spinner, so the wrapper does not exist yet and a one-shot measurement
+    // reads nothing and leaves the sheet at full size — which is exactly what it
+    // did. This fires when the element appears and on every later size change,
+    // orientation included.
+    const ro = new ResizeObserver(fit);
+    if (sheetWrapRef.current) ro.observe(sheetWrapRef.current);
+    return () => ro.disconnect();
+  }, [isLoading]);
   const { data: contact } = useQuery({
     queryKey: ["contact-mini", contactId],
     queryFn: () =>
