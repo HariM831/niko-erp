@@ -464,8 +464,8 @@ export function GateInPage() {
   if (!ctx) return <div className="p-6 text-[13px] text-gray-400">Loading…</div>;
 
   return (
-    <div className="mx-auto max-w-3xl p-6">
-      <div className="mb-4 flex items-baseline justify-between gap-4">
+    <div className="mx-auto max-w-3xl p-4 sm:p-6">
+      <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <div>
           <h1 className="text-[19px] font-semibold text-gray-900">Gate In</h1>
           <p className="text-[13px] text-gray-500">
@@ -474,7 +474,7 @@ export function GateInPage() {
         </div>
         {next && (
           <div className="text-right">
-            <div className="text-[11px] uppercase tracking-wide text-gray-400">This receipt</div>
+            <div className="whitespace-nowrap text-[11px] uppercase tracking-wide text-gray-400">This receipt</div>
             <div className="font-mono text-[14px] text-gray-700">
               {next.prefix}
               {String(next.nextNumber).padStart(next.padding, "0")}
