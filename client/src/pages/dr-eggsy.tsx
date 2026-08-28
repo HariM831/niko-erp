@@ -168,10 +168,7 @@ export function DrEggsyPage() {
           </span>
           <div>
             <h1 className="text-2xl font-extrabold tracking-tight text-soil-900">Dr niko</h1>
-            <p className="text-sm text-soil-400">
-              Field observations sent for diagnosis — a first opinion from a model, not a vet.
-            </p>
-          </div>
+            </div>
         </div>
         <button
           onClick={() => setShowNew(true)}

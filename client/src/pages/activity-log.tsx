@@ -42,8 +42,7 @@ export function ActivityLogPage() {
         </span>
         <div>
           <h1 className="text-lg font-semibold leading-tight">Activity Log</h1>
-          <p className="text-xs text-gray-400">Every change made in the organisation, newest first</p>
-        </div>
+          </div>
       </header>
       <div className="flex-1 overflow-auto border-t">
         {error ? (

@@ -61,11 +61,7 @@ export function EggAgreementsPage() {
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Egg agreements</h1>
-          <p className="text-sm text-muted-foreground">
-            Standing orders. Price is always that day's benchmark plus the customer's spread —
-            never written down here.
-          </p>
-        </div>
+          </div>
         <button
           onClick={() => setEditing("new")}
           className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"

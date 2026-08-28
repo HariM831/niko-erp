@@ -142,10 +142,7 @@ export function FeedProductionPage() {
     <div className="flex h-full flex-col">
       <header className="border-b bg-white px-6 py-3">
         <h1 className="text-lg font-semibold">Production</h1>
-        <p className="text-[13px] text-gray-500">
-          The formulas run this shift and their batch counts — one Produce, and the feed is in stock
-        </p>
-      </header>
+        </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto bg-surface p-3 lg:p-6">
         <div className="mx-auto max-w-2xl">

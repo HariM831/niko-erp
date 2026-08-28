@@ -135,11 +135,7 @@ export function EggBenchmarkPage() {
     <div className="p-4 md:p-6">
       <div className="mb-4">
         <h1 className="text-2xl font-semibold">Egg benchmark</h1>
-        <p className="text-sm text-muted-foreground">
-          One rate per day, in ₹ per egg. Every invoice — customers and owner buy-back alike —
-          prices from this plus its own spread.
-        </p>
-      </div>
+        </div>
 
       {loading ? (
         <div className="py-16 text-center text-sm text-muted-foreground">reading…</div>

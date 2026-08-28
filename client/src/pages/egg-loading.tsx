@@ -93,10 +93,7 @@ export function EggLoadingPage() {
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Loading bay</h1>
-          <p className="text-sm text-muted-foreground">
-            Enter what actually left. The invoice is raised from these figures at the day's rate.
-          </p>
-        </div>
+          </div>
         <div className="flex items-center gap-2">
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
           <button

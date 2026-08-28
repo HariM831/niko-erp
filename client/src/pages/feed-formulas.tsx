@@ -53,10 +53,7 @@ export function FeedFormulasPage() {
       <header className="flex items-start justify-between border-b bg-white px-6 py-3">
         <div>
           <h1 className="text-lg font-semibold">Formulas</h1>
-          <p className="text-[13px] text-gray-500">
-            What goes into a batch, what it costs, and what it delivers
-          </p>
-        </div>
+          </div>
         <button
           onClick={() => setSelected("")}
           className="btn-secondary flex shrink-0 items-center gap-1"

@@ -170,11 +170,7 @@ export function EggGradingPage() {
           </span>
           <div>
             <h1 className="text-2xl font-semibold text-soil-900">Egg stock</h1>
-            <p className="text-sm text-soil-400">
-              The day sheet. Boxes per shed per size go in; the stock summary underneath is the
-              ledger, not a second entry.
-            </p>
-          </div>
+            </div>
         </div>
         <input
           type="date"

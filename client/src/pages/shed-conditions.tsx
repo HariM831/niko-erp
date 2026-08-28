@@ -223,12 +223,7 @@ export function ShedConditionsPage() {
             Houses
           </button>
           <h1 className="text-2xl font-semibold">{house?.code ?? "Shed"} conditions</h1>
-          <p className="text-sm text-muted-foreground">
-            Straight from the controller
-            {latest?.birdCount != null && ` · ${num(latest.birdCount)} birds by its own count`}
-            {latest?.birdAgeDays != null && ` · day ${num(latest.birdAgeDays)}`}
-          </p>
-        </div>
+          </div>
 
         <div className="flex items-center gap-2">
           {/* Other sheds, so the reader can flick between them without going

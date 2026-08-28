@@ -114,13 +114,20 @@ export const statusTone = (s: string): "green" | "gray" | "amber" | "red" | "blu
         : "gray";
 
 /* ── Page chrome ───────────────────────────────────────────────────────── */
-export function PageHeader({ title, sub, children }: { title: string; sub?: string; children?: ReactNode }) {
+/**
+ * `sub` is accepted and no longer rendered.
+ *
+ * Every screen had a sentence under its title explaining what the screen was
+ * for. On a desk they were a line; on a phone each one wrapped to three or four
+ * and pushed the actual content below the fold, so the first thing you saw on
+ * opening a page was a description of the page. The prop stays so the call sites
+ * do not all have to change at once, and so the wording is still in the source
+ * if a page ever wants it back.
+ */
+export function PageHeader({ title, children }: { title: string; sub?: string; children?: ReactNode }) {
   return (
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h1 className="text-2xl font-semibold">{title}</h1>
-        {sub && <p className="text-sm text-muted-foreground">{sub}</p>}
-      </div>
+    <div className="page-header -mx-4 mb-4 flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:-mx-6 sm:px-6">
+      <h1 className="text-xl font-semibold sm:text-2xl">{title}</h1>
       {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
     </div>
   );

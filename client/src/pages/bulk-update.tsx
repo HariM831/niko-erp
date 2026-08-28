@@ -299,10 +299,6 @@ export function BulkUpdatePage() {
       <div className="flex h-full flex-col">
         <div className="mx-auto mt-16 max-w-2xl px-6 text-center">
           <h1 className="text-xl font-medium text-gray-800">Bulk Update Accounts in Transactions</h1>
-          <p className="mt-2 text-[13px] text-gray-500">
-            Filter transactions (Invoices, Credit Notes, Purchase Orders, Expenses, Bills, Vendor
-            Credits) and bulk-update its accounts with a new account
-          </p>
           <div className="mt-6 flex items-start gap-3 rounded border border-[#f2d9a0] bg-[#fdf6e3] px-4 py-3 text-left">
             <span className="mt-0.5 text-[#d69e2e]">!</span>
             <p className="text-[13px] text-gray-700">

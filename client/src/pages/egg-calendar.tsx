@@ -69,11 +69,7 @@ export function EggCalendarPage() {
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Egg calendar</h1>
-          <p className="text-sm text-muted-foreground">
-            Boxes committed against what can be sold — the shelf plus the day's grading, carried
-            day to day. Derived live; edit an agreement and every day already agrees.
-          </p>
-        </div>
+          </div>
         <div className="flex items-center gap-1">
           <button onClick={() => setMonth(shiftMonth(month, -1))} className="rounded-md border border-border p-2 hover:bg-muted">
             <ChevronLeft className="h-4 w-4" />

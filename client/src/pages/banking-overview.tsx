@@ -28,7 +28,7 @@ export function BankingOverviewPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-surface">
-      <header className="flex flex-wrap items-center justify-between gap-2 border-b bg-white px-4 py-3 sm:px-6 sm:py-3.5">
+      <header className="page-header flex flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-6 sm:py-3.5">
         <h1 className="text-lg font-semibold">Banking Overview</h1>
         <div className="flex items-center gap-2">
           <button onClick={() => navigate("/banking/new")} className="btn-primary">

@@ -780,8 +780,7 @@ export function FarmsHousesPage() {
         </span>
         <div>
           <h1 className="text-xl font-extrabold tracking-tight text-soil-900">Houses</h1>
-          <p className="text-[13px] text-soil-400">Bird sheds overview</p>
-        </div>
+          </div>
       </div>
 
       {/* Date Selector */}

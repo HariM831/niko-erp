@@ -462,7 +462,7 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b bg-white px-6 py-2.5 print:hidden">
+      <header className="page-header flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 print:hidden sm:px-6">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate(config.listPath)} className="text-gray-400 hover:text-gray-700">
             ←

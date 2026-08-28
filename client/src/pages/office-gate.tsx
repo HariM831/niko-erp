@@ -468,10 +468,7 @@ export function GateInPage() {
       <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <div>
           <h1 className="text-[19px] font-semibold text-gray-900">Gate In</h1>
-          <p className="text-[13px] text-gray-500">
-            Scan the vendor's bill and decide whether the truck comes in.
-          </p>
-        </div>
+          </div>
         {next && (
           <div className="text-right">
             <div className="whitespace-nowrap text-[11px] uppercase tracking-wide text-gray-400">This receipt</div>

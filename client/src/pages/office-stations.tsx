@@ -684,11 +684,6 @@ export function StationPage({ station }: { station: Station }) {
   return (
     <div className="mx-auto max-w-4xl p-6">
       <h1 className="text-[19px] font-semibold text-gray-900">Weighment</h1>
-      <p className="mb-3 text-[13px] text-gray-500">
-        Everything the platform does — a truck in, its quality, its weight out, and feed going
-        the other way.
-      </p>
-
       <div className="mb-4 flex gap-1 border-b border-gray-200" role="tablist">
         {STATION_ORDER.map((s) => {
           const count = queues[s]?.data?.length ?? 0;

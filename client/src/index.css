@@ -360,6 +360,22 @@ body {
  *
  * Explicitly per-axis: x scrolls, y still clips so the corners stay round.
  */
+/*
+ * The signature band every page opens with.
+ *
+ * Page headers had drifted: each screen had built its own, and they had all
+ * ended up plain white — the warm tone survived only where an icon or a chip
+ * happened to carry it. A house style that appears on some pages and not others
+ * is not a house style, so this is the one definition and every header reads it.
+ *
+ * A wash rather than a fill, and it fades out to the right so it frames the
+ * page without competing with the content underneath. It is written against the
+ * yolk tokens, so the accent switcher recolours every header in the app.
+ */
+.page-header {
+  @apply border-b border-yolk-200/70 bg-gradient-to-r from-yolk-100 via-yolk-50 to-transparent;
+}
+
 .table-surface {
   @apply overflow-x-auto overflow-y-hidden rounded-lg bg-white shadow-sm;
 }

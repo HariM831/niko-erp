@@ -182,7 +182,7 @@ export function ListPage<T>({
         "All Bills" broke across two lines and every button lost its padding.
         The title takes the row it needs and the actions drop beneath it.
       */}
-      <header className="flex flex-wrap items-center justify-between gap-x-2 gap-y-2 bg-white px-3 py-2.5 sm:px-5 sm:py-3">
+      <header className="page-header flex flex-wrap items-center justify-between gap-x-2 gap-y-2 px-3 py-2.5 sm:px-5 sm:py-3">
         <div className="relative" ref={viewsRef}>
           <button
             onClick={() => views && setViewsOpen((o) => !o)}

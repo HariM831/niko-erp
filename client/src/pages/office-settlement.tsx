@@ -163,8 +163,7 @@ export function SettlementPage() {
       <div className="mb-4 flex items-baseline justify-between">
         <div>
           <h1 className="text-[19px] font-semibold text-gray-900">Settlement</h1>
-          <p className="text-[13px] text-gray-500">Gated out, unpaid</p>
-        </div>
+          </div>
         <span className="text-[13px] text-gray-400">{queue?.length ?? 0} pending</span>
       </div>
 

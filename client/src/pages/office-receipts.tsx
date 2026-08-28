@@ -746,10 +746,7 @@ export function GoodsReceiptsPage() {
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h1 className="text-[19px] font-semibold text-gray-900">Goods Receipts</h1>
-          <p className="text-[13px] text-gray-500">
-            Every truck that reached the boom, and what it was carrying.
-          </p>
-        </div>
+          </div>
         <div className="flex items-center gap-4">
           {next && (
             <div className="text-right">

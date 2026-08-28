@@ -76,10 +76,7 @@ export function FarmsBatchesPage() {
           </span>
           <div>
             <h1 className="text-xl font-semibold text-soil-900">Batches</h1>
-            <p className="mt-0.5 text-[13px] text-soil-400">
-              Every cohort on the farm. A batch keeps one record across every shed it lives in.
-            </p>
-          </div>
+            </div>
         </div>
         <div className="flex items-end gap-2">
           <div className="w-40">

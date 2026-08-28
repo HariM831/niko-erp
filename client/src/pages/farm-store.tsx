@@ -157,10 +157,7 @@ export function FarmStorePage() {
           </span>
           <div>
             <h1 className="text-2xl font-extrabold tracking-tight text-soil-900">Farm store</h1>
-            <p className="text-sm text-soil-400">
-              The same inventory the books keep, seen at the farm. Billed goods land here on their own.
-            </p>
-          </div>
+            </div>
         </div>
         <div className="flex items-center gap-2">
           {farms.length > 1 && (
