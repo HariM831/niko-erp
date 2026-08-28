@@ -229,7 +229,7 @@ export function ReportsPage() {
         <table className="data-table w-full">
           <thead>
             <tr>
-              <th className="s-th">Report Name</th>
+              <th className="col-fill s-th">Report Name</th>
               <th className="col-portrait-hide s-th w-44">Created By</th>
               <th className="col-portrait-hide s-th w-44">Last Visited</th>
             </tr>
@@ -249,7 +249,7 @@ export function ReportsPage() {
                   .filter((r) => r.category === c)
                   .map((r) => (
                     <tr key={r.key} className="s-row">
-                      <td className="s-td">
+                      <td className="col-fill s-td">
                         <button
                           onClick={() => {
                             markVisited(r.key);

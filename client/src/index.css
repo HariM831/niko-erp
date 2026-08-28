@@ -452,6 +452,19 @@ body {
     width: 6.75rem;
   }
   /*
+   * Claims whatever the hidden columns gave up.
+   *
+   * A fixed table divides by column COUNT, and a column set to display:none
+   * still leaves its slot behind — so hiding two of three columns left the
+   * survivor with a third of the width rather than all of it, and the reports
+   * list cut every name to "Horizontal Prof" even after its category column had
+   * gone. Put this on the column that should absorb the space.
+   */
+  .list-table :is(th, td).col-fill,
+  .data-table :is(th, td).col-fill {
+    width: 100%;
+  }
+  /*
    * The identifiers get what they need, and the free-text column takes what is
    * left over. A fixed table divides equally by default, which gave BILL-001906
    * 81px when it needs 90 — and a truncated document number identifies nothing,
