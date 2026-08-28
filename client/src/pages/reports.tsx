@@ -175,30 +175,30 @@ export function ReportsPage() {
   );
 
   return (
-    <div className="flex h-full">
-      <aside className="w-60 shrink-0 overflow-y-auto border-r bg-white py-4">
-        <h2 className="mb-3 px-5 text-[15px] font-semibold text-[#212529]">Reports Center</h2>
+    <div className="flex h-full flex-col lg:flex-row">
+      <aside className="flex shrink-0 gap-2 overflow-x-auto border-b bg-white p-2 lg:block lg:w-60 lg:overflow-x-visible lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-0 lg:py-4">
+        <h2 className="mb-3 hidden px-5 text-[15px] font-semibold text-[#212529] lg:block">Reports Center</h2>
         <button
           onClick={() => setCategory(null)}
-          className={`block w-full px-5 py-1.5 text-left text-[13px] ${
+          className={`shrink-0 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] lg:block lg:w-full lg:rounded-none lg:border-0 lg:px-5 lg:py-1.5 lg:text-left ${
             category === null
-              ? "bg-brand-50 font-medium text-brand-700"
-              : "text-gray-700 hover:bg-gray-50"
+              ? "border-brand-300 bg-brand-50 font-medium text-brand-700"
+              : "border-gray-200 text-gray-700 hover:bg-gray-50"
           }`}
         >
           All Reports
         </button>
-        <div className="mb-1 mt-4 px-5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+        <div className="mb-1 mt-4 hidden px-5 text-[11px] font-semibold uppercase tracking-wide text-gray-400 lg:block">
           Report Category
         </div>
         {CATEGORIES.map((c) => (
           <button
             key={c}
             onClick={() => setCategory(c)}
-            className={`block w-full px-5 py-1.5 text-left text-[13px] ${
+            className={`shrink-0 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] lg:block lg:w-full lg:rounded-none lg:border-0 lg:px-5 lg:py-1.5 lg:text-left ${
               category === c
-                ? "bg-brand-50 font-medium text-brand-700"
-                : "text-gray-700 hover:bg-gray-50"
+                ? "border-brand-300 bg-brand-50 font-medium text-brand-700"
+                : "border-gray-200 text-gray-700 hover:bg-gray-50"
             }`}
           >
             {c}

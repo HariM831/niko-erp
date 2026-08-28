@@ -39,12 +39,10 @@ export function FeedFormulasPage() {
   const entry = (key: string | null, title: string, sub: string) => (
     <button
       onClick={() => setSelected(key)}
-      className={`block w-full border-b border-gray-100 px-3 py-2 text-left hover:bg-gray-50 ${
-        selected === key ? "bg-brand-50" : ""
-      }`}
+      className={`shrink-0 whitespace-nowrap rounded-lg border px-3 py-1.5 text-left hover:bg-gray-50 lg:block lg:w-full lg:rounded-none lg:border-0 lg:border-b lg:border-gray-100 lg:py-2 ${selected === key ? "border-brand-300 bg-brand-50" : "border-gray-200"}`}
     >
       <div className="truncate text-[13px] font-medium text-gray-900">{title}</div>
-      <div className="text-[11px] text-gray-400">{sub}</div>
+      <div className="hidden text-[11px] text-gray-400 lg:block">{sub}</div>
     </button>
   );
 
@@ -62,8 +60,8 @@ export function FeedFormulasPage() {
         </button>
       </header>
 
-      <div className="flex min-h-0 flex-1">
-        <aside className="w-44 shrink-0 overflow-y-auto border-r bg-white lg:w-56">
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        <aside className="flex shrink-0 gap-2 overflow-x-auto border-b bg-white p-2 lg:w-56 lg:flex-col lg:gap-0 lg:overflow-x-visible lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-0">
           {entry(null, "All formulas", "Side by side, with cost per kg")}
           {groups?.map((g) => (
             <div key={g.name}>
