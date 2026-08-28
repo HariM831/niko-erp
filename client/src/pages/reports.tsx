@@ -519,7 +519,15 @@ interface Section {
 
 /** 850px centred, the width Zoho gives a financial statement. */
 function Sheet({ children }: { children: React.ReactNode }) {
-  return <div className="mx-auto max-w-[850px]">{children}</div>;
+  /*
+   * Scrolls sideways rather than cutting a column off. Hiding the account
+   * code buys most reports enough room, but a wide one — sales by customer
+   * carries six money columns — will still exceed a phone, and a figure you
+   * cannot reach is worse than one you have to swipe to.
+   */
+  return (
+    <div className="mx-auto max-w-[850px] overflow-x-auto">{children}</div>
+  );
 }
 
 const HEAD_CELL = "bg-[#f9f9fb] px-2 py-2 text-[11px] font-semibold uppercase text-[#615d82]";
@@ -573,7 +581,7 @@ function TreeRows({
                   {n.name}
                 </Link>
               </td>
-              <td className="w-28 px-2 py-2 text-gray-500">{showCode ? n.code : ""}</td>
+              <td className="col-portrait-hide w-28 px-2 py-2 text-gray-500">{showCode ? n.code : ""}</td>
               <Amount value={showChildren ? n.amount : n.total} />
             </tr>
             {showChildren && (
@@ -613,7 +621,7 @@ function SectionBlock({
     <>
       <tr>
         <td className="px-2 pb-1 pt-4 pl-5 font-bold text-black">{label}</td>
-        <td />
+        <td className="col-portrait-hide" />
         <td />
       </tr>
       <TreeRows nodes={section.nodes} collapsed={collapsed} drill={drill} />
@@ -626,7 +634,7 @@ function SectionBlock({
 const KeyLine = ({ label, value }: { label: string; value: string }) => (
   <tr className="border-b-[0.7px] border-[#eee] font-bold">
     <td className="px-2 py-2.5 pl-5">{label}</td>
-    <td />
+    <td className="col-portrait-hide" />
     <Amount value={value} />
   </tr>
 );
@@ -638,7 +646,7 @@ function StatementTable({ children }: { children: React.ReactNode }) {
         <thead>
           <tr>
             <th className={`${HEAD_CELL} pl-5 text-left`}>Account</th>
-            <th className={`${HEAD_CELL} w-28 text-left`}>Account Code</th>
+            <th className={`col-portrait-hide ${HEAD_CELL} w-28 text-left`}>Account Code</th>
             <th className={`${HEAD_CELL} w-40 text-right`}>Total</th>
           </tr>
         </thead>
