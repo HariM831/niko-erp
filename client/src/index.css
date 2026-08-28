@@ -461,8 +461,18 @@ body {
   .list-table :is(th, td).col-date {
     width: 5.25rem;
   }
+  /*
+   * The document number wraps rather than ellipses.
+   *
+   * These share a prefix — A-INV-EG-27-0659, A-INV-EG-27-0660 — so clipping the
+   * tail removes the only part that differs and every row reads the same. Two
+   * lines and a slightly taller row is a cheap price for a column that actually
+   * tells you which invoice you are looking at.
+   */
   .list-table :is(th, td).col-number {
     width: 7rem;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 }
 
