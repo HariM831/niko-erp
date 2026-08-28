@@ -127,12 +127,18 @@ export function ListPage<T>({
    * there — so the Items list, ten columns of which eight are hidden, gave its
    * NAME 29px and clipped every row to nothing. Dates, document numbers and
    * figures are sized deliberately (see the portrait block in index.css); the
-   * first column that is none of those is the elastic one, and it takes the
-   * remainder.
+   * unsized column is the elastic one, and it takes the remainder.
+   *
+   * ONLY when it is alone in being unsized. A width:100% column beats plain
+   * auto columns in fixed layout, so on the vendors list the name took all
+   * 365px and Contact Person and Phone stood at ZERO width — three columns
+   * chosen for portrait, one drawn. With no fill declared, the unsized columns
+   * split the leftover evenly instead, which is the fair default for peers.
    */
-  const fillKey = columns.find(
+  const unsizedPortrait = columns.filter(
     (c) => c.portrait && c.align !== "right" && c.key !== "date" && c.key !== "number",
-  )?.key;
+  );
+  const fillKey = unsizedPortrait.length === 1 ? unsizedPortrait[0].key : undefined;
 
   const [, navigate] = useLocation();
   const [activeView, setActiveView] = useState(0);
