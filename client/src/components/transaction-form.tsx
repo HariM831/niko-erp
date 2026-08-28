@@ -368,7 +368,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b bg-white px-6 py-3">
+      <header className="page-header flex flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-6">
         <h1 className="text-lg font-semibold">{editId ? config.title.replace("New", "Edit") : config.title}</h1>
         <button onClick={() => navigate(config.listPath)} className="text-xl text-gray-400 hover:text-gray-700">
           ×
@@ -496,7 +496,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
           onChange={setCustomFields}
         />
 
-        <table className="mb-3 w-full text-[13px]">
+        <table className="mb-3 hidden w-full text-[13px] lg:table">
           <thead className="table-head">
             <tr>
               <th className="w-56 border border-[#ece3d5] px-2 py-2">Item</th>
@@ -614,6 +614,133 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
             })}
           </tbody>
         </table>
+
+        {/*
+          The same lines, as cards, below lg.
+
+          Seven columns of inputs across 375px gives each about forty pixels —
+          the description box showed "Desc", the amount was cut to "₹0", and the
+          account select was unreadable. Nothing here can be dropped the way a
+          list's columns can: every cell is a field somebody has to fill.
+          So it reshapes instead — same state, same handlers, one card a line.
+        */}
+        <div className="mb-3 space-y-3 lg:hidden">
+          {lines.map((l, i) => {
+            const gross = Number(l.quantity || 0) * Number(l.rate || 0);
+            const net = gross - (gross * Number(l.discountPercent || 0)) / 100;
+            return (
+              <div key={i} className="rounded-xl border border-gray-200 p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">
+                    Line {i + 1}
+                  </span>
+                  {lines.length > 1 && (
+                    <button
+                      onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))}
+                      className="px-2 text-[13px] text-gray-400"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+
+                <label className="label">Item</label>
+                <select value={l.itemId ?? ""} onChange={(e) => pickItem(i, e.target.value)} className={`${inputCls} mb-2`}>
+                  <option value="">— manual —</option>
+                  {items?.map((it) => (
+                    <option key={it.id} value={it.id}>
+                      {it.name}
+                    </option>
+                  ))}
+                </select>
+
+                <label className="label">Details</label>
+                <input
+                  value={l.name}
+                  onChange={(e) => updateLine(i, { name: e.target.value })}
+                  placeholder="Description"
+                  className={`${inputCls} mb-2`}
+                />
+
+                {config.withAccountColumn && (
+                  <>
+                    <label className="label">Account</label>
+                    <select
+                      value={l.accountId ?? ""}
+                      onChange={(e) => updateLine(i, { accountId: e.target.value || undefined })}
+                      className={`${inputCls} mb-2`}
+                    >
+                      <option value="">Item default</option>
+                      {lineAccounts.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.code} · {a.name}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                )}
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="label">Qty</label>
+                    <input value={l.quantity} onChange={(e) => updateLine(i, { quantity: e.target.value })} className={inputCls} inputMode="decimal" />
+                  </div>
+                  <div>
+                    <label className="label">Rate</label>
+                    <input value={l.rate} onChange={(e) => updateLine(i, { rate: e.target.value })} className={inputCls} inputMode="decimal" />
+                  </div>
+                  <div>
+                    <label className="label">Disc %</label>
+                    <input
+                      value={l.discountPercent}
+                      onChange={(e) => updateLine(i, { discountPercent: e.target.value })}
+                      className={inputCls}
+                      inputMode="decimal"
+                    />
+                  </div>
+                </div>
+
+                {config.withTax && (
+                  <div className="mt-2">
+                    <label className="label">Tax</label>
+                    <select value={l.taxId ?? ""} onChange={(e) => updateLine(i, { taxId: e.target.value || undefined })} className={inputCls}>
+                      <option value="">No tax</option>
+                      {taxes?.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {tags.map((t) => (
+                  <div key={t.id} className="mt-2">
+                    <label className="label">{t.name}</label>
+                    <select
+                      value={l.tags?.[t.id] ?? ""}
+                      onChange={(e) => updateLine(i, { tags: { ...(l.tags ?? {}), [t.id]: e.target.value } })}
+                      className={inputCls}
+                    >
+                      <option value="">—</option>
+                      {t.options.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+
+                <div className="mt-2 flex justify-between border-t border-gray-100 pt-2 text-[13px]">
+                  <span className="text-gray-500">Amount</span>
+                  <span className="font-semibold tabular-nums text-gray-900">{formatMoney(net)}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
         <button
           onClick={() => setLines((ls) => [...ls, emptyLine()])}
           className="mb-6 text-[13px] font-medium text-brand-600 hover:underline"
@@ -621,7 +748,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
           + Add another line
         </button>
 
-        <div className="flex max-w-5xl items-start justify-between gap-8">
+        <div className="flex max-w-5xl flex-col items-stretch justify-between gap-4 lg:flex-row lg:items-start lg:gap-8">
           <div className="flex-1 space-y-4">
             <div>
               <label className="label">Notes</label>
@@ -633,7 +760,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
               label={`Attach File(s) to ${config.title.replace("New ", "")}`}
             />
           </div>
-          <div className="w-80 rounded-xl border border-gray-200/80 bg-gray-50/80 p-5 text-[13px] shadow-[0_1px_3px_rgba(16,24,40,0.05)]">
+          <div className="rounded-xl border border-gray-200/80 bg-gray-50/80 p-4 text-[13px] shadow-[0_1px_3px_rgba(16,24,40,0.05)] lg:w-80 lg:p-5">
             <div className="mb-1.5 flex justify-between">
               <span>Sub Total</span>
               <span className="tabular-nums">{formatMoney(totals.sub)}</span>
