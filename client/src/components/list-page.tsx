@@ -258,13 +258,13 @@ export function ListPage<T>({
           // not said which of its columns matter. +1 there for the checkbox,
           // which is column one and always stays.
           <table
-            className={`w-full border-separate border-spacing-0 text-[13px] ${
+            className={`list-table w-full border-separate border-spacing-0 text-[13px] ${
               namedPortrait ? "" : `pcols-${Math.min(6, Math.max(2, (portraitCols ?? 3) + 1))}`
             }`}
           >
             <thead className="table-head sticky top-0 z-10">
               <tr>
-                <th className={`w-9 border-b border-[#ece3d5] ${cellPad}`}>
+                <th className={`w-9 border-b border-[#ece3d5] ${cellPad} ${namedPortrait ? "col-portrait-hide" : ""}`}>
                   <input type="checkbox" checked={allSelected} onChange={toggleAll} className="accent-brand-500" />
                 </th>
                 {columns.map((c) => (
@@ -333,7 +333,7 @@ export function ListPage<T>({
                     }`}
                   >
                     <td
-                      className={`border-b border-[#ece3d5] ${cellPad}`}
+                      className={`border-b border-[#ece3d5] ${cellPad} ${namedPortrait ? "col-portrait-hide" : ""}`}
                       onClick={(e) => e.stopPropagation()}
                     >
                       <input

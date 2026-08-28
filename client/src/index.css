@@ -386,6 +386,28 @@ body {
   .col-portrait-hide {
     display: none;
   }
+
+  /*
+   * The kept columns then have to actually fit, or the point is lost: four
+   * columns at desktop padding came to 502px in a 365px window, so the amount —
+   * the one people scan for — sat off the edge behind a scroll.
+   *
+   * Tighter gutters, and a ceiling on any single cell. A vendor called "Ajmer
+   * Agro product Private Limited" otherwise takes a third of the screen and
+   * pushes the figure out; clipped to one line it still says which vendor, and
+   * the full name is a tap away on the bill itself.
+   */
+  .list-table :is(th, td) {
+    @apply px-2 py-2;
+    max-width: 7.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* The figure never truncates — it is why the row is being read. */
+  .list-table :is(th, td).text-right {
+    max-width: none;
+  }
 }
 
 @media (orientation: portrait) and (max-width: 1023px) {
