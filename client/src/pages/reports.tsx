@@ -220,37 +220,55 @@ export function ReportsPage() {
           />
         </div>
 
+        {/*
+          Grouped under category headings rather than carrying a category column.
+          The value repeated down a column of its own said the same word a dozen
+          times and cost the report name half the width; as a heading it is said
+          once and the name gets the room.
+        */}
         <table className="data-table w-full">
           <thead>
             <tr>
               <th className="s-th">Report Name</th>
-              <th className="col-portrait-hide s-th w-56">Report Category</th>
               <th className="col-portrait-hide s-th w-44">Created By</th>
               <th className="col-portrait-hide s-th w-44">Last Visited</th>
             </tr>
           </thead>
           <tbody>
-            {visible.map((r) => (
-              <tr key={r.key} className="s-row">
-                <td className="s-td">
-                  <button
-                    onClick={() => {
-                      markVisited(r.key);
-                      navigate(`/reports/${r.key}`);
-                    }}
-                    className="s-link"
+            {CATEGORIES.filter((c) => visible.some((r) => r.category === c)).map((c) => (
+              <Fragment key={c}>
+                <tr>
+                  <td
+                    colSpan={3}
+                    className="border-b border-gray-100 bg-gray-50/70 px-5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500"
                   >
-                    {r.label}
-                  </button>
-                </td>
-                <td className="col-portrait-hide s-td text-gray-600">{r.category}</td>
-                <td className="col-portrait-hide s-td text-gray-500">System Generated</td>
-                <td className="col-portrait-hide s-td text-gray-500">{visitedLabel(visited[r.key])}</td>
-              </tr>
+                    {c}
+                  </td>
+                </tr>
+                {visible
+                  .filter((r) => r.category === c)
+                  .map((r) => (
+                    <tr key={r.key} className="s-row">
+                      <td className="s-td">
+                        <button
+                          onClick={() => {
+                            markVisited(r.key);
+                            navigate(`/reports/${r.key}`);
+                          }}
+                          className="s-link"
+                        >
+                          {r.label}
+                        </button>
+                      </td>
+                      <td className="col-portrait-hide s-td text-gray-500">System Generated</td>
+                      <td className="col-portrait-hide s-td text-gray-500">{visitedLabel(visited[r.key])}</td>
+                    </tr>
+                  ))}
+              </Fragment>
             ))}
             {visible.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-5 py-10 text-center text-[13px] text-gray-500">
+                <td colSpan={3} className="px-5 py-10 text-center text-[13px] text-gray-500">
                   No report matches “{search}”.
                 </td>
               </tr>
