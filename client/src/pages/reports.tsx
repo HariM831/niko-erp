@@ -998,8 +998,8 @@ function SalesByCustomer({ data }: { data: Record<string, unknown> }) {
           ))}
           <tr className="border-t-[0.7px] border-[#eee] font-bold">
             <td className="px-2 py-2.5 pl-5">Total</td>
-            <td className="px-2 py-2.5 text-right tabular-nums">{data.totalCount as number}</td>
-            <td className="px-2 py-2.5 text-right tabular-nums">{num(data.totalSales as string)}</td>
+            <td className="col-portrait-hide px-2 py-2.5 text-right tabular-nums">{data.totalCount as number}</td>
+            <td className="col-portrait-hide px-2 py-2.5 text-right tabular-nums">{num(data.totalSales as string)}</td>
             <td className="px-2 py-2.5 text-right tabular-nums">
               {num(data.totalSalesWithTax as string)}
             </td>
