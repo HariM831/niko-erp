@@ -297,16 +297,19 @@ function StaleCell({
   unit,
   stale,
   since,
+  className = "",
 }: {
   v: number | null;
   unit: string;
   stale?: boolean;
   since?: string | null;
+  /** Extra classes — used to drop the column in portrait. */
+  className?: string;
 }) {
-  if (v == null) return <td className="px-3 py-2 text-right tabular-nums">—</td>;
+  if (v == null) return <td className={`${className} px-3 py-2 text-right tabular-nums`}>—</td>;
   const day = since ? since.slice(0, 10) : null;
   return (
-    <td className="px-3 py-2 text-right tabular-nums">
+    <td className={`${className} px-3 py-2 text-right tabular-nums`}>
       {stale ? (
         <span
           className="text-muted-foreground/60 line-through decoration-destructive/50"
@@ -1082,11 +1085,11 @@ export function FarmsHousesPage() {
                   <Th>Temp</Th>
                   <Th>Target</Th>
                   <Th>Humidity</Th>
-                  <Th>CO₂</Th>
-                  <Th>Pressure</Th>
-                  <Th>Silo</Th>
-                  <Th>Water today</Th>
-                  <Th>Feed today</Th>
+                  <Th className="col-portrait-hide">CO₂</Th>
+                  <Th className="col-portrait-hide">Pressure</Th>
+                  <Th className="col-portrait-hide">Silo</Th>
+                  <Th className="col-portrait-hide">Water today</Th>
+                  <Th className="col-portrait-hide">Feed today</Th>
                 </tr>
               </thead>
               <tbody>
@@ -1123,18 +1126,17 @@ export function FarmsHousesPage() {
                           {r.humidityPct == null ? "—" : `${r.humidityPct.toFixed(0)}%`}
                         </td>
                         <td
-                          className={`px-3 py-2 text-right tabular-nums ${
+                          className={`col-portrait-hide px-3 py-2 text-right tabular-nums ${
                             (r.co2Ppm ?? 0) > 3000 ? "font-semibold text-destructive" : ""
                           }`}
                         >
                           {r.co2Ppm == null ? "—" : fmtNum(r.co2Ppm)}
                         </td>
-                        <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
-                          {r.pressurePa == null ? "—" : fmtNum(r.pressurePa)}
+                        <td className="col-portrait-hide px-3 py-2 text-right tabular-nums text-muted-foreground">{r.pressurePa == null ? "—" : fmtNum(r.pressurePa)}
                         </td>
-                        <StaleCell v={r.siloKg} unit="kg" stale={r.siloStale} since={r.siloChangedAt} />
-                        <StaleCell v={r.waterL} unit="L" stale={r.waterStale} since={r.waterChangedAt} />
-                        <StaleCell v={r.feedKg} unit="kg" stale={r.feedStale} since={r.feedChangedAt} />
+                        <StaleCell v={r.siloKg} unit="kg" stale={r.siloStale} since={r.siloChangedAt} className="col-portrait-hide" />
+                        <StaleCell v={r.waterL} unit="L" stale={r.waterStale} since={r.waterChangedAt} className="col-portrait-hide" />
+                        <StaleCell v={r.feedKg} unit="kg" stale={r.feedStale} since={r.feedChangedAt} className="col-portrait-hide" />
                       </tr>
                     );
                   })}
@@ -1464,6 +1466,7 @@ function Th({
   sort,
   active,
   onSort,
+  className = "",
 }: {
   children: React.ReactNode;
   align?: "left";
@@ -1471,10 +1474,12 @@ function Th({
   sort?: SortKey;
   active?: SortKey;
   onSort?: (k: SortKey) => void;
+  /** Extra classes — used to drop a column in portrait. */
+  className?: string;
 }) {
   // Warm, but private to this file — Th is only ever used by the three
   // tables below, so this does not touch any other screen's headers.
-  const cls = `whitespace-nowrap bg-soil-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-soil-400 ${align === "left" ? "text-left" : "text-right"}`;
+  const cls = `whitespace-nowrap bg-soil-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-soil-400 ${align === "left" ? "text-left" : "text-right"} ${className}`;
   if (!sort || !onSort) return <th className={cls}>{children}</th>;
   const on = active === sort;
   return (

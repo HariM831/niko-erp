@@ -195,7 +195,7 @@ export function EggGradingPage() {
             Production report
           </div>
           <div className="overflow-x-auto rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
-            <table className="w-full text-sm">
+            <table className="data-table w-full text-sm">
               <thead className="bg-soil-50 text-left text-[11px] font-semibold uppercase text-soil-400">
                 <tr className="border-b border-soil-100">
                   <th className="whitespace-nowrap px-3 py-2 text-left">Shed</th>
@@ -272,7 +272,7 @@ export function EggGradingPage() {
             </div>
           </div>
           <div className="overflow-x-auto rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
-            <table className="w-full text-sm">
+            <table className="data-table w-full text-sm">
               <thead className="bg-soil-50 text-left text-[11px] font-semibold uppercase text-soil-400">
                 <tr className="border-b border-soil-100">
                   <th className="whitespace-nowrap px-3 py-2 text-left">Shed</th>
@@ -377,7 +377,7 @@ export function EggGradingPage() {
             Stock summary
           </div>
           <div className="overflow-x-auto rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
-            <table className="w-full text-sm">
+            <table className="data-table w-full text-sm">
               <thead className="bg-soil-50 text-left text-[11px] font-semibold uppercase text-soil-400">
                 <tr className="border-b border-soil-100">
                   <th className="whitespace-nowrap px-3 py-2 text-left" />

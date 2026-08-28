@@ -118,11 +118,11 @@ export function FarmsBatchesPage() {
             <thead className="bg-soil-50 text-left text-[11px] font-semibold uppercase text-soil-400">
               <tr className="border-b border-soil-100">
                 <th className="px-3 py-2">Batch</th>
-                <th className="px-3 py-2">Breed</th>
-                <th className="px-3 py-2">Site</th>
+                <th className="col-portrait-hide px-3 py-2">Breed</th>
+                <th className="col-portrait-hide px-3 py-2">Site</th>
                 <th className="px-3 py-2">In</th>
-                <th className="px-3 py-2">Hatched</th>
-                <th className="px-3 py-2 text-right">Placed</th>
+                <th className="col-portrait-hide px-3 py-2">Hatched</th>
+                <th className="col-portrait-hide px-3 py-2 text-right">Placed</th>
                 <th className="px-3 py-2 text-right">Birds</th>
                 <th className="px-3 py-2">Status</th>
               </tr>
@@ -137,12 +137,11 @@ export function FarmsBatchesPage() {
                       {f.code}
                     </Link>
                   </td>
-                  <td className="px-3 py-2 text-gray-600">{f.breedName}</td>
-                  <td className="px-3 py-2 text-gray-600">{f.locationName}</td>
+                  <td className="col-portrait-hide px-3 py-2 text-gray-600">{f.breedName}</td>
+                  <td className="col-portrait-hide px-3 py-2 text-gray-600">{f.locationName}</td>
                   <td className="px-3 py-2 text-gray-600">{f.houseCodes}</td>
-                  <td className="px-3 py-2 whitespace-nowrap text-gray-600">{day(f.hatchDate)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums text-gray-600">
-                    {n(f.placedCount)}
+                  <td className="col-portrait-hide px-3 py-2 whitespace-nowrap text-gray-600">{day(f.hatchDate)}</td>
+                  <td className="col-portrait-hide px-3 py-2 text-right tabular-nums text-gray-600">{n(f.placedCount)}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums font-medium text-gray-900">
                     {n(f.birds)}
