@@ -119,16 +119,16 @@ export function FixedAssetsPage() {
           </p>
         )}
 
-        <table className="w-full text-[13px]">
+        <table className="data-table w-full text-[13px]">
           <thead className="table-head">
             <tr>
               <th className="px-3 py-2 text-left">Asset</th>
-              <th className="px-3 py-2 text-left">Account</th>
-              <th className="px-3 py-2 text-left">Acquired</th>
-              <th className="px-3 py-2 text-right">Cost</th>
-              <th className="px-3 py-2 text-right">Accumulated</th>
+              <th className="col-portrait-hide px-3 py-2 text-left">Account</th>
+              <th className="col-portrait-hide px-3 py-2 text-left">Acquired</th>
+              <th className="col-portrait-hide px-3 py-2 text-right">Cost</th>
+              <th className="col-portrait-hide px-3 py-2 text-right">Accumulated</th>
               <th className="px-3 py-2 text-right">Book value</th>
-              <th className="px-3 py-2 text-left">Status</th>
+              <th className="col-portrait-hide px-3 py-2 text-left">Status</th>
             </tr>
           </thead>
           <tbody>
@@ -156,14 +156,14 @@ export function FixedAssetsPage() {
                   <span className="text-brand-600">{a.number}</span>
                   <span className="ml-2">{a.name}</span>
                 </td>
-                <td className="px-3 py-2 text-gray-500">
+                <td className="col-portrait-hide px-3 py-2 text-gray-500">
                   {a.accountCode ? `${a.accountCode} · ${a.accountName}` : "—"}
                 </td>
-                <td className="px-3 py-2">{formatDate(a.acquisitionDate)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{formatMoney(a.cost)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{formatMoney(a.accumulated)}</td>
+                <td className="col-portrait-hide px-3 py-2">{formatDate(a.acquisitionDate)}</td>
+                <td className="col-portrait-hide px-3 py-2 text-right tabular-nums">{formatMoney(a.cost)}</td>
+                <td className="col-portrait-hide px-3 py-2 text-right tabular-nums">{formatMoney(a.accumulated)}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{formatMoney(a.netBookValue)}</td>
-                <td className="px-3 py-2">
+                <td className="col-portrait-hide px-3 py-2">
                   <Badge status={a.status} />
                 </td>
               </tr>

@@ -182,15 +182,15 @@ export function StockPage() {
           drift from the transactions behind it.
         </p>
 
-        <table className="w-full text-[13px]">
+        <table className="data-table w-full text-[13px]">
           <thead className="table-head">
             <tr>
               <th className="px-3 py-2 text-left">Item</th>
-              <th className="px-3 py-2 text-right">Opening</th>
-              <th className="px-3 py-2 text-right">In</th>
-              <th className="px-3 py-2 text-right">Out</th>
+              <th className="col-portrait-hide px-3 py-2 text-right">Opening</th>
+              <th className="col-portrait-hide px-3 py-2 text-right">In</th>
+              <th className="col-portrait-hide px-3 py-2 text-right">Out</th>
               <th className="px-3 py-2 text-right">Closing</th>
-              <th className="px-3 py-2 text-right">Reorder level</th>
+              <th className="col-portrait-hide px-3 py-2 text-right">Reorder level</th>
               <th className="px-3 py-2 text-right">Value</th>
             </tr>
           </thead>
@@ -224,18 +224,18 @@ export function StockPage() {
                     </span>
                   )}
                 </td>
-                <td className="px-3 py-2 text-right tabular-nums text-gray-500">
+                <td className="col-portrait-hide px-3 py-2 text-right tabular-nums text-gray-500">
                   {qty(l.opening)}
                 </td>
                 <td
-                  className={`px-3 py-2 text-right tabular-nums ${
+                  className={`col-portrait-hide px-3 py-2 text-right tabular-nums ${
                     Number(l.inQty) > 0 ? "text-green-700" : "text-gray-300"
                   }`}
                 >
                   {Number(l.inQty) > 0 ? qty(l.inQty) : "-"}
                 </td>
                 <td
-                  className={`px-3 py-2 text-right tabular-nums ${
+                  className={`col-portrait-hide px-3 py-2 text-right tabular-nums ${
                     Number(l.outQty) > 0 ? "text-amber-700" : "text-gray-300"
                   }`}
                 >
@@ -244,7 +244,7 @@ export function StockPage() {
                 <td className="px-3 py-2 text-right font-medium tabular-nums">
                   {qty(l.closing)} <span className="text-gray-400">{l.unit}</span>
                 </td>
-                <td className="px-3 py-2 text-right tabular-nums text-gray-500">
+                <td className="col-portrait-hide px-3 py-2 text-right tabular-nums text-gray-500">
                   {l.reorderLevel ? qty(l.reorderLevel) : "-"}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">{formatMoney(l.value)}</td>

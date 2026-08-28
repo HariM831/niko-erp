@@ -99,7 +99,7 @@ export function BankingOverviewPage() {
                         </span>
                       </span>
                     </td>
-                    <td className="border-b border-[#ece3d5] px-4 py-3 text-right">
+                    <td className="col-portrait-hide border-b border-[#ece3d5] px-4 py-3 text-right">
                       {a.uncategorized > 0 ? (
                         <span className="font-semibold text-amber-600">{a.uncategorized}</span>
                       ) : (

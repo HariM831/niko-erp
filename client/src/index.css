@@ -388,81 +388,36 @@ body {
   }
 
   /*
-   * The kept columns then have to actually fit, or the point is lost: four
-   * columns at desktop padding came to 502px in a 365px window, so the amount —
-   * the one people scan for — sat off the edge behind a scroll.
+   * The kept columns then have to fit, or the point is lost: four columns at
+   * desktop padding came to 502px in a 365px window, so the amount — the one
+   * people scan for — sat off the edge behind a scroll.
    *
-   * Tighter gutters, and a ceiling on any single cell. A vendor called "Ajmer
-   * Agro product Private Limited" otherwise takes a third of the screen and
-   * pushes the figure out; clipped to one line it still says which vendor, and
-   * the full name is a tap away on the bill itself.
+   * Fixed layout does it by construction. Capping columns one key at a time was
+   * chasing the problem: a cap on the vendor fixed bills, then company needed
+   * one, then phone, and invoices still came out 25px over because its numbers
+   * happen to be longer. Taking the width from the CONTAINER rather than from
+   * the longest value means every list fits, and a new one cannot regress.
+   *
+   * The figure keeps a fixed share instead of an equal one: it must never be
+   * cut, and a rupee amount needs more room than a date. Everything else divides
+   * what is left and ellipses — a clipped name still identifies the row.
    */
-  /*
-   * Fixed layout, so the table can never be wider than the screen.
-   *
-   * Capping columns one key at a time was chasing the problem: contact at 5.5rem
-   * fixed bills, then company needed it, then phone, and invoices still came out
-   * 25px over because its numbers happen to be longer. With `table-layout:
-   * fixed` the width is decided by the container rather than by the longest
-   * value in the column, so every list fits by construction and a new one cannot
-   * regress.
-   *
-   * The figure gets a fixed share rather than an equal one — it is the column
-   * that must never be cut, and a rupee amount needs more room than a date.
-   */
-  .list-table {
+  .list-table,
+  .data-table {
     font-size: 12px;
     table-layout: fixed;
     width: 100%;
   }
-  .list-table :is(th, td).text-right {
-    width: 30%;
-  }
-  .list-table :is(th, td) {
+  .list-table :is(th, td),
+  .data-table :is(th, td) {
     @apply px-1.5 py-2;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  /*
-   * Only the free-text columns give up width, and only they.
-   *
-   * A blanket cap clipped Bill# to "BILL-0019…", which identifies nothing — the
-   * number IS the row. Names are the opposite: "Ajmer Agro pr…" still tells you
-   * which vendor, and the full name is a tap away. So the elastic columns are
-   * named, and everything else — dates, document numbers, figures — keeps
-   * whatever width it needs.
-   *
-   * The figure especially: "₹3,95" is not a number, it is a lie with a currency
-   * symbol in front of it.
-   */
-  .list-table
-    :is(th, td):is(
-      .col-contact,
-      .col-description,
-      .col-notes,
-      .col-name,
-      .col-company,
-      .col-email,
-      .col-item,
-      .col-account,
-      .col-head,
-      .col-reference,
-      .col-narration,
-      .col-address,
-      .col-paidThrough,
-      .col-particulars,
-      .col-remarks
-    ) {
-    max-width: 5.5rem;
-  }
-  /*
-   * A number needs more room than a name fragment but less than it was taking:
-   * some contacts hold two numbers in one field, which stretched the column to
-   * 260px and pushed the row past the screen. Enough for one full number.
-   */
-  .list-table :is(th, td).col-phone {
-    max-width: 7rem;
+  .list-table :is(th, td).text-right,
+  .data-table :is(th, td).text-right {
+    width: 30%;
   }
 }
 
