@@ -440,9 +440,16 @@ body {
    * room the more columns a table has, which is backwards: the figure is the
    * same width whatever sits beside it.
    */
-  .list-table :is(th, td).text-right,
+  /*
+   * The figure, sized to the widest thing it holds. The banking list carries a
+   * crore in negative — ₹-2,47,42,444.82 — and needs every pixel of 7.5rem; a
+   * document list rarely passes ₹99,99,999.00 and can spare some for the name.
+   */
   .data-table :is(th, td).text-right {
     width: 7.5rem;
+  }
+  .list-table :is(th, td).text-right {
+    width: 6.75rem;
   }
   /*
    * The identifiers get what they need, and the free-text column takes what is
@@ -452,10 +459,10 @@ body {
    * read whole are sized, and the name absorbs the remainder.
    */
   .list-table :is(th, td).col-date {
-    width: 5.5rem;
+    width: 5.25rem;
   }
   .list-table :is(th, td).col-number {
-    width: 5.75rem;
+    width: 7rem;
   }
 }
 
