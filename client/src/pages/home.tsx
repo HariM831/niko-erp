@@ -393,12 +393,18 @@ export function HomePage() {
               {org?.name || "Set up your organisation in Settings"} · {dmy(from)} – {dmy(to)}
             </div>
           </div>
-          <div className="flex gap-1 rounded-xl bg-white p-1 shadow-sm ring-1 ring-soil-100">
+          {/*
+            Five tabs need 347px and a phone row gives 309, so on a small screen
+            they scrolled the whole PAGE sideways and "This year" sat off the
+            edge unreachable. Scrolls within itself now; max-w-full stops it
+            setting the width of everything above it.
+          */}
+          <div className="flex max-w-full shrink-0 gap-1 overflow-x-auto rounded-xl bg-white p-1 shadow-sm ring-1 ring-soil-100">
             {RANGES.map((r) => (
               <button
                 key={r}
                 onClick={() => setRange(r)}
-                className={`rounded-lg px-3 py-1.5 text-[13px] font-semibold transition ${
+                className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-[13px] font-semibold transition ${
                   range === r ? "bg-yolk-500 text-white shadow-sm" : "text-soil-600 hover:bg-yolk-50"
                 }`}
               >
