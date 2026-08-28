@@ -1431,7 +1431,7 @@ function LegacyBody({ reportKey, data }: { reportKey: string; data: Record<strin
       );
       return (
         <Sheet>
-          <table className="w-full text-[14px]">
+          <table className="data-table w-full text-[14px]">
             <thead>
               <tr>
                 <th className={`${HEAD_CELL} pl-5 text-left`}>Section</th>
