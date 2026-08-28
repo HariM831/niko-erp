@@ -185,7 +185,7 @@ export function StockPage() {
         <table className="data-table w-full text-[13px]">
           <thead className="table-head">
             <tr>
-              <th className="px-3 py-2 text-left">Item</th>
+              <th className="col-fill px-3 py-2 text-left">Item</th>
               <th className="col-portrait-hide px-3 py-2 text-right">Opening</th>
               <th className="col-portrait-hide px-3 py-2 text-right">In</th>
               <th className="col-portrait-hide px-3 py-2 text-right">Out</th>
@@ -216,7 +216,7 @@ export function StockPage() {
                 onClick={() => navigate(`/items/${l.itemId}`)}
                 className="cursor-pointer border-b border-gray-100 hover:bg-gray-50"
               >
-                <td className="px-3 py-2">
+                <td className="col-fill px-3 py-2">
                   {l.name}
                   {l.belowReorder && (
                     <span className="ml-2 rounded bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">

@@ -127,14 +127,14 @@ export function ChartOfAccountsPage() {
         {isLoading ? (
           <div className="p-8 text-center text-sm text-gray-500">Loading…</div>
         ) : (
-          <table className="w-full border-separate border-spacing-0 text-[13px]">
+          <table className="data-table w-full border-separate border-spacing-0 text-[13px]">
             <thead className="table-head sticky top-0 z-10">
               <tr>
-                <th className="border-b border-[#ece3d5] px-4 py-2.5">Account Name</th>
+                <th className="col-fill border-b border-[#ece3d5] px-4 py-2.5">Account Name</th>
                 <th className="border-b border-[#ece3d5] px-4 py-2.5">Account Code</th>
-                <th className="border-b border-[#ece3d5] px-4 py-2.5">Account Type</th>
-                <th className="border-b border-[#ece3d5] px-4 py-2.5">Parent Account Name</th>
-                <th className="border-b border-[#ece3d5] px-4 py-2.5">Status</th>
+                <th className="col-portrait-hide border-b border-[#ece3d5] px-4 py-2.5">Account Type</th>
+                <th className="col-portrait-hide border-b border-[#ece3d5] px-4 py-2.5">Parent Account Name</th>
+                <th className="col-portrait-hide border-b border-[#ece3d5] px-4 py-2.5">Status</th>
               </tr>
             </thead>
             <tbody>
@@ -144,8 +144,7 @@ export function ChartOfAccountsPage() {
                   onClick={() => navigate(`/accountant/accounts/${a.id}`)}
                   className="cursor-pointer bg-white transition-colors hover:bg-gray-50"
                 >
-                  <td className="border-b border-[#ece3d5] px-4 py-2.5">
-                    <span style={{ paddingLeft: `${a.depth * 18}px` }} className="inline-block">
+                  <td className="col-fill border-b border-[#ece3d5] px-4 py-2.5"><span style={{ paddingLeft: `${a.depth * 18}px` }} className="inline-block">
                       <span className={a.isGroup ? "font-semibold text-gray-800" : "text-brand-600"}>
                         {a.name}
                       </span>
@@ -157,13 +156,12 @@ export function ChartOfAccountsPage() {
                     </span>
                   </td>
                   <td className="border-b border-[#ece3d5] px-4 py-2.5 tabular-nums text-gray-600">{a.code}</td>
-                  <td className="border-b border-[#ece3d5] px-4 py-2.5 text-gray-700">
-                    {a.subtype ? SUBTYPE_LABEL[a.subtype] ?? a.subtype : "—"}
+                  <td className="col-portrait-hide border-b border-[#ece3d5] px-4 py-2.5 text-gray-700">{a.subtype ? SUBTYPE_LABEL[a.subtype] ?? a.subtype : "—"}
                   </td>
-                  <td className="border-b border-[#ece3d5] px-4 py-2.5 text-gray-600">
+                  <td className="col-portrait-hide border-b border-[#ece3d5] px-4 py-2.5 text-gray-600">
                     {a.parentId ? byId.get(a.parentId)?.name ?? "—" : "—"}
                   </td>
-                  <td className="border-b border-[#ece3d5] px-4 py-2.5">
+                  <td className="col-portrait-hide border-b border-[#ece3d5] px-4 py-2.5">
                     <span className={a.isActive ? "text-green-600" : "text-gray-400"}>
                       {a.isActive ? "Active" : "Inactive"}
                     </span>
