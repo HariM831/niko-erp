@@ -292,7 +292,7 @@ export function EggGradingPage() {
             <table className="data-table cols-auto w-full text-sm">
               <thead className="bg-soil-50 text-left text-[11px] font-semibold uppercase text-soil-400">
                 <tr className="border-b border-soil-100">
-                  <th className="whitespace-nowrap px-3 py-2 text-left">Shed</th>
+                  <th className="col-fill whitespace-nowrap px-3 py-2 text-left">Shed</th>
                   {SIZES.map((z) => (
                     <th key={z} className="whitespace-nowrap px-3 py-2 text-right">
                       <span className="lg:hidden">{SHORT[z]}</span><span className="hidden lg:inline">{LABEL[z]}</span>
