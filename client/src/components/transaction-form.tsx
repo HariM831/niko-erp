@@ -375,9 +375,9 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
         </button>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
 
-        <div className="mb-5 grid max-w-3xl grid-cols-3 gap-4">
+        <div className="mb-5 grid max-w-3xl grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
           <div className="col-span-2">
             <label className="label-required">
               {config.contactLabel} *

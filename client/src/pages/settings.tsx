@@ -132,20 +132,22 @@ export function SettingsPage() {
   const sections = SECTIONS.filter((s) => !s.perm || can(s.perm[0], s.perm[1]));
   const activeDef = sections.find((x) => x.key === active);
   return (
-    <div className="flex h-full">
-      <aside className="w-60 shrink-0 border-r bg-white p-4">
-        <h2 className="mb-3 text-sm font-semibold">Settings</h2>
+    <div className="flex h-full flex-col lg:flex-row">
+      <aside className="flex shrink-0 gap-2 overflow-x-auto border-b bg-white p-2 lg:block lg:w-60 lg:overflow-x-visible lg:border-b-0 lg:border-r lg:p-4">
+        <h2 className="mb-3 hidden text-sm font-semibold lg:block">Settings</h2>
         {[...new Set(sections.map((s) => s.group))].map((group) => (
-          <div key={group} className="mb-3">
-            <div className="mb-1 px-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+          <div key={group} className="flex shrink-0 gap-2 lg:mb-3 lg:block">
+            <div className="mb-1 hidden px-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400 lg:block">
               {group}
             </div>
             {sections.filter((s) => s.group === group).map((s) => (
               <button
                 key={s.key}
                 onClick={() => setActive(s.key)}
-                className={`block w-full rounded px-2 py-1.5 text-left text-[13px] ${
-                  active === s.key ? "bg-brand-50 font-medium text-brand-700" : "hover:bg-gray-50"
+                className={`shrink-0 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] lg:block lg:w-full lg:rounded lg:border-0 lg:px-2 lg:py-1.5 lg:text-left ${
+                  active === s.key
+                    ? "border-brand-300 bg-brand-50 font-medium text-brand-700"
+                    : "border-gray-200 hover:bg-gray-50"
                 }`}
               >
                 {s.label}
@@ -154,7 +156,7 @@ export function SettingsPage() {
           </div>
         ))}
       </aside>
-      <div className="min-w-0 flex-1 overflow-y-auto bg-white px-8 py-6">
+      <div className="min-w-0 flex-1 overflow-y-auto bg-white px-4 py-4 sm:px-8 sm:py-6">
         {/* Zoho runs settings full-bleed on white — the form-shaped sections
             still read better with a measure on them. */}
         <div className={FORM_SECTIONS.has(active) ? "max-w-3xl" : ""}>
