@@ -741,7 +741,7 @@ function ReportBody({
             />
             <tr>
               <td className="px-2 py-2 pl-5">Current Year Earnings</td>
-              <td />
+              <td className="col-portrait-hide" />
               <Amount value={data.netEarnings as string} />
             </tr>
             <KeyLine
@@ -823,7 +823,7 @@ function HorizontalStatement({
       <thead>
         <tr>
           <th className={`${HEAD_CELL} pl-5 text-left`}>{side.heading}</th>
-          <th className={`${HEAD_CELL} w-24 text-left`} />
+          <th className={`col-portrait-hide ${HEAD_CELL} w-24 text-left`} />
           <th className={`${HEAD_CELL} w-36 text-right`} />
         </tr>
       </thead>
@@ -834,7 +834,7 @@ function HorizontalStatement({
               <td className="px-2 pb-1 pl-5 pt-4 text-[12px] font-bold uppercase tracking-wide text-black">
                 {s.label}
               </td>
-              <td />
+              <td className="col-portrait-hide" />
               <td />
             </tr>
             <TreeRows nodes={s.nodes} collapsed={collapsed} drill={drill} showCode={false} />
@@ -844,7 +844,7 @@ function HorizontalStatement({
         {side.earnings && (
           <tr>
             <td className="px-2 py-2 pl-5">{side.earnings.label}</td>
-            <td />
+            <td className="col-portrait-hide" />
             <Amount value={side.earnings.amount} />
           </tr>
         )}
@@ -853,7 +853,7 @@ function HorizontalStatement({
         )}
         <tr className="border-t-[0.7px] border-[#eee] font-bold">
           <td className="px-2 py-2.5 pl-5">Total</td>
-          <td />
+          <td className="col-portrait-hide" />
           <Amount value={side.total} />
         </tr>
       </tbody>
