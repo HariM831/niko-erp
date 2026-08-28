@@ -163,7 +163,7 @@ export function EggGradingPage() {
 
   return (
     <div className="min-h-full bg-soil-50 p-4 md:p-6">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="page-header -mx-4 mb-4 flex flex-wrap items-center justify-between gap-3 px-4 py-3 md:-mx-6 md:px-6">
         <div className="flex items-center gap-2.5">
           <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-yolk-400 to-yolk-600 text-white shadow-sm">
             <Egg className="h-4 w-4" />
