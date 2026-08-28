@@ -397,8 +397,26 @@ body {
    * pushes the figure out; clipped to one line it still says which vendor, and
    * the full name is a tap away on the bill itself.
    */
+  /*
+   * Fixed layout, so the table can never be wider than the screen.
+   *
+   * Capping columns one key at a time was chasing the problem: contact at 5.5rem
+   * fixed bills, then company needed it, then phone, and invoices still came out
+   * 25px over because its numbers happen to be longer. With `table-layout:
+   * fixed` the width is decided by the container rather than by the longest
+   * value in the column, so every list fits by construction and a new one cannot
+   * regress.
+   *
+   * The figure gets a fixed share rather than an equal one — it is the column
+   * that must never be cut, and a rupee amount needs more room than a date.
+   */
   .list-table {
     font-size: 12px;
+    table-layout: fixed;
+    width: 100%;
+  }
+  .list-table :is(th, td).text-right {
+    width: 30%;
   }
   .list-table :is(th, td) {
     @apply px-1.5 py-2;

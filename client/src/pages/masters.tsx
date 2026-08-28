@@ -302,12 +302,12 @@ export const JournalsPage = () => (
     rowPath={(r) => `/accountant/journals/${r.id}`}
     banner={<JournalSummaryBanner />}
     columns={[
-      { key: "date", header: "Date", render: (r) => formatDate(r.entryDate) },
-      { key: "number", header: "Journal#", render: (r) => <span className="font-medium text-brand-600">{r.entryNumber}</span> },
-      { key: "reference", header: "Reference Number", render: (r) => <span className="text-gray-600">{r.reference || r.narration}</span> },
+      { key: "date", header: "Date", portrait: true, render: (r) => formatDate(r.entryDate) },
+      { key: "number", header: "Journal#", portrait: true, render: (r) => <span className="font-medium text-brand-600">{r.entryNumber}</span> },
+      { key: "reference", header: "Narration", portrait: true, render: (r) => <span className="text-gray-600">{r.narration || r.reference}</span> },
       { key: "status", header: "Status", render: (r) => <StatusBadge status={JOURNAL_STATUS[r.status] ?? r.status} /> },
       { key: "notes", header: "Notes", render: (r) => <span className="text-gray-600">{r.reference ? r.narration : ""}</span> },
-      { key: "amount", header: "Amount", align: "right", render: (r) => formatMoney(r.amount) },
+      { key: "amount", header: "Amount", align: "right", portrait: true, render: (r) => formatMoney(r.amount) },
       { key: "createdBy", header: "Created By", render: (r) => <span className="text-gray-600">{r.createdByName ?? "—"}</span> },
       {
         key: "files",
