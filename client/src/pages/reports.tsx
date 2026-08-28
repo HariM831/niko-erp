@@ -1244,7 +1244,7 @@ function AgingSummary({ reportKey, data }: { reportKey: string; data: Record<str
               {isAr ? "Customer Name" : "Vendor Name"}
             </th>
             {BUCKETS.map((b) => (
-              <th key={b} className={`${HEAD_CELL} text-right`}>
+              <th key={b} className={`col-portrait-hide ${HEAD_CELL} text-right`}>
                 {BUCKET_LABEL[b]}
               </th>
             ))}
@@ -1263,7 +1263,7 @@ function AgingSummary({ reportKey, data }: { reportKey: string; data: Record<str
                 </Link>
               </td>
               {BUCKETS.map((b) => (
-                <td key={b} className="px-2 py-2 text-right tabular-nums">
+                <td key={b} className="col-portrait-hide px-2 py-2 text-right tabular-nums">
                   {r.buckets[b] ? num(r.buckets[b]!) : "-"}
                 </td>
               ))}
@@ -1273,7 +1273,7 @@ function AgingSummary({ reportKey, data }: { reportKey: string; data: Record<str
           <tr className="border-t-[0.7px] border-[#eee] font-bold">
             <td className="px-2 py-2.5 pl-5">Total</td>
             {BUCKETS.map((b) => (
-              <td key={b} className="px-2 py-2.5 text-right tabular-nums">
+              <td key={b} className="col-portrait-hide px-2 py-2.5 text-right tabular-nums">
                 {num(totals[b] ?? "0")}
               </td>
             ))}
