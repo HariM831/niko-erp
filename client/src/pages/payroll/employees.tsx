@@ -217,19 +217,19 @@ export function PayrollEmployeesPage() {
         {listQ.isLoading ? (
           <Spinner />
         ) : (
-          <table className="w-full">
+          <table className="data-table w-full">
             <thead className="table-head">
               <tr>
                 <Th>Employee</Th>
-                <Th>Code</Th>
-                <Th>Department</Th>
+                <Th className="col-portrait-hide">Code</Th>
+                <Th className="col-portrait-hide">Department</Th>
                 <Th>Designation / role</Th>
-                <Th>Pay</Th>
+                <Th className="col-portrait-hide">Pay</Th>
                 <Th right>Gross / rate</Th>
-                <Th>Shift</Th>
-                <Th>Joined</Th>
-                <Th>Phone</Th>
-                <Th>Face</Th>
+                <Th className="col-portrait-hide">Shift</Th>
+                <Th className="col-portrait-hide">Joined</Th>
+                <Th className="col-portrait-hide">Phone</Th>
+                <Th className="col-portrait-hide">Face</Th>
               </tr>
             </thead>
             <tbody>
@@ -242,15 +242,15 @@ export function PayrollEmployeesPage() {
                       {!e.isActive && <Badge tone="gray">inactive</Badge>}
                     </span>
                   </Td>
-                  <Td className="tabular-nums text-gray-500">{e.empCode}</Td>
-                  <Td>{e.department ?? "—"}</Td>
+                  <Td className="col-portrait-hide tabular-nums text-gray-500">{e.empCode}</Td>
+                  <Td className="col-portrait-hide">{e.department ?? "—"}</Td>
                   <Td>{e.payType === "daily_wage" ? e.wageRole ?? <span className="text-red-600">no role</span> : e.designation ?? "—"}</Td>
-                  <Td><Badge tone={e.payType === "salaried" ? "blue" : "gray"}>{e.payType === "salaried" ? "Salaried" : "Daily wage"}</Badge></Td>
+                  <Td className="col-portrait-hide"><Badge tone={e.payType === "salaried" ? "blue" : "gray"}>{e.payType === "salaried" ? "Salaried" : "Daily wage"}</Badge></Td>
                   <Td right>{e.payType === "salaried" ? formatMoney(e.gross) : e.dailyRate != null ? `${formatMoney(e.dailyRate)}/day` : "—"}</Td>
-                  <Td>{typeof e.shift === "string" ? e.shift : e.shift?.name ?? "—"}</Td>
-                  <Td className="tabular-nums">{dmy(e.dateOfJoining)}</Td>
-                  <Td className="tabular-nums">{e.contactNumber ?? "—"}</Td>
-                  <Td>{e.hasFace ? <Badge tone="green">enrolled</Badge> : e.hasPhoto ? <Badge tone="amber">photo only</Badge> : <Badge tone="gray">none</Badge>}</Td>
+                  <Td className="col-portrait-hide">{typeof e.shift === "string" ? e.shift : e.shift?.name ?? "—"}</Td>
+                  <Td className="col-portrait-hide tabular-nums">{dmy(e.dateOfJoining)}</Td>
+                  <Td className="col-portrait-hide tabular-nums">{e.contactNumber ?? "—"}</Td>
+                  <Td className="col-portrait-hide">{e.hasFace ? <Badge tone="green">enrolled</Badge> : e.hasPhoto ? <Badge tone="amber">photo only</Badge> : <Badge tone="gray">none</Badge>}</Td>
                 </tr>
               ))}
               {!paged.page.length && <tr><Td colSpan={10}><Empty>No employees match.</Empty></Td></tr>}
