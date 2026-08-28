@@ -21,6 +21,23 @@ const LABEL: Record<Size, string> = {
   dirty: "Dirty",
 };
 
+/**
+ * The same six, as the grading room writes them.
+ *
+ * Eight columns on a phone leaves about forty pixels a heading, and "Extra
+ * Large" in forty pixels is "EX… LA…". These are not an abbreviation invented
+ * for the layout — S, M, L, XL is how eggs are graded and marked on the box, so
+ * the short form is the one the people using this already read.
+ */
+const SHORT: Record<Size, string> = {
+  small: "S",
+  medium: "M",
+  large: "L",
+  xl: "XL",
+  jumbo: "J",
+  dirty: "D",
+};
+
 interface Row {
   houseId: string;
   code: string;
@@ -201,7 +218,7 @@ export function EggGradingPage() {
                   <th className="whitespace-nowrap px-3 py-2 text-left">Shed</th>
                   {SIZES.map((z) => (
                     <th key={z} className="whitespace-nowrap px-3 py-2 text-right">
-                      {LABEL[z]}
+                      <span className="lg:hidden">{SHORT[z]}</span><span className="hidden lg:inline">{LABEL[z]}</span>
                     </th>
                   ))}
                   <th className="whitespace-nowrap px-3 py-2 text-right">Total</th>
@@ -278,7 +295,7 @@ export function EggGradingPage() {
                   <th className="whitespace-nowrap px-3 py-2 text-left">Shed</th>
                   {SIZES.map((z) => (
                     <th key={z} className="whitespace-nowrap px-3 py-2 text-right">
-                      {LABEL[z]}
+                      <span className="lg:hidden">{SHORT[z]}</span><span className="hidden lg:inline">{LABEL[z]}</span>
                     </th>
                   ))}
                   <th className="whitespace-nowrap px-3 py-2 text-right">Total</th>
@@ -383,7 +400,7 @@ export function EggGradingPage() {
                   <th className="whitespace-nowrap px-3 py-2 text-left" />
                   {SIZES.map((z) => (
                     <th key={z} className="whitespace-nowrap px-3 py-2 text-right">
-                      {LABEL[z]}
+                      <span className="lg:hidden">{SHORT[z]}</span><span className="hidden lg:inline">{LABEL[z]}</span>
                     </th>
                   ))}
                   <th className="whitespace-nowrap px-3 py-2 text-right">Total</th>

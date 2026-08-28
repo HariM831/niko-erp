@@ -465,6 +465,16 @@ body {
   }
   .data-table.cols-auto th {
     white-space: normal;
+    /*
+     * Eight even columns is about forty pixels each, and these headings are set
+     * uppercase — "TOTAL" alone wants fifty. Smaller type and tighter gutters
+     * bring the words in whole rather than leaving TO… and LI… across the top
+     * of a sheet somebody has to read every evening.
+     */
+    font-size: 10px;
+  }
+  .data-table.cols-auto :is(th, td) {
+    @apply px-1;
   }
   .list-table :is(th, td).text-right {
     width: 6.75rem;
