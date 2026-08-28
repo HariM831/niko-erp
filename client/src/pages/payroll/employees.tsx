@@ -220,7 +220,7 @@ export function PayrollEmployeesPage() {
           <table className="data-table w-full">
             <thead className="table-head">
               <tr>
-                <Th>Employee</Th>
+                <Th className="col-fill">Employee</Th>
                 <Th className="col-portrait-hide">Code</Th>
                 <Th className="col-portrait-hide">Department</Th>
                 <Th>Designation / role</Th>
@@ -235,8 +235,7 @@ export function PayrollEmployeesPage() {
             <tbody>
               {paged.page.map((e) => (
                 <tr key={e.id} className="table-row cursor-pointer" onClick={() => setEditing(e.id)}>
-                  <Td>
-                    <span className="flex items-center gap-2">
+                  <Td className="col-fill"><span className="flex items-center gap-2">
                       <Avatar name={e.name} size="sm" src={e.hasPhoto ? `/api/payroll/employees/${e.id}/photo` : null} />
                       <span className="font-medium">{e.name}</span>
                       {!e.isActive && <Badge tone="gray">inactive</Badge>}

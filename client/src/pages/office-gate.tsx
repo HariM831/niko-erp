@@ -614,10 +614,6 @@ export function GateInPage() {
             />
           </div>
         </div>
-        <p className="mt-1 text-[11px] text-gray-500">
-          The tax is payable, so it is billed with the goods rather than split out — we claim no
-          input credit on it. Leave GST blank on a bill of supply, which charges none.
-        </p>
       </div>
 
       <div className="table-surface mb-4">
@@ -795,10 +791,6 @@ export function GateInPage() {
         <div className="card mb-4 p-4">
           <label className="label-required">Why is this truck being turned away? *</label>
           <input value={exitReason} onChange={(e) => setExitReason(e.target.value)} className="input" />
-          <p className="mt-1 text-[12px] text-gray-500">
-            No weights are taken and no purchase order quantity is consumed — the vendor has not
-            delivered anything.
-          </p>
         </div>
       )}
 

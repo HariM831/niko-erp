@@ -191,9 +191,6 @@ function GrossPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
       >
         Record gross → send to QC
       </button>
-      <p className="mt-2 text-[12px] text-gray-400">
-        Weighing is entry only. No truck or line is refused here.
-      </p>
     </>
   );
 }
@@ -471,10 +468,6 @@ function QcPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
       >
         Confirm QC · {acceptedCount} of {lines.length} accepted
       </button>
-      <p className="mt-2 text-[12px] text-gray-400">
-        The verdict is computed from the readings, not chosen. Rejected material stays on the truck
-        and its order quantity is consumed.
-      </p>
     </>
   );
 }
@@ -555,10 +548,6 @@ function TarePanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
             </div>
           );
         })}
-        <p className="mt-1 text-[11px] text-gray-400">
-          Counted off as the truck empties. The bill's own count is offered where it gave one —
-          change it to what actually came off.
-        </p>
       </div>
 
       <Field label="Tare weight from our platform (kg)">
@@ -682,8 +671,10 @@ export function StationPage({ station }: { station: Station }) {
   };
 
   return (
-    <div className="mx-auto max-w-4xl p-6">
-      <h1 className="text-[19px] font-semibold text-gray-900">Weighment</h1>
+    <div className="mx-auto max-w-4xl p-4 sm:p-6">
+      <div className="page-header -mx-4 mb-4 flex items-baseline justify-between gap-4 px-4 py-3 sm:-mx-6 sm:px-6">
+        <h1 className="text-[19px] font-semibold text-gray-900">Weighment</h1>
+      </div>
       <div className="mb-4 flex gap-1 border-b border-gray-200" role="tablist">
         {STATION_ORDER.map((s) => {
           const count = queues[s]?.data?.length ?? 0;

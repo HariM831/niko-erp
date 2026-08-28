@@ -515,6 +515,29 @@ body {
     white-space: normal;
     overflow-wrap: anywhere;
   }
+  /*
+   * `col-fill` only works if the columns beside it are sized. Left on auto they
+   * collapse to nothing, because a fixed table takes its widths from the header
+   * row alone — the goods receipts list has no rows yet, so "Receipt" and
+   * "Status" went to 0px the moment the vehicle column claimed the remainder.
+   *
+   * A short code (GR-00001), a status word, and a one-word action are all the
+   * same handful of characters wherever they appear, so they get a width rather
+   * than a share.
+   */
+  .list-table :is(th, td).col-code,
+  .data-table :is(th, td).col-code {
+    width: 4.75rem;
+  }
+  .list-table :is(th, td).col-status,
+  .data-table :is(th, td).col-status {
+    width: 5.25rem;
+  }
+  .list-table :is(th, td).col-action,
+  .data-table :is(th, td).col-action {
+    width: 3.25rem;
+    @apply px-1;
+  }
 }
 
 @media (orientation: portrait) and (max-width: 1023px) {

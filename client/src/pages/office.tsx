@@ -97,9 +97,6 @@ function NumberingCard() {
           </div>
         ))}
       </div>
-      <p className="mt-3 text-[12px] text-gray-500">
-        Deleting a receipt rolls this back, so test entries leave no gap.
-      </p>
     </div>
   );
 }
@@ -115,8 +112,8 @@ export function OfficeStationPage({ stationKey }: { stationKey: string }) {
   if (!station) return <div className="p-8 text-sm text-gray-500">Unknown station.</div>;
 
   return (
-    <div className="mx-auto max-w-2xl p-6">
-      <div className="mb-1 flex items-baseline justify-between gap-4">
+    <div className="mx-auto max-w-2xl p-4 sm:p-6">
+      <div className="page-header -mx-4 mb-4 flex items-baseline justify-between gap-4 px-4 py-3 sm:-mx-6 sm:px-6">
         <h1 className="text-[19px] font-semibold text-gray-900">{station.title}</h1>
         <span
           className={`text-[11px] font-semibold uppercase tracking-wide ${

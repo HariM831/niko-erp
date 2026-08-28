@@ -82,14 +82,14 @@ export function PayrollWagesPage() {
           <table className="data-table w-full">
             <thead className="table-head">
               <tr>
-                <Th>Worker</Th><Th className="col-portrait-hide">Role</Th><Th right className="col-portrait-hide">Rate/day</Th>
+                <Th className="col-fill">Worker</Th><Th className="col-portrait-hide">Role</Th><Th right className="col-portrait-hide">Rate/day</Th>
                 <Th right className="col-portrait-hide">Present</Th><Th right className="col-portrait-hide">Half</Th><Th right>Paid days</Th><Th right>Amount</Th>
               </tr>
             </thead>
             <tbody>
               {paged.page.map((r) => (
                 <tr key={r.id} className="table-row">
-                  <Td><span className="font-medium">{r.name}</span> <span className="text-[11px] text-gray-400">{r.empCode}</span></Td>
+                  <Td className="col-fill"><span className="font-medium">{r.name}</span> <span className="text-[11px] text-gray-400">{r.empCode}</span></Td>
                   <Td className="col-portrait-hide">{r.role ?? <span className="text-red-600">no role</span>}</Td>
                   <Td right className="col-portrait-hide">{formatMoney(r.dailyRate)}</Td>
                   <Td right className="col-portrait-hide">{num(r.presentDays, 1)}</Td>

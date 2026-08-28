@@ -467,9 +467,6 @@ function ReceiptEditor({
         <div className="mb-4">
           <label className="label-required">Why is it being turned away? *</label>
           <input value={exitReason} onChange={(e) => setExitReason(e.target.value)} className="input" />
-          <p className="mt-1 text-[12px] text-gray-500">
-            No weights are taken and no purchase order quantity is consumed.
-          </p>
         </div>
       ) : (
         <>
@@ -773,15 +770,15 @@ export function GoodsReceiptsPage() {
         <table className="data-table w-full text-[13px]">
           <thead className="table-head">
             <tr>
-              <th className="px-3 py-2 text-left">Receipt</th>
-              <th className="px-3 py-2 text-left">Vehicle</th>
+              <th className="col-code px-3 py-2 text-left">Receipt</th>
+              <th className="col-fill px-3 py-2 text-left">Vehicle</th>
               <th className="col-portrait-hide px-3 py-2 text-left">Vendor</th>
               <th className="col-portrait-hide px-3 py-2 text-left">Bill</th>
               <th className="col-portrait-hide px-3 py-2 text-right">Lines</th>
               <th className="col-portrait-hide px-3 py-2 text-right">Billed</th>
               <th className="col-portrait-hide px-3 py-2 text-left">Arrived</th>
-              <th className="px-3 py-2 text-left">Status</th>
-              <th className="w-20" />
+              <th className="col-status px-3 py-2 text-left">Status</th>
+              <th className="col-action w-20" />
             </tr>
           </thead>
           <tbody>
@@ -801,8 +798,8 @@ export function GoodsReceiptsPage() {
             )}
             {rows?.map((r) => (
               <tr key={r.id} className="border-b border-gray-100 hover:bg-gray-50/60">
-                <td className="px-3 py-2 font-mono text-gray-900">{r.number}</td>
-                <td className="px-3 py-2 font-medium text-gray-900">{r.vehicleNumber}</td>
+                <td className="col-code px-3 py-2 font-mono text-gray-900">{r.number}</td>
+                <td className="col-fill px-3 py-2 font-medium text-gray-900">{r.vehicleNumber}</td>
                 <td className="col-portrait-hide px-3 py-2 text-gray-600">{r.vendorName ?? "—"}</td>
                 <td className="col-portrait-hide px-3 py-2 text-gray-600">{r.vendorBillNumber ?? "—"}</td>
                 <td className="col-portrait-hide px-3 py-2 text-right tabular-nums text-gray-600">{r.lineCount}</td>
@@ -810,10 +807,10 @@ export function GoodsReceiptsPage() {
                   {kg(r.billQuantityKg)}
                 </td>
                 <td className="col-portrait-hide px-3 py-2 text-gray-500">{when(r.arrivalAt)}</td>
-                <td className="px-3 py-2">
+                <td className="col-status px-3 py-2">
                   <StatusBadge status={r.status} />
                 </td>
-                <td className="px-3 py-2 text-right">
+                <td className="col-action px-3 py-2 text-right">
                   <button
                     onClick={() => setEditing(r.id)}
                     className="text-[12px] text-brand-600 hover:underline"
@@ -826,12 +823,6 @@ export function GoodsReceiptsPage() {
           </tbody>
         </table>
       </div>
-
-      <p className="mt-3 text-[12px] text-gray-500">
-        Correcting a receipt keeps its number — a goods receipt number is quoted on the bill it
-        becomes, so it is never reissued. A receipt already settled into a bill cannot be changed
-        until that bill is voided.
-      </p>
 
       {creating && ctx && <ReceiptEditor ctx={ctx} onClose={() => setCreating(false)} />}
       {editing && ctx && (

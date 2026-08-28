@@ -243,7 +243,7 @@ export function PayrollRunPage() {
           ) : (
             <table className="w-full">
               <thead className="table-head">
-                <tr><Th>Month</Th><Th>Status</Th><Th right>Employees</Th><Th right>Gross</Th><Th right>Net</Th><Th right>Employer cost</Th><Th>Journal</Th></tr>
+                <tr><Th className="col-fill">Month</Th><Th>Status</Th><Th right className="col-portrait-hide">Employees</Th><Th right className="col-portrait-hide">Gross</Th><Th right>Net</Th><Th right className="col-portrait-hide">Employer cost</Th><Th className="col-portrait-hide">Journal</Th></tr>
               </thead>
               <tbody>
                 {(runsQ.data ?? []).map((r) => (
@@ -252,13 +252,13 @@ export function PayrollRunPage() {
                     className="table-row cursor-pointer"
                     onClick={() => { setYear(r.year); setMonth(r.month); setOpenRunId(r.id); }}
                   >
-                    <Td className="font-medium">{MONTHS_LONG[r.month - 1]} {r.year}</Td>
+                    <Td className="col-fill font-medium">{MONTHS_LONG[r.month - 1]} {r.year}</Td>
                     <Td><Badge tone={statusTone(r.status)}>{r.status}</Badge></Td>
-                    <Td right>{r.employeeCount}</Td>
-                    <Td right>{formatMoney(r.totalGross)}</Td>
+                    <Td right className="col-portrait-hide">{r.employeeCount}</Td>
+                    <Td right className="col-portrait-hide">{formatMoney(r.totalGross)}</Td>
                     <Td right>{formatMoney(r.totalNet)}</Td>
-                    <Td right>{formatMoney(r.totalEmployerCost)}</Td>
-                    <Td>{r.journalEntryNumber ?? "—"}</Td>
+                    <Td right className="col-portrait-hide">{formatMoney(r.totalEmployerCost)}</Td>
+                    <Td className="col-portrait-hide">{r.journalEntryNumber ?? "—"}</Td>
                   </tr>
                 ))}
                 {!runsQ.data?.length && <tr><Td colSpan={7}><Empty>No runs yet.</Empty></Td></tr>}

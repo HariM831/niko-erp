@@ -159,12 +159,10 @@ export function SettlementPage() {
   const needsReason = variance != null && variance > 1;
 
   return (
-    <div className="mx-auto max-w-4xl p-6">
-      <div className="mb-4 flex items-baseline justify-between">
-        <div>
-          <h1 className="text-[19px] font-semibold text-gray-900">Settlement</h1>
-          </div>
-        <span className="text-[13px] text-gray-400">{queue?.length ?? 0} pending</span>
+    <div className="mx-auto max-w-4xl p-4 sm:p-6">
+      <div className="page-header -mx-4 mb-4 flex items-baseline justify-between gap-4 px-4 py-3 sm:-mx-6 sm:px-6">
+        <h1 className="text-[19px] font-semibold text-gray-900">Settlement</h1>
+        <span className="text-[13px] text-gray-500">{queue?.length ?? 0} pending</span>
       </div>
 
       {done && (
@@ -313,13 +311,6 @@ export function SettlementPage() {
                       </div>
                     );
                   })}
-                  <p className="mt-1 text-[11px] text-gray-400">
-                    Priced amounts come from the deduction rules; quality is entered by hand and
-                    charges nothing if left blank. Change a computed one and the original figure is
-                    kept on the bill line beside it; waive one and it is not charged at all. The
-                    goods lines stay at the vendor's own figures, so their invoice still ties line
-                    for line — only the total differs, and each deduction says why.
-                  </p>
                 </div>
               )}
 
