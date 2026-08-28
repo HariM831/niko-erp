@@ -50,7 +50,7 @@ export function FeedFormulasPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-start justify-between border-b bg-white px-6 py-3">
+      <header className="page-header flex flex-wrap items-start justify-between gap-2 px-4 py-3 sm:px-6">
         <div>
           <h1 className="text-lg font-semibold">Formulas</h1>
           </div>

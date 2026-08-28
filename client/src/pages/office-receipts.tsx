@@ -742,8 +742,8 @@ export function GoodsReceiptsPage() {
   const next = numbering?.find((n) => n.isDefault) ?? numbering?.[0];
 
   return (
-    <div className="p-6">
-      <div className="mb-4 flex items-center justify-between">
+    <div className="p-4 sm:p-6">
+      <div className="page-header -mx-4 mb-4 flex flex-wrap items-center justify-between gap-2 px-4 py-3 sm:-mx-6 sm:px-6">
         <div>
           <h1 className="text-[19px] font-semibold text-gray-900">Goods Receipts</h1>
           </div>
@@ -770,16 +770,16 @@ export function GoodsReceiptsPage() {
       )}
 
       <div className="table-surface">
-        <table className="w-full text-[13px]">
+        <table className="data-table w-full text-[13px]">
           <thead className="table-head">
             <tr>
               <th className="px-3 py-2 text-left">Receipt</th>
               <th className="px-3 py-2 text-left">Vehicle</th>
-              <th className="px-3 py-2 text-left">Vendor</th>
-              <th className="px-3 py-2 text-left">Bill</th>
-              <th className="px-3 py-2 text-right">Lines</th>
-              <th className="px-3 py-2 text-right">Billed</th>
-              <th className="px-3 py-2 text-left">Arrived</th>
+              <th className="col-portrait-hide px-3 py-2 text-left">Vendor</th>
+              <th className="col-portrait-hide px-3 py-2 text-left">Bill</th>
+              <th className="col-portrait-hide px-3 py-2 text-right">Lines</th>
+              <th className="col-portrait-hide px-3 py-2 text-right">Billed</th>
+              <th className="col-portrait-hide px-3 py-2 text-left">Arrived</th>
               <th className="px-3 py-2 text-left">Status</th>
               <th className="w-20" />
             </tr>
@@ -803,13 +803,13 @@ export function GoodsReceiptsPage() {
               <tr key={r.id} className="border-b border-gray-100 hover:bg-gray-50/60">
                 <td className="px-3 py-2 font-mono text-gray-900">{r.number}</td>
                 <td className="px-3 py-2 font-medium text-gray-900">{r.vehicleNumber}</td>
-                <td className="px-3 py-2 text-gray-600">{r.vendorName ?? "—"}</td>
-                <td className="px-3 py-2 text-gray-600">{r.vendorBillNumber ?? "—"}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-gray-600">{r.lineCount}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-gray-600">
+                <td className="col-portrait-hide px-3 py-2 text-gray-600">{r.vendorName ?? "—"}</td>
+                <td className="col-portrait-hide px-3 py-2 text-gray-600">{r.vendorBillNumber ?? "—"}</td>
+                <td className="col-portrait-hide px-3 py-2 text-right tabular-nums text-gray-600">{r.lineCount}</td>
+                <td className="col-portrait-hide px-3 py-2 text-right tabular-nums text-gray-600">
                   {kg(r.billQuantityKg)}
                 </td>
-                <td className="px-3 py-2 text-gray-500">{when(r.arrivalAt)}</td>
+                <td className="col-portrait-hide px-3 py-2 text-gray-500">{when(r.arrivalAt)}</td>
                 <td className="px-3 py-2">
                   <StatusBadge status={r.status} />
                 </td>

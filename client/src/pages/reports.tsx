@@ -206,8 +206,8 @@ export function ReportsPage() {
         ))}
       </aside>
 
-      <div className="min-w-0 flex-1 overflow-y-auto bg-white px-8 py-6">
-        <div className="mb-4 flex items-center justify-between gap-6">
+      <div className="min-w-0 flex-1 overflow-y-auto bg-white px-4 py-4 sm:px-8 sm:py-6">
+        <div className="page-header -mx-4 mb-4 flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:-mx-8 sm:px-8">
           <h1 className="whitespace-nowrap text-[18px] font-semibold text-[#212529]">
             {category ?? "All Reports"}{" "}
             <span className="ml-1 text-[13px] font-normal text-gray-400">{visible.length}</span>
@@ -220,13 +220,13 @@ export function ReportsPage() {
           />
         </div>
 
-        <table className="w-full">
+        <table className="data-table w-full">
           <thead>
             <tr>
               <th className="s-th">Report Name</th>
               <th className="s-th w-56">Report Category</th>
-              <th className="s-th w-44">Created By</th>
-              <th className="s-th w-44">Last Visited</th>
+              <th className="col-portrait-hide s-th w-44">Created By</th>
+              <th className="col-portrait-hide s-th w-44">Last Visited</th>
             </tr>
           </thead>
           <tbody>
@@ -244,8 +244,8 @@ export function ReportsPage() {
                   </button>
                 </td>
                 <td className="s-td text-gray-600">{r.category}</td>
-                <td className="s-td text-gray-500">System Generated</td>
-                <td className="s-td text-gray-500">{visitedLabel(visited[r.key])}</td>
+                <td className="col-portrait-hide s-td text-gray-500">System Generated</td>
+                <td className="col-portrait-hide s-td text-gray-500">{visitedLabel(visited[r.key])}</td>
               </tr>
             ))}
             {visible.length === 0 && (
@@ -363,7 +363,7 @@ export function ReportViewPage({ reportKey }: { reportKey: string }) {
 
   return (
     <div className="flex h-full flex-col bg-[#f4f4f9]">
-      <header className="bg-white px-6 py-2.5">
+      <header className="page-header px-4 py-2.5 sm:px-6">
         <div className="text-[12px] font-medium text-[#4c526c]">{def.category}</div>
         <div className="flex items-baseline gap-2">
           <h1 className="text-[18px] font-semibold text-[#212529]">{def.label}</h1>
