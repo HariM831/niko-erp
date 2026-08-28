@@ -224,7 +224,7 @@ export function ReportsPage() {
           <thead>
             <tr>
               <th className="s-th">Report Name</th>
-              <th className="s-th w-56">Report Category</th>
+              <th className="col-portrait-hide s-th w-56">Report Category</th>
               <th className="col-portrait-hide s-th w-44">Created By</th>
               <th className="col-portrait-hide s-th w-44">Last Visited</th>
             </tr>
@@ -243,7 +243,7 @@ export function ReportsPage() {
                     {r.label}
                   </button>
                 </td>
-                <td className="s-td text-gray-600">{r.category}</td>
+                <td className="col-portrait-hide s-td text-gray-600">{r.category}</td>
                 <td className="col-portrait-hide s-td text-gray-500">System Generated</td>
                 <td className="col-portrait-hide s-td text-gray-500">{visitedLabel(visited[r.key])}</td>
               </tr>
