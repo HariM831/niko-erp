@@ -1037,7 +1037,7 @@ function PurchasesByVendor({ data }: { data: Record<string, unknown> }) {
             <th className={`col-portrait-hide ${HEAD_CELL} w-28 text-right`}>Expense Count</th>
             <th className={`col-portrait-hide ${HEAD_CELL} w-24 text-right`}>Bill Count</th>
             <th className={`col-portrait-hide ${HEAD_CELL} w-28 text-right`}>Vendor Credit Count</th>
-            <th className={`${HEAD_CELL} w-36 text-right`}>Amount</th>
+            <th className={`col-portrait-hide ${HEAD_CELL} w-36 text-right`}>Amount</th>
             <th className={`${HEAD_CELL} w-36 text-right`}>Amount with Tax</th>
           </tr>
         </thead>
@@ -1061,7 +1061,7 @@ function PurchasesByVendor({ data }: { data: Record<string, unknown> }) {
               <td className="col-portrait-hide px-2 py-2 text-right tabular-nums">{r.expenseCount}</td>
               <td className="col-portrait-hide px-2 py-2 text-right tabular-nums">{r.billCount}</td>
               <td className="col-portrait-hide px-2 py-2 text-right tabular-nums">{r.vendorCreditCount}</td>
-              <td className="px-2 py-2 text-right tabular-nums">{num(r.amount)}</td>
+              <td className="col-portrait-hide px-2 py-2 text-right tabular-nums">{num(r.amount)}</td>
               <td className="px-2 py-2 text-right tabular-nums">{num(r.amountWithTax)}</td>
             </tr>
           ))}
@@ -1074,7 +1074,7 @@ function PurchasesByVendor({ data }: { data: Record<string, unknown> }) {
             <td className="col-portrait-hide px-2 py-2.5 text-right tabular-nums">
               {data.totalVendorCreditCount as number}
             </td>
-            <td className="px-2 py-2.5 text-right tabular-nums">{num(data.totalAmount as string)}</td>
+            <td className="col-portrait-hide px-2 py-2.5 text-right tabular-nums">{num(data.totalAmount as string)}</td>
             <td className="px-2 py-2.5 text-right tabular-nums">
               {num(data.totalAmountWithTax as string)}
             </td>
