@@ -18,6 +18,7 @@ interface ContactRow {
   companyName?: string;
   email?: string;
   phone?: string;
+  mobile?: string;
   gstin?: string;
   gstTreatment?: string;
   outstanding: string;
@@ -33,9 +34,11 @@ const contactColumns = (balanceHeader: string) => [
       <span className="font-medium text-brand-600">{r.displayName}</span>
     ),
   },
-  { key: "company", header: "Company Name", portrait: true, render: (r: ContactRow) => r.companyName ?? "—" },
+  { key: "company", header: "Company Name", render: (r: ContactRow) => r.companyName ?? "—" },
   { key: "email", header: "Email", render: (r: ContactRow) => r.email ?? "—" },
-  { key: "phone", header: "Work Phone", portrait: true, render: (r: ContactRow) => r.phone ?? "—" },
+  // Falls back to mobile: 124 of 441 vendors have one against 26 with a work
+  // number, so the column is five times more use for the same width.
+  { key: "phone", header: "Work Phone", render: (r: ContactRow) => r.phone || r.mobile || "—" },
   {
     key: "gstt",
     header: "GST Treatment",
@@ -47,6 +50,17 @@ const contactColumns = (balanceHeader: string) => [
     key: "outstanding",
     header: balanceHeader,
     align: "right" as const,
+    /*
+     * The second column on a phone, because it is the only other thing about a
+     * vendor that is always present and always wanted.
+     *
+     * Company Name went: it differs from the display name for 6 of 441 vendors,
+     * so it was the same word twice down the whole screen. Work Phone went too —
+     * 26 of 441 have one, so it was a column of dashes. Asking for a phone
+     * number was reasonable; the books just do not hold them, and a column blank
+     * 94% of the time is worse than no column at all.
+     */
+    portrait: true,
     render: (r: ContactRow) => <span className="tabular-nums">{formatMoney(r.outstanding)}</span>,
   },
 ];
@@ -219,6 +233,7 @@ export const ItemsPage = () => (
       },
       {
         key: "stock",
+        portrait: true,
         header: "Stock on Hand",
         align: "right",
         render: (r) => (r.trackInventory ? Number(r.openingStock ?? 0) : "—"),
