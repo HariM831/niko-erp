@@ -204,7 +204,52 @@ contactsRouter.get("/", requirePermission("sales", "view"), async (req, res) => 
   for (const r of receivables) outstandingByContact.set(r.customerId, r.total);
   for (const r of payables) outstandingByContact.set(r.vendorId, r.total);
 
-  res.json(rows.map((r) => ({ ...r, outstanding: outstandingByContact.get(r.id) ?? "0.00" })));
+  /**
+   * The person you actually ring, which is not a column on `contacts`.
+   *
+   * It lives one table over and the list has never shown it, so "who do I call
+   * about this" meant opening the vendor. The primary one wins, and failing that
+   * the first on file; a vendor with several still has them all on its own page.
+   *
+   * Their number is worth carrying for the same reason the contact's own is
+   * thin: of 441 vendors, 26 have a work phone, 124 a mobile, and 41 contact
+   * persons have a number of their own. Any single field is mostly blank;
+   * together they make a column worth its width.
+   */
+  const persons = rows.length
+    ? await db
+        .select({
+          contactId: contactPersons.contactId,
+          firstName: contactPersons.firstName,
+          lastName: contactPersons.lastName,
+          phone: contactPersons.phone,
+          isPrimary: contactPersons.isPrimary,
+        })
+        .from(contactPersons)
+        .where(
+          inArray(
+            contactPersons.contactId,
+            rows.map((r) => r.id),
+          ),
+        )
+    : [];
+  const personByContact = new Map<string, (typeof persons)[number]>();
+  for (const p of persons) {
+    const held = personByContact.get(p.contactId);
+    if (!held || (p.isPrimary && !held.isPrimary)) personByContact.set(p.contactId, p);
+  }
+
+  res.json(
+    rows.map((r) => {
+      const p = personByContact.get(r.id);
+      return {
+        ...r,
+        outstanding: outstandingByContact.get(r.id) ?? "0.00",
+        contactPersonName: p ? [p.firstName, p.lastName].filter(Boolean).join(" ") : null,
+        contactPersonPhone: p?.phone ?? null,
+      };
+    }),
+  );
 });
 
 contactsRouter.get("/:id", requirePermission("sales", "view"), async (req, res) => {

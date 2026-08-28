@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useLocation, useSearch } from "wouter";
+import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, formatMoney } from "../api";
 import { PendingAttachments, uploadPending } from "./pending-attachments";
@@ -101,7 +101,6 @@ export interface TransactionFormConfig {
 /** Books-style transaction entry: header, line-item grid, totals panel. Handles create and edit. */
 export function TransactionForm({ config, editId }: { config: TransactionFormConfig; editId?: string }) {
   const [, navigate] = useLocation();
-  const uploadFirst = new URLSearchParams(useSearch()).get("upload") === "1";
   const qc = useQueryClient();
   const [contactId, setContactId] = useState("");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
@@ -377,15 +376,6 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
       </header>
 
       <div className="flex-1 overflow-y-auto p-6">
-        {uploadFirst && (
-          <div className="mb-5 max-w-3xl rounded-xl border border-brand-200 bg-brand-50/50 p-4">
-            <h2 className="mb-1 text-sm font-semibold">Upload the vendor&apos;s bill</h2>
-            <p className="mb-3 text-xs text-gray-600">
-              Attach the scan or PDF, then key in the details below. The file stays on the bill for your records.
-            </p>
-            <PendingAttachments files={pendingFiles} onChange={setPendingFiles} label="Upload Bill File(s)" />
-          </div>
-        )}
 
         <div className="mb-5 grid max-w-3xl grid-cols-3 gap-4">
           <div className="col-span-2">
@@ -637,13 +627,11 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
               <label className="label">Notes</label>
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className={inputCls} />
             </div>
-            {!uploadFirst && (
-              <PendingAttachments
-                files={pendingFiles}
-                onChange={setPendingFiles}
-                label={`Attach File(s) to ${config.title.replace("New ", "")}`}
-              />
-            )}
+            <PendingAttachments
+              files={pendingFiles}
+              onChange={setPendingFiles}
+              label={`Attach File(s) to ${config.title.replace("New ", "")}`}
+            />
           </div>
           <div className="w-80 rounded-xl border border-gray-200/80 bg-gray-50/80 p-5 text-[13px] shadow-[0_1px_3px_rgba(16,24,40,0.05)]">
             <div className="mb-1.5 flex justify-between">

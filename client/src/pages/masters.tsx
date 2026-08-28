@@ -19,6 +19,8 @@ interface ContactRow {
   email?: string;
   phone?: string;
   mobile?: string;
+  contactPersonName?: string | null;
+  contactPersonPhone?: string | null;
   gstin?: string;
   gstTreatment?: string;
   outstanding: string;
@@ -34,11 +36,28 @@ const contactColumns = (balanceHeader: string) => [
       <span className="font-medium text-brand-600">{r.displayName}</span>
     ),
   },
+  {
+    key: "contact",
+    header: "Contact Person",
+    portrait: true,
+    render: (r: ContactRow) => <span className="text-gray-800">{r.contactPersonName || "—"}</span>,
+  },
+  {
+    key: "phone",
+    header: "Phone",
+    portrait: true,
+    /*
+     * Three sources, because no single one is populated enough to be a column.
+     * Of 441 vendors: 124 carry a mobile, 41 have a contact person with a number
+     * of their own, and 26 have a work phone. Mobile first — it is both the
+     * best-covered and the one that gets answered.
+     */
+    render: (r: ContactRow) => (
+      <span className="tabular-nums">{r.mobile || r.contactPersonPhone || r.phone || "—"}</span>
+    ),
+  },
   { key: "company", header: "Company Name", render: (r: ContactRow) => r.companyName ?? "—" },
   { key: "email", header: "Email", render: (r: ContactRow) => r.email ?? "—" },
-  // Falls back to mobile: 124 of 441 vendors have one against 26 with a work
-  // number, so the column is five times more use for the same width.
-  { key: "phone", header: "Work Phone", render: (r: ContactRow) => r.phone || r.mobile || "—" },
   {
     key: "gstt",
     header: "GST Treatment",
@@ -50,17 +69,6 @@ const contactColumns = (balanceHeader: string) => [
     key: "outstanding",
     header: balanceHeader,
     align: "right" as const,
-    /*
-     * The second column on a phone, because it is the only other thing about a
-     * vendor that is always present and always wanted.
-     *
-     * Company Name went: it differs from the display name for 6 of 441 vendors,
-     * so it was the same word twice down the whole screen. Work Phone went too —
-     * 26 of 441 have one, so it was a column of dashes. Asking for a phone
-     * number was reasonable; the books just do not hold them, and a column blank
-     * 94% of the time is worse than no column at all.
-     */
-    portrait: true,
     render: (r: ContactRow) => <span className="tabular-nums">{formatMoney(r.outstanding)}</span>,
   },
 ];

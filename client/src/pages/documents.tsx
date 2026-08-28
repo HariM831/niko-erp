@@ -523,11 +523,6 @@ export const BillsPage = () => {
           rowPath={(r) => `/purchases/bills/${r.id}`}
           columns={BILL_COLUMNS}
           banner={<PaymentSummaryBanner endpoint="/api/purchases/bills/summary" side="payable" />}
-          extraActions={
-            <button onClick={() => navigate("/purchases/bills/new?upload=1")} className="btn-secondary">
-              Upload Bill
-            </button>
-          }
         />
       </div>
     </div>
