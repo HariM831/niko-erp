@@ -105,11 +105,10 @@ export function VendorSheetPage() {
       return next;
     });
 
-  const missingBank = rows.filter((r) => !hasBank(r) && !r.sentBatchId);
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between bg-white px-5 py-3">
+      <header className="page-header flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 sm:px-5 sm:py-3">
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-semibold text-gray-800">Vendor Sheet</h1>
           <div className="flex rounded-md border border-gray-200 p-0.5 text-[12px]">
@@ -162,16 +161,6 @@ export function VendorSheetPage() {
         ]}
       />
 
-      {missingBank.length > 0 && (
-        <div className="border-b border-amber-200 bg-amber-50 px-5 py-2 text-[12.5px] text-amber-800">
-          {missingBank.length === 1 ? "One payable is" : `${missingBank.length} payables are`} owed
-          to {[...new Set(missingBank.map((r) => r.vendorName))].join(", ")}, who
-          {missingBank.length === 1 ? " has" : " have"} no bank details on file. Add the
-          beneficiary name, account number and IFSC on the vendor to include{" "}
-          {missingBank.length === 1 ? "it" : "them"}.
-        </div>
-      )}
-
       <div className="flex-1 overflow-auto">
         {isLoading ? (
           <div className="p-8 text-center text-sm text-gray-500">Loading…</div>
@@ -184,7 +173,7 @@ export function VendorSheetPage() {
             {showSent ? "Nothing has been sent to the bank yet." : "Nothing is unpaid."}
           </div>
         ) : (
-          <table className="w-full border-separate border-spacing-0 text-[13px]">
+          <table className="list-table w-full border-separate border-spacing-0 text-[13px]">
             <thead className="table-head sticky top-0 z-10">
               <tr>
                 <th className="w-9 border-b border-[#ece3d5] px-3 py-2">
@@ -197,13 +186,13 @@ export function VendorSheetPage() {
                   />
                 </th>
                 <th className="border-b border-[#ece3d5] px-3 py-2 font-semibold">Vendor</th>
-                <th className="border-b border-[#ece3d5] px-3 py-2 font-semibold">Item &amp; Desc</th>
+                <th className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">Item &amp; Desc</th>
                 <th className="border-b border-[#ece3d5] px-3 py-2 text-right font-semibold">Amount</th>
-                <th className="border-b border-[#ece3d5] px-3 py-2 font-semibold">Bill No</th>
-                <th className="border-b border-[#ece3d5] px-3 py-2 font-semibold">Delivery Date</th>
-                <th className="border-b border-[#ece3d5] px-3 py-2 font-semibold">Due Date</th>
+                <th className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">Bill No</th>
+                <th className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">Delivery Date</th>
+                <th className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">Due Date</th>
                 <th className="border-b border-[#ece3d5] px-3 py-2 text-right font-semibold">Overdue Days</th>
-                <th className="border-b border-[#ece3d5] px-3 py-2 font-semibold">Notes</th>
+                <th className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">Notes</th>
               </tr>
             </thead>
             <tbody>
@@ -249,7 +238,7 @@ export function VendorSheetPage() {
                         </div>
                       )}
                     </td>
-                    <td className="max-w-xs border-b border-[#ece3d5] px-3 py-2">
+                    <td className="col-portrait-hide max-w-xs border-b border-[#ece3d5] px-3 py-2">
                       <div className="truncate text-gray-700" title={r.description ?? ""}>
                         {r.description || "—"}
                       </div>
@@ -257,13 +246,13 @@ export function VendorSheetPage() {
                     <td className="border-b border-[#ece3d5] px-3 py-2 text-right tabular-nums">
                       {formatMoney(r.amount)}
                     </td>
-                    <td className="border-b border-[#ece3d5] px-3 py-2 text-gray-600">
+                    <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 text-gray-600">
                       {r.billNumber}
                     </td>
-                    <td className="border-b border-[#ece3d5] px-3 py-2">
+                    <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2">
                       {shortDate(r.deliveryDate)}
                     </td>
-                    <td className="border-b border-[#ece3d5] px-3 py-2">{shortDate(r.dueDate)}</td>
+                    <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2">{shortDate(r.dueDate)}</td>
                     <td className="border-b border-[#ece3d5] px-3 py-2 text-right tabular-nums">
                       {r.overdueDays > 0 ? (
                         <span className="text-red-600">{r.overdueDays}</span>
@@ -271,7 +260,7 @@ export function VendorSheetPage() {
                         <span className="text-gray-400">—</span>
                       )}
                     </td>
-                    <td className="max-w-[16rem] border-b border-[#ece3d5] px-3 py-2 text-gray-600">
+                    <td className="col-portrait-hide max-w-[16rem] border-b border-[#ece3d5] px-3 py-2 text-gray-600">
                       <div className="truncate" title={r.notes ?? ""}>
                         {r.notes || "—"}
                       </div>
