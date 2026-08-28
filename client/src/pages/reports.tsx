@@ -1034,9 +1034,9 @@ function PurchasesByVendor({ data }: { data: Record<string, unknown> }) {
         <thead>
           <tr>
             <th className={`${HEAD_CELL} pl-5 text-left`}>Vendor Name</th>
-            <th className={`${HEAD_CELL} w-28 text-right`}>Expense Count</th>
-            <th className={`${HEAD_CELL} w-24 text-right`}>Bill Count</th>
-            <th className={`${HEAD_CELL} w-28 text-right`}>Vendor Credit Count</th>
+            <th className={`col-portrait-hide ${HEAD_CELL} w-28 text-right`}>Expense Count</th>
+            <th className={`col-portrait-hide ${HEAD_CELL} w-24 text-right`}>Bill Count</th>
+            <th className={`col-portrait-hide ${HEAD_CELL} w-28 text-right`}>Vendor Credit Count</th>
             <th className={`${HEAD_CELL} w-36 text-right`}>Amount</th>
             <th className={`${HEAD_CELL} w-36 text-right`}>Amount with Tax</th>
           </tr>
@@ -1058,20 +1058,20 @@ function PurchasesByVendor({ data }: { data: Record<string, unknown> }) {
                   <span title="Expenses recorded without a vendor">Others</span>
                 )}
               </td>
-              <td className="px-2 py-2 text-right tabular-nums">{r.expenseCount}</td>
-              <td className="px-2 py-2 text-right tabular-nums">{r.billCount}</td>
-              <td className="px-2 py-2 text-right tabular-nums">{r.vendorCreditCount}</td>
+              <td className="col-portrait-hide px-2 py-2 text-right tabular-nums">{r.expenseCount}</td>
+              <td className="col-portrait-hide px-2 py-2 text-right tabular-nums">{r.billCount}</td>
+              <td className="col-portrait-hide px-2 py-2 text-right tabular-nums">{r.vendorCreditCount}</td>
               <td className="px-2 py-2 text-right tabular-nums">{num(r.amount)}</td>
               <td className="px-2 py-2 text-right tabular-nums">{num(r.amountWithTax)}</td>
             </tr>
           ))}
           <tr className="border-t-[0.7px] border-[#eee] font-bold">
             <td className="px-2 py-2.5 pl-5">Total</td>
-            <td className="px-2 py-2.5 text-right tabular-nums">
+            <td className="col-portrait-hide px-2 py-2.5 text-right tabular-nums">
               {data.totalExpenseCount as number}
             </td>
-            <td className="px-2 py-2.5 text-right tabular-nums">{data.totalBillCount as number}</td>
-            <td className="px-2 py-2.5 text-right tabular-nums">
+            <td className="col-portrait-hide px-2 py-2.5 text-right tabular-nums">{data.totalBillCount as number}</td>
+            <td className="col-portrait-hide px-2 py-2.5 text-right tabular-nums">
               {data.totalVendorCreditCount as number}
             </td>
             <td className="px-2 py-2.5 text-right tabular-nums">{num(data.totalAmount as string)}</td>
