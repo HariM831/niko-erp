@@ -424,12 +424,17 @@ body {
       .col-description,
       .col-notes,
       .col-name,
+      .col-company,
+      .col-email,
       .col-item,
       .col-account,
       .col-head,
       .col-reference,
       .col-narration,
-      .col-address
+      .col-address,
+      .col-paidThrough,
+      .col-particulars,
+      .col-remarks
     ) {
     max-width: 5.5rem;
   }
