@@ -336,7 +336,7 @@ export function EggGradingPage() {
                   );
                 })}
                 <tr className="border-t border-soil-100 bg-soil-50 font-semibold">
-                  <td className="px-3 py-2">Counted</td>
+                  <td className="col-fill px-3 py-2">Counted</td>
                   {SIZES.map((z) => {
                     const v = Object.values(closingDraft).reduce((a, r) => a + (Number(r[z]) || 0), 0);
                     return (
