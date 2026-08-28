@@ -55,7 +55,6 @@ export function JournalSection({
           Journal
         </span>
       </div>
-      <p className="mb-2 text-xs text-gray-400">Amount is displayed in your base currency INR</p>
       <h3 className="mb-1 text-sm font-semibold">
         {heading} — <Link href={`/accountant/journals/${data.id}`} className="text-brand-600 hover:underline">{data.entryNumber}</Link>
       </h3>

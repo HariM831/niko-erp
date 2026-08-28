@@ -1182,12 +1182,6 @@ function ExpenseByCategory({ data }: { data: Record<string, unknown> }) {
           </tr>
         </tbody>
       </table>
-      {categories.some((c) => c.percentOfTotal === null) && (
-        <p className="mt-4 text-[12px] text-gray-500">
-          A share is only shown when the period's total expense is positive — a credit balance would
-          otherwise print a percentage that reads as nonsense.
-        </p>
-      )}
     </Sheet>
   );
 }
@@ -1407,10 +1401,6 @@ function LegacyBody({ reportKey, data }: { reportKey: string; data: Record<strin
               })}
             </tbody>
           </table>
-          <p className="mt-4 text-[12px] text-gray-500">
-            Only tagged amounts appear here. A cost with no tag is still in the P&amp;L but belongs
-            to no option, so these totals are not expected to reconcile to it.
-          </p>
         </Sheet>
       );
     }

@@ -502,11 +502,6 @@ export function DeductionRulesSection() {
                     </select>
                   </div>
                 </div>
-                <p className="mb-3 text-[11px] text-gray-400">
-                  Per truck means one allowance for the whole trip, however many materials are aboard —
-                  which is what a weight shortage is. Everything measured in a lab is per material.
-                </p>
-
                 {overlaps.length > 0 && (
                   <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
                     Only one rule per reading is ever applied, and the narrower one wins. This overlaps{" "}
@@ -598,14 +593,6 @@ export function DeductionRulesSection() {
                   </div>
                 </div>
               </div>
-
-              {draft.id && (
-                <p className="mt-3 px-1 text-[11px] text-gray-400">
-                  Saving retires this version and raises the next. Credit notes already issued are
-                  untouched — each one carries its own arithmetic in writing, so a past deduction stays
-                  explicable whatever happens to the rule that made it.
-                </p>
-              )}
 
               {rules && draft.parameter && (
                 <div className="card mt-4 p-5">

@@ -468,12 +468,6 @@ export function ShedConditionsPage() {
               </LineChart>
             </Panel>
           </div>
-
-          <p className="mt-4 text-[11px] text-muted-foreground">
-            Readings are five minutes apart for the first week and thin with age — a quarter of an
-            hour to two months, an hour beyond that. Nothing here is the daily sheet; the two are
-            kept separate on purpose.
-          </p>
         </>
       )}
     </div>

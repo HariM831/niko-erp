@@ -157,8 +157,6 @@ function PreferencesShell({ only }: { only: Module }) {
 
   return (
     <div>
-      {/* The module page owns the title; this only carries the description. */}
-      <p className="mb-5 max-w-3xl text-[13px] text-gray-500">{TITLES[only].description}</p>
       {error && <Banner tone="error">{error}</Banner>}
       {saved && <Banner tone="success">Saved.</Banner>}
 

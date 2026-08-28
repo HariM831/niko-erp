@@ -671,7 +671,7 @@ function ExceptionsTab() {
     <div>
       <ErrorBanner message={err} onClose={() => setErr(null)} />
       <p className="mb-3 text-[13px] text-gray-500">
-        Workers who punched in but never out. Until fixed, the day counts as a half day. Enter the real out time, or set the day directly.
+        Workers who punched in but never out. Enter the real out time, or set the day directly.
       </p>
       <div className="table-surface">
         {openQ.isLoading ? (

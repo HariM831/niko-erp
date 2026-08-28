@@ -145,11 +145,12 @@ export function EggBenchmarkPage() {
             {/* ── Set ── */}
             <div className="table-surface p-4">
               <div className="mb-1 text-sm font-medium">Set the rate</div>
-              <p className="mb-3 text-xs text-muted-foreground">
-                Usually tomorrow's, set this evening. Setting a day again corrects it.
-                {current &&
-                  ` In force now: ₹${Number(current.ratePerEgg).toFixed(2)} (₹${(Number(current.ratePerEgg) * eggsPerBox).toFixed(0)}/box of ${eggsPerBox}).`}
-              </p>
+              {current && (
+                <p className="mb-3 text-xs text-muted-foreground">
+                  In force now: ₹{Number(current.ratePerEgg).toFixed(2)} (₹
+                  {(Number(current.ratePerEgg) * eggsPerBox).toFixed(0)}/box of {eggsPerBox}).
+                </p>
+              )}
               <div className="flex items-end gap-2">
                 <div>
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">For</label>
@@ -187,11 +188,6 @@ export function EggBenchmarkPage() {
             {/* ── Size differentials ── */}
             <div className="table-surface p-4">
               <div className="mb-1 text-sm font-medium">Size differentials</div>
-              <p className="mb-3 text-xs text-muted-foreground">
-                ₹/egg added to (or taken off) the benchmark per size. A market setting, not a customer
-                one — customers have their spread on the agreement. Effective from today; never reaches
-                back.
-              </p>
               <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
                 {SIZES.map((s) => (
                   <div key={s}>

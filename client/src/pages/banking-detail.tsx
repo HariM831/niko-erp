@@ -286,21 +286,18 @@ function BankSummaryChart({ rows }: { rows: RegisterRow[] }) {
 function ActivityCard({
   icon,
   title,
-  description,
   action,
 }: {
   icon: React.ReactNode;
   title: string;
-  description: string;
   action: React.ReactNode;
 }) {
   return (
     <div className="card flex flex-col p-4">
-      <div className="mb-2 flex items-center gap-2 text-[13px] font-semibold">
+      <div className="mb-2 flex flex-1 items-center gap-2 text-[13px] font-semibold">
         <span className="text-gray-400">{icon}</span>
         {title}
       </div>
-      <p className="mb-3 flex-1 text-xs leading-relaxed text-gray-500">{description}</p>
       {action}
     </div>
   );
@@ -325,7 +322,6 @@ function DashboardTab({
           <ActivityCard
             icon={<UploadCloud size={16} />}
             title="Last Manual Import"
-            description="You can import bank statements of your accounts manually. Your recent import details will be displayed here."
             action={
               <button onClick={onImportStatement} className="text-left text-[13px] font-medium text-brand-600 hover:underline">
                 Import Statement
@@ -335,13 +331,11 @@ function DashboardTab({
           <ActivityCard
             icon={<Landmark size={16} />}
             title="Last Reconciliation"
-            description="You can reconcile your transactions to ensure that the transactions in Zoho Books match the transactions in your bank statement."
             action={<span className="text-[13px] text-gray-400">Initiate Reconciliation</span>}
           />
           <ActivityCard
             icon={<SlidersHorizontal size={16} />}
             title="Transaction Rules"
-            description="You can identify and categorise your bank transactions based on the criteria you set."
             action={<span className="text-[13px] text-gray-400">+ New Rule</span>}
           />
         </div>
@@ -1256,11 +1250,6 @@ export function BankAccountNewPage({ editId }: { editId?: string }) {
             </p>
           </div>
         </div>
-        {!editId && (
-          <p className="mt-3 max-w-xl text-xs text-gray-500">
-            A ledger account is created automatically under Cash &amp; Bank for this account.
-          </p>
-        )}
         {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
       </div>
       <footer className="flex items-center gap-2 border-t bg-white px-6 py-3">

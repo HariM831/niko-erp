@@ -240,10 +240,6 @@ export function FeedProductionPage() {
                 {produce.isPending ? "Producing…" : "Produce"}
               </button>
             </div>
-            <p className="mt-2 text-[11px] text-gray-400">
-              Costed at each material's current price plus the milling overhead, capitalised into
-              Feed Stock. A wrong run is voided — reversed on the ledger, not erased from it.
-            </p>
           </div>
 
           {byDay.map(({ day, rows: dayRows, totalKg, totalValue }) => (

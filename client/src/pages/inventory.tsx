@@ -176,11 +176,7 @@ export function StockPage() {
           ))}
         </div>
 
-        <p className="mb-4 max-w-3xl text-[13px] text-gray-500">
-          {meta?.hint ? `${meta.hint}. ` : ""}In and out are what moved between the dates; closing
-          is what was on hand at the end of {formatDate(to)}. Never a stored number, so it cannot
-          drift from the transactions behind it.
-        </p>
+        {meta?.hint && <p className="mb-4 max-w-3xl text-[13px] text-gray-500">{meta.hint}.</p>}
 
         <table className="data-table w-full text-[13px]">
           <thead className="table-head">
@@ -470,12 +466,6 @@ export function InventoryAdjustmentNewPage() {
             />
           </div>
         </div>
-
-        <p className="mb-3 max-w-3xl text-[13px] text-gray-500">
-          {mode === "quantity"
-            ? "Enter the change, not the new total — a negative quantity reduces stock. Value is what posts to the ledger."
-            : "Value-only revalues stock without moving quantity."}
-        </p>
 
         <table className="mb-3 w-full max-w-4xl text-[13px]">
           <thead className="table-head">

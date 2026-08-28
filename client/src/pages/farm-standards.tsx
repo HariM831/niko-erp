@@ -440,10 +440,6 @@ function CurveDialog({
               {set.breedName} — {set.name}{" "}
               <span className="font-normal text-gray-400">v{set.version}</span>
             </h2>
-            <p className="mt-0.5 text-[12px] text-gray-500">
-              The breeder's curve, week by week. Blank means not published, not
-              zero.
-            </p>
           </div>
           <button onClick={onClose} className="btn-ghost">
             Close

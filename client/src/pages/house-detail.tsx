@@ -1014,11 +1014,11 @@ export function HouseDetailPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__all__" data-testid="select-batch-all">
-                      All Batches ({batchesWithCounts.reduce((s, b) => s + Math.max(0, b.currentBirds), 0).toLocaleString()} birds)
+                      All Batches ({batchesWithCounts.reduce((s, b) => s + Math.max(0, b.currentBirds), 0).toLocaleString("en-IN")} birds)
                     </SelectItem>
                     {batchesWithCounts.map(b => (
                       <SelectItem key={b.batchNumber} value={b.batchNumber} data-testid={`select-batch-${b.batchNumber}`}>
-                        {b.batchNumber} ({b.currentBirds > 0 ? `${b.currentBirds.toLocaleString()} birds` : 'Empty'})
+                        {b.batchNumber} ({b.currentBirds > 0 ? `${b.currentBirds.toLocaleString("en-IN")} birds` : 'Empty'})
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1079,7 +1079,7 @@ export function HouseDetailPage() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
               <KpiCard
                 label="Opening"
-                value={totalOpeningStock.toLocaleString()}
+                value={totalOpeningStock.toLocaleString("en-IN")}
                 icon={Bird}
                 accent="bg-yolk-500"
                 className="rounded-2xl shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]"
@@ -1087,7 +1087,7 @@ export function HouseDetailPage() {
               />
               <KpiCard
                 label="Current"
-                value={closingStock.toLocaleString()}
+                value={closingStock.toLocaleString("en-IN")}
                 icon={Check}
                 accent="bg-soil-600"
                 className="rounded-2xl shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]"
@@ -1095,7 +1095,7 @@ export function HouseDetailPage() {
               />
               <KpiCard
                 label="Total Mortality"
-                value={filteredRecords.reduce((sum, r) => sum + (r.mortality || 0), 0).toLocaleString()}
+                value={filteredRecords.reduce((sum, r) => sum + (r.mortality || 0), 0).toLocaleString("en-IN")}
                 icon={AlertTriangle}
                 accent="bg-destructive"
                 className="rounded-2xl shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]"
@@ -1473,8 +1473,8 @@ export function HouseDetailPage() {
                               </div>
                             </div>
                             <div className="text-sm bg-soil-50 p-2 rounded flex justify-between">
-                              <span>Opening: <strong>{formOpeningBirds.toLocaleString()}</strong></span>
-                              <span>Closing: <strong className={formClosingBirds < 0 ? 'text-destructive' : 'text-success'}>{formClosingBirds.toLocaleString()}</strong></span>
+                              <span>Opening: <strong>{formOpeningBirds.toLocaleString("en-IN")}</strong></span>
+                              <span>Closing: <strong className={formClosingBirds < 0 ? 'text-destructive' : 'text-success'}>{formClosingBirds.toLocaleString("en-IN")}</strong></span>
                             </div>
                           </div>
 
@@ -1704,7 +1704,7 @@ export function HouseDetailPage() {
                                 </div>
                                 <div className="text-info">
                                   <Droplets className="w-3 h-3 inline mr-1" />
-                                  {waterMlPerBird.toLocaleString()} ml
+                                  {waterMlPerBird.toLocaleString("en-IN")} ml
                                   {weekStd?.waterMlPerBird && (
                                     <span className={`text-xs ml-1 ${waterMlPerBird >= (weekStd.waterMlPerBird * 0.9) && waterMlPerBird <= (weekStd.waterMlPerBird * 1.1) ? 'text-success' : 'text-destructive'}`}>
                                       ({weekStd.waterMlPerBird})
@@ -2045,7 +2045,7 @@ export function HouseDetailPage() {
                             if (!birdsRaw || birdsNum < 1 || !Number.isInteger(birdsNum)) 
                               errors.push("Birds vaccinated must be a whole number of at least 1");
                             if (birdsRaw && birdsNum > maxBirds) 
-                              errors.push(`Birds vaccinated cannot exceed current count (${maxBirds.toLocaleString()})`);
+                              errors.push(`Birds vaccinated cannot exceed current count (${maxBirds.toLocaleString("en-IN")})`);
                             if (vaccinatorRaw && (!Number.isInteger(vaccinatorNum) || vaccinatorNum < 0)) 
                               errors.push("Vaccinator count must be a whole number (0 or more)");
                             if (laboursRaw && (!Number.isInteger(laboursNum) || laboursNum < 0)) 
@@ -2120,7 +2120,7 @@ export function HouseDetailPage() {
                                   <td className="py-3 px-2 font-medium">{record.vaccineName}</td>
                                   <td className="py-3 px-2">{record.batchNumber || '-'}</td>
                                   <td className="py-3 px-2">{record.make || '-'}</td>
-                                  <td className="py-3 px-2 text-right tabular-nums">{record.birdsVaccinated?.toLocaleString() || '-'}</td>
+                                  <td className="py-3 px-2 text-right tabular-nums">{record.birdsVaccinated?.toLocaleString("en-IN") || '-'}</td>
                                   {isAdmin && (
                                     <td className="py-3 px-2 text-right">
                                       <div className="flex items-center justify-end gap-1">
@@ -2173,11 +2173,6 @@ export function HouseDetailPage() {
                   <CardHeader className="flex flex-row items-start justify-between gap-3">
                     <div>
                     <CardTitle>Bird Batches</CardTitle>
-                    <p className="text-sm text-muted-foreground">
-                      What this house has held. A batch keeps its own record across every shed it
-                      lives in — open it to see the whole life, and to record hatches, transfers or
-                      culling.
-                    </p>
                     </div>
                   </CardHeader>
                   <CardContent>
@@ -2215,7 +2210,7 @@ export function HouseDetailPage() {
                               <div className="text-right">
                                 <div className="text-xs text-muted-foreground">Placed</div>
                                 <div className="font-medium tabular-nums text-foreground">
-                                  {stock.openingCount.toLocaleString()}
+                                  {stock.openingCount.toLocaleString("en-IN")}
                                 </div>
                               </div>
                               <ArrowUpRight className="h-4 w-4 text-muted-foreground" />
@@ -2327,7 +2322,7 @@ export function HouseDetailPage() {
                   {shed?.type === 'layer' && (
                     <div className="bg-yolk-100 p-3 rounded-lg">
                       <div className="text-xs text-yolk-700 mb-1">Eggs Produced</div>
-                      <div className="text-lg font-semibold text-yolk-700">{(selectedRecord.eggsProduced || 0).toLocaleString()}</div>
+                      <div className="text-lg font-semibold text-yolk-700">{(selectedRecord.eggsProduced || 0).toLocaleString("en-IN")}</div>
                     </div>
                   )}
                 </div>

@@ -246,10 +246,6 @@ function NewBatchDialog({ onClose, onSaved }: { onClose: () => void; onSaved: ()
     <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-6">
       <div className="card w-full max-w-2xl p-5">
         <h2 className="text-[15px] font-semibold text-gray-900">New batch</h2>
-        <p className="mt-0.5 text-[12px] text-gray-500">
-          A batch, made of the hatches it actually arrived in. Its age counts from their
-          bird-weighted average, and it is measured against the breed's default curve.
-        </p>
         {error && (
           <div className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700">
             {error}

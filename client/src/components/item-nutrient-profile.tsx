@@ -208,11 +208,7 @@ export function ItemNutrientProfile({ itemId }: { itemId: string }) {
                   </div>
                 ))}
 
-                <div className="mt-2 flex items-center justify-between border-t pt-3">
-                  <p className="max-w-md text-[11px] text-gray-400">
-                    A blank means not measured — clearing a box deletes the reading. Zero is a
-                    different claim: it tells the formulator this material contains none of it.
-                  </p>
+                <div className="mt-2 flex items-center justify-end border-t pt-3">
                   <div className="flex shrink-0 items-center gap-3">
                     <button
                       onClick={() => {
@@ -231,9 +227,7 @@ export function ItemNutrientProfile({ itemId }: { itemId: string }) {
 
               {profile.values.length > 0 && (
                 <p className="mt-3 px-1 text-[11px] text-gray-400">
-                  Last change {formatDate(profile.values[0]!.updatedAt?.slice(0, 10))}. Figures feed
-                  the formulator directly — a book value standing in for a lab result is worth
-                  knowing about before money moves on its word.
+                  Last change {formatDate(profile.values[0]!.updatedAt?.slice(0, 10))}.
                 </p>
               )}
             </div>

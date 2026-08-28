@@ -706,12 +706,9 @@ export function StationPage({ station }: { station: Station }) {
         })}
       </div>
 
-      <div className="mb-3 flex items-baseline justify-between">
-        <p className="text-[13px] text-gray-500">{meta.sub}</p>
-        {!QUEUELESS.includes(station) && (
-          <span className="text-[13px] text-gray-400">{queue?.length ?? 0} waiting</span>
-        )}
-      </div>
+      {!QUEUELESS.includes(station) && (
+        <div className="mb-3 text-right text-[13px] text-gray-400">{queue?.length ?? 0} waiting</div>
+      )}
 
       {QUEUELESS.includes(station) ? (
         <FeedTransferForm />

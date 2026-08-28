@@ -373,11 +373,7 @@ export function EggGradingPage() {
               </tbody>
             </table>
           </div>
-          <div className="mt-3 flex items-center justify-between">
-            <p className="text-[11px] text-muted-foreground">
-              Saving the count brings the ledger to it: any difference posts as an inventory adjustment
-              dated today, so the correction is itself a record.
-            </p>
+          <div className="mt-3 flex items-center justify-end">
             <div className="flex items-center gap-3">
               {closingSaved && <span className="text-xs text-success">{closingSaved}</span>}
               <button
@@ -445,9 +441,6 @@ export function EggGradingPage() {
               </tbody>
             </table>
           </div>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            Opening is yesterday's closing; sales are what the bay invoiced.
-          </p>
         </>
       )}
     </div>

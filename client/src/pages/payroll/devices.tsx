@@ -283,11 +283,6 @@ function PairDialog({ replace, onClose }: { replace?: DeviceRow; onClose: () => 
                   </select>
                 </Field>
               )}
-              {replace && (
-                <p className="text-[12px] text-gray-500">
-                  The new phone takes over this device row — workers and history stay put. A replacement never moves sites.
-                </p>
-              )}
             </div>
             <div className="mt-4 flex justify-end gap-2">
               <button className="btn-secondary" onClick={onClose}>Cancel</button>
@@ -347,8 +342,7 @@ function PinsTab() {
   return (
     <div>
       <ErrorBanner message={err} onClose={() => setErr(null)} />
-      <div className="mb-2 flex items-center justify-between">
-        <p className="text-[13px] text-gray-500">PINs unlock a device and authorise override plates. The PIN itself is never shown again.</p>
+      <div className="mb-2 flex items-center justify-end">
         <button className="btn-primary" onClick={() => setAddOpen(true)}><Plus size={14} /> Add PIN</button>
       </div>
       <div className="table-surface">

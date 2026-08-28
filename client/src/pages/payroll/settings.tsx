@@ -325,7 +325,6 @@ export function HolidaysTab() {
           </table>
         )}
       </div>
-      <p className="mt-2 text-[12px] text-gray-400">Punching in on a holiday makes the day present and comp-off eligible.</p>
     </div>
   );
 }
@@ -401,7 +400,6 @@ export function RatesTab() {
           </table>
         )}
       </div>
-      <p className="mt-2 text-[12px] text-gray-400">A rate change applies from the next processed run; confirmed runs keep the rate they paid.</p>
     </div>
   );
 }

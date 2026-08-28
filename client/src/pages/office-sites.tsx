@@ -216,11 +216,6 @@ export function OfficeSitesSection() {
         />
       )}
 
-      <p className="mt-6 max-w-2xl text-[11px] text-gray-500">
-        Neither is ever deleted. A gate that admitted two hundred trucks is named on two hundred
-        receipts, so it goes out of service instead — off tomorrow's list, still readable on
-        yesterday's records.
-      </p>
     </div>
   );
 }
@@ -292,10 +287,6 @@ function GateForm({ locations, onDone, onError, onCancel }: FormProps) {
           A gate needs both coordinates, or neither — one alone cannot place it.
         </p>
       )}
-      <p className="mt-2 text-[11px] text-gray-500">
-        Coordinates are optional. Stand at the gate and read them off a phone when convenient; until
-        then the gate works and the geofence stays off.
-      </p>
 
       <div className="mt-3 flex gap-2">
         <button
@@ -349,10 +340,6 @@ function WeighbridgeForm({ locations, onDone, onError, onCancel }: FormProps) {
           <input value={f.capacityKg} onChange={set("capacityKg")} inputMode="decimal" placeholder="60000" className="input" />
         </div>
       </div>
-      <p className="mt-2 text-[11px] text-gray-500">
-        Capacity is the sanity ceiling on an entered weight — a 60-tonne platform cannot read 600
-        tonnes, and a typo that says it should be caught at the cabin.
-      </p>
       <div className="mt-3 flex gap-2">
         <button
           className="btn-primary"

@@ -355,7 +355,6 @@ function HatchTab({
   return (
     <Panel
       title="Batches"
-      blurb="Chicks arrive over a week, not on one day. The flock's age counts from the bird-weighted average of these lines — the age most of its birds actually are."
       onSave={() => save.mutate()}
       saving={save.isPending}
       canSave={!!profile && !clash}
@@ -470,7 +469,6 @@ function TransferTab({
   return (
     <Panel
       title="Transfer"
-      blurb="Moving a batch out of rearing takes a week of lorries, so it is a set of dated lines rather than one act. When the last bird leaves for a layer house the flock counts as housed — nothing else moves with them, because feed, weighings and health records belong to the flock, not the shed."
       onSave={() => save.mutate()}
       saving={save.isPending}
       canSave={!sameHouse}
@@ -548,7 +546,6 @@ function CullTab({
   return (
     <Panel
       title="Culling"
-      blurb="A house is emptied over several days as the lorries come, so this is a set of dated lines too. The flock is marked depleted when the last bird goes — remove a line and it is live again, which is what correcting a mistyped lorry actually means."
       onSave={() => save.mutate()}
       saving={save.isPending}
       canSave
@@ -741,12 +738,6 @@ function RecordMovement({ flock, onSaved }: { flock: Flock; onSaved: () => void 
         </p>
       )}
       {error && <p className="text-[12px] text-destructive">{error}</p>}
-      {kind === "adjustment" && sign === -1 && !tooMany && (
-        <p className="text-[12px] text-gray-500">
-          Writes the birds off the books. Taking a house to zero closes its placement, which frees
-          the shed for the next batch.
-        </p>
-      )}
     </div>
   );
 }
@@ -812,7 +803,6 @@ function MovementTab({ flock, onSaved }: { flock: Flock; onSaved: () => void }) 
 
 function Panel({
   title,
-  blurb,
   children,
   onSave,
   saving,
@@ -820,7 +810,6 @@ function Panel({
   disabled,
 }: {
   title: string;
-  blurb: string;
   children: React.ReactNode;
   onSave: () => void;
   saving: boolean;
@@ -829,8 +818,7 @@ function Panel({
 }) {
   return (
     <div className="card p-4">
-      <h3 className="text-[14px] font-semibold text-gray-900">{title}</h3>
-      <p className="mb-3 mt-0.5 max-w-3xl text-[12px] text-gray-500">{blurb}</p>
+      <h3 className="mb-3 text-[14px] font-semibold text-gray-900">{title}</h3>
       {children}
       <div className="mt-4 flex items-center gap-2">
         <button
@@ -840,9 +828,6 @@ function Panel({
         >
           {saving ? "Saving…" : `Save ${title.toLowerCase()}`}
         </button>
-        <span className="text-[11px] text-gray-500">
-          Saves the whole set — pressing it twice leaves one set, not two.
-        </span>
       </div>
     </div>
   );

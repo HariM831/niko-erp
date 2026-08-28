@@ -111,10 +111,6 @@ export function FeedTransferForm() {
 
   return (
     <div className="mx-auto max-w-2xl">
-      <p className="mb-3 text-[13px] text-gray-500">
-        Feed leaving the mill for a shed — consumed on arrival, costed at today's stock value.
-        One vehicle, one shed, one transfer.
-      </p>
           {done && (
             <div className="mb-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-[13px] text-green-800">
               {done}

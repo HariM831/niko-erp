@@ -539,7 +539,6 @@ export function IncomeChart({ contactId, label }: { contactId: string; label: st
           </select>
         </div>
       </div>
-      <p className="mb-2 text-xs text-gray-400">This chart is displayed in the organization's base currency.</p>
 
       {both && (
         <div className="mb-1 flex items-center gap-4 text-[11px] text-gray-500">

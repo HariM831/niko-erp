@@ -875,11 +875,6 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
             {Number(doc.freightAmount ?? 0) > 0 && (
               <div className="mt-10 print:hidden">
                 <h3 className="mb-1 text-sm font-semibold">Landed Cost</h3>
-                <p className="mb-2 text-xs text-gray-500">
-                  Costing view only. Freight of {formatMoney(doc.freightAmount as string)} is shared across lines by
-                  value to show the true per-unit cost. The transporter is a separate party — their charge is
-                  journalled on its own expense or bill, not against this vendor.
-                </p>
                 <table className="w-full max-w-3xl text-[13px]">
                   <thead className="table-head">
                     <tr>

@@ -1143,13 +1143,9 @@ export function FarmsHousesPage() {
               </tbody>
             </table>
           </div>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            Straight from the controllers, not from the daily sheet. Water and feed are
-            the controller's own running totals for today. A figure struck through has
-            stopped changing — the controller is still answering, but with an old number,
-            so read the shed's own panel for it. Click a shed for its charts.
-            {iot.tokenExpires && ` Access expires ${iot.tokenExpires}.`}
-          </p>
+          {iot.tokenExpires && (
+            <p className="mt-1 text-[11px] text-muted-foreground">Access expires {iot.tokenExpires}.</p>
+          )}
         </div>
       )}
 

@@ -72,12 +72,6 @@ export function TransactionLockingPage() {
       </header>
 
       <div className="flex-1 overflow-y-auto p-6">
-        <p className="mb-6 max-w-3xl text-[13px] text-gray-600">
-          Locking a module stops anyone — including you — from recording, editing or deleting
-          transactions dated on or before the lock date. Use it once a period has been reviewed
-          so the numbers behind it can&apos;t shift.
-        </p>
-
         {error && <p className="mb-4 max-w-3xl rounded bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
 
         <div className="max-w-3xl divide-y divide-gray-100 rounded-xl border bg-white">

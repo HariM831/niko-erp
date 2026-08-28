@@ -551,12 +551,6 @@ export function ItemQualitySpec({ itemId }: { itemId: string }) {
                     Save as version {nextVersion}
                   </button>
                 </div>
-
-                <p className="mt-3 rounded-lg bg-gray-50 p-2 text-[11px] text-gray-500">
-                  {detail.spec
-                    ? "Saving makes a new version and retires the current one. Lines already judged keep the version that judged them, so an old receipt still reads under the limits of its day."
-                    : "This material is not judged at QC yet. Saving creates version 1, and every save after that supersedes rather than edits — so a past verdict always stays readable under the limits of its day."}
-                </p>
               </div>
 
               {detail.history.length > 0 && (

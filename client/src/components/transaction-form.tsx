@@ -478,12 +478,6 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                         ))}
                     </select>
                   </div>
-                  <div className="col-span-3 -mt-1">
-                    <p className="text-[11px] text-gray-500">
-                      The transporter is billed separately — freight gets its own journal entry and never touches this
-                      vendor&apos;s payable. It is only shared across the lines to show each item&apos;s true landed cost.
-                    </p>
-                  </div>
                 </>
               )}
             </>

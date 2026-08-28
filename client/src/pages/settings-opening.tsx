@@ -239,12 +239,6 @@ export function OpeningBalancesSection() {
         )}
       </div>
 
-      <p className="mt-4 max-w-3xl text-[12px] text-gray-500">
-        Receivables and payables are not typed here — they come from each customer's and
-        vendor's own opening balance, so a contact's ledger and the balance sheet cannot drift
-        apart. Set them on the contact.
-      </p>
-
       <div className="mt-5 flex gap-2">
         <button onClick={save} disabled={busy || !migrationDate} className="btn-primary">
           {data.posted ? "Save & Repost" : "Post Opening Balances"}

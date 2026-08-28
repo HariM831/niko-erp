@@ -695,11 +695,6 @@ function NewSeriesModal({ onClose, onDone }: { onClose: () => void; onDone: () =
           />
         </div>
       </div>
-      <p className="mt-3 text-[12px] text-gray-500">
-        The tag is appended to each module&rsquo;s prefix, so &ldquo;EG-&rdquo; gives{" "}
-        <span className="font-medium text-gray-700">INV-EG-00001</span>. Every prefix stays
-        editable in the grid afterwards.
-      </p>
     </Modal>
   );
 }
@@ -995,7 +990,9 @@ function ModuleSettings({ def }: { def: SectionDef }) {
 
   return (
     <div>
-      <h2 className="text-[18px] font-semibold text-[#212529]">{def.label}</h2>
+      <div className="page-header -mx-4 flex items-center justify-between px-4 py-3 sm:-mx-8 sm:px-8">
+        <h2 className="text-[18px] font-semibold text-[#212529]">{def.label}</h2>
+      </div>
       {tabs.length > 1 && (
         <div className="mb-5 mt-3 flex gap-6 border-b">
           {tabs.map((t) => (

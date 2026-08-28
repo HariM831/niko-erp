@@ -97,12 +97,7 @@ export function CustomFieldsTab({ entity }: { entity: string }) {
 
   return (
     <div>
-      <div className="mb-4 flex items-start justify-between gap-6">
-        <p className="max-w-2xl text-[13px] text-gray-500">
-          Information that doesn&rsquo;t fit an existing field. Custom fields are recorded on the
-          document and never reach the ledger — anything you want to slice the profit and loss by
-          belongs in Reporting Tags instead.
-        </p>
+      <div className="mb-4 flex items-start justify-end gap-6">
         <div className="flex shrink-0 items-center gap-3">
           <span className="text-[12px] text-gray-500">
             {fields?.length ?? 0}/{meta?.maxPerEntity ?? 25}
@@ -341,10 +336,6 @@ function FieldModal({
               placeholder="BATCH-"
               className="input"
             />
-            <p className="mt-1 text-[12px] text-gray-500">
-              Assigned when the record is saved and never changed afterwards, so it stays a
-              reliable reference.
-            </p>
           </div>
         )}
 

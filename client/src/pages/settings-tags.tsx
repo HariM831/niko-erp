@@ -339,11 +339,6 @@ function OptionsModal({
           ))}
         </ul>
       )}
-
-      <p className="mt-4 text-[12px] text-gray-500">
-        An option already used on a journal line can be retired but not deleted — the lines
-        charged to it still need something to point at.
-      </p>
     </Modal>
   );
 }

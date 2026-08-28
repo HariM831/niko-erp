@@ -123,7 +123,7 @@ export function OfficeStationPage({ stationKey }: { stationKey: string }) {
           {allowed ? "permitted" : "no access"}
         </span>
       </div>
-      <p className="mb-5 text-[13px] text-gray-500">{station.subtitle}</p>
+
 
       <div className="card mb-4 p-4">
         <div className="label">Decision made here</div>
@@ -134,11 +134,6 @@ export function OfficeStationPage({ stationKey }: { stationKey: string }) {
 
       {station.key === "gate" && <NumberingCard />}
 
-      <div className="mt-4 rounded-lg border border-dashed border-gray-300 bg-white/60 p-4">
-        <p className="text-[13px] text-gray-600">
-          Station shell. The queue and the capture form land with the receipt record.
-        </p>
-      </div>
     </div>
   );
 }

@@ -236,11 +236,6 @@ function RunDepreciationDialog({ onClose, onDone }: { onClose: () => void; onDon
           </button>
         </header>
         <div className="p-5">
-          <p className="mb-3 text-[13px] text-gray-500">
-            Charges every active asset up to the end of the chosen month. Any month missed
-            earlier is caught up in the same entry, and running twice for a period changes
-            nothing.
-          </p>
           <div className="mb-4 flex items-end gap-3">
             <div className="flex-1">
               <label className="label-required">Period ending *</label>
@@ -400,11 +395,6 @@ export function FixedAssetNewPage() {
         </button>
       </header>
       <div className="flex-1 overflow-y-auto p-6">
-        <p className="mb-5 max-w-2xl text-[13px] text-gray-500">
-          Registering an asset posts nothing — its cost is already on the balance sheet from the
-          bill or journal that bought it. This starts the depreciation schedule.
-        </p>
-
         <div className="grid max-w-3xl grid-cols-3 gap-4">
           <div className="col-span-2">
             <label className="label-required">Asset Name *</label>
@@ -745,10 +735,6 @@ function DisposeDialog({
           </button>
         </header>
         <div className="p-5">
-          <p className="mb-4 text-[13px] text-gray-500">
-            Removes the cost and its accumulated depreciation from the balance sheet and books the
-            difference against proceeds.
-          </p>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="label-required">Disposal Date *</label>

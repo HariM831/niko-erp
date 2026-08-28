@@ -384,9 +384,6 @@ function GiveAdvanceDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
       <DialogContent className="max-w-md">
         <DialogHeader><DialogTitle>Give an advance</DialogTitle></DialogHeader>
         <ErrorBanner message={err} onClose={() => setErr(null)} />
-        <p className="mb-2 text-[12px] text-gray-500">
-          This records the advance for recovery. The cash itself goes out through a normal payment or expense the accountant books.
-        </p>
         <div className="space-y-2">
           <Field label="Employee" required><EmployeeSelect value={form.employeeId} onChange={(v) => setForm({ ...form, employeeId: v })} /></Field>
           <div className="grid grid-cols-2 gap-2">

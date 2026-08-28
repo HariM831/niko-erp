@@ -170,11 +170,7 @@ export function FeedStandardsSection() {
           <p className="mt-2 text-[12px] text-red-600">{problems.join(" · ")}</p>
         )}
 
-        <div className="mt-3 flex items-center justify-between">
-          <p className="max-w-sm text-[11px] text-gray-400">
-            Blank rows are left out of the standard. Saving supersedes — a formula solved against an
-            older version stays readable under it.
-          </p>
+        <div className="mt-3 flex items-center justify-end">
           <button
             onClick={() => {
               setSaved(null);

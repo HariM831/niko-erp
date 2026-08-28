@@ -153,11 +153,6 @@ export function EggCalendarPage() {
               );
             })}
           </div>
-          <p className="mt-2 text-[11px] text-muted-foreground">
-            The denominator is what can actually be sold: yesterday's closing stock plus the day's
-            graded boxes (the seven-day average until the sheet is in), carried day to day. Hover
-            a day for the breakdown. An amber dot means no benchmark is set for that day yet.
-          </p>
         </div>
       )}
 

@@ -411,11 +411,6 @@ function MoveDialog({
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={onClose}>
       <div className="mt-10 w-full max-w-md rounded-lg bg-background p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
         <h2 className="mb-1 text-lg font-semibold">{kind === "receive" ? "Receive goods" : "Issue from store"}</h2>
-        <p className="mb-3 text-xs text-muted-foreground">
-          {kind === "receive"
-            ? "For goods arriving without a bill — a purchase billed to this farm lands in the store by itself."
-            : "Takes stock off this farm's shelf. Name the shed when it went to one."}
-        </p>
 
         <div className="space-y-3">
           <Field label="Item">
