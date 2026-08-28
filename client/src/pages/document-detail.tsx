@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { amountInWords, api, formatDate, formatMoney } from "../api";
@@ -319,6 +319,41 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
   const [, navigate] = useLocation();
   const qc = useQueryClient();
   const [error, setError] = useState<string | null>(null);
+
+  /*
+   * Scale the sheet to the screen rather than reflow it.
+   *
+   * This page is a facsimile of the printed document — 210mm wide, because that
+   * is what comes out of the printer and what the PDF shows. On a phone that is
+   * 794px in a 375px window, so Qty, Rate and Amount sat off the right edge
+   * entirely: you could open a bill and not see what it came to.
+   *
+   * Reflowing was the wrong fix. The layout IS the document, and a bill that
+   * reads differently on a phone than on paper is a second document. Zoom keeps
+   * every line where it belongs and still reflows the page around it, which
+   * transform does not — the payments and journal sections below stay put.
+   *
+   * Print resets it in CSS, so what comes out of the printer is unaffected.
+   */
+  const sheetWrapRef = useRef<HTMLDivElement>(null);
+  const [sheetZoom, setSheetZoom] = useState(1);
+  useEffect(() => {
+    const A4_PX = 794; // 210mm at 96dpi
+    const fit = () => {
+      const el = sheetWrapRef.current;
+      if (!el) return;
+      // clientWidth is inside the padding, which is what the sheet actually gets.
+      const avail = el.clientWidth;
+      setSheetZoom(avail > 0 && avail < A4_PX ? avail / A4_PX : 1);
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    window.addEventListener("orientationchange", fit);
+    return () => {
+      window.removeEventListener("resize", fit);
+      window.removeEventListener("orientationchange", fit);
+    };
+  }, []);
   const [busy, setBusy] = useState(false);
 
   const { data: prefs } = useQuery({
@@ -500,8 +535,11 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto bg-gray-100 p-6 print:bg-white print:p-0">
-        <div className="a4-sheet relative mx-auto border bg-white shadow-sm print:border-0 print:shadow-none">
+      <div ref={sheetWrapRef} className="flex-1 overflow-y-auto bg-gray-100 p-3 print:bg-white print:p-0 sm:p-6">
+        <div
+          className="a4-sheet relative mx-auto border bg-white shadow-sm print:border-0 print:shadow-none"
+          style={{ "--sheet-zoom": sheetZoom } as React.CSSProperties}
+        >
           {/* Corner ribbon: clipped to the sheet's top-left without clipping the page body. */}
           <div className="pointer-events-none absolute inset-0 overflow-hidden print:hidden">
             <div

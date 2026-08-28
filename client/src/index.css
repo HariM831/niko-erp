@@ -559,6 +559,13 @@ body {
 .a4-sheet {
   width: 210mm;
   min-height: 297mm;
+  /*
+   * Set by the page from the space actually available; 1 on any screen wide
+   * enough to hold the sheet. Zoom rather than transform, because zoom reflows
+   * the page around the scaled sheet — with transform the sections underneath
+   * would keep the unscaled height and leave a gap the length of an A4 page.
+   */
+  zoom: var(--sheet-zoom, 1);
 }
 
 @media print {
@@ -574,6 +581,8 @@ body {
   .a4-sheet {
     width: 100%;
     min-height: 297mm;
+    /* Whatever the screen needed, paper does not. */
+    zoom: 1;
   }
 }
 
