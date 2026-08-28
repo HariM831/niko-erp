@@ -19,27 +19,47 @@ export interface BannerStat {
 
 export function SummaryBanner({ primary, secondary }: { primary: BannerStat; secondary: BannerStat[] }) {
   return (
-    // Padding, gaps and the lead figure all step down on a phone. At 375px the
-    // desktop sizes needed 423px and the banner clips, so a crore-scale total
-    // lost its last digits — the one number the strip exists to show.
-    <div className="relative overflow-hidden bg-gradient-to-br from-yolk-400 via-yolk-500 to-yolk-600 px-4 py-4 text-white sm:px-6 sm:py-5">
-      <div className="pointer-events-none absolute -right-12 -top-16 h-44 w-44 rounded-full bg-white/10" />
-      <div className="relative flex flex-wrap items-end justify-between gap-x-6 gap-y-3 sm:gap-x-10">
+    /*
+     * A quiet strip, not a hero.
+     *
+     * This was a saturated gradient block with a glow and a decorative sun. On a
+     * list whose job is to be read, a full-bleed orange band is the loudest
+     * thing on screen and the rows underneath — the actual content — come second
+     * to a number nobody asked to be shouted at.
+     *
+     * The warmth stays, as a wash rather than a fill: a pale tint, one hairline,
+     * and the figure carried by weight and size instead of by contrast. The
+     * accent survives in the rule under the lead number, so a themed palette
+     * still shows through.
+     *
+     * Sizes step with the viewport, not with a breakpoint — at 375px the old
+     * fixed sizes needed 423px in a 375px box and a crore-scale total lost its
+     * last digits, which is the one thing the strip exists to show.
+     */
+    <div className="border-b border-soil-100 bg-yolk-50/40 px-4 py-3.5 sm:px-6 sm:py-4">
+      <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
         <div className="min-w-0">
-          <div className="text-[11px] font-bold uppercase tracking-wider text-yolk-50/80">{primary.label}</div>
-          {/* Breaks rather than clips: a rupee figure has no space to wrap at. */}
-          <div className="break-all text-[22px] font-extrabold leading-tight tabular-nums sm:text-[28px]">
+          <div className="text-[10.5px] font-semibold uppercase tracking-wider text-soil-400">
+            {primary.label}
+          </div>
+          <div className="mt-0.5 inline-block border-b-2 border-yolk-400 pb-0.5 text-[clamp(1.125rem,5.2vw,1.625rem)] font-extrabold leading-tight tabular-nums text-soil-900">
             {primary.value}
           </div>
         </div>
         {secondary.length > 0 && (
-          <div className="flex min-w-0 flex-wrap gap-x-5 gap-y-2 sm:gap-x-8">
+          <div className="flex min-w-0 flex-wrap gap-x-6 gap-y-2">
             {secondary.map((s) => (
               <div key={s.label} className="min-w-0">
-                <div className="text-[10.5px] font-semibold uppercase tracking-wider text-yolk-50/75">{s.label}</div>
-                <div className="flex items-center gap-1.5 text-[15px] font-bold tabular-nums">
-                  {s.alert && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-300" />}
-                  <span className="break-all">{s.value}</span>
+                <div className="text-[10.5px] font-semibold uppercase tracking-wider text-soil-400">
+                  {s.label}
+                </div>
+                <div
+                  className={`mt-0.5 flex items-center gap-1.5 text-[clamp(0.875rem,3.6vw,1rem)] font-bold tabular-nums ${
+                    s.alert ? "text-rose-600" : "text-soil-800"
+                  }`}
+                >
+                  {s.alert && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-rose-500" />}
+                  <span>{s.value}</span>
                 </div>
               </div>
             ))}
