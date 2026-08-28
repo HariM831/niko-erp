@@ -98,7 +98,6 @@ export function FeedStandardsSection() {
     <div>
       <SettingsHeader
         title="Feed Standards"
-        description="The nutrient window each life stage's feed has to land in. The formulator solves inside these bounds."
       />
       {saved && <Banner tone="success">{saved}</Banner>}
       {error && <Banner tone="error">{error}</Banner>}

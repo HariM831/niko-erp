@@ -90,7 +90,7 @@ export function EggLoadingPage() {
 
   return (
     <div className="p-4 md:p-6">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="page-header -mx-4 px-4 py-3 md:-mx-6 md:px-6 mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Loading bay</h1>
           </div>

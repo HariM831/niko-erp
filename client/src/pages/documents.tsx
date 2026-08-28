@@ -586,7 +586,7 @@ export const ExpensesPage = () => (
     columns={[
       { key: "date", header: "Date", portrait: true, render: (r) => shortDate(r.expenseDate as string) },
       { key: "account", header: "Expense Account", portrait: true, render: (r) => <span className="text-gray-800">{(r.expenseAccountName as string) ?? "—"}</span> },
-      { key: "ref", header: "Reference#", render: (r) => <span className="text-gray-600">{(r.reference as string) || "—"}</span> },
+      { key: "ref", header: "Reference#", clamp: 8, render: (r) => <span className="text-gray-600">{(r.reference as string) || "—"}</span> },
       { key: "contact", header: "Vendor Name", render: (r) => r.contactName ?? "—" },
       // What the money was actually spent on. It lives in notes and was
       // never shown; on a phone it matters more than which vendor took it.
@@ -594,6 +594,7 @@ export const ExpensesPage = () => (
         key: "description",
         header: "Description",
         portrait: true,
+        clamp: 16,
         render: (r) => <span className="text-gray-600">{(r.notes as string) || "—"}</span>,
       },
       { key: "paidThrough", header: "Paid Through", render: (r) => <span className="text-gray-600">{(r.paidThroughName as string) ?? "—"}</span> },

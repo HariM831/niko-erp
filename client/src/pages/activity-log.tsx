@@ -36,7 +36,7 @@ export function ActivityLogPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center gap-2.5 bg-white px-5 py-3.5">
+      <header className="page-header flex items-center gap-2.5 px-5 py-3.5">
         <span className="chip bg-brand-50 text-brand-600">
           <ShieldCheck size={17} />
         </span>

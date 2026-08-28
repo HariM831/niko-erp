@@ -313,7 +313,6 @@ export function DeductionRulesSection() {
     <div>
       <SettingsHeader
         title="Deduction Rules"
-        description="What a reading costs a vendor — separate from the quality spec, which only decides whether we take the load."
         actions={
           <button
             onClick={() => {

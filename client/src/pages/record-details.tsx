@@ -30,7 +30,7 @@ function DetailShell({
   const [, navigate] = useLocation();
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between border-b bg-white px-6 py-2.5 print:hidden">
+      <header className="page-header flex items-center justify-between px-6 py-2.5 print:hidden">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate(backPath)} className="text-gray-400 hover:text-gray-700">
             ←

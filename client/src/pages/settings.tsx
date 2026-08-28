@@ -202,7 +202,6 @@ function AppearanceSection() {
     <>
       <SettingsHeader
         title="Appearance"
-        description="The accent colour used across every screen. Applies instantly and is remembered on this device."
       />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {ACCENT_CHOICES.map((a) => (
@@ -291,7 +290,6 @@ function OrgSection() {
     <div>
       <SettingsHeader
         title="Organisation Profile"
-        description="Your business as it appears on invoices, bills and every printed document."
       />
       {error && <Banner tone="error">{error}</Banner>}
       {saved && <Banner tone="success">Organisation profile saved.</Banner>}
@@ -348,7 +346,6 @@ function TaxesSection() {
     <div>
       <SettingsHeader
         title="Taxes"
-        description="Rates available on invoice and purchase order lines. Bills and expenses carry no tax line — with no GST input to claim, their rates already include it. Deactivate a rate rather than editing it once documents have used it, so those documents keep the rate they were raised at."
         actions={
           <button onClick={() => setAdding(true)} className="btn-primary">
             + New Tax
@@ -525,7 +522,6 @@ function SeriesSection() {
     <div>
       <SettingsHeader
         title="Transaction Number Series"
-        description="Run several numbering series side by side so each line of business gets its own document numbers. Transactions draw from the default unless they name another series."
         actions={
           <button onClick={() => setAdding(true)} className="btn-primary">
             + New Series
@@ -745,7 +741,6 @@ function FinancialYearsSection() {
     <div>
       <SettingsHeader
         title="Financial Years & Locking"
-        description="Locking a period rejects any posting dated inside it — manual journals and anything a document would post. Use it once a period is filed and should stop moving."
         actions={
           <button onClick={() => setAdding(true)} className="btn-primary">
             + New Financial Year

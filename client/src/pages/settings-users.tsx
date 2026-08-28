@@ -78,7 +78,6 @@ export function UsersSection() {
     <div>
       <SettingsHeader
         title="Users"
-        description="Everyone who can sign in. A user's role decides what they may do."
         actions={
           <button onClick={() => setAdding(true)} className="btn-primary">
             + New User
@@ -386,7 +385,6 @@ export function RolesSection() {
     <div>
       <SettingsHeader
         title="Roles"
-        description="What each role may do, per module. Built-in roles cannot be edited — copy one to make a custom version."
         actions={
           <button onClick={() => setEditing("new")} className="btn-primary">
             + New Role

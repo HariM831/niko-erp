@@ -73,7 +73,6 @@ export function FarmStandardsSection() {
     <div>
       <SettingsHeader
         title="Breeds & Standards"
-        description="The performance curve a flock is compared against. Sets are versioned and pinned at placement, so revising a guide never restates a flock that was already measured against the old one."
       />
       {error && <Banner tone="error">{error}</Banner>}
 

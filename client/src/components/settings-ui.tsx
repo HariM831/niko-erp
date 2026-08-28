@@ -8,21 +8,14 @@ import type { ReactNode } from "react";
  */
 export function SettingsHeader({
   title,
-  description,
   actions,
 }: {
   title: string;
-  description?: ReactNode;
   actions?: ReactNode;
 }) {
   return (
-    <div className="mb-4 flex items-start justify-between gap-6">
-      <div>
-        <h2 className="text-[18px] font-semibold text-[#212529]">{title}</h2>
-        {description && (
-          <p className="mt-1 max-w-3xl text-[13px] text-gray-500">{description}</p>
-        )}
-      </div>
+    <div className="page-header -mx-4 mb-4 flex items-center justify-between gap-6 px-4 py-3 sm:-mx-8 sm:px-8">
+      <h2 className="text-[18px] font-semibold text-[#212529]">{title}</h2>
       {actions && <div className="flex shrink-0 gap-2">{actions}</div>}
     </div>
   );

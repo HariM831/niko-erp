@@ -376,7 +376,7 @@ export function HomePage() {
   return (
     <div className="h-full overflow-y-auto bg-soil-50">
       {/* Header — warm, quiet, a live dot rather than noise */}
-      <div className="border-b border-soil-100 bg-gradient-to-r from-white via-yolk-50/40 to-white px-7 py-4">
+      <div className="page-header px-7 py-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">

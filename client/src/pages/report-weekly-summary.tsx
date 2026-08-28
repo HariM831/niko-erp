@@ -166,7 +166,7 @@ export function WeeklySummaryPage() {
 
   return (
     <div className="flex h-full flex-col bg-[#f4f4f9]">
-      <header className="bg-white px-6 py-2.5">
+      <header className="page-header px-6 py-2.5">
         <div className="text-[12px] font-medium text-[#4c526c]">Farms</div>
         <div className="flex items-baseline gap-2">
           <h1 className="text-[18px] font-semibold text-[#212529]">Weekly Management Summary</h1>

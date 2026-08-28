@@ -67,7 +67,7 @@ export function TransactionLockingPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="border-b bg-white px-6 py-3.5">
+      <header className="page-header px-6 py-3.5">
         <h1 className="text-lg font-semibold">Transaction Locking</h1>
       </header>
 

@@ -140,7 +140,7 @@ export function FeedProductionPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="border-b bg-white px-6 py-3">
+      <header className="page-header px-6 py-3">
         <h1 className="text-lg font-semibold">Production</h1>
         </header>
 

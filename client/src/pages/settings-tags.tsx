@@ -53,7 +53,6 @@ export function ReportingTagsSection() {
     <div>
       <SettingsHeader
         title="Reporting Tags"
-        description="A dimension you can slice the P&L by — vehicle, shed, cost centre. Tag a journal line with an option and the profit and loss can be read for that option alone, without a GL account per truck."
         actions={
           <button onClick={() => setAdding(true)} className="btn-primary">
             + New Tag

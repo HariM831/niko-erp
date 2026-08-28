@@ -79,7 +79,6 @@ export function OfficeSitesSection() {
     <div>
       <SettingsHeader
         title="Gates & Weighbridges"
-        description="Where trucks arrive and get weighed. A receipt records which of each it passed through."
       />
       {saved && <Banner tone="success">{saved}</Banner>}
       {error && <Banner tone="error">{error}</Banner>}

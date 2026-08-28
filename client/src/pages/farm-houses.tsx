@@ -107,7 +107,6 @@ export function FarmHousesSection() {
     <div>
       <SettingsHeader
         title="Houses"
-        description="The sheds at each site, who owns each one, what it is for, and the controller fitted to it. Owner decides who gets billed for feed and who the eggs are bought from. Bird counts and feed on hand are not here — they change daily and live on the screens that record them."
       />
       {error && <Banner tone="error">{error}</Banner>}
 

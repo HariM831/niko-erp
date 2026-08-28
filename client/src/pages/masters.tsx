@@ -46,6 +46,7 @@ const contactColumns = (balanceHeader: string) => [
     key: "phone",
     header: "Phone",
     portrait: true,
+    clamp: 9,
     /*
      * Three sources, because no single one is populated enough to be a column.
      * Of 441 vendors: 124 carry a mobile, 41 have a contact person with a number
@@ -57,7 +58,7 @@ const contactColumns = (balanceHeader: string) => [
     ),
   },
   { key: "company", header: "Company Name", render: (r: ContactRow) => r.companyName ?? "—" },
-  { key: "email", header: "Email", render: (r: ContactRow) => r.email ?? "—" },
+  { key: "email", header: "Email", clamp: 12, render: (r: ContactRow) => r.email ?? "—" },
   {
     key: "gstt",
     header: "GST Treatment",

@@ -11,6 +11,22 @@ export interface Column<T> {
   align?: "left" | "right";
   render: (row: T) => ReactNode;
   /**
+   * Cap this column's width, in rem, so a long value ellipses instead of
+   * pushing the columns after it off the screen.
+   *
+   * Needed on desktop, not just a phone: the vendor list ran to 1,272px in a
+   * 1,212px window because a phone column took 300px and an email 256, and the
+   * payables figure — the one column the list exists for — sat behind a
+   * sideways scroll. A capped value still identifies the row; a figure you
+   * cannot see does not.
+   *
+   * It has to be a block INSIDE the cell. `max-width` on a `td` is not honoured
+   * by the automatic table algorithm — setting it made the same table 1,455px
+   * wide, because the browser read it as a sizing hint and grew the short
+   * columns to match.
+   */
+  clamp?: number;
+  /**
    * Keep this column on a phone held upright.
    *
    * Mark the ones that let someone recognise a row — for a bill that is the
@@ -370,7 +386,13 @@ export function ListPage<T>({
                           namedPortrait && !c.portrait ? "col-portrait-hide" : ""
                         }`}
                       >
-                        {c.render(row)}
+                        {c.clamp ? (
+                          <span className="block truncate" style={{ maxWidth: `${c.clamp}rem` }}>
+                            {c.render(row)}
+                          </span>
+                        ) : (
+                          c.render(row)
+                        )}
                       </td>
                     ))}
                   </tr>,

@@ -69,7 +69,6 @@ export function LocationsSection() {
     <div>
       <SettingsHeader
         title="Locations"
-        description="Every place the business runs from — each farm, the feed mill, offices and stores. Transactions and stock will be tagged with one, so costs and production can be read per site."
         actions={
           <button onClick={() => setEditing("new")} className="btn-primary">
             + New Location

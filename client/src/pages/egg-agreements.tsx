@@ -58,7 +58,7 @@ export function EggAgreementsPage() {
 
   return (
     <div className="p-4 md:p-6">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="page-header -mx-4 px-4 py-3 md:-mx-6 md:px-6 mb-4 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Egg agreements</h1>
           </div>

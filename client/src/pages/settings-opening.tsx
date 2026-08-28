@@ -121,7 +121,6 @@ export function OpeningBalancesSection() {
     <div>
       <SettingsHeader
         title="Opening Balances"
-        description="The closing trial balance from whatever you kept the books in before. Enter it once, dated the day you switched over; everything after that date is recorded here."
       />
 
       {error && (
