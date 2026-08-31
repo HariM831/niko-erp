@@ -659,9 +659,12 @@ const punchBody = z.object({
   type: z.enum(["in", "out"]).optional(),
   method: z.enum(["face", "manual"]),
   matchScore: z.number().min(0).max(1).optional(),
-  latitude: z.number().optional(),
-  longitude: z.number().optional(),
-  accuracyM: z.number().optional(),
+  // nullish, not optional: the gate sends null when the browser has no
+  // location fix, and optional() rejects null — every desktop punch failed
+  // validation the moment the location prompt was declined.
+  latitude: z.number().nullish(),
+  longitude: z.number().nullish(),
+  accuracyM: z.number().nullish(),
   photoUrl: z.string().nullish(),
 });
 

@@ -29,13 +29,15 @@ const MODEL_BASE = "https://cdn.jsdelivr.net/npm/@vladmandic/human@3.3.5/models/
  *   • random different person            0.10 – 0.30
  *
  * A 0.55 cutoff sits right in the false-accept zone — two different farm
- * workers can easily land there. 0.65 puts us into "genuinely likely same
- * person" territory while still tolerating the light/pose differences between
- * a mugshot-style enrolment photo and a live gate capture. The gate also
- * requires the top match to beat the runner-up by MIN_MATCH_MARGIN, so an
- * ambiguous score like 0.66 vs 0.64 gets deferred to manual selection.
+ * workers can easily land there. 0.60 is the floor of the same-person band:
+ * the gallery is Amino's mugshot-style enrolment photos while the live gate
+ * sees a different camera against a busy yard, and that systematic gap parked
+ * genuine workers at 0.60–0.65, each one bounced to manual. The margin rule
+ * below still defers any close call — 0.61 only auto-accepts when the
+ * runner-up is at 0.56 or worse, which is already different-person territory.
+ * Re-enrolling someone at the gate camera lifts their scores well clear.
  */
-export const DEFAULT_MATCH_THRESHOLD = 0.65;
+export const DEFAULT_MATCH_THRESHOLD = 0.6;
 
 /** Minimum gap between the top match and the runner-up for an auto-accept.
  * Prevents "close-call" matches when the top-1 and top-2 are within noise of
