@@ -266,6 +266,14 @@ export const attendanceDays = pgTable(
     day: date("day").notNull(),
     status: attendanceStatus("status").notNull(),
     source: attendanceSource("source").notNull(),
+    /**
+     * The role actually worked that day — egg picking today, vaccination
+     * helper tomorrow. Null means the worker's usual role; salaried employees
+     * never carry one. Every place a wage day is priced reads THIS first and
+     * falls back to employees.wageRoleId, so the daily sheet, the wages report
+     * and the payroll run cannot disagree.
+     */
+    wageRoleId: uuid("wage_role_id").references(() => wageRoles.id),
     workedHours: real("worked_hours").notNull().default(0),
     note: text("note"),
     setBy: uuid("set_by").references(() => users.id),

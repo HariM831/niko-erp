@@ -441,6 +441,50 @@ export function addToTotals(t: MonthTotals, status: AttendanceStatus): MonthTota
   return t;
 }
 
+/**
+ * Paid day-weights per employee PER ROLE over [from, to].
+ *
+ * A wage worker's month is no longer one number: twenty days of egg picking
+ * and five of vaccination helping are paid at two different rates. Buckets
+ * key on the day's own wage_role_id; the empty-string bucket is days with no
+ * role set, which price at the worker's usual role. Only P and H appear —
+ * for wages, a holiday or a weekly off earns nothing.
+ */
+export async function wageDayTotals(
+  tx: Conn,
+  from: string,
+  to: string,
+  employeeIds?: string[],
+): Promise<Map<string, Map<string, { P: number; H: number }>>> {
+  const rows = await tx
+    .select({
+      employeeId: attendanceDays.employeeId,
+      roleId: attendanceDays.wageRoleId,
+      status: attendanceDays.status,
+      n: sql<number>`count(*)::int`,
+    })
+    .from(attendanceDays)
+    .where(
+      and(
+        gte(attendanceDays.day, from),
+        lte(attendanceDays.day, to),
+        inArray(attendanceDays.status, ["P", "H"]),
+        employeeIds?.length ? inArray(attendanceDays.employeeId, employeeIds) : undefined,
+      ),
+    )
+    .groupBy(attendanceDays.employeeId, attendanceDays.wageRoleId, attendanceDays.status);
+  const out = new Map<string, Map<string, { P: number; H: number }>>();
+  for (const r of rows) {
+    const buckets = out.get(r.employeeId) ?? new Map<string, { P: number; H: number }>();
+    const b = buckets.get(r.roleId ?? "") ?? { P: 0, H: 0 };
+    if (r.status === "P") b.P += r.n;
+    else b.H += r.n;
+    buckets.set(r.roleId ?? "", b);
+    out.set(r.employeeId, buckets);
+  }
+  return out;
+}
+
 /** Totals per employee over [from, to], straight from attendance_days. */
 export async function monthTotals(tx: Conn, from: string, to: string, employeeIds?: string[]): Promise<Map<string, MonthTotals>> {
   const rows = await tx

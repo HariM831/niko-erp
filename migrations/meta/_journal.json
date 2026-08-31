@@ -589,6 +589,13 @@
       "when": 1786972684135,
       "tag": "0083_purchase_payments",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1788177448287,
+      "tag": "0084_day_wage_roles",
+      "breakpoints": true
     }
   ]
 }

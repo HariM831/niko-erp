@@ -29,7 +29,7 @@ import {
 import type { Db, Tx } from "../db";
 import { PostingError, postJournal } from "./posting";
 import { nextDocumentNumber } from "../lib/numbering";
-import { daysInMonth, emptyTotals, monthRange, monthTotals, recomputeRange, type MonthTotals } from "./day-resolution";
+import { daysInMonth, emptyTotals, monthRange, monthTotals, recomputeRange, wageDayTotals, type MonthTotals } from "./day-resolution";
 
 type Conn = Tx | Db;
 
@@ -120,6 +120,7 @@ export async function processRun(tx: Tx, input: ProcessInput) {
       pfEnabled: employees.pfEnabled,
       esiEnabled: employees.esiEnabled,
       dailyRate: wageRoles.dailyRate,
+      wageRoleId: employees.wageRoleId,
       bankName: employees.bankName,
       bankAccountNumber: employees.bankAccountNumber,
       bankIfsc: employees.bankIfsc,
@@ -131,6 +132,12 @@ export async function processRun(tx: Tx, input: ProcessInput) {
     .where(and(eq(employees.isActive, true), sql`(${employees.dateOfJoining} IS NULL OR ${employees.dateOfJoining} <= ${to})`));
 
   const totals = await monthTotals(tx, from, to);
+  // Wage days priced per day-role: the slip must match the wages report to
+  // the paisa, so both read the day's own role and fall back to the usual.
+  const dayBuckets = await wageDayTotals(tx, from, to);
+  const ratesByRole = new Map(
+    (await tx.select({ id: wageRoles.id, dailyRate: wageRoles.dailyRate }).from(wageRoles)).map((r) => [r.id, Number(r.dailyRate)]),
+  );
   const inputs = await tx
     .select()
     .from(payInputs)
@@ -175,8 +182,15 @@ export async function processRun(tx: Tx, input: ProcessInput) {
       earnedAllowances = r2(allowances * ratio);
     } else {
       // Wages are for days worked; a holiday or a weekly off earns nothing.
+      // Each day at the rate of the role it was worked in — the blank bucket
+      // is days with no per-day role, priced at the worker's usual one.
       dailyRate = Number(e.dailyRate ?? 0);
-      earnedBasic = r2(dailyRate * (t.P + 0.5 * t.H));
+      let earned = 0;
+      for (const [bucketRole, b] of dayBuckets.get(e.id) ?? []) {
+        const rid = bucketRole || e.wageRoleId || "";
+        earned += (rid ? (ratesByRole.get(rid) ?? 0) : 0) * (b.P + 0.5 * b.H);
+      }
+      earnedBasic = r2(earned);
     }
     const earnedGross = r2(earnedBasic + earnedHra + earnedAllowances);
 

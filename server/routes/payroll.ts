@@ -39,6 +39,7 @@ import {
   loadContext,
   monthRange,
   monthTotals,
+  wageDayTotals,
   recomputeEmployeeDay,
   recomputeRange,
   resolveDay,
@@ -1529,34 +1530,156 @@ payrollRouter.get("/reports/wages", view, async (req, res) => {
   const to = dateStr.safeParse(req.query.to);
   if (!from.success || !to.success) return res.status(400).json({ error: "from and to are required" });
   const conds = [eq(employees.payType, "daily_wage" as const)];
-  if (req.query.role) conds.push(eq(employees.wageRoleId, String(req.query.role)));
   const staff = await db
-    .select({ id: employees.id, empCode: employees.empCode, name: employees.name, role: wageRoles.name, dailyRate: wageRoles.dailyRate })
+    .select({ id: employees.id, empCode: employees.empCode, name: employees.name, defaultRoleId: employees.wageRoleId })
     .from(employees)
-    .leftJoin(wageRoles, eq(wageRoles.id, employees.wageRoleId))
     .where(and(...conds))
     .orderBy(asc(employees.empCode));
-  const totals = await monthTotals(db, from.data, to.data, staff.map((s) => s.id));
-  const rows = staff
-    .map((s) => {
-      const t = totals.get(s.id) ?? emptyTotals();
-      const rate = Number(s.dailyRate ?? 0);
-      const amount = Math.round(rate * (t.P + 0.5 * t.H) * 100) / 100;
-      return { ...s, dailyRate: rate, presentDays: t.P, halfDays: t.H, amount };
-    })
-    .filter((r) => r.presentDays + r.halfDays > 0 || req.query.role);
+  const roles = await db.select().from(wageRoles);
+  const roleById = new Map(roles.map((r) => [r.id, r]));
+
+  // Each day is paid at the rate of the role it was WORKED in. The empty
+  // bucket is days with no per-day role, priced at the worker's usual role.
+  const totals = await wageDayTotals(db, from.data, to.data, staff.map((s) => s.id));
+  const roleFilter = req.query.role ? String(req.query.role) : null;
   const byRole = new Map<string, { role: string; heads: number; presentDays: number; halfDays: number; amount: number }>();
-  for (const r of rows) {
-    const key = r.role ?? "(no role)";
-    const agg = byRole.get(key) ?? { role: key, heads: 0, presentDays: 0, halfDays: 0, amount: 0 };
-    agg.heads++;
-    agg.presentDays += r.presentDays;
-    agg.halfDays += r.halfDays;
-    agg.amount = Math.round((agg.amount + r.amount) * 100) / 100;
-    byRole.set(key, agg);
+  const rows: Array<{
+    id: string; empCode: string; name: string; role: string | null;
+    dailyRate: number; presentDays: number; halfDays: number; amount: number;
+  }> = [];
+  for (const s of staff) {
+    const buckets = totals.get(s.id) ?? new Map<string, { P: number; H: number }>();
+    let amount = 0;
+    let presentDays = 0;
+    let halfDays = 0;
+    let touchesFilter = false;
+    // Roles worked this range, most days first — the Role column reads
+    // "Egg picking +2" when a month mixes three.
+    const worked: Array<{ name: string; days: number; rate: number }> = [];
+    for (const [bucketRole, b] of buckets) {
+      const roleId = bucketRole || s.defaultRoleId || "";
+      const role = roleId ? roleById.get(roleId) : undefined;
+      const rate = Number(role?.dailyRate ?? 0);
+      const days = b.P + 0.5 * b.H;
+      amount = Math.round((amount + rate * days) * 100) / 100;
+      presentDays += b.P;
+      halfDays += b.H;
+      if (roleId === roleFilter) touchesFilter = true;
+      const label = role?.name ?? "(no role)";
+      const w = worked.find((x) => x.name === label);
+      if (w) w.days += days;
+      else worked.push({ name: label, days, rate });
+      const agg = byRole.get(label) ?? { role: label, heads: 0, presentDays: 0, halfDays: 0, amount: 0 };
+      agg.presentDays += b.P;
+      agg.halfDays += b.H;
+      agg.amount = Math.round((agg.amount + rate * days) * 100) / 100;
+      byRole.set(label, agg);
+    }
+    // heads: one per worker per role touched
+    for (const w of worked) {
+      const agg = byRole.get(w.name);
+      if (agg) agg.heads++;
+    }
+    if (roleFilter && !touchesFilter && s.defaultRoleId !== roleFilter) continue;
+    if (presentDays + halfDays === 0 && !roleFilter) continue;
+    worked.sort((a, b) => b.days - a.days);
+    const primary = worked[0];
+    const defaultRole = s.defaultRoleId ? roleById.get(s.defaultRoleId) : undefined;
+    rows.push({
+      id: s.id,
+      empCode: s.empCode,
+      name: s.name,
+      role: primary ? primary.name + (worked.length > 1 ? ` +${worked.length - 1}` : "") : (defaultRole?.name ?? null),
+      dailyRate: primary ? primary.rate : Number(defaultRole?.dailyRate ?? 0),
+      presentDays,
+      halfDays,
+      amount,
+    });
   }
   res.json({ rows, byRole: [...byRole.values()], total: rows.reduce((n, r) => n + r.amount, 0) });
 });
+
+/**
+ * One day of the wage yard: who was in, and as what.
+ *
+ * People change jobs day to day — egg picking today, vaccination helper
+ * tomorrow — so the day's role is set HERE, against the attendance row the
+ * gate already made. No row means the gate never saw them: presence comes
+ * from punches, this screen only says what the day was spent on.
+ */
+payrollRouter.get("/wages/day", view, async (req, res) => {
+  const day = dateStr.safeParse(req.query.date);
+  if (!day.success) return res.status(400).json({ error: "date is required" });
+  const staff = await db
+    .select({
+      id: employees.id,
+      empCode: employees.empCode,
+      name: employees.name,
+      defaultRoleId: employees.wageRoleId,
+      defaultRoleName: wageRoles.name,
+    })
+    .from(employees)
+    .leftJoin(wageRoles, eq(wageRoles.id, employees.wageRoleId))
+    .where(and(eq(employees.payType, "daily_wage" as const), eq(employees.isActive, true)))
+    .orderBy(asc(employees.empCode));
+  const att = await db
+    .select({ employeeId: attendanceDays.employeeId, status: attendanceDays.status, wageRoleId: attendanceDays.wageRoleId })
+    .from(attendanceDays)
+    .where(eq(attendanceDays.day, day.data));
+  const byEmp = new Map(att.map((a) => [a.employeeId, a]));
+  res.json(
+    staff.map((st) => {
+      const a = byEmp.get(st.id);
+      return {
+        id: st.id,
+        empCode: st.empCode,
+        name: st.name,
+        defaultRoleId: st.defaultRoleId,
+        defaultRoleName: st.defaultRoleName,
+        status: a?.status ?? null,
+        dayRoleId: a?.wageRoleId ?? null,
+      };
+    }),
+  );
+});
+
+payrollRouter.patch(
+  "/wages/day",
+  attendancePerm,
+  validateBody(
+    z.object({
+      employeeId: z.string().uuid(),
+      day: z.string().regex(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/),
+      wageRoleId: z.string().uuid().nullable(),
+    }),
+  ),
+  async (req, res) => {
+    const { employeeId, day, wageRoleId } = req.body as {
+      employeeId: string;
+      day: string;
+      wageRoleId: string | null;
+    };
+    const [emp] = await db
+      .select({ payType: employees.payType })
+      .from(employees)
+      .where(eq(employees.id, employeeId));
+    if (!emp) return res.status(404).json({ error: "No such employee" });
+    if (emp.payType !== "daily_wage")
+      return res.status(400).json({ error: "Day roles are for daily-wage workers" });
+    if (wageRoleId) {
+      const [role] = await db.select({ id: wageRoles.id }).from(wageRoles).where(eq(wageRoles.id, wageRoleId));
+      if (!role) return res.status(404).json({ error: "No such wage role" });
+    }
+    const [row] = await db
+      .update(attendanceDays)
+      .set({ wageRoleId, updatedAt: new Date() })
+      .where(and(eq(attendanceDays.employeeId, employeeId), eq(attendanceDays.day, day)))
+      .returning({ employeeId: attendanceDays.employeeId });
+    if (!row)
+      return res.status(409).json({ error: "No attendance that day — presence comes from the gate, not from here" });
+    res.json({ ok: true });
+  },
+);
 
 /** Month by month, from confirmed runs only — the year at a glance. */
 payrollRouter.get("/reports/summary", view, async (req, res) => {
@@ -1585,7 +1708,7 @@ payrollRouter.get("/reports/people", view, async (req, res) => {
   const to = typeof req.query.to === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.to) ? req.query.to : today;
 
   const staff = await db
-    .select({ id: employees.id, empCode: employees.empCode, name: employees.name, payType: employees.payType, department: departments.name, dailyRate: wageRoles.dailyRate })
+    .select({ id: employees.id, empCode: employees.empCode, name: employees.name, payType: employees.payType, department: departments.name, wageRoleId: employees.wageRoleId })
     .from(employees)
     .leftJoin(departments, eq(departments.id, employees.departmentId))
     .leftJoin(wageRoles, eq(wageRoles.id, employees.wageRoleId))
@@ -1613,6 +1736,10 @@ payrollRouter.get("/reports/people", view, async (req, res) => {
   }
 
   const totals = await monthTotals(db, from, to);
+  const peopleBuckets = await wageDayTotals(db, from, to);
+  const peopleRoles = new Map(
+    (await db.select({ id: wageRoles.id, dailyRate: wageRoles.dailyRate }).from(wageRoles)).map((r) => [r.id, Number(r.dailyRate)]),
+  );
   let workDays = 0;
   let presentEq = 0;
   let wagesCost = 0;
@@ -1621,7 +1748,13 @@ payrollRouter.get("/reports/people", view, async (req, res) => {
     if (!t) continue;
     workDays += t.P + t.H + t.A + t.L;
     presentEq += t.P + 0.5 * t.H;
-    if (e.payType === "daily_wage") wagesCost += Number(e.dailyRate ?? 0) * (t.P + 0.5 * t.H);
+    if (e.payType === "daily_wage") {
+      // Per-day roles: each bucket at its own rate, blank at the usual role.
+      for (const [bucketRole, b] of peopleBuckets.get(e.id) ?? []) {
+        const rid = bucketRole || e.wageRoleId || "";
+        wagesCost += Number(rid ? (peopleRoles.get(rid) ?? 0) : 0) * (b.P + 0.5 * b.H);
+      }
+    }
   }
 
   res.json({
