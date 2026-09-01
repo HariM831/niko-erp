@@ -747,32 +747,38 @@ farmsFlockRouter.get("/daily/sensor", view, async (req, res) => {
     /*
      * Is the controller reporting, or repeating one snapshot?
      *
-     * The last TWO readings, whenever they arrived.
+     * Movement across a window that spans real TIME.
      *
-     * Not a 24-hour window: staging fetches on demand rather than on a clock,
-     * and a window-based test called every house there frozen forever. Not a
-     * wider run either — twelve readings on staging spanned the gap between
-     * imported history and today's fetch, and the gap alone looked like life.
+     * Three wrong answers came before this one. A 24-hour window assumed a
+     * five-minute timer and called every house on staging frozen. Twelve
+     * readings regardless of age spanned the gap between imported history and
+     * today's fetch, and the gap alone looked like life. Two consecutive
+     * readings looked tightest — until two manual fetches landed 38 seconds
+     * apart and L2 and L5 read as frozen, because nothing changes in 38
+     * seconds.
      *
-     * Two consecutive readings is the tightest honest test. A live controller
-     * moves something between any two: L3 went 28.3 to 28.4 degrees and
-     * 16,500 to 16,700 litres in three minutes, while P1 and P2 returned
-     * byte-identical rows.
+     * So: readings from the last six hours, which excludes an import gap, and
+     * the span between oldest and newest must be at least ten minutes, which
+     * is long enough that a live house has moved SOMETHING — the water
+     * counter ticks about a hundred litres every five minutes. Too short a
+     * span is not evidence of a frozen controller, and says so instead.
      */
     recent AS (
       SELECT temp_c, feed_kg, water_l, silo_kg, at
-        FROM iot_house_sample WHERE house_id = ${houseId}::uuid
-       ORDER BY at DESC LIMIT 2
+        FROM iot_house_sample
+       WHERE house_id = ${houseId}::uuid AND at > now() - interval '6 hours'
+       ORDER BY at DESC LIMIT 24
     ),
     liveness AS (
       SELECT count(*) AS seen,
              GREATEST(count(DISTINCT temp_c), count(DISTINCT feed_kg),
                       count(DISTINCT water_l), count(DISTINCT silo_kg)) AS temps,
+             EXTRACT(EPOCH FROM (max(at) - min(at))) AS span_s,
              max(at) AS newest
         FROM recent
     )
     SELECT t.feed_kg, t.water_l, t.silo_kg, t.bird_count, t.updated_at,
-           y.bird_count AS prev_birds, l.temps, l.seen, l.newest
+           y.bird_count AS prev_birds, l.temps, l.seen, l.span_s, l.newest
       FROM liveness l LEFT JOIN today t ON true LEFT JOIN yesterday y ON true
   `);
 
@@ -781,22 +787,24 @@ farmsFlockRouter.get("/daily/sensor", view, async (req, res) => {
         feed_kg: string | null; water_l: string | null; silo_kg: string | null;
         bird_count: number | null; updated_at: string | null;
         prev_birds: number | null; temps: string | number; seen: string | number;
-        newest: string | null;
+        span_s: string | number | null; newest: string | null;
       }
     | undefined;
 
   const num = (v: string | null | undefined) => (v == null ? null : Number(v));
-  // Nothing moving across the recent readings is a controller repeating itself.
+  // Nothing moving across a window that spans real time is a frozen controller.
   const seen = Number(r?.seen ?? 0);
-  const live = r != null && Number(r.temps) > 1;
-  if (!live) {
+  const spanS = Number(r?.span_s ?? 0);
+  const moved = r != null && Number(r.temps) > 1;
+  const longEnough = spanS >= 600;
+  if (!moved) {
     return res.json({
       available: false,
       reason:
         seen === 0
           ? "No readings from this house's controller."
-          : seen < 2
-            ? "Only one reading so far — fetch again to tell a live controller from a frozen one."
+          : !longEnough
+            ? "The readings so far are minutes apart — too close together to tell a live controller from a frozen one. Fetch again shortly."
             : "This house's controller is repeating one frozen reading — nothing to suggest.",
     });
   }
