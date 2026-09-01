@@ -122,8 +122,8 @@ export async function housesBoard(tx: Tx) {
       to_char(d.day, 'YYYY-MM-DD')                     AS "date",
       coalesce(pd.feed_consumed_kg, 0)::float8         AS "feedIntakeKg",
       coalesce(pd.feed_closing_kg, 0)::float8          AS "feedStockKg",
-      coalesce(pd.water_upper_kl, 0)::float8           AS "waterUpperKl",
-      coalesce(pd.water_lower_kl, 0)::float8           AS "waterLowerKl",
+      -- water_kl since 0085; the pair is history, summed for rows older than it
+      coalesce(pd.water_kl, coalesce(pd.water_upper_kl, 0) + coalesce(pd.water_lower_kl, 0))::float8 AS "waterKl",
       coalesce(pd.eggs_total, 0)::int                  AS "eggsProduced",
       coalesce(SUM(m.qty) FILTER (WHERE m.kind = 'mortality'), 0)::int      AS "mortality",
       coalesce(SUM(m.qty) FILTER (WHERE m.kind = 'cull'), 0)::int           AS "birdsCulled",
@@ -146,8 +146,8 @@ export async function housesBoard(tx: Tx) {
     LEFT JOIN placement_days pd ON pd.placement_id = d.placement_id AND pd.day = d.day
     LEFT JOIN flock_movements m ON m.placement_id = d.placement_id AND m.event_date = d.day
     GROUP BY d.placement_id, p.house_id, f.code, d.day,
-             pd.feed_consumed_kg, pd.feed_closing_kg, pd.water_upper_kl,
-             pd.water_lower_kl, pd.eggs_total
+             pd.feed_consumed_kg, pd.feed_closing_kg, pd.water_kl,
+             pd.water_upper_kl, pd.water_lower_kl, pd.eggs_total
     ORDER BY d.day DESC`);
 
   const records: Record<string, unknown[]> = {};

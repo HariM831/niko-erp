@@ -94,8 +94,7 @@ const dailyBody = z.object({
   birdsTransferredIn: z.number().default(0),
   birdsTransferredOut: z.number().default(0),
   birdsCulled: z.number().default(0),
-  waterUpperKl: z.number().default(0),
-  waterLowerKl: z.number().default(0),
+  waterKl: z.number().default(0),
   feedDeliveredKg: z.number().default(0),
   feedIntakeKg: z.number().default(0),
   feedStockKg: z.number().default(0),
@@ -112,6 +111,8 @@ const dailyBody = z.object({
  *  - transferred in / out — birds move on the flock's Transfer tab, as dated
  *    lines. A transfer also needs both ends; one written from here would be a
  *    bird leaving a house and arriving nowhere.
+ *  - culling: a cull-out runs over several days and is recorded as one dated
+ *    set on the flock's Culling tab, for the same reason.
  *  - feed delivered — that is the mill's transfer into the house, which already
  *    exists as a stock movement with a cost on it.
  */
@@ -126,9 +127,13 @@ async function writeDaily(tx: Tx, body: z.infer<typeof dailyBody>, userId: strin
       "Feed delivered comes from the mill's transfer into this house — record it in Feed Mill, not here.",
     );
   }
+  if (body.birdsCulled) {
+    throw new PostingError(
+      "Culling is recorded on the flock's Culling tab, where the whole cull-out is one dated set.",
+    );
+  }
   const losses = [
     { kind: "mortality" as const, qty: body.mortality },
-    { kind: "cull" as const, qty: body.birdsCulled },
     { kind: "male_removal" as const, qty: body.maleBirds },
   ].filter((l) => l.qty > 0);
 
@@ -139,8 +144,7 @@ async function writeDaily(tx: Tx, body: z.infer<typeof dailyBody>, userId: strin
       day: day(body.date),
       feedConsumedKg: body.feedIntakeKg ? String(body.feedIntakeKg) : null,
       feedClosingKg: body.feedStockKg ? String(body.feedStockKg) : null,
-      waterUpperKl: body.waterUpperKl ? String(body.waterUpperKl) : null,
-      waterLowerKl: body.waterLowerKl ? String(body.waterLowerKl) : null,
+      waterKl: body.waterKl ? String(body.waterKl) : null,
       eggsTotal: body.eggsProduced || null,
       losses,
     },

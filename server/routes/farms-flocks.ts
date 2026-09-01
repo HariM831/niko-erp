@@ -707,13 +707,96 @@ farmsFlockRouter.get("/daily", view, async (req, res) => {
   res.json(out);
 });
 
+/**
+ * What the shed's own instruments say about a day, for the entry form to open
+ * with. Suggestions only — nothing here is saved until a person saves it.
+ *
+ * Four numbers, and each one is refused rather than guessed when the
+ * controller cannot support it:
+ *
+ *  - feed and water are the controller's own daily totals. They reset at
+ *    midnight and climb, so asking about TODAY gets the running figure so far,
+ *    not the day's. `partial` says which, and the form says so on screen.
+ *  - silo is the current weight in the bins, which is what "stock" means.
+ *  - mortality is NOT the controller's mortality tag: that reads zero on every
+ *    house on every day ever polled, because nobody types deaths into the
+ *    panel. It is the fall in the panel's own BIRD COUNT since yesterday,
+ *    which staff do maintain. That fall also contains any culls and transfers
+ *    out, so it is offered as a number to check rather than a fact.
+ *
+ * A controller repeating one frozen snapshot (P1 and P2 have done since they
+ * were wired) offers nothing at all. A stuck number presented confidently is
+ * worse than an empty box, because the empty box gets filled in.
+ */
+farmsFlockRouter.get("/daily/sensor", view, async (req, res) => {
+  const day = String(req.query.date ?? "").slice(0, 10);
+  const houseId = String(req.query.houseId ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return res.status(422).json({ error: "Use a YYYY-MM-DD date" });
+  if (!houseId) return res.status(422).json({ error: "Which house?" });
+
+  const rows = await db.execute(sql`
+    WITH today AS (
+      SELECT feed_kg, water_l, silo_kg, bird_count, updated_at
+        FROM iot_house_day WHERE house_id = ${houseId}::uuid AND day = ${day}
+    ),
+    yesterday AS (
+      SELECT bird_count FROM iot_house_day
+       WHERE house_id = ${houseId}::uuid AND day = (${day}::date - 1)
+    ),
+    /* Is the controller actually reporting, or repeating one snapshot? */
+    liveness AS (
+      SELECT count(DISTINCT temp_c) AS temps, max(at) AS newest
+        FROM iot_house_sample
+       WHERE house_id = ${houseId}::uuid AND at > now() - interval '24 hours'
+    )
+    SELECT t.feed_kg, t.water_l, t.silo_kg, t.bird_count, t.updated_at,
+           y.bird_count AS prev_birds, l.temps, l.newest
+      FROM liveness l LEFT JOIN today t ON true LEFT JOIN yesterday y ON true
+  `);
+
+  const r = rows.rows[0] as
+    | {
+        feed_kg: string | null; water_l: string | null; silo_kg: string | null;
+        bird_count: number | null; updated_at: string | null;
+        prev_birds: number | null; temps: string | number; newest: string | null;
+      }
+    | undefined;
+
+  const num = (v: string | null | undefined) => (v == null ? null : Number(v));
+  // One distinct temperature in a day is a controller repeating itself.
+  const live = r != null && Number(r.temps) > 1;
+  if (!live) {
+    return res.json({
+      available: false,
+      reason: r?.newest
+        ? "This house's controller is repeating one frozen reading — nothing to suggest."
+        : "No readings from this house's controller.",
+    });
+  }
+
+  const fall =
+    r!.bird_count != null && r!.prev_birds != null ? r!.prev_birds - r!.bird_count : null;
+
+  res.json({
+    available: true,
+    // Today's totals are still climbing; yesterday's are final.
+    partial: day >= new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10),
+    at: r!.updated_at,
+    feedConsumedKg: num(r!.feed_kg),
+    feedClosingKg: num(r!.silo_kg),
+    waterKl: r!.water_l == null ? null : Math.round(Number(r!.water_l) / 100) / 10,
+    // Negative means the panel count went UP — a transfer in, not a resurrection.
+    mortality: fall != null && fall > 0 ? fall : null,
+    birdCount: r!.bird_count,
+  });
+});
+
 const dailySchema = z.object({
   placementId: z.string().uuid(),
   day: isoDate,
   feedConsumedKg: decimal,
   feedClosingKg: decimal,
-  waterUpperKl: decimal,
-  waterLowerKl: decimal,
+  waterKl: decimal,
   eggsTotal: z.number().int().min(0).nullish(),
   eggsCracked: z.number().int().min(0).nullish(),
   eggsDirty: z.number().int().min(0).nullish(),

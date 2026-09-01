@@ -272,9 +272,9 @@ export async function refreshFlockDay(tx: Tx, flockId: string): Promise<number> 
     // Two meters, one number downstream. Null only when neither was read — a
     // genuine zero is a reading, not a gap.
     const water =
-      pd == null || (pd.waterUpperKl == null && pd.waterLowerKl == null)
+      pd == null || (pd.waterKl == null && pd.waterUpperKl == null && pd.waterLowerKl == null)
         ? null
-        : (n(pd.waterUpperKl) + n(pd.waterLowerKl)) * 1000;
+        : (pd.waterKl != null ? n(pd.waterKl) : n(pd.waterUpperKl) + n(pd.waterLowerKl)) * 1000;
 
     const weighing = [...weighings]
       .filter((w) => w.placementId === p.id && w.weighedOn <= day)

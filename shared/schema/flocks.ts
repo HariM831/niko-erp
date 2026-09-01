@@ -241,8 +241,19 @@ export const placementDays = pgTable(
     /** What is left in the silo. The farm calls it "Stock". */
     feedClosingKg: numeric("feed_closing_kg", { precision: 10, scale: 2 }),
     /**
-     * Two tank readings, because the operator reads two meters. Downstream
-     * takes the sum — only one number ever leaves this table.
+     * The day's water, in kilolitres.
+     *
+     * One number, because only one ever left this table anyway — every reader
+     * summed the two tank meters and none of them cared which tank it came
+     * from. The farm stopped wanting to split it, and the sensor cannot split
+     * it, so the split is gone.
+     */
+    waterKl: numeric("water_kl", { precision: 10, scale: 2 }),
+    /**
+     * The two meters the operator used to read separately. Kept because 890
+     * days of them are real and a dropped column is not recoverable; written
+     * by nothing since 0085. Read through `water_kl`, which was backfilled
+     * from their sum — never directly.
      */
     waterUpperKl: numeric("water_upper_kl", { precision: 10, scale: 2 }),
     waterLowerKl: numeric("water_lower_kl", { precision: 10, scale: 2 }),

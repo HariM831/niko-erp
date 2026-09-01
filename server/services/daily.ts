@@ -59,8 +59,7 @@ export interface DayInput {
   day: string;
   feedConsumedKg?: string | null;
   feedClosingKg?: string | null;
-  waterUpperKl?: string | null;
-  waterLowerKl?: string | null;
+  waterKl?: string | null;
   eggsTotal?: number | null;
   eggsCracked?: number | null;
   eggsDirty?: number | null;
@@ -267,8 +266,7 @@ export async function saveDay(tx: Tx, input: DayInput, userId: string) {
       day: input.day,
       feedConsumedKg: money(input.feedConsumedKg),
       feedClosingKg: money(input.feedClosingKg),
-      waterUpperKl: money(input.waterUpperKl),
-      waterLowerKl: money(input.waterLowerKl),
+      waterKl: money(input.waterKl),
       eggsTotal: input.eggsTotal ?? null,
       eggsCracked: input.eggsCracked ?? null,
       eggsDirty: input.eggsDirty ?? null,
@@ -280,8 +278,7 @@ export async function saveDay(tx: Tx, input: DayInput, userId: string) {
       set: {
         feedConsumedKg: money(input.feedConsumedKg),
         feedClosingKg: money(input.feedClosingKg),
-        waterUpperKl: money(input.waterUpperKl),
-        waterLowerKl: money(input.waterLowerKl),
+        waterKl: money(input.waterKl),
         eggsTotal: input.eggsTotal ?? null,
         eggsCracked: input.eggsCracked ?? null,
         eggsDirty: input.eggsDirty ?? null,
