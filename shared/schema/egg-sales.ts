@@ -189,6 +189,12 @@ export const eggDispatches = pgTable(
 export const eggSalesPreferences = pgTable("egg_sales_preferences", {
   id: boolean("id").primaryKey().default(true),
   eggsPerBox: integer("eggs_per_box").notNull().default(210),
+  /**
+   * A jumbo box holds fewer, because a jumbo egg is bigger: 180 against 210.
+   * Kept as its own number rather than a factor, because it is a physical
+   * fact about a box the farm buys, not an adjustment to another number.
+   */
+  jumboEggsPerBox: integer("jumbo_eggs_per_box").notNull().default(180),
   /** Retired placeholder (the ungraded item). Kept nullable for history. */
   eggItemId: uuid("egg_item_id").references(() => items.id),
   /** Grading on/after this date writes egg stock; before it is history. */

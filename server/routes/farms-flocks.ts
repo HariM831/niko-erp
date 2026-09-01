@@ -24,6 +24,7 @@ import {
   standardSets,
 } from "@shared/schema";
 import { db } from "../db";
+import { EGG_SIZES, eggPrefs, eggsInBox } from "../services/egg-sales";
 import { requirePermission } from "../lib/rbac";
 import { nonBlank, validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
@@ -805,6 +806,23 @@ farmsFlockRouter.get("/daily/sensor", view, async (req, res) => {
   const siloKg = num(r!.silo_kg);
   const siloOk = siloKg != null && siloKg >= 0;
 
+  /**
+   * Eggs produced, from the grading sheet this house filled for the day.
+   *
+   * Boxes, converted at the size's own capacity: a jumbo box holds 180 where
+   * the rest hold 210. Dirty eggs are counted — they were laid, and this
+   * figure is production, not saleable stock.
+   */
+  const graded = await db.execute(sql`
+    SELECT small, medium, large, xl, jumbo, dirty
+      FROM egg_grading WHERE house_id = ${houseId}::uuid AND graded_on = ${day}
+  `);
+  const g = graded.rows[0] as Record<string, number> | undefined;
+  const prefs = await eggPrefs(db);
+  const eggsProduced = g
+    ? EGG_SIZES.reduce((n, size) => n + Number(g[size] ?? 0) * eggsInBox(size, prefs), 0)
+    : null;
+
   const rejected: string[] = [];
   if (!feedOk && feedKg != null) rejected.push(`feed (${Math.round(feedG ?? 0)} g/bird)`);
   if (!waterOk && waterL != null) rejected.push(`water (${Math.round(waterMl ?? 0)} ml/bird)`);
@@ -821,6 +839,7 @@ farmsFlockRouter.get("/daily/sensor", view, async (req, res) => {
     // Negative means the panel count went UP — a transfer in, not a resurrection.
     mortality: fall != null && fall > 0 ? fall : null,
     birdCount: r!.bird_count,
+    eggsProduced,
     /** Instruments that answered with something that cannot be true. */
     rejected,
   });

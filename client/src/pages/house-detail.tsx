@@ -243,9 +243,13 @@ export function HouseDetailPage() {
   const [sensor, setSensor] = useState<{
     available: boolean; reason?: string; partial?: boolean; at?: string | null;
     feedConsumedKg?: number | null; feedClosingKg?: number | null;
-    waterKl?: number | null; mortality?: number | null; rejected?: string[];
+    waterKl?: number | null; mortality?: number | null; eggsProduced?: number | null;
+    rejected?: string[];
   } | null>(null);
   const [fromSensor, setFromSensor] = useState<Set<string>>(new Set());
+  const [fetching, setFetching] = useState(false);
+  /** Bumped by Fetch now, so the suggestion effect runs again. */
+  const [sensorNonce, setSensorNonce] = useState(0);
 
   /** Typing in a box takes it off the sensor for good. */
   const setFromHand = (field: string, value: string) => {
@@ -288,7 +292,10 @@ export function HouseDetailPage() {
         const marks = new Set<string>();
         setRecordForm((prev) => {
           const next = { ...prev };
-          const put = (field: 'feedIntakeKg' | 'feedStockKg' | 'waterKl' | 'mortality', v: number | null | undefined) => {
+          const put = (
+            field: 'feedIntakeKg' | 'feedStockKg' | 'waterKl' | 'mortality' | 'eggsProduced',
+            v: number | null | undefined,
+          ) => {
             if (v == null || next[field] !== '') return;
             next[field] = String(v);
             marks.add(field);
@@ -297,6 +304,7 @@ export function HouseDetailPage() {
           put('feedStockKg', data.feedClosingKg);
           put('waterKl', data.waterKl);
           put('mortality', data.mortality);
+          put('eggsProduced', data.eggsProduced);
           return next;
         });
         setFromSensor(marks);
@@ -305,7 +313,7 @@ export function HouseDetailPage() {
       }
     })();
     return () => { dropped = true; };
-  }, [showRecordDialog, shedId, recordForm.date]);
+  }, [showRecordDialog, shedId, recordForm.date, sensorNonce]);
 
   const [weightForm, setWeightForm] = useState({
     date: format(new Date(), 'yyyy-MM-dd'),
@@ -1448,6 +1456,27 @@ export function HouseDetailPage() {
                         <DialogHeader>
                           <DialogTitle>{editingRecordId ? 'Edit Daily Record' : 'Add Daily Record'}</DialogTitle>
                           </DialogHeader>
+                          {sensor && !sensor.available && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                setFetching(true);
+                                try {
+                                  await fetch('/api/farms/iot/fetch-now', {
+                                    method: 'POST',
+                                    credentials: 'same-origin',
+                                  });
+                                  setSensorNonce((n) => n + 1);
+                                } finally {
+                                  setFetching(false);
+                                }
+                              }}
+                              disabled={fetching}
+                              className="rounded-md border px-2 py-1 text-[12px] text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                            >
+                              {fetching ? 'Fetching…' : 'Fetch now'}
+                            </button>
+                          )}
                           {sensor && (
                             <div className={`rounded-lg px-3 py-2 text-[12px] ${sensor.available ? 'bg-yolk-50 text-yolk-800' : 'bg-gray-50 text-gray-500'}`}>
                               {!sensor.available
@@ -1591,13 +1620,16 @@ export function HouseDetailPage() {
                                 Eggs (Layer House)
                               </h4>
                               <div>
-                                <Label className="text-xs">Eggs Produced</Label>
+                                <Label className="text-xs flex items-center gap-2">
+                                    Eggs Produced
+                                    {sensorTag('eggsProduced')}
+                                  </Label>
                                 <Input
                                   type="number"
                                   placeholder="0"
                                   value={recordForm.eggsProduced}
-                                  onChange={(e) => setRecordForm(prev => ({ ...prev, eggsProduced: e.target.value }))}
-                                  className="min-h-[44px]"
+                                  onChange={(e) => setFromHand('eggsProduced', e.target.value)}
+                                  className={`min-h-[44px] ${sensorClass('eggsProduced')}`}
                                   data-testid="input-eggs-produced"
                                 />
                               </div>

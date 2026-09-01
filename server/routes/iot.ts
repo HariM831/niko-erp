@@ -1,7 +1,10 @@
 /**
  * What the sheds' instruments say, for the screens.
  *
- * Reads only. The poller writes; nothing here does.
+ * Reads, and one write: "Fetch now" runs a poll on demand. Staging holds the
+ * vendor token but no timer, so without a button it would have nothing to
+ * show; and on production it is the answer to "the panel says something the
+ * screen does not" without waiting out the five minutes.
  */
 import { Router } from "express";
 import { and, desc, eq, gte, sql } from "drizzle-orm";
@@ -9,9 +12,33 @@ import { houses, iotHouseDay, iotReadings } from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { SINGLE_TAGS, METRIC_TAGS, nameOf, tokenExpiry } from "../services/iot/bhfarm";
-import { houseSamples, recentPolls } from "../services/iot/store";
+import { houseSamples, pollOnce, recentPolls } from "../services/iot/store";
 
 export const iotRouter = Router();
+
+/**
+ * Poll the sheds now, rather than at the next tick.
+ *
+ * Guarded by `farms.manage`: it costs a vendor call and writes readings.
+ * Never runs two at once — a second caller is told the first is still going
+ * rather than being queued behind it, because the answer either way is the
+ * same readings a moment later.
+ */
+let fetching = false;
+iotRouter.post("/fetch-now", requirePermission("farms", "manage"), async (_req, res) => {
+  if (!process.env.BH_TOKEN) {
+    return res.status(422).json({ error: "No vendor token is configured for this environment." });
+  }
+  if (fetching) return res.status(409).json({ error: "A fetch is already running." });
+  fetching = true;
+  try {
+    const r = await pollOnce();
+    if (r.error) return res.status(502).json({ error: r.error });
+    res.json({ houses: r.houses, readings: r.readings, notes: r.skipped });
+  } finally {
+    fetching = false;
+  }
+});
 
 /**
  * The live board: one row per house, latest reading of the tags worth naming.

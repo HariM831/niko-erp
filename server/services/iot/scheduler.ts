@@ -74,6 +74,20 @@ export function startIotPolling(): void {
     return;
   }
 
+  /**
+   * Holding the token and polling on a timer are two different decisions.
+   *
+   * Staging needs to READ the sheds to be worth testing against, but a second
+   * environment polling every five minutes doubles the load on a vendor API
+   * that drops out on its own often enough. BH_POLL=off keeps the credential
+   * and drops the timer; the Fetch now button still works, because that is a
+   * person asking rather than a clock.
+   */
+  if (process.env.BH_POLL === "off") {
+    console.log("[iot] BH_POLL=off — no timer; readings come from Fetch now only");
+    return;
+  }
+
   const exp = tokenExpiry();
   if (exp) {
     const days = Math.floor((exp.getTime() - Date.now()) / 86_400_000);

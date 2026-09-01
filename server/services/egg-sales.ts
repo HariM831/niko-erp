@@ -48,6 +48,24 @@ type Tx = Parameters<Parameters<typeof Db.transaction>[0]>[0];
 type Conn = Tx | typeof Db;
 
 export const EGG_SIZES = ["small", "medium", "large", "xl", "jumbo", "dirty"] as const;
+
+/**
+ * How many eggs are in one box of a given size.
+ *
+ * Jumbo boxes hold 180 where every other size holds 210, because the egg is
+ * bigger and the box is not.
+ *
+ * Used for PRODUCTION — turning a grading sheet's boxes into the eggs a house
+ * laid. The sales path still prices every size at `eggsPerBox`, which for
+ * jumbo is 210: left alone deliberately, and worth settling before the first
+ * jumbo box is invoiced.
+ */
+export function eggsInBox(
+  size: (typeof EGG_SIZES)[number],
+  prefs: { eggsPerBox: number; jumboEggsPerBox: number },
+): number {
+  return size === "jumbo" ? prefs.jumboEggsPerBox : prefs.eggsPerBox;
+}
 export type EggSize = (typeof EGG_SIZES)[number];
 
 const SIZE_LABEL: Record<EggSize, string> = {
