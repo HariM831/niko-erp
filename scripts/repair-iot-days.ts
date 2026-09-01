@@ -41,7 +41,7 @@ const rows = (
   `)
 ).rows as Array<Record<string, unknown>>;
 
-console.log(`\n  ${rows.length} day(s) differ from what the samples say\n`);
+console.log(`\n  ${rows.length} day(s) understate what the samples say\n`);
 for (const r of rows.slice(0, 20)) {
   console.log(
     `  ${r.code} ${String(r.day).slice(0, 10)}  feed ${r.stored_feed} -> ${r.feed_kg}   water ${r.stored_water} -> ${r.water_l}`,
