@@ -777,17 +777,52 @@ farmsFlockRouter.get("/daily/sensor", view, async (req, res) => {
   const fall =
     r!.bird_count != null && r!.prev_birds != null ? r!.prev_birds - r!.bird_count : null;
 
+  /**
+   * A live controller can still have a dead instrument.
+   *
+   * L4 reported 63 kg of feed for 109,968 birds and L5 reported minus one,
+   * on a day both were plainly reporting temperature. That is a broken feed
+   * line, not a fasting house, and 63 kg prefilled into a form is a number
+   * somebody signs off. Each figure is checked against the birds it claims to
+   * have fed and dropped on its own if it cannot be true — a blank box asks to
+   * be filled, which is exactly the right outcome.
+   *
+   * The bands are deliberately wide: a layer eats about 110 g and drinks about
+   * 250 ml a day, and these bounds only exclude the impossible.
+   */
+  const birds = r!.bird_count ?? 0;
+  const perBird = (total: number | null, factor: number) =>
+    total == null || birds <= 0 ? null : (total * factor) / birds;
+
+  const feedKg = num(r!.feed_kg);
+  const feedG = perBird(feedKg, 1000);
+  const feedOk = feedG != null && feedG >= 20 && feedG <= 250;
+
+  const waterL = num(r!.water_l);
+  const waterMl = perBird(waterL, 1000);
+  const waterOk = waterMl != null && waterMl >= 50 && waterMl <= 600;
+
+  const siloKg = num(r!.silo_kg);
+  const siloOk = siloKg != null && siloKg >= 0;
+
+  const rejected: string[] = [];
+  if (!feedOk && feedKg != null) rejected.push(`feed (${Math.round(feedG ?? 0)} g/bird)`);
+  if (!waterOk && waterL != null) rejected.push(`water (${Math.round(waterMl ?? 0)} ml/bird)`);
+  if (!siloOk && siloKg != null) rejected.push("silo");
+
   res.json({
     available: true,
     // Today's totals are still climbing; yesterday's are final.
     partial: day >= new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10),
     at: r!.updated_at,
-    feedConsumedKg: num(r!.feed_kg),
-    feedClosingKg: num(r!.silo_kg),
-    waterKl: r!.water_l == null ? null : Math.round(Number(r!.water_l) / 100) / 10,
+    feedConsumedKg: feedOk ? feedKg : null,
+    feedClosingKg: siloOk ? siloKg : null,
+    waterKl: waterOk ? Math.round(waterL! / 100) / 10 : null,
     // Negative means the panel count went UP — a transfer in, not a resurrection.
     mortality: fall != null && fall > 0 ? fall : null,
     birdCount: r!.bird_count,
+    /** Instruments that answered with something that cannot be true. */
+    rejected,
   });
 });
 

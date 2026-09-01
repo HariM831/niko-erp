@@ -90,8 +90,7 @@ interface DailyRecord {
   birdsTransferredIn: number;
   birdsTransferredOut: number;
   birdsCulled: number;
-  waterUpperKl: number;
-  waterLowerKl: number;
+  waterKl: number;
   feedDeliveredKg: number;
   feedIntakeKg: number;
   feedStockKg: number;
@@ -226,16 +225,87 @@ export function HouseDetailPage() {
     date: format(new Date(), 'yyyy-MM-dd'),
     mortality: '',
     maleBirds: '',
-    birdsTransferredIn: '',
-    birdsTransferredOut: '',
-    birdsCulled: '',
-    waterUpperKl: '',
-    waterLowerKl: '',
+    waterKl: '',
     feedDeliveredKg: '',
     feedIntakeKg: '',
     feedStockKg: '',
     eggsProduced: ''
   });
+
+  /**
+   * What the shed's instruments say, and which boxes still hold their word.
+   *
+   * A field leaves `fromSensor` the moment a person types in it: the number
+   * becomes theirs, the tint goes, and nothing puts it back. That is the whole
+   * contract of an editable suggestion, and it is why the marks are worth
+   * showing at all.
+   */
+  const [sensor, setSensor] = useState<{
+    available: boolean; reason?: string; partial?: boolean; at?: string | null;
+    feedConsumedKg?: number | null; feedClosingKg?: number | null;
+    waterKl?: number | null; mortality?: number | null; rejected?: string[];
+  } | null>(null);
+  const [fromSensor, setFromSensor] = useState<Set<string>>(new Set());
+
+  /** Typing in a box takes it off the sensor for good. */
+  const setFromHand = (field: string, value: string) => {
+    setFromSensor((held) => {
+      if (!held.has(field)) return held;
+      const next = new Set(held);
+      next.delete(field);
+      return next;
+    });
+    setRecordForm((prev) => ({ ...prev, [field]: value }));
+  };
+  const sensorClass = (field: string) =>
+    fromSensor.has(field) ? 'border-yolk-400 bg-yolk-50/60' : '';
+  const sensorTag = (field: string) =>
+    fromSensor.has(field) ? (
+      <span className="rounded bg-yolk-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-yolk-700">
+        sensor
+      </span>
+    ) : null;
+
+  useEffect(() => {
+    if (!showRecordDialog || !shedId || !recordForm.date) return;
+    let dropped = false;
+    (async () => {
+      try {
+        const r = await fetch(
+          `/api/farms/flocks/daily/sensor?houseId=${shedId}&date=${recordForm.date}`,
+          { credentials: 'same-origin' },
+        );
+        if (!r.ok || dropped) return;
+        const data = await r.json();
+        if (dropped) return;
+        setSensor(data);
+        if (!data.available) return;
+        /*
+         * Only ever fills a box that is empty. Editing a saved day must keep
+         * what the person wrote, and a suggestion that overwrites an entry is
+         * not a suggestion.
+         */
+        const marks = new Set<string>();
+        setRecordForm((prev) => {
+          const next = { ...prev };
+          const put = (field: 'feedIntakeKg' | 'feedStockKg' | 'waterKl' | 'mortality', v: number | null | undefined) => {
+            if (v == null || next[field] !== '') return;
+            next[field] = String(v);
+            marks.add(field);
+          };
+          put('feedIntakeKg', data.feedConsumedKg);
+          put('feedStockKg', data.feedClosingKg);
+          put('waterKl', data.waterKl);
+          put('mortality', data.mortality);
+          return next;
+        });
+        setFromSensor(marks);
+      } catch {
+        /* The form works without the sheds; it just starts empty. */
+      }
+    })();
+    return () => { dropped = true; };
+  }, [showRecordDialog, shedId, recordForm.date]);
 
   const [weightForm, setWeightForm] = useState({
     date: format(new Date(), 'yyyy-MM-dd'),
@@ -608,7 +678,7 @@ export function HouseDetailPage() {
         const closingBirds = openingBirds + dayChange;
         
         const feedIntake = r.feedIntakeKg || 0;
-        const waterTotal = (r.waterUpperKl || 0) + (r.waterLowerKl || 0);
+        const waterTotal = r.waterKl || 0;
         const birdCount = closingBirds > 0 ? closingBirds : 1;
         const eggsProduced = r.eggsProduced || 0;
         
@@ -653,11 +723,7 @@ export function HouseDetailPage() {
       date: format(new Date(record.date), 'yyyy-MM-dd'),
       mortality: record.mortality?.toString() || '',
       maleBirds: record.maleBirds?.toString() || '',
-      birdsTransferredIn: record.birdsTransferredIn?.toString() || '',
-      birdsTransferredOut: record.birdsTransferredOut?.toString() || '',
-      birdsCulled: record.birdsCulled?.toString() || '',
-      waterUpperKl: record.waterUpperKl?.toString() || '',
-      waterLowerKl: record.waterLowerKl?.toString() || '',
+      waterKl: record.waterKl?.toString() || '',
       feedDeliveredKg: record.feedDeliveredKg?.toString() || '',
       feedIntakeKg: record.feedIntakeKg?.toString() || '',
       feedStockKg: record.feedStockKg?.toString() || '',
@@ -729,11 +795,7 @@ export function HouseDetailPage() {
         date: new Date(recordForm.date).toISOString(),
         mortality: parseInt(recordForm.mortality) || 0,
         maleBirds: parseInt(recordForm.maleBirds) || 0,
-        birdsTransferredIn: parseInt(recordForm.birdsTransferredIn) || 0,
-        birdsTransferredOut: parseInt(recordForm.birdsTransferredOut) || 0,
-        birdsCulled: parseInt(recordForm.birdsCulled) || 0,
-        waterUpperKl: parseFloat(recordForm.waterUpperKl) || 0,
-        waterLowerKl: parseFloat(recordForm.waterLowerKl) || 0,
+        waterKl: parseFloat(recordForm.waterKl) || 0,
         feedDeliveredKg: parseFloat(recordForm.feedDeliveredKg) || 0,
         feedIntakeKg: parseFloat(recordForm.feedIntakeKg) || 0,
         feedStockKg: parseFloat(recordForm.feedStockKg) || 0,
@@ -746,11 +808,7 @@ export function HouseDetailPage() {
         date: format(new Date(), 'yyyy-MM-dd'),
         mortality: '',
         maleBirds: '',
-        birdsTransferredIn: '',
-        birdsTransferredOut: '',
-        birdsCulled: '',
-        waterUpperKl: '',
-        waterLowerKl: '',
+        waterKl: '',
         feedDeliveredKg: '',
         feedIntakeKg: '',
         feedStockKg: '',
@@ -956,12 +1014,14 @@ export function HouseDetailPage() {
     );
   }
 
-  const totalWater = parseFloat(recordForm.waterUpperKl || '0') + parseFloat(recordForm.waterLowerKl || '0');
+  const totalWater = parseFloat(recordForm.waterKl || '0');
   
   const formMortality = parseInt(recordForm.mortality || '0');
-  const formTransferredIn = parseInt(recordForm.birdsTransferredIn || '0');
-  const formTransferredOut = parseInt(recordForm.birdsTransferredOut || '0');
-  const formCulled = parseInt(recordForm.birdsCulled || '0');
+  // Transfers and culling are recorded on the flock's own tabs; this form
+  // moves birds only by mortality, so the preview counts only that.
+  const formTransferredIn = 0;
+  const formTransferredOut = 0;
+  const formCulled = 0;
   const formMaleBirds = parseInt(recordForm.maleBirds || '0');
   const formFeedConsumed = parseFloat(recordForm.feedIntakeKg || '0');
   const formEggsProduced = parseInt(recordForm.eggsProduced || '0');
@@ -1387,7 +1447,21 @@ export function HouseDetailPage() {
                       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
                         <DialogHeader>
                           <DialogTitle>{editingRecordId ? 'Edit Daily Record' : 'Add Daily Record'}</DialogTitle>
-                        </DialogHeader>
+                          </DialogHeader>
+                          {sensor && (
+                            <div className={`rounded-lg px-3 py-2 text-[12px] ${sensor.available ? 'bg-yolk-50 text-yolk-800' : 'bg-gray-50 text-gray-500'}`}>
+                              {!sensor.available
+                                ? sensor.reason
+                                : sensor.partial
+                                  ? "Today's sensor totals are still climbing, so they are the day so far and not the whole day."
+                                  : 'Filled from the shed. Type over anything that is wrong.'}
+                              {sensor.available && sensor.rejected && sensor.rejected.length > 0 && (
+                                <div className="mt-1 text-gray-500">
+                                  Left blank, the instrument cannot be right: {sensor.rejected.join(', ')}.
+                                </div>
+                              )}
+                            </div>
+                          )}
                         <div className="space-y-6 pt-4">
                           <div>
                             <Label>Date</Label>
@@ -1429,48 +1503,6 @@ export function HouseDetailPage() {
                                   data-testid="input-mortality"
                                 />
                               </div>
-                              <div>
-                                <Label className="text-xs flex items-center gap-1">
-                                  <ArrowDownRight className="w-3 h-3 text-success" />
-                                  Transferred In
-                                </Label>
-                                <Input
-                                  type="number"
-                                  placeholder="0"
-                                  value={recordForm.birdsTransferredIn}
-                                  onChange={(e) => setRecordForm(prev => ({ ...prev, birdsTransferredIn: e.target.value }))}
-                                  className="min-h-[44px]"
-                                  data-testid="input-birds-transferred-in"
-                                />
-                              </div>
-                              <div>
-                                <Label className="text-xs flex items-center gap-1">
-                                  <ArrowUpRight className="w-3 h-3 text-warning" />
-                                  Transferred Out
-                                </Label>
-                                <Input
-                                  type="number"
-                                  placeholder="0"
-                                  value={recordForm.birdsTransferredOut}
-                                  onChange={(e) => setRecordForm(prev => ({ ...prev, birdsTransferredOut: e.target.value }))}
-                                  className="min-h-[44px]"
-                                  data-testid="input-birds-transferred-out"
-                                />
-                              </div>
-                              <div>
-                                <Label className="text-xs flex items-center gap-1">
-                                  <Scissors className="w-3 h-3 text-gray-500" />
-                                  Culled
-                                </Label>
-                                <Input
-                                  type="number"
-                                  placeholder="0"
-                                  value={recordForm.birdsCulled}
-                                  onChange={(e) => setRecordForm(prev => ({ ...prev, birdsCulled: e.target.value }))}
-                                  className="min-h-[44px]"
-                                  data-testid="input-birds-culled"
-                                />
-                              </div>
                             </div>
                             <div className="text-sm bg-soil-50 p-2 rounded flex justify-between">
                               <span>Opening: <strong>{formOpeningBirds.toLocaleString("en-IN")}</strong></span>
@@ -1483,31 +1515,20 @@ export function HouseDetailPage() {
                               <Droplets className="w-4 h-4" />
                               Water
                             </h4>
-                            <div className="grid grid-cols-2 gap-3">
-                              <div>
-                                <Label className="text-xs">Upper Level (kL)</Label>
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  placeholder="0.00"
-                                  value={recordForm.waterUpperKl}
-                                  onChange={(e) => setRecordForm(prev => ({ ...prev, waterUpperKl: e.target.value }))}
-                                  className="min-h-[44px]"
-                                  data-testid="input-water-upper"
-                                />
-                              </div>
-                              <div>
-                                <Label className="text-xs">Lower Level (kL)</Label>
-                                <Input
-                                  type="number"
-                                  step="0.01"
-                                  placeholder="0.00"
-                                  value={recordForm.waterLowerKl}
-                                  onChange={(e) => setRecordForm(prev => ({ ...prev, waterLowerKl: e.target.value }))}
-                                  className="min-h-[44px]"
-                                  data-testid="input-water-lower"
-                                />
-                              </div>
+                            <div>
+                              <Label className="text-xs flex items-center gap-2">
+                                Water (kL)
+                                {sensorTag("waterKl")}
+                              </Label>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                placeholder="0.00"
+                                value={recordForm.waterKl}
+                                onChange={(e) => setFromHand("waterKl", e.target.value)}
+                                className={`min-h-[44px] ${sensorClass("waterKl")}`}
+                                data-testid="input-water"
+                              />
                             </div>
                             <div className="text-sm bg-soil-100 p-2 rounded-lg flex justify-between">
                               <span>Total: <strong>{totalWater.toFixed(2)} kL</strong></span>
@@ -1649,7 +1670,7 @@ export function HouseDetailPage() {
                           }
                           return displaySlice.map((record) => {
                           // Simple calculations - no pro-rata
-                          const recordWaterMl = ((record.waterUpperKl || 0) + (record.waterLowerKl || 0)) * 1000000;
+                          const recordWaterMl = (record.waterKl || 0) * 1000000;
                           const recordDate = new Date(record.date);
                           const displayRecords = shedData.records as DailyRecord[];
                           
@@ -2347,15 +2368,9 @@ export function HouseDetailPage() {
 
                 <div className="border-t pt-3">
                   <h4 className="text-sm font-medium mb-2">Water</h4>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-soil-100 p-3 rounded-lg">
-                      <div className="text-xs text-soil-600 mb-1">Upper Tank (KL)</div>
-                      <div className="text-lg font-semibold text-soil-800">{selectedRecord.waterUpperKl || 0}</div>
-                    </div>
-                    <div className="bg-soil-100 p-3 rounded-lg">
-                      <div className="text-xs text-soil-600 mb-1">Lower Tank (KL)</div>
-                      <div className="text-lg font-semibold text-soil-800">{selectedRecord.waterLowerKl || 0}</div>
-                    </div>
+                  <div className="bg-soil-100 p-3 rounded-lg">
+                    <div className="text-xs text-soil-600 mb-1">Water (kL)</div>
+                    <div className="text-lg font-semibold text-soil-800">{selectedRecord.waterKl || 0}</div>
                   </div>
                 </div>
 
