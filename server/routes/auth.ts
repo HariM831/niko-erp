@@ -77,7 +77,38 @@ authRouter.post("/logout", requireAuth, (req, res) => {
   req.session.destroy(() => res.json({ ok: true }));
 });
 
-authRouter.get("/me", requireAuth, (req, res) => {
+/**
+ * Who am I, and what may I do — read fresh, not from the session.
+ *
+ * Permissions were snapshotted at login, so revoking someone's access left
+ * them holding it until they happened to log out: an admin could remove
+ * payroll from a role and the clerk would keep every payroll page for the
+ * rest of the week. The role is one indexed lookup and this is called once
+ * per page load, so reading it is cheap next to being wrong.
+ *
+ * The session stays the source of WHO; the database is the source of WHAT.
+ * A user whose account was deleted or deactivated meanwhile is signed out
+ * here rather than carrying on with a session nothing backs.
+ */
+authRouter.get("/me", requireAuth, async (req, res) => {
+  const id = req.session.user!.id;
+  const row = await db.query.users.findFirst({
+    where: eq(users.id, id),
+    columns: { id: true, name: true, username: true, isActive: true, roleId: true },
+  });
+  if (!row || !row.isActive) {
+    return req.session.destroy(() => res.status(401).json({ error: "Not authenticated" }));
+  }
+  const role = row.roleId
+    ? await db.query.roles.findFirst({ where: eq(roles.id, row.roleId) })
+    : null;
+  req.session.user = {
+    id: row.id,
+    name: row.name,
+    username: row.username,
+    roleName: role?.name ?? "",
+    permissions: role?.permissions ?? {},
+  };
   res.json({ user: req.session.user });
 });
 
