@@ -747,16 +747,22 @@ farmsFlockRouter.get("/daily/sensor", view, async (req, res) => {
     /*
      * Is the controller reporting, or repeating one snapshot?
      *
-     * Judged on the last dozen readings HOWEVER they arrived, not on a
-     * 24-hour window: staging fetches on demand rather than on a clock, and a
-     * window-based test called every house there frozen forever. A live
-     * controller moves something between two readings minutes apart — the
-     * feed and water counters tick all day even when the temperature holds.
+     * The last TWO readings, whenever they arrived.
+     *
+     * Not a 24-hour window: staging fetches on demand rather than on a clock,
+     * and a window-based test called every house there frozen forever. Not a
+     * wider run either — twelve readings on staging spanned the gap between
+     * imported history and today's fetch, and the gap alone looked like life.
+     *
+     * Two consecutive readings is the tightest honest test. A live controller
+     * moves something between any two: L3 went 28.3 to 28.4 degrees and
+     * 16,500 to 16,700 litres in three minutes, while P1 and P2 returned
+     * byte-identical rows.
      */
     recent AS (
       SELECT temp_c, feed_kg, water_l, silo_kg, at
         FROM iot_house_sample WHERE house_id = ${houseId}::uuid
-       ORDER BY at DESC LIMIT 12
+       ORDER BY at DESC LIMIT 2
     ),
     liveness AS (
       SELECT count(*) AS seen,
