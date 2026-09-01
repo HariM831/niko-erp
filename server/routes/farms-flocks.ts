@@ -744,14 +744,29 @@ farmsFlockRouter.get("/daily/sensor", view, async (req, res) => {
       SELECT bird_count FROM iot_house_day
        WHERE house_id = ${houseId}::uuid AND day = (${day}::date - 1)
     ),
-    /* Is the controller actually reporting, or repeating one snapshot? */
+    /*
+     * Is the controller reporting, or repeating one snapshot?
+     *
+     * Judged on the last dozen readings HOWEVER they arrived, not on a
+     * 24-hour window: staging fetches on demand rather than on a clock, and a
+     * window-based test called every house there frozen forever. A live
+     * controller moves something between two readings minutes apart — the
+     * feed and water counters tick all day even when the temperature holds.
+     */
+    recent AS (
+      SELECT temp_c, feed_kg, water_l, silo_kg, at
+        FROM iot_house_sample WHERE house_id = ${houseId}::uuid
+       ORDER BY at DESC LIMIT 12
+    ),
     liveness AS (
-      SELECT count(DISTINCT temp_c) AS temps, max(at) AS newest
-        FROM iot_house_sample
-       WHERE house_id = ${houseId}::uuid AND at > now() - interval '24 hours'
+      SELECT count(*) AS seen,
+             GREATEST(count(DISTINCT temp_c), count(DISTINCT feed_kg),
+                      count(DISTINCT water_l), count(DISTINCT silo_kg)) AS temps,
+             max(at) AS newest
+        FROM recent
     )
     SELECT t.feed_kg, t.water_l, t.silo_kg, t.bird_count, t.updated_at,
-           y.bird_count AS prev_birds, l.temps, l.newest
+           y.bird_count AS prev_birds, l.temps, l.seen, l.newest
       FROM liveness l LEFT JOIN today t ON true LEFT JOIN yesterday y ON true
   `);
 
@@ -759,19 +774,24 @@ farmsFlockRouter.get("/daily/sensor", view, async (req, res) => {
     | {
         feed_kg: string | null; water_l: string | null; silo_kg: string | null;
         bird_count: number | null; updated_at: string | null;
-        prev_birds: number | null; temps: string | number; newest: string | null;
+        prev_birds: number | null; temps: string | number; seen: string | number;
+        newest: string | null;
       }
     | undefined;
 
   const num = (v: string | null | undefined) => (v == null ? null : Number(v));
-  // One distinct temperature in a day is a controller repeating itself.
+  // Nothing moving across the recent readings is a controller repeating itself.
+  const seen = Number(r?.seen ?? 0);
   const live = r != null && Number(r.temps) > 1;
   if (!live) {
     return res.json({
       available: false,
-      reason: r?.newest
-        ? "This house's controller is repeating one frozen reading — nothing to suggest."
-        : "No readings from this house's controller.",
+      reason:
+        seen === 0
+          ? "No readings from this house's controller."
+          : seen < 2
+            ? "Only one reading so far — fetch again to tell a live controller from a frozen one."
+            : "This house's controller is repeating one frozen reading — nothing to suggest.",
     });
   }
 
