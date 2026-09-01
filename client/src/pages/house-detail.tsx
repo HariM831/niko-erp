@@ -226,7 +226,6 @@ export function HouseDetailPage() {
     mortality: '',
     maleBirds: '',
     waterKl: '',
-    feedDeliveredKg: '',
     feedIntakeKg: '',
     feedStockKg: '',
     eggsProduced: ''
@@ -826,8 +825,7 @@ export function HouseDetailPage() {
         mortality: '',
         maleBirds: '',
         waterKl: '',
-        feedDeliveredKg: '',
-        feedIntakeKg: '',
+            feedIntakeKg: '',
         feedStockKg: '',
         eggsProduced: ''
       });
