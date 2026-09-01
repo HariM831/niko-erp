@@ -32,6 +32,22 @@ interface NavChild {
   path: string;
   /** [module, action] permission required to see this entry. */
   perm?: [string, string];
+  /**
+   * Any ONE of these is enough, for an entry several jobs share.
+   *
+   * The mill's overview is useful to a weighbridge operator and to a mill
+   * manager, who hold no permission in common; gating it on either one alone
+   * would hide the module's front door from half the people who work in it.
+   */
+  anyPerm?: Array<[string, string]>;
+  /**
+   * Open the module here.
+   *
+   * Without it a module opens on whichever page sorts first, which is how
+   * Purchases opened on Vendors when the useful page is Bills, and Inventory
+   * on Items when it is Stock on Hand.
+   */
+  home?: boolean;
 }
 interface NavItem {
   label: string;
@@ -64,7 +80,7 @@ const NAV: NavItem[] = [
     icon: Boxes,
     children: [
       { label: "Items", path: "/items", perm: ["items", "view"] },
-      { label: "Stock on Hand", path: "/inventory/stock", perm: ["items", "view"] },
+      { label: "Stock on Hand", path: "/inventory/stock", home: true, perm: ["items", "view"] },
       { label: "Adjustments", path: "/inventory/adjustments", perm: ["items", "view"] },
     ],
   },
@@ -92,7 +108,7 @@ const NAV: NavItem[] = [
       { label: "Vendors", path: "/purchases/vendors", perm: ["purchases", "view"] },
       { label: "Expenses", path: "/purchases/expenses", perm: ["purchases", "view"] },
       { label: "Purchase Orders", path: "/purchases/orders", perm: ["purchases", "view"] },
-      { label: "Bills", path: "/purchases/bills", perm: ["purchases", "view"] },
+      { label: "Bills", path: "/purchases/bills", home: true, perm: ["purchases", "view"] },
       { label: "Vendor Sheet", path: "/purchases/vendor-sheet", perm: ["purchases", "view"] },
       { label: "Payments Made", path: "/purchases/payments", perm: ["purchases", "view"] },
       { label: "Vendor Credits", path: "/purchases/vendor-credits", perm: ["purchases", "view"] },
@@ -114,6 +130,21 @@ const NAV: NavItem[] = [
     label: "Feed Mill",
     icon: Wheat,
     children: [
+      {
+        // First, so it is where the module opens: a mill hand wants the queues
+        // before the job, the same way payroll opens on its overview.
+        label: "Overview",
+        path: "/feed-mill",
+        home: true,
+        anyPerm: [
+          ["office", "view"],
+          ["office", "gate_in"],
+          ["office", "weighbridge"],
+          ["office", "settle"],
+          ["feed_mill", "view"],
+          ["feed_mill", "produce"],
+        ],
+      },
       { label: "Gate In", path: "/office/gate", perm: ["office", "gate_in"] },
       /* Weigh In, QC, Weigh Out and Feed Transfer — four tabs on one page,
          because a truck walks them in a single visit. */
@@ -392,7 +423,14 @@ export function AppLayout({ children }: { children: ReactNode }) {
   // to show disappears entirely rather than sitting as an empty heading.
   const gated = NAV.map((item) =>
     item.children
-      ? { ...item, children: item.children.filter((c) => !c.perm || can(c.perm[0], c.perm[1])) }
+      ? {
+          ...item,
+          children: item.children.filter(
+            (c) =>
+              (!c.perm || can(c.perm[0], c.perm[1])) &&
+              (!c.anyPerm || c.anyPerm.some(([m, a]) => can(m, a))),
+          ),
+        }
       : item,
   )
     // A page the user cannot open has no business in the sidebar: every entry
@@ -410,7 +448,11 @@ export function AppLayout({ children }: { children: ReactNode }) {
    * empty, which means a user with a role that grants nothing — a real state,
    * and one worth saying out loud rather than looping on a redirect.
    */
-  const landing = navItems.find((i) => i.path) ?? navItems.find((i) => i.children?.length)?.children?.[0];
+  const firstGroup = navItems.find((i) => i.children?.length);
+  const landing =
+    navItems.find((i) => i.path) ??
+    firstGroup?.children?.find((c) => c.home) ??
+    firstGroup?.children?.[0];
   const landingPath = landing?.path ?? null;
   useEffect(() => {
     if (location === "/" && !canSeeHome && landingPath && landingPath !== "/") {

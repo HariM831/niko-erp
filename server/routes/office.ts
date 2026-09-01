@@ -30,7 +30,8 @@ import {
   attachments,
 } from "@shared/schema";
 import { db, type Tx } from "../db";
-import { requirePermission } from "../lib/rbac";
+import { holds, requireAnyPermission, requirePermission } from "../lib/rbac";
+import { istDate } from "../services/day-resolution";
 import { validateBody } from "../lib/validate";
 import { nextDocumentNumber, resyncDocumentNumber } from "../lib/numbering";
 import { PostingError, assertPeriodOpen } from "../services/posting";
@@ -754,6 +755,79 @@ officeRouter.patch(
  * What the bench needs in front of it: the bands for each material, and how
  * whatever has been typed so far reads against them.
  */
+/**
+ * The mill at a glance: what is waiting, and what has been made today.
+ *
+ * Reachable by anyone who does one of the mill's jobs, because a weighbridge
+ * operator and a mill manager share no single permission — but each section is
+ * withheld unless the caller could open the page it links to. A count of
+ * trucks awaiting settlement is itself information, so a gate operator with no
+ * settlement rights is not told how many there are.
+ */
+officeRouter.get(
+  "/overview",
+  requireAnyPermission([
+    ["office", "view"],
+    ["office", "gate_in"],
+    ["office", "weighbridge"],
+    ["office", "settle"],
+    ["feed_mill", "view"],
+    ["feed_mill", "produce"],
+  ]),
+  async (req, res) => {
+    const perms = req.session.user!.permissions;
+    const may = (m: string, a: string) => holds(perms, m, a);
+    const today = istDate();
+
+    const countByStatus = async (statuses: ReceiptStatus[]) => {
+      if (!statuses.length) return 0;
+      const [row] = await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(officeReceipts)
+        .where(inArray(officeReceipts.status, statuses));
+      return row?.n ?? 0;
+    };
+
+    const out: Record<string, unknown> = { day: today };
+
+    if (may("office", "gate_in") || may("office", "view")) {
+      out.atGate = await countByStatus(QUEUE_STATUSES.gross!);
+    }
+    if (may("office", "weighbridge") || may("office", "view")) {
+      out.awaitingWeighment = await countByStatus(QUEUE_STATUSES.tare!);
+      out.awaitingQc = await countByStatus(QUEUE_STATUSES.qc!);
+    }
+    if (may("office", "settle") || may("office", "view")) {
+      out.awaitingSettlement = await countByStatus(QUEUE_STATUSES.settlement!);
+    }
+    if (may("office", "view")) {
+      const [r] = await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(officeReceipts)
+        .where(sql`(${officeReceipts.arrivalAt} AT TIME ZONE 'Asia/Kolkata')::date = ${today}`);
+      out.receiptsToday = r?.n ?? 0;
+    }
+    if (may("feed_mill", "view") || may("feed_mill", "produce")) {
+      const [prod] = await db.execute(sql`
+        SELECT count(*)::int AS runs,
+               coalesce(sum(batch_count), 0)::int AS batches
+          FROM production_orders
+         WHERE (created_at AT TIME ZONE 'Asia/Kolkata')::date = ${today}
+      `).then((r) => r.rows as Array<{ runs: number; batches: number }>);
+      out.productionToday = prod ?? { runs: 0, batches: 0 };
+
+      const [sent] = await db.execute(sql`
+        SELECT coalesce(sum(quantity_kg), 0)::float8 AS kg
+          FROM feed_transfers
+         WHERE transfer_date = ${today} AND status IS DISTINCT FROM 'void'
+      `).then((r) => r.rows as Array<{ kg: number }>);
+      out.feedSentTodayKg = sent?.kg ?? 0;
+    }
+
+    res.json(out);
+  },
+);
+
 officeRouter.get(
   "/receipts/:id/qc-context",
   requirePermission("office", "quality_control"),

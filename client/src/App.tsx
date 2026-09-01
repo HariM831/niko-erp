@@ -74,6 +74,7 @@ import {
 import { DocumentSplitView } from "./components/split-view";
 import { OfficeStationPage } from "./pages/office";
 import { GoodsReceiptsPage } from "./pages/office-receipts";
+import { FeedMillOverviewPage } from "./pages/feed-mill-overview";
 import { GateInPage } from "./pages/office-gate";
 import { StationPage, isStation, stationPath } from "./pages/office-stations";
 import { SettlementPage } from "./pages/office-settlement";
@@ -176,6 +177,7 @@ export function App() {
         <Route path="/purchases/vendor-credits/:id/edit">{(p) => <TransactionNewPage kind="vendor-credit" editId={p.id!} />}</Route>
         <Route path="/purchases/vendor-credits/:id">{(p) => <SplitDetail kind="vendor-credit" id={p.id!} />}</Route>
         <Route path="/purchases/vendor-credits" component={VendorCreditsPage} />
+        <Route path="/feed-mill" component={FeedMillOverviewPage} />
         <Route path="/office/receipts" component={GoodsReceiptsPage} />
         <Route path="/office/gate" component={GateInPage} />
         {/* Weigh In, QC, Unloading and Weigh Out are one page with four tabs.
