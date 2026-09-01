@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { LogoMark } from "./logo";
 import { ChangePasswordModal } from "./change-password";
@@ -37,11 +37,24 @@ interface NavItem {
   label: string;
   icon: typeof Home;
   path?: string;
+  /**
+   * [module, action] needed to see this entry at all.
+   *
+   * A group does not need one: it disappears when every child it holds has
+   * been filtered away, which is the same answer arrived at from the children.
+   */
+  perm?: [string, string];
   children?: NavChild[];
 }
 
 const NAV: NavItem[] = [
-  { label: "Home", icon: Home, path: "/" },
+  /**
+   * Home reads across every module — farm, sales, purchases, people, feed
+   * mill — so it follows the permission that means "may see the business as a
+   * whole" rather than any one module's. A payroll clerk without it lands on
+   * Payroll instead; see `landingPath` below.
+   */
+  { label: "Home", icon: Home, path: "/", perm: ["reports", "view"] },
   {
     // Items sits under Inventory: an item IS the thing stock is counted in, and
     // a group of its own for a single entry was a heading pretending to be a
@@ -50,39 +63,39 @@ const NAV: NavItem[] = [
     label: "Inventory",
     icon: Boxes,
     children: [
-      { label: "Items", path: "/items" },
-      { label: "Stock on Hand", path: "/inventory/stock" },
-      { label: "Adjustments", path: "/inventory/adjustments" },
+      { label: "Items", path: "/items", perm: ["items", "view"] },
+      { label: "Stock on Hand", path: "/inventory/stock", perm: ["items", "view"] },
+      { label: "Adjustments", path: "/inventory/adjustments", perm: ["items", "view"] },
     ],
   },
-  { label: "Banking", icon: Landmark, path: "/banking" },
+  { label: "Banking", icon: Landmark, path: "/banking", perm: ["banking", "view"] },
   {
     label: "Sales",
     icon: Banknote,
     children: [
       /* The egg trade: the order book derives from agreements; the bay
          invoices what actually left. */
-      { label: "Egg Calendar", path: "/sales/egg-calendar" },
-      { label: "Loading Bay", path: "/sales/egg-loading" },
-      { label: "Agreements", path: "/sales/egg-agreements" },
-      { label: "Benchmark", path: "/sales/egg-benchmark" },
-      { label: "Customers", path: "/sales/customers" },
-      { label: "Invoices", path: "/sales/invoices" },
-      { label: "Payments Received", path: "/sales/payments" },
-      { label: "Credit Notes", path: "/sales/credit-notes" },
+      { label: "Egg Calendar", path: "/sales/egg-calendar", perm: ["sales", "view"] },
+      { label: "Loading Bay", path: "/sales/egg-loading", perm: ["sales", "view"] },
+      { label: "Agreements", path: "/sales/egg-agreements", perm: ["sales", "view"] },
+      { label: "Benchmark", path: "/sales/egg-benchmark", perm: ["sales", "view"] },
+      { label: "Customers", path: "/sales/customers", perm: ["sales", "view"] },
+      { label: "Invoices", path: "/sales/invoices", perm: ["sales", "view"] },
+      { label: "Payments Received", path: "/sales/payments", perm: ["sales", "view"] },
+      { label: "Credit Notes", path: "/sales/credit-notes", perm: ["sales", "view"] },
     ],
   },
   {
     label: "Purchases",
     icon: ShoppingCart,
     children: [
-      { label: "Vendors", path: "/purchases/vendors" },
-      { label: "Expenses", path: "/purchases/expenses" },
-      { label: "Purchase Orders", path: "/purchases/orders" },
-      { label: "Bills", path: "/purchases/bills" },
-      { label: "Vendor Sheet", path: "/purchases/vendor-sheet" },
-      { label: "Payments Made", path: "/purchases/payments" },
-      { label: "Vendor Credits", path: "/purchases/vendor-credits" },
+      { label: "Vendors", path: "/purchases/vendors", perm: ["purchases", "view"] },
+      { label: "Expenses", path: "/purchases/expenses", perm: ["purchases", "view"] },
+      { label: "Purchase Orders", path: "/purchases/orders", perm: ["purchases", "view"] },
+      { label: "Bills", path: "/purchases/bills", perm: ["purchases", "view"] },
+      { label: "Vendor Sheet", path: "/purchases/vendor-sheet", perm: ["purchases", "view"] },
+      { label: "Payments Made", path: "/purchases/payments", perm: ["purchases", "view"] },
+      { label: "Vendor Credits", path: "/purchases/vendor-credits", perm: ["purchases", "view"] },
     ],
   },
   {
@@ -101,14 +114,14 @@ const NAV: NavItem[] = [
     label: "Feed Mill",
     icon: Wheat,
     children: [
-      { label: "Gate In", path: "/office/gate" },
+      { label: "Gate In", path: "/office/gate", perm: ["office", "gate_in"] },
       /* Weigh In, QC, Weigh Out and Feed Transfer — four tabs on one page,
          because a truck walks them in a single visit. */
-      { label: "Weighment", path: "/office/unloading" },
-      { label: "Settlement", path: "/office/settlement" },
-      { label: "Goods Receipts", path: "/office/receipts" },
-      { label: "Formulas", path: "/feed-mill/formulas" },
-      { label: "Production", path: "/feed-mill/production" },
+      { label: "Weighment", path: "/office/unloading", perm: ["office", "weighbridge"] },
+      { label: "Settlement", path: "/office/settlement", perm: ["office", "settle"] },
+      { label: "Goods Receipts", path: "/office/receipts", perm: ["office", "view"] },
+      { label: "Formulas", path: "/feed-mill/formulas", perm: ["feed_mill", "view"] },
+      { label: "Production", path: "/feed-mill/production", perm: ["feed_mill", "produce"] },
     ],
   },
   {
@@ -121,18 +134,18 @@ const NAV: NavItem[] = [
     label: "Farms",
     icon: Bird,
     children: [
-      { label: "Houses", path: "/farms" },
+      { label: "Houses", path: "/farms", perm: ["farms", "view"] },
       /* A batch is not the shed's — it keeps one record across every shed it
          lives in, so it is made and listed on its own screen. Houses report
          what they happen to be holding. */
-      { label: "Batches", path: "/farms/batches" },
+      { label: "Batches", path: "/farms/batches", perm: ["farms", "view"] },
       /* The packing room's day sheet: graded boxes per shed per size. Stock
          is one pool per size; the shed is a fact about the entry only. */
-      { label: "Egg stock", path: "/farms/egg-stock" },
+      { label: "Egg stock", path: "/farms/egg-stock", perm: ["farms", "view"] },
       /* The same core inventory, seen and handled at the farm gate. */
-      { label: "Farm store", path: "/farms/store" },
+      { label: "Farm store", path: "/farms/store", perm: ["farms", "view"] },
       /* Field photos sent for a model's first opinion, with the flock record. */
-      { label: "Dr niko", path: "/farms/dr-eggsy" },
+      { label: "Dr niko", path: "/farms/dr-eggsy", perm: ["farms", "view"] },
     ],
   },
   {
@@ -163,17 +176,17 @@ const NAV: NavItem[] = [
       /* Two of the sheds belong to Nandamuri and two to Luit, so feed, pullets
          and eggs are a trade between companies. Their ledger lives here, and
          they appear in no customer or vendor list anywhere else. */
-      { label: "Group Companies", path: "/accountant/group-companies" },
-      { label: "Manual Journals", path: "/accountant/journals" },
-      { label: "Bulk Update", path: "/accountant/bulk-update" },
-      { label: "Chart of Accounts", path: "/accountant/accounts" },
-      { label: "Fixed Assets", path: "/accountant/assets" },
-      { label: "Budgets", path: "/accountant/budgets" },
-      { label: "Transaction Locking", path: "/accountant/transaction-locking" },
+      { label: "Group Companies", path: "/accountant/group-companies", perm: ["accounting", "view"] },
+      { label: "Manual Journals", path: "/accountant/journals", perm: ["accounting", "view"] },
+      { label: "Bulk Update", path: "/accountant/bulk-update", perm: ["accounting", "view"] },
+      { label: "Chart of Accounts", path: "/accountant/accounts", perm: ["accounting", "view"] },
+      { label: "Fixed Assets", path: "/accountant/assets", perm: ["accounting", "view"] },
+      { label: "Budgets", path: "/accountant/budgets", perm: ["accounting", "view"] },
+      { label: "Transaction Locking", path: "/accountant/transaction-locking", perm: ["accounting", "view"] },
     ],
   },
-  { label: "Reports", icon: PieChart, path: "/reports" },
-  { label: "Settings", icon: Settings, path: "/settings" },
+  { label: "Reports", icon: PieChart, path: "/reports", perm: ["reports", "view"] },
+  { label: "Settings", icon: Settings, path: "/settings", perm: ["settings", "view"] },
 ];
 
 const ADMIN_NAV: NavItem[] = [
@@ -361,7 +374,7 @@ function BottomSheet({
 }
 
 export function AppLayout({ children }: { children: ReactNode }) {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const { user, logout, can } = useAuth();
   const [openGroup, setOpenGroup] = useState<string | null>(() => {
     const active = NAV.find((n) => n.children?.some((c) => location.startsWith(c.path)));
@@ -374,14 +387,36 @@ export function AppLayout({ children }: { children: ReactNode }) {
     item.children?.some((c) => location.startsWith(c.path)) ?? false;
 
   const isAdmin = user?.permissions["*"]?.includes("*") ?? false;
+  const canSeeHome = isAdmin || can("reports", "view");
   // Permission-gated entries drop out per user; a group with nothing left
   // to show disappears entirely rather than sitting as an empty heading.
   const gated = NAV.map((item) =>
     item.children
       ? { ...item, children: item.children.filter((c) => !c.perm || can(c.perm[0], c.perm[1])) }
       : item,
-  ).filter((item) => !item.children || item.children.length > 0);
+  )
+    // A page the user cannot open has no business in the sidebar: every entry
+    // led somewhere that refused them, which reads as a broken app rather than
+    // as a boundary.
+    .filter((item) => !item.perm || can(item.perm[0], item.perm[1]))
+    .filter((item) => !item.children || item.children.length > 0);
   const navItems = isAdmin ? [...gated, ...ADMIN_NAV] : gated;
+
+  /**
+   * Where "/" should send someone who cannot see Home.
+   *
+   * The first entry they are allowed into, which for a payroll clerk is
+   * Payroll Overview and for a farm hand is Houses. Null when the sidebar is
+   * empty, which means a user with a role that grants nothing — a real state,
+   * and one worth saying out loud rather than looping on a redirect.
+   */
+  const landing = navItems.find((i) => i.path) ?? navItems.find((i) => i.children?.length)?.children?.[0];
+  const landingPath = landing?.path ?? null;
+  useEffect(() => {
+    if (location === "/" && !canSeeHome && landingPath && landingPath !== "/") {
+      navigate(landingPath, { replace: true });
+    }
+  }, [location, canSeeHome, landingPath, navigate]);
 
   /**
    * The bottom bar carries the pages of the section you are IN, not the whole
