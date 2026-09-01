@@ -1584,26 +1584,32 @@ export function HouseDetailPage() {
                                 />
                               </div>
                               <div>
-                                <Label className="text-xs">Consumed (kg)</Label>
+                                <Label className="text-xs flex items-center gap-2">
+                                    Consumed (kg)
+                                    {sensorTag('feedIntakeKg')}
+                                  </Label>
                                 <Input
                                   type="number"
                                   step="0.1"
                                   placeholder="0.0"
                                   value={recordForm.feedIntakeKg}
-                                  onChange={(e) => setRecordForm(prev => ({ ...prev, feedIntakeKg: e.target.value }))}
-                                  className="min-h-[44px]"
+                                  onChange={(e) => setFromHand('feedIntakeKg', e.target.value)}
+                                  className={`min-h-[44px] ${sensorClass('feedIntakeKg')}`}
                                   data-testid="input-feed-consumed"
                                 />
                               </div>
                               <div>
-                                <Label className="text-xs">Stock (kg)</Label>
+                                <Label className="text-xs flex items-center gap-2">
+                                    Stock (kg)
+                                    {sensorTag('feedStockKg')}
+                                  </Label>
                                 <Input
                                   type="number"
                                   step="0.1"
                                   placeholder="0.0"
                                   value={recordForm.feedStockKg}
-                                  onChange={(e) => setRecordForm(prev => ({ ...prev, feedStockKg: e.target.value }))}
-                                  className="min-h-[44px]"
+                                  onChange={(e) => setFromHand('feedStockKg', e.target.value)}
+                                  className={`min-h-[44px] ${sensorClass('feedStockKg')}`}
                                   data-testid="input-feed-stock"
                                 />
                               </div>
