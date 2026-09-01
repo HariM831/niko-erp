@@ -1524,7 +1524,7 @@ export function HouseDetailPage() {
                               <Bird className="w-4 h-4" />
                               Birds
                             </h4>
-                            <div className="grid grid-cols-2 gap-3">
+                            <div>
                               <div>
                                 <Label className="text-xs flex items-center gap-1">
                                   <AlertTriangle className="w-3 h-3 text-destructive" />
@@ -1541,7 +1541,7 @@ export function HouseDetailPage() {
                                 />
                               </div>
                             </div>
-                            <div className="text-sm bg-soil-50 p-2 rounded flex justify-between">
+                            <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 rounded bg-soil-50 p-2 text-sm">
                               <span>Opening: <strong>{formOpeningBirds.toLocaleString("en-IN")}</strong></span>
                               <span>Closing: <strong className={formClosingBirds < 0 ? 'text-destructive' : 'text-success'}>{formClosingBirds.toLocaleString("en-IN")}</strong></span>
                             </div>
@@ -1553,7 +1553,7 @@ export function HouseDetailPage() {
                               Water
                             </h4>
                             <div>
-                              <Label className="text-xs flex items-center gap-1.5 whitespace-nowrap">
+                              <Label className="text-xs flex items-center gap-1.5">
                                 Water (kL)
                                 {sensorTag("waterKl")}
                               </Label>
@@ -1578,9 +1578,9 @@ export function HouseDetailPage() {
                               <Wheat className="w-4 h-4" />
                               Feed
                             </h4>
-                            <div className="grid grid-cols-3 gap-3">
+                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                               <div>
-                                <Label className="text-xs flex items-center gap-1.5 whitespace-nowrap">
+                                <Label className="text-xs flex items-center gap-1.5">
                                   Delivered (kg)
                                   <span
                                     title="Worked out from the silo: today's level, less yesterday's, plus what the birds ate. The mill owns the actual transfer."
@@ -1603,7 +1603,7 @@ export function HouseDetailPage() {
                                 </div>
                               </div>
                               <div>
-                                <Label className="text-xs flex items-center gap-1.5 whitespace-nowrap">
+                                <Label className="text-xs flex items-center gap-1.5">
                                     Consumed (kg)
                                     {sensorTag('feedIntakeKg')}
                                   </Label>
@@ -1618,7 +1618,7 @@ export function HouseDetailPage() {
                                 />
                               </div>
                               <div>
-                                <Label className="text-xs flex items-center gap-1.5 whitespace-nowrap">
+                                <Label className="text-xs flex items-center gap-1.5">
                                     Stock (kg)
                                     {sensorTag('feedStockKg')}
                                   </Label>
@@ -1659,7 +1659,7 @@ export function HouseDetailPage() {
                                 Eggs (Layer House)
                               </h4>
                               <div>
-                                <Label className="text-xs flex items-center gap-1.5 whitespace-nowrap">
+                                <Label className="text-xs flex items-center gap-1.5">
                                     Eggs Produced
                                     {sensorTag('eggsProduced')}
                                   </Label>
