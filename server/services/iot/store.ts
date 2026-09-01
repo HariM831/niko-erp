@@ -297,9 +297,31 @@ export async function writeDay(houseId: string, day: string, polls: BhTagValue[]
     const v = vals(pick);
     return v.length ? Math.max(...v) : null;
   };
-  /** The controller's own daily total - the last one it reported. */
+  /** The last reading of the day — right for a LEVEL, like what the silo holds. */
   const last = (pick: (s: Sample) => number | null) => {
     const v = vals(pick);
+    return v.length ? v[v.length - 1]! : null;
+  };
+
+  /**
+   * The day's figure for a counter that only climbs.
+   *
+   * Feed and water reset at IST midnight and rise all day, so the day's total
+   * is the HIGHEST reading, not the last one. The controller drops a single
+   * spurious 0 every so often — L3 went 4115, 0, 4115, 4168 inside fifteen
+   * minutes — and taking the last reading meant a glitch landing near midnight
+   * became the whole day: L4's 7,002 kg was stored as 63, L5's 9,103 as minus
+   * one, and both looked like dead feed sensors. A maximum cannot be dragged
+   * down by a dropout.
+   */
+  const peak = (pick: (s: Sample) => number | null) => {
+    const v = vals(pick);
+    return v.length ? Math.max(...v) : null;
+  };
+
+  /** A level that went negative is a bad reading, not an empty silo. */
+  const lastSane = (pick: (s: Sample) => number | null) => {
+    const v = vals(pick).filter((x) => x >= 0);
     return v.length ? v[v.length - 1]! : null;
   };
 
@@ -316,9 +338,9 @@ export async function writeDay(houseId: string, day: string, polls: BhTagValue[]
       ${d(avg((s) => s.humidity))},
       ${d(avg((s) => s.co2))}, ${d(max((s) => s.co2))},
       ${d(avg((s) => s.pressure))},
-      ${d(last((s) => s.waterL))}, ${d(last((s) => s.feedKg))},
-      ${d(last((s) => s.waterPerBird))}, ${d(last((s) => s.feedPerBird))},
-      ${d(last((s) => s.siloKg))},
+      ${d(peak((s) => s.waterL))}, ${d(peak((s) => s.feedKg))},
+      ${d(peak((s) => s.waterPerBird))}, ${d(peak((s) => s.feedPerBird))},
+      ${d(lastSane((s) => s.siloKg))},
       ${last((s) => s.birdCount)}, ${last((s) => s.birdAge)}, now())
     ON CONFLICT (house_id, day) DO UPDATE SET
       /* More samples means a better-informed row, so a fuller pass wins. A live
@@ -332,11 +354,15 @@ export async function writeDay(houseId: string, day: string, polls: BhTagValue[]
       temp_min          = least(iot_house_day.temp_min, excluded.temp_min),
       temp_max          = greatest(iot_house_day.temp_max, excluded.temp_max),
       co2_max           = greatest(iot_house_day.co2_max, excluded.co2_max),
-      /* Running daily totals: the newest reading is the whole day's figure. */
-      water_l           = coalesce(excluded.water_l, iot_house_day.water_l),
-      feed_kg           = coalesce(excluded.feed_kg, iot_house_day.feed_kg),
-      water_per_bird_ml = coalesce(excluded.water_per_bird_ml, iot_house_day.water_per_bird_ml),
-      feed_per_bird_g   = coalesce(excluded.feed_per_bird_g, iot_house_day.feed_per_bird_g),
+      /*
+       * Running daily totals only ever climb until IST midnight resets them,
+       * so a poll reporting LESS than the day already has has glitched rather
+       * than learned something. The highest wins.
+       */
+      water_l           = greatest(coalesce(excluded.water_l, 0), coalesce(iot_house_day.water_l, 0)),
+      feed_kg           = greatest(coalesce(excluded.feed_kg, 0), coalesce(iot_house_day.feed_kg, 0)),
+      water_per_bird_ml = greatest(coalesce(excluded.water_per_bird_ml, 0), coalesce(iot_house_day.water_per_bird_ml, 0)),
+      feed_per_bird_g   = greatest(coalesce(excluded.feed_per_bird_g, 0), coalesce(iot_house_day.feed_per_bird_g, 0)),
       silo_kg           = coalesce(excluded.silo_kg, iot_house_day.silo_kg),
       bird_count        = coalesce(excluded.bird_count, iot_house_day.bird_count),
       bird_age_days     = coalesce(excluded.bird_age_days, iot_house_day.bird_age_days),

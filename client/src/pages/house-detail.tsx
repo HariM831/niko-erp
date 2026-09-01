@@ -263,11 +263,20 @@ export function HouseDetailPage() {
   };
   const sensorClass = (field: string) =>
     fromSensor.has(field) ? 'border-yolk-400 bg-yolk-50/60' : '';
+  /**
+   * A dot, not the word.
+   *
+   * "SENSOR" beside "Consumed (kg)" did not fit the three-column feed grid and
+   * wrapped the label onto two lines, which threw the row out of alignment.
+   * The tint on the box already carries the message; this is the confirmation
+   * you can hover, and it costs eight pixels.
+   */
   const sensorTag = (field: string) =>
     fromSensor.has(field) ? (
-      <span className="rounded bg-yolk-100 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-yolk-700">
-        sensor
-      </span>
+      <span
+        title="Filled from the shed's instruments — type to make it yours"
+        className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-yolk-500"
+      />
     ) : null;
 
   useEffect(() => {
@@ -1546,7 +1555,7 @@ export function HouseDetailPage() {
                               Water
                             </h4>
                             <div>
-                              <Label className="text-xs flex items-center gap-2">
+                              <Label className="text-xs flex items-center gap-1.5 whitespace-nowrap">
                                 Water (kL)
                                 {sensorTag("waterKl")}
                               </Label>
@@ -1585,7 +1594,7 @@ export function HouseDetailPage() {
                                 />
                               </div>
                               <div>
-                                <Label className="text-xs flex items-center gap-2">
+                                <Label className="text-xs flex items-center gap-1.5 whitespace-nowrap">
                                     Consumed (kg)
                                     {sensorTag('feedIntakeKg')}
                                   </Label>
@@ -1600,7 +1609,7 @@ export function HouseDetailPage() {
                                 />
                               </div>
                               <div>
-                                <Label className="text-xs flex items-center gap-2">
+                                <Label className="text-xs flex items-center gap-1.5 whitespace-nowrap">
                                     Stock (kg)
                                     {sensorTag('feedStockKg')}
                                   </Label>
@@ -1627,7 +1636,7 @@ export function HouseDetailPage() {
                                 Eggs (Layer House)
                               </h4>
                               <div>
-                                <Label className="text-xs flex items-center gap-2">
+                                <Label className="text-xs flex items-center gap-1.5 whitespace-nowrap">
                                     Eggs Produced
                                     {sensorTag('eggsProduced')}
                                   </Label>
