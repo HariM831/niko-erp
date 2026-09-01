@@ -22,6 +22,7 @@ interface Truck {
   number: string;
   vehicleNumber: string;
   vendorName: string | null;
+  items: string | null;
   ageMinutes: number;
 }
 interface Overview {
@@ -69,28 +70,36 @@ function Spot({
       {trucks.length === 0 ? (
         <div className="px-3 py-4 text-center text-[12px] text-gray-400">Nothing here</div>
       ) : (
-        <ul className="divide-y divide-gray-100">
+        <div className="space-y-2 p-2">
           {trucks.map((t) => (
-            <li key={t.id} className="flex items-baseline justify-between gap-2 px-3 py-2">
-              <span className="min-w-0">
-                <span className="block truncate font-medium tabular-nums text-soil-900">
-                  {t.vehicleNumber || "—"}
+            <div
+              key={t.id}
+              className="rounded-lg border border-soil-100 bg-soil-50/60 px-2.5 py-2"
+              data-testid="truck-box"
+            >
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="truncate font-semibold tabular-nums text-soil-900">
+                  {t.vehicleNumber || "no number"}
                 </span>
-                <span className="block truncate text-[11px] text-gray-500">
-                  {t.vendorName ?? t.number}
+                <span
+                  className={`shrink-0 text-[11px] tabular-nums ${
+                    t.ageMinutes >= 180 ? "font-semibold text-red-600" : "text-gray-400"
+                  }`}
+                  title="Waiting since arrival"
+                >
+                  {waited(t.ageMinutes)}
                 </span>
-              </span>
-              <span
-                className={`shrink-0 text-[11px] tabular-nums ${
-                  t.ageMinutes >= 180 ? "font-semibold text-red-600" : "text-gray-400"
-                }`}
-                title="Waiting since arrival"
-              >
-                {waited(t.ageMinutes)}
-              </span>
-            </li>
+              </div>
+              {/* What is on it. Blank until the gate has entered the lines. */}
+              <div className="truncate text-[12px] text-soil-700" title={t.items ?? ""}>
+                {t.items || <span className="text-gray-400">no lines yet</span>}
+              </div>
+              <div className="truncate text-[11px] text-gray-500" title={t.vendorName ?? ""}>
+                {t.vendorName ?? t.number}
+              </div>
+            </div>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );

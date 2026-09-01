@@ -793,6 +793,9 @@ officeRouter.get(
           number: officeReceipts.number,
           vehicleNumber: officeReceipts.vehicleNumber,
           vendorName: contacts.displayName,
+          // What is on the truck, which is half of what a person needs to know
+          // before walking out to it.
+          items: sql<string>`(SELECT string_agg(DISTINCT l.item_name, ', ') FROM office_receipt_lines l WHERE l.receipt_id = ${officeReceipts.id})`,
           ageMinutes: sql<number>`GREATEST(0, EXTRACT(EPOCH FROM (NOW() - ${officeReceipts.arrivalAt})) / 60)::int`,
         })
         .from(officeReceipts)
