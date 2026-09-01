@@ -276,7 +276,7 @@ export function HouseDetailPage() {
     (async () => {
       try {
         const r = await fetch(
-          `/api/farms/flocks/daily/sensor?houseId=${shedId}&date=${recordForm.date}`,
+          `/api/farms/daily/sensor?houseId=${shedId}&date=${recordForm.date}`,
           { credentials: 'same-origin' },
         );
         if (!r.ok || dropped) return;
