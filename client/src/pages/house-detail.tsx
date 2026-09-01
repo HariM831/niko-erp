@@ -244,6 +244,8 @@ export function HouseDetailPage() {
     available: boolean; reason?: string; partial?: boolean; at?: string | null;
     feedConsumedKg?: number | null; feedClosingKg?: number | null;
     waterKl?: number | null; mortality?: number | null; eggsProduced?: number | null;
+    deliveredImpliedKg?: number | null; millRecordedKg?: number | null;
+    deliveryCheck?: 'agrees' | 'differs' | 'unknown';
     rejected?: string[];
   } | null>(null);
   const [fromSensor, setFromSensor] = useState<Set<string>>(new Set());
@@ -741,7 +743,6 @@ export function HouseDetailPage() {
       mortality: record.mortality?.toString() || '',
       maleBirds: record.maleBirds?.toString() || '',
       waterKl: record.waterKl?.toString() || '',
-      feedDeliveredKg: record.feedDeliveredKg?.toString() || '',
       feedIntakeKg: record.feedIntakeKg?.toString() || '',
       feedStockKg: record.feedStockKg?.toString() || '',
       eggsProduced: record.eggsProduced?.toString() || ''
@@ -813,7 +814,6 @@ export function HouseDetailPage() {
         mortality: parseInt(recordForm.mortality) || 0,
         maleBirds: parseInt(recordForm.maleBirds) || 0,
         waterKl: parseFloat(recordForm.waterKl) || 0,
-        feedDeliveredKg: parseFloat(recordForm.feedDeliveredKg) || 0,
         feedIntakeKg: parseFloat(recordForm.feedIntakeKg) || 0,
         feedStockKg: parseFloat(recordForm.feedStockKg) || 0,
         eggsProduced: parseInt(recordForm.eggsProduced) || 0,
@@ -1582,16 +1582,27 @@ export function HouseDetailPage() {
                             </h4>
                             <div className="grid grid-cols-3 gap-3">
                               <div>
-                                <Label className="text-xs">Delivered (kg)</Label>
-                                <Input
-                                  type="number"
-                                  step="0.1"
-                                  placeholder="0.0"
-                                  value={recordForm.feedDeliveredKg}
-                                  onChange={(e) => setRecordForm(prev => ({ ...prev, feedDeliveredKg: e.target.value }))}
-                                  className="min-h-[44px]"
+                                <Label className="text-xs flex items-center gap-1.5 whitespace-nowrap">
+                                  Delivered (kg)
+                                  <span
+                                    title="Worked out from the silo: today's level, less yesterday's, plus what the birds ate. The mill owns the actual transfer."
+                                    className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-soil-300"
+                                  />
+                                </Label>
+                                <div
                                   data-testid="input-feed-delivered"
-                                />
+                                  className={`flex min-h-[44px] items-center rounded-md border px-3 text-sm tabular-nums ${
+                                    sensor?.deliveryCheck === 'differs'
+                                      ? 'border-amber-400 bg-amber-50 font-semibold text-amber-900'
+                                      : sensor?.deliveryCheck === 'agrees'
+                                        ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
+                                        : 'border-gray-200 bg-gray-50 text-gray-400'
+                                  }`}
+                                >
+                                  {sensor?.deliveredImpliedKg != null
+                                    ? sensor.deliveredImpliedKg.toLocaleString('en-IN')
+                                    : '—'}
+                                </div>
                               </div>
                               <div>
                                 <Label className="text-xs flex items-center gap-1.5 whitespace-nowrap">
@@ -1624,6 +1635,20 @@ export function HouseDetailPage() {
                                 />
                               </div>
                             </div>
+                            {sensor?.deliveryCheck === 'differs' && (
+                              <div className="rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+                                The silo says about{' '}
+                                <strong>{(sensor.deliveredImpliedKg ?? 0).toLocaleString('en-IN')} kg</strong>{' '}
+                                arrived; Feed Mill has{' '}
+                                <strong>{(sensor.millRecordedKg ?? 0).toLocaleString('en-IN')} kg</strong>{' '}
+                                recorded for today. Check the transfer.
+                              </div>
+                            )}
+                            {sensor?.deliveryCheck === 'agrees' && (sensor.millRecordedKg ?? 0) > 0 && (
+                              <div className="rounded-lg bg-emerald-50 px-3 py-2 text-[12px] text-emerald-900">
+                                Silo and Feed Mill agree on today's delivery.
+                              </div>
+                            )}
                             <div className="text-sm bg-yolk-50 p-2 rounded-lg">
                               Per Bird: <strong>{feedPerBird.toFixed(1)} grams</strong>
                             </div>

@@ -741,8 +741,15 @@ farmsFlockRouter.get("/daily/sensor", view, async (req, res) => {
         FROM iot_house_day WHERE house_id = ${houseId}::uuid AND day = ${day}
     ),
     yesterday AS (
-      SELECT bird_count FROM iot_house_day
+      SELECT bird_count, silo_kg FROM iot_house_day
        WHERE house_id = ${houseId}::uuid AND day = (${day}::date - 1)
+    ),
+    /* What the mill says it sent this house today, voided lines excluded. */
+    mill AS (
+      SELECT coalesce(sum(quantity_kg), 0) AS mill_kg
+        FROM feed_transfers
+       WHERE to_house_id = ${houseId}::uuid AND transfer_date = ${day}
+         AND coalesce(status, '') <> 'void'
     ),
     /*
      * Is the controller reporting, or repeating one snapshot?
@@ -778,15 +785,18 @@ farmsFlockRouter.get("/daily/sensor", view, async (req, res) => {
         FROM recent
     )
     SELECT t.feed_kg, t.water_l, t.silo_kg, t.bird_count, t.updated_at,
-           y.bird_count AS prev_birds, l.temps, l.seen, l.span_s, l.newest
+           y.bird_count AS prev_birds, y.silo_kg AS prev_silo, m.mill_kg,
+           l.temps, l.seen, l.span_s, l.newest
       FROM liveness l LEFT JOIN today t ON true LEFT JOIN yesterday y ON true
+      LEFT JOIN mill m ON true
   `);
 
   const r = rows.rows[0] as
     | {
         feed_kg: string | null; water_l: string | null; silo_kg: string | null;
         bird_count: number | null; updated_at: string | null;
-        prev_birds: number | null; temps: string | number; seen: string | number;
+        prev_birds: number | null; prev_silo: string | null; mill_kg: string | null;
+        temps: string | number; seen: string | number;
         span_s: string | number | null; newest: string | null;
       }
     | undefined;
@@ -857,6 +867,36 @@ farmsFlockRouter.get("/daily/sensor", view, async (req, res) => {
     ? EGG_SIZES.reduce((n, size) => n + Number(g[size] ?? 0) * eggsInBox(size, prefs), 0)
     : null;
 
+  /**
+   * What the silo says arrived, against what the mill says it sent.
+   *
+   *   delivered = silo now - silo yesterday + what the birds ate
+   *
+   * A cross-check, never a claim. The silo is a level read at one moment and
+   * the feed counter can under-record, so the identity comes out negative when
+   * one of them is wrong — L2 on 30 Aug lost 10,199 kg from the silo while the
+   * counter recorded 6,838 eaten, which is not a delivery of minus 3,361 kg.
+   * A negative answer is reported as unusable rather than shown as a number.
+   *
+   * On days with no delivery the arithmetic lands within a few hundred kg of
+   * zero (144, 289, 347 across the last week), so that is the noise floor and
+   * the tolerance is built from it: differences under half a tonne, or under
+   * 5%, are the instruments disagreeing rather than a missing transfer.
+   */
+  const siloPrev = num(r!.prev_silo);
+  const impliedRaw =
+    siloOk && siloPrev != null && feedOk ? siloKg! - siloPrev + feedKg! : null;
+  const deliveredImpliedKg = impliedRaw == null || impliedRaw < 0 ? null : Math.round(impliedRaw);
+  const millRecordedKg = r!.mill_kg == null ? null : Math.round(Number(r!.mill_kg));
+
+  let deliveryCheck: "agrees" | "differs" | "unknown" = "unknown";
+  if (deliveredImpliedKg != null) {
+    const mill = millRecordedKg ?? 0;
+    const gap = Math.abs(deliveredImpliedKg - mill);
+    const tolerance = Math.max(500, mill * 0.05);
+    deliveryCheck = gap <= tolerance ? "agrees" : "differs";
+  }
+
   const rejected: string[] = [];
   if (!feedOk && feedKg != null) rejected.push(`feed (${Math.round(feedG ?? 0)} g/bird)`);
   if (!waterOk && waterL != null) rejected.push(`water (${Math.round(waterMl ?? 0)} ml/bird)`);
@@ -874,6 +914,9 @@ farmsFlockRouter.get("/daily/sensor", view, async (req, res) => {
     mortality: fall != null && fall > 0 ? fall : null,
     birdCount: r!.bird_count,
     eggsProduced,
+    deliveredImpliedKg,
+    millRecordedKg,
+    deliveryCheck,
     /** Instruments that answered with something that cannot be true. */
     rejected,
   });
