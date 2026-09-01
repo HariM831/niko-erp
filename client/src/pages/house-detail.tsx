@@ -1522,13 +1522,14 @@ export function HouseDetailPage() {
                                 <Label className="text-xs flex items-center gap-1">
                                   <AlertTriangle className="w-3 h-3 text-destructive" />
                                   Mortality
+                                  {sensorTag('mortality')}
                                 </Label>
                                 <Input
                                   type="number"
                                   placeholder="0"
                                   value={recordForm.mortality}
-                                  onChange={(e) => setRecordForm(prev => ({ ...prev, mortality: e.target.value }))}
-                                  className="min-h-[44px]"
+                                  onChange={(e) => setFromHand('mortality', e.target.value)}
+                                  className={`min-h-[44px] ${sensorClass('mortality')}`}
                                   data-testid="input-mortality"
                                 />
                               </div>
