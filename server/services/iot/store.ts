@@ -407,6 +407,13 @@ export async function pollOnce(): Promise<PollResult> {
         `thinned ${thin.thinned} aged sample(s), dropped ${thin.deleted} older than ${thin.cutoff}`,
       );
     }
+    // Keyed on the pass, not on what it found: a day thinning had nothing to
+    // do is still a day the log grew by 288 rows. thinSamples has already
+    // decided the day turned, so this costs one scan rather than a second guard.
+    if (thin.ran) {
+      const log = await prunePollLog();
+      if (log.deleted) result.skipped.push(`pruned ${log.deleted} spent poll log row(s)`);
+    }
 
     await db
       .update(iotPollLog)
@@ -754,11 +761,11 @@ let lastThinAt = 0;
 export async function thinSamples(
   retentionDays = Number(process.env.IOT_SAMPLE_RETENTION_DAYS ?? 365),
   opts: { atMostOncePerDay?: boolean; onlyHouseId?: string } = {},
-): Promise<{ deleted: number; thinned: number; cutoff: string }> {
+): Promise<{ deleted: number; thinned: number; cutoff: string; ran: boolean }> {
   const ago = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
   const cutoff = ago(retentionDays);
   if (opts.atMostOncePerDay && Date.now() - lastThinAt < 86_400_000) {
-    return { deleted: 0, thinned: 0, cutoff: cutoff.slice(0, 10) };
+    return { deleted: 0, thinned: 0, cutoff: cutoff.slice(0, 10), ran: false };
   }
   lastThinAt = Date.now();
 
@@ -820,5 +827,61 @@ export async function thinSamples(
     }
   }
 
-  return { deleted, thinned, cutoff: cutoff.slice(0, 10) };
+  return { deleted, thinned, cutoff: cutoff.slice(0, 10), ran: true };
+}
+
+/**
+ * Prune the poll log, keeping the polls that said something.
+ *
+ * A row per poll is 288 a day and none of them expired, which made this the
+ * one part of the integration with no ceiling: a year is ~105,000 rows, 97% of
+ * them recording "everything was fine, again".
+ *
+ * What survives is the 3% worth reading later — a failed poll, or a successful
+ * one carrying a note (the daily thinning report). Those answer "when did the
+ * sheds stop reporting", which is the whole reason the log exists; a clean poll
+ * from three months ago answers nothing the readings themselves do not.
+ *
+ *   0-30 days      every poll, clean or not
+ *   30-365 days    only failures and notes
+ *   over 365 days  gone, failures included — by then the vendor's six-week
+ *                  history is long past and there is nothing left to recover
+ *
+ * Batched like the sample thinning, so one run never holds a long lock.
+ */
+export async function prunePollLog(
+  keepAllDays = Number(process.env.IOT_POLL_LOG_KEEP_DAYS ?? 30),
+  retentionDays = Number(process.env.IOT_POLL_LOG_RETENTION_DAYS ?? 365),
+): Promise<{ deleted: number }> {
+  const ago = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
+  let deleted = 0;
+
+  // Clean polls, once they are older than the window worth browsing.
+  for (;;) {
+    const r = await db.execute(sql`
+      DELETE FROM "iot_poll_log" WHERE ctid IN (
+        SELECT ctid FROM "iot_poll_log"
+        WHERE "started_at" < ${ago(keepAllDays)}
+          AND "ok" AND "error" IS NULL
+        LIMIT 50000
+      )
+    `);
+    const batch = r.rowCount ?? 0;
+    deleted += batch;
+    if (batch < 50_000) break;
+  }
+
+  // Everything past the outer window, whatever it says.
+  for (;;) {
+    const r = await db.execute(sql`
+      DELETE FROM "iot_poll_log" WHERE ctid IN (
+        SELECT ctid FROM "iot_poll_log" WHERE "started_at" < ${ago(retentionDays)} LIMIT 50000
+      )
+    `);
+    const batch = r.rowCount ?? 0;
+    deleted += batch;
+    if (batch < 50_000) break;
+  }
+
+  return { deleted };
 }
