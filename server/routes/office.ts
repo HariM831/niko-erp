@@ -779,26 +779,39 @@ officeRouter.get(
     const may = (m: string, a: string) => holds(perms, m, a);
     const today = istDate();
 
-    const countByStatus = async (statuses: ReceiptStatus[]) => {
-      if (!statuses.length) return 0;
-      const [row] = await db
-        .select({ n: sql<number>`count(*)::int` })
+    /**
+     * The trucks standing at a spot, not how many there are.
+     *
+     * A number tells the yard nothing it cannot see out of the window; the
+     * registration is what someone acts on, so the board names them.
+     */
+    const trucksAt = async (statuses: ReceiptStatus[]) => {
+      if (!statuses.length) return [];
+      return db
+        .select({
+          id: officeReceipts.id,
+          number: officeReceipts.number,
+          vehicleNumber: officeReceipts.vehicleNumber,
+          vendorName: contacts.displayName,
+          ageMinutes: sql<number>`GREATEST(0, EXTRACT(EPOCH FROM (NOW() - ${officeReceipts.arrivalAt})) / 60)::int`,
+        })
         .from(officeReceipts)
-        .where(inArray(officeReceipts.status, statuses));
-      return row?.n ?? 0;
+        .leftJoin(contacts, eq(contacts.id, officeReceipts.vendorId))
+        .where(inArray(officeReceipts.status, statuses))
+        .orderBy(asc(officeReceipts.arrivalAt));
     };
 
     const out: Record<string, unknown> = { day: today };
 
     if (may("office", "gate_in") || may("office", "view")) {
-      out.atGate = await countByStatus(QUEUE_STATUSES.gross!);
+      out.atGate = await trucksAt(QUEUE_STATUSES.gross!);
     }
     if (may("office", "weighbridge") || may("office", "view")) {
-      out.awaitingWeighment = await countByStatus(QUEUE_STATUSES.tare!);
-      out.awaitingQc = await countByStatus(QUEUE_STATUSES.qc!);
+      out.awaitingQc = await trucksAt(QUEUE_STATUSES.qc!);
+      out.onPlatform = await trucksAt(QUEUE_STATUSES.tare!);
     }
     if (may("office", "settle") || may("office", "view")) {
-      out.awaitingSettlement = await countByStatus(QUEUE_STATUSES.settlement!);
+      out.toSettle = await trucksAt(QUEUE_STATUSES.settlement!);
     }
     if (may("office", "view")) {
       const [r] = await db

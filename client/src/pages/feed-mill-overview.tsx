@@ -1,56 +1,98 @@
 /**
  * The feed mill at a glance — the launch page for everyone who works in it.
  *
+ * A board of the yard rather than a row of counters: four spots a truck can be
+ * standing at, each naming the vehicles standing there. "3 at the gate" tells
+ * the yard nothing it cannot see out of the window; AS01AB1234 is what someone
+ * walks out and deals with.
+ *
  * A weighbridge operator and a mill manager share no single permission, so the
- * page is reachable by anyone who does one of the mill's jobs and each tile is
- * shown only to whoever could open the page it links to. A count of trucks
- * waiting to be settled is itself information; the server withholds the number
- * rather than sending it for the screen to hide.
+ * page is reachable by anyone who does one of the mill's jobs and each spot is
+ * shown only to whoever could open the page it links to. The list of trucks
+ * awaiting settlement is itself information, so the server withholds it rather
+ * than sending it for the screen to hide.
  */
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { api } from "../api";
 import { useAuth } from "../auth";
 
+interface Truck {
+  id: string;
+  number: string;
+  vehicleNumber: string;
+  vendorName: string | null;
+  ageMinutes: number;
+}
 interface Overview {
   day: string;
-  atGate?: number;
-  awaitingQc?: number;
-  awaitingWeighment?: number;
-  awaitingSettlement?: number;
+  atGate?: Truck[];
+  awaitingQc?: Truck[];
+  onPlatform?: Truck[];
+  toSettle?: Truck[];
   receiptsToday?: number;
   productionToday?: { runs: number; batches: number };
   feedSentTodayKg?: number;
 }
 
-/** A number worth acting on, and where to go and act on it. */
-function Tile({
+/** Hours once minutes stop being readable. */
+const waited = (m: number) => (m < 90 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`);
+
+/**
+ * One spot in the yard and the trucks standing at it.
+ *
+ * Empty is a real answer and gets said plainly — a blank column reads as
+ * "not loaded yet", which is the one thing it must not.
+ */
+function Spot({
   label,
-  value,
-  sub,
+  hint,
   href,
-  tone,
+  trucks,
 }: {
   label: string;
-  value: string | number;
-  sub?: string;
+  hint: string;
   href: string;
-  tone?: "waiting" | "quiet";
+  trucks: Truck[];
 }) {
   return (
-    <Link href={href}>
-      <div className="cursor-pointer rounded-xl bg-white px-4 py-3 shadow-sm transition hover:shadow-md">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{label}</div>
-        <div
-          className={`text-[22px] font-semibold tabular-nums ${
-            tone === "waiting" && Number(value) > 0 ? "text-yolk-600" : "text-soil-900"
-          }`}
-        >
-          {value}
+    <div className="rounded-xl bg-white shadow-sm">
+      <Link href={href}>
+        <div className="cursor-pointer border-b border-yolk-200/60 bg-gradient-to-r from-yolk-100 via-yolk-50 to-transparent px-3 py-2">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-[12px] font-semibold uppercase tracking-wide text-soil-700">{label}</span>
+            <span className="text-[13px] font-semibold tabular-nums text-soil-800">{trucks.length}</span>
+          </div>
+          <div className="text-[11px] text-gray-500">{hint}</div>
         </div>
-        {sub && <div className="text-[11px] text-gray-500">{sub}</div>}
-      </div>
-    </Link>
+      </Link>
+      {trucks.length === 0 ? (
+        <div className="px-3 py-4 text-center text-[12px] text-gray-400">Nothing here</div>
+      ) : (
+        <ul className="divide-y divide-gray-100">
+          {trucks.map((t) => (
+            <li key={t.id} className="flex items-baseline justify-between gap-2 px-3 py-2">
+              <span className="min-w-0">
+                <span className="block truncate font-medium tabular-nums text-soil-900">
+                  {t.vehicleNumber || "—"}
+                </span>
+                <span className="block truncate text-[11px] text-gray-500">
+                  {t.vendorName ?? t.number}
+                </span>
+              </span>
+              <span
+                className={`shrink-0 text-[11px] tabular-nums ${
+                  t.ageMinutes >= 180 ? "font-semibold text-red-600" : "text-gray-400"
+                }`}
+                title="Waiting since arrival"
+              >
+                {waited(t.ageMinutes)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -62,8 +104,16 @@ export function FeedMillOverviewPage() {
     refetchInterval: 60_000,
   });
 
-  const kg = (v: number) =>
-    v >= 1000 ? `${(v / 1000).toFixed(1)} t` : `${Math.round(v)} kg`;
+  const kg = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(1)} t` : `${Math.round(v)} kg`);
+
+  const spots = [
+    { key: "atGate", label: "At the gate", hint: "waiting to come in", href: "/office/gate" },
+    { key: "awaitingQc", label: "Awaiting QC", hint: "weighed, not sampled", href: "/office/unloading/qc" },
+    { key: "onPlatform", label: "On the platform", hint: "unloading or weighing out", href: "/office/unloading" },
+    { key: "toSettle", label: "To settle", hint: "gate out, not billed", href: "/office/settlement" },
+  ] as const;
+
+  const shown = spots.filter((s) => data?.[s.key] != null);
 
   return (
     <div className="p-4 md:p-6">
@@ -75,32 +125,38 @@ export function FeedMillOverviewPage() {
         <div className="p-8 text-center text-sm text-gray-500">Loading…</div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {data?.atGate != null && (
-              <Tile label="At the gate" value={data.atGate} sub="waiting to come in" href="/office/gate" tone="waiting" />
-            )}
-            {data?.awaitingQc != null && (
-              <Tile label="Awaiting QC" value={data.awaitingQc} sub="weighed, not sampled" href="/office/unloading/qc" tone="waiting" />
-            )}
-            {data?.awaitingWeighment != null && (
-              <Tile label="On the platform" value={data.awaitingWeighment} sub="unloading or weighing out" href="/office/unloading" tone="waiting" />
-            )}
-            {data?.awaitingSettlement != null && (
-              <Tile label="To settle" value={data.awaitingSettlement} sub="gate out, not billed" href="/office/settlement" tone="waiting" />
-            )}
+          {shown.length > 0 && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {shown.map((s) => (
+                <Spot key={s.key} label={s.label} hint={s.hint} href={s.href} trucks={data![s.key] ?? []} />
+              ))}
+            </div>
+          )}
+
+          {/* The day's totals, which are counts because nobody acts on them. */}
+          <div className="mt-4 flex flex-wrap gap-2">
             {data?.receiptsToday != null && (
-              <Tile label="Receipts today" value={data.receiptsToday} href="/office/receipts" />
+              <div className="rounded-lg bg-white px-4 py-2 shadow-sm">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Receipts today</div>
+                <div className="text-[15px] font-semibold tabular-nums">{data.receiptsToday}</div>
+              </div>
             )}
             {data?.productionToday && (
-              <Tile
-                label="Made today"
-                value={data.productionToday.batches}
-                sub={`${data.productionToday.runs} run${data.productionToday.runs === 1 ? "" : "s"}`}
-                href="/feed-mill/production"
-              />
+              <div className="rounded-lg bg-white px-4 py-2 shadow-sm">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Made today</div>
+                <div className="text-[15px] font-semibold tabular-nums">
+                  {data.productionToday.batches}
+                  <span className="ml-1 text-[11px] font-normal text-gray-500">
+                    in {data.productionToday.runs} run{data.productionToday.runs === 1 ? "" : "s"}
+                  </span>
+                </div>
+              </div>
             )}
             {data?.feedSentTodayKg != null && (
-              <Tile label="Sent to sheds" value={kg(data.feedSentTodayKg)} sub="today" href="/feed-mill/production" />
+              <div className="rounded-lg bg-white px-4 py-2 shadow-sm">
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Sent to sheds</div>
+                <div className="text-[15px] font-semibold tabular-nums">{kg(data.feedSentTodayKg)}</div>
+              </div>
             )}
           </div>
 
