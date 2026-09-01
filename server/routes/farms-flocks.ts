@@ -749,7 +749,7 @@ farmsFlockRouter.get("/daily/sensor", view, async (req, res) => {
       SELECT coalesce(sum(quantity_kg), 0) AS mill_kg
         FROM feed_transfers
        WHERE to_house_id = ${houseId}::uuid AND transfer_date = ${day}
-         AND coalesce(status, '') <> 'void'
+         AND status IS DISTINCT FROM 'void'
     ),
     /*
      * Is the controller reporting, or repeating one snapshot?
