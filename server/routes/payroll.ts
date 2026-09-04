@@ -32,6 +32,7 @@ import { requirePermission } from "../lib/rbac";
 import { REPEAT_PUNCH_WINDOW_MS } from "./device";
 import { photoThumbnail, photoThumbnails } from "../services/photo";
 import { isUsableEmbedding, roundEmbedding, taughtCapturesByEmployee } from "../services/face-gallery";
+import { adviseOn, buildFaceHealth, formatFaceHealth } from "../services/face-health";
 import { looseNumber, nonBlank, timeOfDay, validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
 import {
@@ -412,6 +413,26 @@ payrollRouter.get("/employees", view, async (req, res) => {
  * re-reads — the descriptors are the payload that has to be here, and they
  * are large enough on their own.
  */
+/**
+ * How often the camera fails, out of rows already stored.
+ *
+ * Read-only, and deliberately reachable from a browser rather than only from
+ * a console on the droplet: a report nobody can open is a report nobody reads,
+ * and the whole point of it is that nothing was measuring this before.
+ *
+ * `?format=text` gives the same thing laid out for a terminal.
+ */
+payrollRouter.get("/face-health", view, async (req, res) => {
+  const days = Math.min(365, Math.max(1, Number(req.query.days) || 30));
+  const report = await buildFaceHealth(db, days);
+  report.advice = adviseOn(report);
+  if (req.query.format === "text") {
+    res.type("text/plain").send(formatFaceHealth(report));
+    return;
+  }
+  res.json(report);
+});
+
 payrollRouter.get("/employees/gallery", gatePerm, async (req, res) => {
   const since = Number(req.query.since) || 0;
 
