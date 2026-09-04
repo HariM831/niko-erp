@@ -210,7 +210,7 @@ const NAV: NavItem[] = [
       { label: "Group Companies", path: "/accountant/group-companies", perm: ["accounting", "view"] },
       { label: "Manual Journals", path: "/accountant/journals", perm: ["accounting", "view"] },
       { label: "Bulk Update", path: "/accountant/bulk-update", perm: ["accounting", "view"] },
-      { label: "Chart of Accounts", path: "/accountant/accounts", perm: ["accounting", "view"] },
+      { label: "Chart of Accounts", path: "/accountant/accounts", home: true, perm: ["accounting", "view"] },
       { label: "Fixed Assets", path: "/accountant/assets", perm: ["accounting", "view"] },
       { label: "Budgets", path: "/accountant/budgets", perm: ["accounting", "view"] },
       { label: "Transaction Locking", path: "/accountant/transaction-locking", perm: ["accounting", "view"] },
