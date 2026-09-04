@@ -79,7 +79,14 @@ export async function taughtCaptures(conn: Conn, employeeIds?: string[]): Promis
         FROM punches
        WHERE face_embedding IS NOT NULL
          AND punch_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - ${GALLERY_MAX_AGE_DAYS}::int
-         ${employeeIds?.length ? sql`AND employee_id = ANY(${employeeIds}::uuid[])` : sql``}
+         ${
+           // The codebase's idiom for a list parameter: drizzle expands a JS
+           // array into a record, not a Postgres array, so `= ANY($1)` fails
+           // with "cannot cast type record to uuid[]".
+           employeeIds?.length
+             ? sql`AND employee_id IN (${sql.join(employeeIds.map((id) => sql`${id}::uuid`), sql`, `)})`
+             : sql``
+         }
        -- Within a day, the latest scan: the gate is busiest at the start of a
        -- shift and the light only improves from there.
        ORDER BY employee_id, punch_date, punched_at DESC
