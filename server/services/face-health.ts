@@ -68,7 +68,31 @@ export interface FaceHealth {
    * you know whether the typical pair sits at 0.4 or at 0.9.
    */
   separation: { pairs: number; median: number; p90: number; p99: number; max: number; overThreshold: number };
-  /** Pairs whose enrolment photos are close enough for the gate to confuse. */
+  /**
+   * How much of the face model actually fired on each enrolment photo.
+   *
+   * The descriptor is mostly zeros where the model found nothing to say, so
+   * the count of non-zero dimensions is a plain measure of how much the photo
+   * gave it. A weak one is not merely a poorer match — sparse vectors that
+   * share their few live dimensions score high against EACH OTHER, so weak
+   * enrolments become mutually confusable as a group.
+   *
+   * This is the useful half of the report, because it is knowable the day the
+   * photo is taken rather than after somebody has failed at the gate a dozen
+   * times.
+   */
+  enrolment: {
+    people: number;
+    medianActiveDims: number;
+    weakBelow: number;
+    weak: Array<{ name: string; activeDims: number; confusableWith: number }>;
+  };
+  /**
+   * Groups of enrolments too close to tell apart, not pairs: they come in
+   * cliques, and "78 pairs" hides that it is thirteen people.
+   */
+  clusters: Array<{ members: string[]; tightest: number }>;
+  /** The tightest few pairs, to put a number on how close "too close" is. */
   lookalikes: { total: number; shown: Array<{ a: string; b: string; similarity: number }> };
   advice: string[];
 }
@@ -216,7 +240,7 @@ export async function buildFaceHealth(conn: Conn, days = 30): Promise<FaceHealth
  * refused one, for both of them, every time. That is worth knowing before
  * either of them ends up on the re-photograph list for reasons of their own.
  */
-async function faceSeparation(conn: Conn): Promise<Pick<FaceHealth, "separation" | "lookalikes">> {
+async function faceSeparation(conn: Conn): Promise<Pick<FaceHealth, "separation" | "lookalikes" | "enrolment" | "clusters">> {
   const rows = (
     await conn.execute(sql`
       SELECT name, face_descriptor AS d FROM employees
@@ -227,8 +251,14 @@ async function faceSeparation(conn: Conn): Promise<Pick<FaceHealth, "separation"
   // Normalise once, then every comparison is a dot product rather than a dot
   // and two square roots — at 180 people this is 16,000 pairs.
   const unit = rows.map((r) => {
-    const n = Math.hypot(...r.d) || 1;
-    return { name: r.name, v: r.d.map((x) => x / n) };
+    let sq = 0;
+    let live = 0;
+    for (const x of r.d) {
+      sq += x * x;
+      if (x !== 0) live++;
+    }
+    const n = Math.sqrt(sq) || 1;
+    return { name: r.name, v: r.d.map((x) => x / n), live };
   });
 
   /** Above this, two enrolment photos are close enough to be worth a look. */
@@ -247,7 +277,38 @@ async function faceSeparation(conn: Conn): Promise<Pick<FaceHealth, "separation"
   all.sort((x, y) => x - y);
   const q = (f: number) => (all.length ? all[Math.floor(f * (all.length - 1))]! : 0);
   close.sort((x, y) => y.similarity - x.similarity);
+
+  // How many others each face is confusable with, and the groups they form.
+  const degree = new Map<string, number>();
+  for (const c of close) {
+    degree.set(c.a, (degree.get(c.a) ?? 0) + 1);
+    degree.set(c.b, (degree.get(c.b) ?? 0) + 1);
+  }
+  const clusters = componentsOf(close);
+
+  const dims = unit.map((u) => u.live).sort((x, y) => x - y);
+  const medianDims = dims.length ? dims[Math.floor(dims.length / 2)]! : 0;
+  /*
+   * A rule of thumb, not a constant of nature: three quarters of the typical
+   * enrolment. On the imported roster it separates the confusable group from
+   * everyone else cleanly — none of them reaches 500 live dimensions and
+   * nobody outside falls below 506 — but the `confusableWith` column beside
+   * it is what confirms the reading, so a wrong cut shows up rather than
+   * quietly mislabelling somebody.
+   */
+  const weakBelow = Math.round(medianDims * 0.75);
+
   return {
+    enrolment: {
+      people: unit.length,
+      medianActiveDims: medianDims,
+      weakBelow,
+      weak: unit
+        .filter((u) => u.live < weakBelow)
+        .map((u) => ({ name: u.name, activeDims: u.live, confusableWith: degree.get(u.name) ?? 0 }))
+        .sort((x, y) => x.activeDims - y.activeDims),
+    },
+    clusters,
     separation: {
       pairs: all.length,
       median: q(0.5),
@@ -258,8 +319,36 @@ async function faceSeparation(conn: Conn): Promise<Pick<FaceHealth, "separation"
     },
     // Capped, and the total said out loud: a truncated list with no count
     // reads as the whole answer.
-    lookalikes: { total: close.length, shown: close.slice(0, 15) },
+    lookalikes: { total: close.length, shown: close.slice(0, 8) },
   };
+}
+
+/** Connected groups over the confusable pairs — plain union-find. */
+function componentsOf(
+  pairs: Array<{ a: string; b: string; similarity: number }>,
+): Array<{ members: string[]; tightest: number }> {
+  const parent = new Map<string, string>();
+  const find = (x: string): string => {
+    if (!parent.has(x)) parent.set(x, x);
+    if (parent.get(x) === x) return x;
+    const root = find(parent.get(x)!);
+    parent.set(x, root);
+    return root;
+  };
+  for (const p of pairs) parent.set(find(p.a), find(p.b));
+
+  const groups = new Map<string, { members: Set<string>; tightest: number }>();
+  for (const p of pairs) {
+    const key = find(p.a);
+    const g = groups.get(key) ?? { members: new Set<string>(), tightest: 0 };
+    g.members.add(p.a);
+    g.members.add(p.b);
+    g.tightest = Math.max(g.tightest, p.similarity);
+    groups.set(key, g);
+  }
+  return [...groups.values()]
+    .map((g) => ({ members: [...g.members].sort(), tightest: g.tightest }))
+    .sort((x, y) => y.members.length - x.members.length);
 }
 
 /** What this run's own numbers say to do next. Not a fixed checklist. */
@@ -315,19 +404,34 @@ export function adviseOn(r: FaceHealth): string[] {
     );
   }
 
-  if (r.lookalikes.total) {
+  const big = r.clusters[0];
+  if (big && big.members.length >= 3) {
+    out.push(
+      `${big.members.length} enrolments are mutually indistinguishable — each within 0.80 of the others, against a typical ` +
+        `pair of ${r.separation.median.toFixed(3)}. A group that size is not resemblance. Every one of them will be refused at the ` +
+        "gate whichever of them steps up to it, because the runner-up is always another member of the group.",
+    );
+    out.push(`Re-photograph all of them: ${big.members.join(", ")}.`);
+  } else if (r.lookalikes.total) {
     const p = r.lookalikes.shown[0]!;
     out.push(
-      `${r.lookalikes.total} pair(s) of enrolled faces sit above 0.80 against a typical pair of ${r.separation.median.toFixed(3)}, ` +
-        `closest ${p.a} and ${p.b} at ${p.similarity.toFixed(3)}. The gate refuses rather than guesses between such a pair, so both ` +
-        "read as failures until one is re-photographed.",
+      `${r.lookalikes.total} pair(s) sit above 0.80 against a typical pair of ${r.separation.median.toFixed(3)}, closest ${p.a} ` +
+        `and ${p.b} at ${p.similarity.toFixed(3)}. The gate refuses rather than guesses between them, so both read as failures ` +
+        "until one is re-photographed.",
     );
-    if (p.similarity >= 0.93) {
-      out.push(
-        `A pair as close as ${p.similarity.toFixed(3)} is worth opening in person: at this distance it is as likely to be one ` +
-          "worker enrolled twice under two records as two workers who look alike.",
-      );
-    }
+  }
+
+  const weak = r.enrolment.weak;
+  if (weak.length) {
+    const alsoConfusable = weak.filter((w) => w.confusableWith > 0).length;
+    out.push(
+      `${weak.length} enrolment photo(s) gave the model very little to work with — under ${r.enrolment.weakBelow} of 1024 ` +
+        `dimensions against a typical ${r.enrolment.medianActiveDims}` +
+        (alsoConfusable ? `, and ${alsoConfusable} of them are in the confusable group above` : "") +
+        ". A sparse descriptor is not just a weaker match: sparse vectors resemble each OTHER, which is how they end up " +
+        "grouped. This is visible the day the photo is taken, so it is worth checking at enrolment rather than after a " +
+        "month of punching by hand.",
+    );
   }
 
   if (r.canteen.plates > 0 && (r.canteen.rate ?? 0) >= 0.2) {
@@ -403,10 +507,28 @@ export function formatFaceHealth(r: FaceHealth): string {
     L.push(`  ${pct(r.separation.overThreshold)} of pairs sit above the ${MATCH_THRESHOLD.toFixed(2)} cutoff, so the margin rule is what keeps them apart, not the cutoff`);
   }
 
-  if (r.lookalikes.total) {
+  if (r.enrolment.people) {
     L.push("");
-    L.push(`Close enough to be confusable — ${r.lookalikes.total} pair(s) above 0.80${r.lookalikes.total > r.lookalikes.shown.length ? `, closest ${r.lookalikes.shown.length} shown` : ""}`);
-    for (const p of r.lookalikes.shown) L.push(`  ${p.similarity.toFixed(3)}  ${p.a}  /  ${p.b}`);
+    L.push("How much the model found in each enrolment photo");
+    L.push(`  typical photo lights up ${r.enrolment.medianActiveDims} of 1024 dimensions; anything under ${r.enrolment.weakBelow} is thin`);
+    if (r.enrolment.weak.length) {
+      L.push(`  ${r.enrolment.weak.length} below that line:`);
+      L.push(`    ${"name".padEnd(28)}${"dims".padStart(6)}${"confusable with".padStart(17)}`);
+      for (const w of r.enrolment.weak) {
+        L.push(`    ${w.name.slice(0, 27).padEnd(28)}${String(w.activeDims).padStart(6)}${String(w.confusableWith).padStart(17)}`);
+      }
+    } else {
+      L.push("  none below that line");
+    }
+  }
+
+  if (r.clusters.length) {
+    L.push("");
+    L.push(`Too close to tell apart — ${r.clusters.length} group(s), ${r.lookalikes.total} pair(s) in all`);
+    for (const c of r.clusters) {
+      L.push(`  ${c.members.length} people, closest pair ${c.tightest.toFixed(3)}:`);
+      L.push(`    ${c.members.join(", ")}`);
+    }
   }
 
   const advice = r.advice.length ? r.advice : adviseOn(r);
