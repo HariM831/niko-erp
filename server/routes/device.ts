@@ -83,8 +83,30 @@ const PAIRING_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I 
 const PAIRING_CODE_LENGTH = 8;
 const PAIRING_CODE_TTL_MS = 10 * 60 * 1000;
 const PENDING_REQUEST_TTL_MS = 30 * 60 * 1000;
-/** Same person, same final type, from ANOTHER device within this → duplicate. */
+/** Same person, same type, from ANOTHER device within this → duplicate. */
 export const DUPLICATE_WINDOW_MS = 120_000;
+
+/**
+ * A second punch for the same person this soon after their last one is a
+ * double submit — a guard scanning twice while the worker is still in front
+ * of the camera, or a phone re-sending — not a movement.
+ *
+ * Two windows, because the two populations punch in genuinely different ways.
+ * The numbers are Amino's, measured over a month of its gate: the same app,
+ * the same faces, the same guards.
+ *
+ *  - Salaried staff punch by FACE. Double-scan gaps there run 2–117s while
+ *    the shortest genuine break is around 240s, so 120s sits between the two.
+ *    It has to stay tight: swallowing a real break changes worked hours, and
+ *    worked hours are what the payslip is computed from.
+ *  - Daily-wage workers are typed in BY HAND on the gate phone, and a retyped
+ *    entry lands 1–3 minutes later. Wage pay counts "punched at all that
+ *    day", so a wide window costs nobody money.
+ *
+ * Clusters spanning 170–210s still get through. Closing those needs a window
+ * wide enough to swallow real breaks, which is the more expensive mistake.
+ */
+export const REPEAT_PUNCH_WINDOW_MS = { salaried: 120_000, daily_wage: 300_000 } as const;
 const DEVICE_SCHEMA_VERSION = 1;
 const PEOPLE_MAX_LIMIT = 500;
 
@@ -361,6 +383,10 @@ export async function pullState(conn: Conn, since: unknown, date?: unknown) {
 
 export type EventResult = {
   accepted: string[];
+  /**
+   * Kept in the wire contract so a paired phone still parses the reply, but
+   * always empty now: the server no longer rewrites a punch's in/out type.
+   */
   corrected: { id: string; field: string; from: string; to: string }[];
   duplicates: { id: string; reason: string }[];
   rejected: { id: string; reason: string }[];
@@ -374,9 +400,9 @@ const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : n
  * what it was not told about. The device's event id is the idempotency key
  * (`client_id`), so a replayed batch is reported as duplicates, not written.
  *
- * Gate: the type is corrected to alternate with the previous punch of the
- * day (two INs in a row is a phone that missed a sync, not a person who
- * entered twice). Canteen: an `unverified_attendance` plate is checked
+ * Gate: the type is stored as the device sent it. The device knows each
+ * person's state — the pull hands it their last punch — and toggles from it.
+ * Canteen: an `unverified_attendance` plate is checked
  * against the day's punches and promoted to `verified` if the person was
  * in; never to override — only a supervisor does that.
  */
@@ -424,23 +450,32 @@ export async function applyEvents(conn: Conn, device: DeviceWithSite, rawEvents:
         const punchedAt = new Date(ts);
         const day = typeof evt.date === "string" && DATE_RE.test(evt.date) ? evt.date : istDateOf(punchedAt);
 
-        const [emp] = await conn.select({ id: employees.id, isActive: employees.isActive }).from(employees).where(eq(employees.id, evt.personId));
+        const [emp] = await conn
+          .select({ id: employees.id, isActive: employees.isActive, payType: employees.payType })
+          .from(employees)
+          .where(eq(employees.id, evt.personId));
         if (!emp || !emp.isActive) { out.rejected.push({ id, reason: "Unknown or inactive employee" }); continue; }
 
         const [seen] = await conn.select({ id: punches.id }).from(punches).where(eq(punches.clientId, id));
         if (seen) { out.duplicates.push({ id, reason: "already synced" }); continue; }
 
         const day_ = await dayPunches(emp.id, day);
-        let prev: { type: "in" | "out"; at: number } | null = null;
-        for (const q of day_) if (q.at <= ts && (!prev || q.at > prev.at)) prev = q;
-        let finalType: "in" | "out" = type;
-        if (prev) {
-          const expected = prev.type === "out" ? "in" : "out";
-          if (finalType !== expected) {
-            out.corrected.push({ id, field: "type", from: finalType, to: expected });
-            finalType = expected;
-          }
+        // BEFORE anything reads punch type, because it is the type logic that
+        // this guard exists to keep away from a double submit. Any type, any
+        // device: the cross-device check below could not catch a repeat, since
+        // it searched for the type the rewrite had just invented.
+        if (day_.some((q) => Math.abs(q.at - ts) < REPEAT_PUNCH_WINDOW_MS[emp.payType])) {
+          out.duplicates.push({ id, reason: "repeat punch inside the cooldown window" });
+          continue;
         }
+
+        // Store what the device sent. Forcing the type to alternate off the
+        // preceding punch corrupted the record two ways: a double tap became
+        // an exit that never happened, and an out-of-order sync compared
+        // against a stale predecessor and wrote two OUTs in a row. Every hour
+        // the payslip is built from comes out of these types, and
+        // summarizeDay() already keeps the earliest of consecutive INs.
+        const finalType: "in" | "out" = type;
 
         // Same person, same type, another device, within the window → the
         // other phone got there first.

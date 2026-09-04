@@ -29,6 +29,7 @@ import {
 } from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
+import { REPEAT_PUNCH_WINDOW_MS } from "./device";
 import { looseNumber, nonBlank, timeOfDay, validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
 import {
@@ -654,6 +655,13 @@ payrollRouter.post(
 
 /* ══ Punches & attendance ════════════════════════════════════════════════ */
 
+/**
+ * A scan inside the cooldown window. Not a refusal the operator has to fix
+ * — the punch it repeats is already recorded — so it gets its own status and
+ * flag, and the gate says "already punched" instead of "punch failed".
+ */
+class RepeatPunch extends Error {}
+
 const punchBody = z.object({
   employeeId: z.string().uuid(),
   type: z.enum(["in", "out"]).optional(),
@@ -672,16 +680,26 @@ payrollRouter.post("/punches", gatePerm, validateBody(punchBody), async (req, re
   const b = req.body as z.infer<typeof punchBody>;
   try {
     const out = await db.transaction(async (tx) => {
-      const [emp] = await tx.select({ id: employees.id, isActive: employees.isActive }).from(employees).where(eq(employees.id, b.employeeId));
+      const [emp] = await tx
+        .select({ id: employees.id, isActive: employees.isActive, payType: employees.payType })
+        .from(employees)
+        .where(eq(employees.id, b.employeeId));
       if (!emp) throw new PostingError("No such employee");
       if (!emp.isActive) throw new PostingError("This employee is inactive");
       const today = istDate();
       const [last] = await tx
-        .select({ type: punches.type })
+        .select({ type: punches.type, punchedAt: punches.punchedAt })
         .from(punches)
         .where(and(eq(punches.employeeId, b.employeeId), eq(punches.punchDate, today)))
         .orderBy(desc(punches.punchedAt))
         .limit(1);
+      // Before the type is decided, because the line below decides it by
+      // toggling off `last` — so a guard re-scanning a worker still standing
+      // at the camera is offered an OUT, and booking it writes an exit that
+      // never happened. Same windows as the device sync.
+      if (last && Date.now() - last.punchedAt.getTime() < REPEAT_PUNCH_WINDOW_MS[emp.payType]) {
+        throw new RepeatPunch(`Already punched ${last.type} a moment ago — this scan was not recorded.`);
+      }
       const type = b.type ?? (last?.type === "in" ? "out" : "in");
       // The photo is kept only when someone might need to look at it: a manual
       // punch, or a face match below the review threshold.
@@ -708,6 +726,7 @@ payrollRouter.post("/punches", gatePerm, validateBody(punchBody), async (req, re
     });
     res.status(201).json(out);
   } catch (err) {
+    if (err instanceof RepeatPunch) return res.status(409).json({ error: err.message, repeatPunch: true });
     if (!fail(err, res)) throw err;
   }
 });

@@ -13,7 +13,7 @@ import {
   AlertTriangle, ArrowLeft, Camera, CameraOff, CheckCircle2, Loader2, LogIn, LogOut,
   MapPin, MapPinOff, ScanFace, SwitchCamera, UserSearch, XCircle,
 } from "lucide-react";
-import { api } from "../../api";
+import { ApiError, api } from "../../api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   DEFAULT_MATCH_THRESHOLD, MIN_MATCH_MARGIN, findBestMatch, frameToDataUrl, getFaceEmbedding, loadFaceEngine, looksSpoofed,
@@ -82,6 +82,12 @@ async function getPosition(): Promise<Position | null> {
 export function PayrollGatePage() {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
+  /**
+   * The calm half of `err`. A re-scan inside the cooldown is not a failure to
+   * put right — the punch it repeats is already on the board — so it must not
+   * arrive as a red banner the guard tries to act on.
+   */
+  const [notice, setNotice] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -255,6 +261,14 @@ export function PayrollGatePage() {
       setTimeout(() => setStage((s) => (s.kind === "success" ? { kind: "idle" } : s)), 2500);
     } catch (e) {
       setStage({ kind: "idle" });
+      // 409 + repeatPunch: the server refused a scan that repeats one already
+      // recorded. Refresh the board so the guard sees the punch that stands.
+      if (e instanceof ApiError && e.status === 409 && e.data?.repeatPunch === true) {
+        setNotice(e.message);
+        qc.invalidateQueries({ queryKey: ["payroll", "punches-today"] });
+        setTimeout(() => setNotice(null), 4000);
+        return;
+      }
       fail(e);
     }
   }
@@ -296,6 +310,9 @@ export function PayrollGatePage() {
         <Badge tone="gray">{enrolled.length}/{gallery.length} enrolled</Badge>
       </PageHeader>
       <ErrorBanner message={err} onClose={() => setErr(null)} />
+      {notice && (
+        <div className="mb-3 rounded-md bg-yolk-50 px-3 py-2 text-[13px] text-soil-700">{notice}</div>
+      )}
 
       {engineState === "loading" && (
         <div className="card flex items-center gap-2 p-3 text-sm text-gray-500">
