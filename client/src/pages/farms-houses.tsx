@@ -136,7 +136,7 @@ interface IotRow {
   siloKg: number | null;
   waterL: number | null;
   feedKg: number | null;
-  /** The controller's own per-bird figures: today's total over its head count. */
+  /** The controller's own per-bird figures, today's peak: its total over its head count. */
   waterPerBirdMl: number | null;
   feedPerBirdG: number | null;
   birdCount: number | null;

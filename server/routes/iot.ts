@@ -80,7 +80,8 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
     feedKg: number | null;
     /**
      * The controller's own per-bird figures — the day's total over its own
-     * head count, so they move with the totals and freeze with them.
+     * head count, so they move with the totals and freeze with them. Like the
+     * totals, today's peak rather than the latest reading.
      */
     waterPerBirdMl: number | null;
     feedPerBirdG: number | null;
@@ -99,7 +100,7 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
   }
 
   const byHouse = new Map<string, Board>();
-  const named = new Map<string, Map<string, number>>();
+  const named = new Map<string, Map<string, { v: number; at: Date }>>();
 
   for (const r of rows) {
     let b = byHouse.get(r.houseId);
@@ -136,9 +137,23 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
     if (r.fetchedAt && (!b.fetchedAt || r.fetchedAt > b.fetchedAt)) b.fetchedAt = r.fetchedAt;
     const v = r.value == null ? null : Number(r.value);
     if (v == null || !Number.isFinite(v)) continue;
-    // Keyed on the last segment — the one grain a live poll and the vendor's
-    // history rows agree on. See bhfarm.ts.
-    named.get(r.houseId)!.set(nameOf(r.tagId), v);
+    /**
+     * Keyed on the last segment — the one grain a live poll and the vendor's
+     * history rows agree on (see bhfarm.ts) — and the NEWEST fetch wins.
+     *
+     * The same tag sits in the table twice: the live poll writes the full
+     * `category.subcategory.name` path, and an earlier backfill wrote the bare
+     * name. The backfill no longer touches this table, so its rows hold
+     * whatever they held when it stopped. Letting row order decide put L5's
+     * silo at 15,260 kg — August's frozen figure — over the 11,651 kg the
+     * controller was reporting, and flipped between the two from one poll to
+     * the next.
+     */
+    const at = r.fetchedAt ?? new Date(0);
+    const m = named.get(r.houseId)!;
+    const name = nameOf(r.tagId);
+    const held = m.get(name);
+    if (!held || at > held.at) m.set(name, { v, at });
   }
 
   /** Aggregate tag first, else the sum of the per-line tags — never the frozen name. */
@@ -149,8 +164,41 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
     return parts.length ? parts.reduce((a, b) => a + b, 0) : null;
   };
 
+  const nowIst = new Date(Date.now() + 5.5 * 3_600_000);
+  const istMidnight = new Date(
+    Date.UTC(nowIst.getUTCFullYear(), nowIst.getUTCMonth(), nowIst.getUTCDate()) - 5.5 * 3_600_000,
+  );
+
+  /**
+   * Today's feed and water are the day's PEAK since IST midnight, not the
+   * latest reading.
+   *
+   * They are daily counters, and the controllers do not all roll them over at
+   * the same hour: L5's feed resets around 21:30 IST, the others anywhere
+   * between 20:00 and 02:30. Read after its reset, a shed shows the new day's
+   * near-zero as if it were the whole day — on 2026-09-04 L5 stood at -2 kg
+   * and 2 g a bird at 22:33, half an hour after closing the day on 7,650 kg.
+   * The counters also drop a spurious 0 now and then. A maximum since
+   * midnight survives both, and it is what `writeDay` already stores as the
+   * day's total, so the board and the history agree.
+   */
+  const peaks = await db.execute(sql`
+    SELECT house_id AS "houseId",
+           max(feed_kg) AS "feedKg", max(water_l) AS "waterL",
+           max(feed_per_bird_g) AS "feedPerBirdG", max(water_per_bird_ml) AS "waterPerBirdMl"
+      FROM iot_house_sample WHERE at >= ${istMidnight} GROUP BY house_id`);
+  const peakOf = new Map<string, Record<string, unknown>>();
+  for (const row of peaks.rows as Array<Record<string, unknown>>) peakOf.set(String(row.houseId), row);
+
   for (const [houseId, b] of byHouse) {
-    const m = named.get(houseId)!;
+    const m = new Map([...named.get(houseId)!].map(([k, x]) => [k, x.v]));
+    const p = peakOf.get(houseId);
+    /** The day's high-water mark, unless the live reading has already passed it. */
+    const peak = (col: string, live: number | null) => {
+      const raw = p?.[col];
+      const n = raw == null ? null : Number(raw);
+      return n != null && Number.isFinite(n) && (live == null || n > live) ? n : live;
+    };
     b.tempC = m.get(SINGLE_TAGS.tempC) ?? null;
     b.targetTempC = m.get(SINGLE_TAGS.targetTempC) ?? null;
     b.humidityPct = m.get(SINGLE_TAGS.humidityPct) ?? null;
@@ -158,11 +206,14 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
     b.pressurePa = m.get(SINGLE_TAGS.pressurePa) ?? null;
     b.birdCount = m.get(SINGLE_TAGS.birdCount) ?? null;
     b.birdAgeDays = m.get(SINGLE_TAGS.birdAgeDays) ?? null;
-    b.siloKg = metric(m, METRIC_TAGS.siloKg);
-    b.waterL = metric(m, METRIC_TAGS.waterL);
-    b.feedKg = metric(m, METRIC_TAGS.feedKg);
-    b.waterPerBirdMl = m.get(SINGLE_TAGS.waterPerBirdMl) ?? null;
-    b.feedPerBirdG = m.get(SINGLE_TAGS.feedPerBirdG) ?? null;
+    // A level that went negative is a bad reading, not an empty silo: an idle
+    // house's scale drifts a few kilos under its tare. Same rule as `writeDay`.
+    const silo = metric(m, METRIC_TAGS.siloKg);
+    b.siloKg = silo != null && silo < 0 ? null : silo;
+    b.waterL = peak("waterL", metric(m, METRIC_TAGS.waterL));
+    b.feedKg = peak("feedKg", metric(m, METRIC_TAGS.feedKg));
+    b.waterPerBirdMl = peak("waterPerBirdMl", m.get(SINGLE_TAGS.waterPerBirdMl) ?? null);
+    b.feedPerBirdG = peak("feedPerBirdG", m.get(SINGLE_TAGS.feedPerBirdG) ?? null);
   }
 
   /**
@@ -184,11 +235,6 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
    * has held since roughly one sample after it. NULL means it never differed in
    * everything retained — stale for certain.
    */
-  const nowIst = new Date(Date.now() + 5.5 * 3_600_000);
-  const istMidnight = new Date(
-    Date.UTC(nowIst.getUTCFullYear(), nowIst.getUTCMonth(), nowIst.getUTCDate()) - 5.5 * 3_600_000,
-  );
-
   const changed = await db.execute(sql`
     WITH latest AS (
       SELECT DISTINCT ON (house_id) house_id, feed_kg, water_l, silo_kg
