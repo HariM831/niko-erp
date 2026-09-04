@@ -62,8 +62,14 @@ export interface FaceHealth {
   /** How much room a successful match had. A pile at the cutoff is fragile. */
   margins: { scored: number; bands: Array<{ label: string; n: number }> };
   gallery: { active: number; noFace: number; enrolmentOnly: number; taught: number; captures: number };
+  /**
+   * How far apart the enrolled faces are from one another. Without this the
+   * look-alike list below cannot be read: a pair at 0.94 means nothing until
+   * you know whether the typical pair sits at 0.4 or at 0.9.
+   */
+  separation: { pairs: number; median: number; p90: number; p99: number; max: number; overThreshold: number };
   /** Pairs whose enrolment photos are close enough for the gate to confuse. */
-  lookalikes: Array<{ a: string; b: string; similarity: number }>;
+  lookalikes: { total: number; shown: Array<{ a: string; b: string; similarity: number }> };
   advice: string[];
 }
 
@@ -196,7 +202,7 @@ export async function buildFaceHealth(conn: Conn, days = 30): Promise<FaceHealth
       ],
     },
     gallery: g ?? { active: 0, noFace: 0, enrolmentOnly: 0, taught: 0, captures: 0 },
-    lookalikes: await lookalikePairs(conn),
+    ...(await faceSeparation(conn)),
     advice: [],
   };
 }
@@ -210,7 +216,7 @@ export async function buildFaceHealth(conn: Conn, days = 30): Promise<FaceHealth
  * refused one, for both of them, every time. That is worth knowing before
  * either of them ends up on the re-photograph list for reasons of their own.
  */
-async function lookalikePairs(conn: Conn): Promise<Array<{ a: string; b: string; similarity: number }>> {
+async function faceSeparation(conn: Conn): Promise<Pick<FaceHealth, "separation" | "lookalikes">> {
   const rows = (
     await conn.execute(sql`
       SELECT name, face_descriptor AS d FROM employees
@@ -225,20 +231,35 @@ async function lookalikePairs(conn: Conn): Promise<Array<{ a: string; b: string;
     return { name: r.name, v: r.d.map((x) => x / n) };
   });
 
-  const out: Array<{ a: string; b: string; similarity: number }> = [];
+  /** Above this, two enrolment photos are close enough to be worth a look. */
+  const CONFUSABLE = 0.8;
+  const all: number[] = [];
+  const close: Array<{ a: string; b: string; similarity: number }> = [];
   for (let i = 0; i < unit.length; i++) {
     for (let j = i + 1; j < unit.length; j++) {
       let dot = 0;
       const a = unit[i]!.v, b = unit[j]!.v;
       for (let k = 0; k < a.length; k++) dot += a[k]! * b[k]!;
-      // Close enough that whichever of them is scanned, the other is within
-      // the margin and the gate refuses rather than choosing.
-      if (dot >= MATCH_THRESHOLD && dot >= 1 - MATCH_MARGIN * 4) {
-        out.push({ a: unit[i]!.name, b: unit[j]!.name, similarity: dot });
-      }
+      all.push(dot);
+      if (dot >= CONFUSABLE) close.push({ a: unit[i]!.name, b: unit[j]!.name, similarity: dot });
     }
   }
-  return out.sort((x, y) => y.similarity - x.similarity).slice(0, 15);
+  all.sort((x, y) => x - y);
+  const q = (f: number) => (all.length ? all[Math.floor(f * (all.length - 1))]! : 0);
+  close.sort((x, y) => y.similarity - x.similarity);
+  return {
+    separation: {
+      pairs: all.length,
+      median: q(0.5),
+      p90: q(0.9),
+      p99: q(0.99),
+      max: q(1),
+      overThreshold: all.length ? all.filter((x) => x >= MATCH_THRESHOLD).length / all.length : 0,
+    },
+    // Capped, and the total said out loud: a truncated list with no count
+    // reads as the whole answer.
+    lookalikes: { total: close.length, shown: close.slice(0, 15) },
+  };
 }
 
 /** What this run's own numbers say to do next. Not a fixed checklist. */
@@ -294,12 +315,19 @@ export function adviseOn(r: FaceHealth): string[] {
     );
   }
 
-  if (r.lookalikes.length) {
-    const p = r.lookalikes[0]!;
+  if (r.lookalikes.total) {
+    const p = r.lookalikes.shown[0]!;
     out.push(
-      `${r.lookalikes.length} pair(s) sit close enough to be confusable, closest ${p.a} and ${p.b} at ${p.similarity.toFixed(3)}. ` +
-        "The gate refuses rather than guesses between them, so both will read as failures until one is re-photographed.",
+      `${r.lookalikes.total} pair(s) of enrolled faces sit above 0.80 against a typical pair of ${r.separation.median.toFixed(3)}, ` +
+        `closest ${p.a} and ${p.b} at ${p.similarity.toFixed(3)}. The gate refuses rather than guesses between such a pair, so both ` +
+        "read as failures until one is re-photographed.",
     );
+    if (p.similarity >= 0.93) {
+      out.push(
+        `A pair as close as ${p.similarity.toFixed(3)} is worth opening in person: at this distance it is as likely to be one ` +
+          "worker enrolled twice under two records as two workers who look alike.",
+      );
+    }
   }
 
   if (r.canteen.plates > 0 && (r.canteen.rate ?? 0) >= 0.2) {
@@ -365,10 +393,20 @@ export function formatFaceHealth(r: FaceHealth): string {
   L.push("Galleries");
   L.push(`  ${r.gallery.active} active workers: ${r.gallery.noFace} with no face, ${r.gallery.enrolmentOnly} on their enrolment photo alone, ${r.gallery.taught} with taught captures (${r.gallery.captures} stored)`);
 
-  if (r.lookalikes.length) {
+  if (r.separation.pairs) {
     L.push("");
-    L.push("Close enough to be confusable");
-    for (const p of r.lookalikes) L.push(`  ${p.similarity.toFixed(3)}  ${p.a}  /  ${p.b}`);
+    L.push("How far apart the enrolled faces are");
+    L.push(
+      `  ${r.separation.pairs} pairs: typical ${r.separation.median.toFixed(3)}, ` +
+        `9 in 10 below ${r.separation.p90.toFixed(3)}, 99 in 100 below ${r.separation.p99.toFixed(3)}, closest ${r.separation.max.toFixed(3)}`,
+    );
+    L.push(`  ${pct(r.separation.overThreshold)} of pairs sit above the ${MATCH_THRESHOLD.toFixed(2)} cutoff, so the margin rule is what keeps them apart, not the cutoff`);
+  }
+
+  if (r.lookalikes.total) {
+    L.push("");
+    L.push(`Close enough to be confusable — ${r.lookalikes.total} pair(s) above 0.80${r.lookalikes.total > r.lookalikes.shown.length ? `, closest ${r.lookalikes.shown.length} shown` : ""}`);
+    for (const p of r.lookalikes.shown) L.push(`  ${p.similarity.toFixed(3)}  ${p.a}  /  ${p.b}`);
   }
 
   const advice = r.advice.length ? r.advice : adviseOn(r);
