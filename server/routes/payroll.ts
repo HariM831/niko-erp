@@ -423,11 +423,15 @@ payrollRouter.get("/employees/gallery", gatePerm, async (req, res) => {
    * delta for every worker, twice a day, to say nothing had really changed
    * about them.
    */
-  const changedAt = sql<Date>`GREATEST(
+  // Epoch ms as float8, not a timestamp: a raw expression comes back from pg
+  // as whatever text it printed, and drizzle has no column to tell it that
+  // this one is a date. float8 arrives as a JS number, which is what a cursor
+  // wants to be anyway.
+  const changedAt = sql<number>`(EXTRACT(EPOCH FROM GREATEST(
     ${employees.updatedAt},
     COALESCE((SELECT max(p.punched_at) FROM punches p
                WHERE p.employee_id = ${employees.id} AND p.face_embedding IS NOT NULL), 'epoch'::timestamptz)
-  )`;
+  )) * 1000)::float8`;
 
   const rows = await db
     .select({
@@ -445,7 +449,7 @@ payrollRouter.get("/employees/gallery", gatePerm, async (req, res) => {
     // `>=`, not `>`: two rows can share a millisecond, and re-sending the
     // newest one costs a row while missing it costs a face at the gate. The
     // kiosk merges by id, so a repeat is a no-op.
-    .where(since ? sql`${changedAt} >= ${new Date(since)}` : undefined);
+    .where(since ? sql`${changedAt} >= ${since}` : undefined);
 
   const live = rows.filter((r) => r.isActive && r.faceDescriptor);
   const taught = await taughtCapturesByEmployee(db, live.map((r) => r.id));
@@ -453,7 +457,7 @@ payrollRouter.get("/employees/gallery", gatePerm, async (req, res) => {
 
   res.json({
     // Everything the caller has, so an unchanged fetch does not rewind it.
-    cursor: rows.reduce((max, r) => Math.max(max, r.changedAt.getTime()), since),
+    cursor: rows.reduce((max, r) => Math.max(max, r.changedAt), since),
     people: live.map((r, i) => ({
       id: r.id,
       empCode: r.empCode,
