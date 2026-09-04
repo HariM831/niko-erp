@@ -78,18 +78,28 @@ if [ "${NIKO_DEPLOY_REEXEC:-0}" != "1" ] && [ "$BEFORE" != "$AFTER" ]; then
   NIKO_DEPLOY_REEXEC=1 exec bash "$APP_DIR/scripts/deploy.sh"
 fi
 
-# --omit=dev: the server bundle leaves every dependency external, so runtime
-# deps must be present, but nothing needs vite, esbuild or typescript here.
-echo "==> installing"
-npm ci --omit=dev
+# npm ends an install by asking the registry about advisories and funding.
+# Neither answer changes a byte of what lands in node_modules, and both are
+# network round-trips that npm waits on. They are what turned a prune with no
+# work to do into `up to date in 6m` — six minutes, nothing removed. Off for
+# every npm call in this script.
+NPM_FLAGS=(--no-audit --no-fund)
 
-# The build needs the dev toolchain, which --omit=dev just removed. Build on
-# your machine and rsync dist/, or install everything here. Installing is the
-# simpler default; drop SKIP_BUILD=1 in if you ship a prebuilt dist instead.
+# `npm ci` empties node_modules before it installs. So a prod-only install
+# followed by a full one is not two steps of one job — the second throws the
+# first away and does the work again. Install once, for the case at hand:
+# everything when a build follows, runtime-only when a prebuilt dist is being
+# shipped and the dev toolchain would never be touched.
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
+  echo "==> installing"
+  npm ci "${NPM_FLAGS[@]}"
   echo "==> building"
-  npm ci
   npm run build
+else
+  # The server bundle leaves every dependency external, so runtime deps must
+  # be present — but nothing here needs vite, esbuild or typescript.
+  echo "==> installing"
+  npm ci --omit=dev "${NPM_FLAGS[@]}"
 fi
 
 # Before the prune, not after: db:migrate runs through tsx, which is a dev
@@ -121,7 +131,7 @@ done < "$ENV_FILE"
 npm run db:migrate
 
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
-  npm prune --omit=dev
+  npm prune --omit=dev "${NPM_FLAGS[@]}"
 fi
 
 echo "==> restarting $SERVICE"
