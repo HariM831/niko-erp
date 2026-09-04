@@ -28,6 +28,8 @@ import {
   fetchHistoryRows,
   keepHistory,
   nameOf,
+  resolveMetric,
+  resolvePerBird,
   tagIdsFor,
   unpackHistoryRow,
   type BhTagValue,
@@ -56,16 +58,6 @@ const num = (v: string | null | undefined) => {
  * no fallback to the pre-rename name — see bhfarm.ts. A metric with neither
  * reads null, and null is the honest answer.
  */
-function resolveMetric(
-  byName: Map<string, number>,
-  spec: { total: string; lines: readonly string[] },
-): number | null {
-  const total = byName.get(spec.total);
-  if (total != null) return total;
-  const parts = spec.lines.map((l) => byName.get(l)).filter((v): v is number => v != null);
-  return parts.length ? parts.reduce((s, v) => s + v, 0) : null;
-}
-
 /** Save a poll: latest values, history rows, and the day's summary. */
 export async function saveReadings(
   houseId: string,
@@ -169,6 +161,35 @@ function sampleValues(readings: BhTagValue[]): (number | null)[] | null {
     if (v != null) byColumn.set(column, v);
   }
   if (!byColumn.size) return null;
+
+  /*
+   * The totals are checked against their lines, and the per-bird figures
+   * against their totals, BEFORE the row is stored. A sample is the record;
+   * a reading the controller's arithmetic blinked on must not become one.
+   */
+  const byTag = (name: string) => {
+    const column = COLUMN_OF_TAG.get(name);
+    return column ? byColumn.get(column) : undefined;
+  };
+  const settle = (spec: { total: string; lines: readonly string[] }) => {
+    const v = resolveMetric(byTag, spec);
+    const column = COLUMN_OF_TAG.get(spec.total)!;
+    if (v == null) byColumn.delete(column);
+    else byColumn.set(column, v);
+    return v;
+  };
+  settle(METRIC_TAGS.siloKg);
+  const feed = settle(METRIC_TAGS.feedKg);
+  const water = settle(METRIC_TAGS.waterL);
+  for (const [tag, total] of [
+    [SINGLE_TAGS.feedPerBirdG, feed],
+    [SINGLE_TAGS.waterPerBirdMl, water],
+  ] as const) {
+    const column = COLUMN_OF_TAG.get(tag)!;
+    const v = resolvePerBird(byColumn.get(column), total);
+    if (v == null) byColumn.delete(column);
+    else byColumn.set(column, v);
+  }
   return SAMPLE_COLUMN_NAMES.map((c) => byColumn.get(c) ?? null);
 }
 
@@ -251,17 +272,20 @@ function toSample(readings: BhTagValue[], at: Date): Sample | null {
   }
   if (!byName.size) return null;
   const recorded = readings.find((r) => r.recordedAt)?.recordedAt;
+  const get = (name: string) => byName.get(name);
+  const waterL = resolveMetric(get, METRIC_TAGS.waterL);
+  const feedKg = resolveMetric(get, METRIC_TAGS.feedKg);
   return {
     at: recorded ? new Date(recorded) : at,
     temp: byName.get(SINGLE_TAGS.tempC) ?? null,
     humidity: byName.get(SINGLE_TAGS.humidityPct) ?? null,
     co2: byName.get(SINGLE_TAGS.co2Ppm) ?? null,
     pressure: byName.get(SINGLE_TAGS.pressurePa) ?? null,
-    waterL: resolveMetric(byName, METRIC_TAGS.waterL),
-    feedKg: resolveMetric(byName, METRIC_TAGS.feedKg),
-    siloKg: resolveMetric(byName, METRIC_TAGS.siloKg),
-    waterPerBird: byName.get(SINGLE_TAGS.waterPerBirdMl) ?? null,
-    feedPerBird: byName.get(SINGLE_TAGS.feedPerBirdG) ?? null,
+    waterL,
+    feedKg,
+    siloKg: resolveMetric(get, METRIC_TAGS.siloKg),
+    waterPerBird: resolvePerBird(byName.get(SINGLE_TAGS.waterPerBirdMl), waterL),
+    feedPerBird: resolvePerBird(byName.get(SINGLE_TAGS.feedPerBirdG), feedKg),
     birdCount: byName.get(SINGLE_TAGS.birdCount) ?? null,
     birdAge: byName.get(SINGLE_TAGS.birdAgeDays) ?? null,
   };

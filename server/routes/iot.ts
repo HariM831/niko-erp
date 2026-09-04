@@ -11,7 +11,7 @@ import { and, desc, eq, gte, sql } from "drizzle-orm";
 import { houses, iotHouseDay, iotReadings } from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
-import { SINGLE_TAGS, METRIC_TAGS, nameOf, tokenExpiry } from "../services/iot/bhfarm";
+import { SINGLE_TAGS, METRIC_TAGS, nameOf, resolveMetric, resolvePerBird, tokenExpiry } from "../services/iot/bhfarm";
 import { houseSamples, pollOnce, recentPolls, todayCounters } from "../services/iot/store";
 
 export const iotRouter = Router();
@@ -156,13 +156,9 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
     if (!held || at > held.at) m.set(name, { v, at });
   }
 
-  /** Aggregate tag first, else the sum of the per-line tags — never the frozen name. */
-  const metric = (m: Map<string, number>, spec: { total: string; lines: readonly string[] }) => {
-    const total = m.get(spec.total);
-    if (total != null) return total;
-    const parts = spec.lines.map((l) => m.get(l)).filter((x): x is number => x != null);
-    return parts.length ? parts.reduce((a, b) => a + b, 0) : null;
-  };
+  /** The aggregate tag against its lines — never the frozen name. See `resolveMetric`. */
+  const metric = (m: Map<string, number>, spec: { total: string; lines: readonly string[] }) =>
+    resolveMetric((name) => m.get(name), spec);
 
   const nowIst = new Date(Date.now() + 5.5 * 3_600_000);
   const istMidnight = new Date(
@@ -200,8 +196,8 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
     // The live reading only when nothing has been sampled today.
     b.waterL = today.waterL ?? metric(m, METRIC_TAGS.waterL);
     b.feedKg = today.feedKg ?? metric(m, METRIC_TAGS.feedKg);
-    b.waterPerBirdMl = today.waterPerBird ?? m.get(SINGLE_TAGS.waterPerBirdMl) ?? null;
-    b.feedPerBirdG = today.feedPerBird ?? m.get(SINGLE_TAGS.feedPerBirdG) ?? null;
+    b.waterPerBirdMl = today.waterPerBird ?? resolvePerBird(m.get(SINGLE_TAGS.waterPerBirdMl), b.waterL);
+    b.feedPerBirdG = today.feedPerBird ?? resolvePerBird(m.get(SINGLE_TAGS.feedPerBirdG), b.feedKg);
   }
 
   /**
@@ -306,12 +302,7 @@ iotRouter.get("/house/:id/live", requirePermission("farms", "view"), async (req,
     return Number.isFinite(n) ? n : null;
   };
   const str = (name: string): string | null => newest.get(name)?.value ?? null;
-  const metric = (spec: { total: string; lines: readonly string[] }) => {
-    const total = num(spec.total);
-    if (total != null) return total;
-    const parts = spec.lines.map(num).filter((x): x is number => x != null);
-    return parts.length ? parts.reduce((a, b) => a + b, 0) : null;
-  };
+  const metric = (spec: { total: string; lines: readonly string[] }) => resolveMetric(num, spec);
 
   /** The 13 numbered probes the house drawing lays out. */
   const temps: Record<string, number> = {};
@@ -347,8 +338,8 @@ iotRouter.get("/house/:id/live", requirePermission("farms", "view"), async (req,
     birdAgeDays: num(SINGLE_TAGS.birdAgeDays),
     // Today's climb, as on the board — the controller's own counter reads
     // near zero from its reset until midnight.
-    waterPerBirdMl: today.waterPerBird ?? num(SINGLE_TAGS.waterPerBirdMl),
-    feedPerBirdG: today.feedPerBird ?? num(SINGLE_TAGS.feedPerBirdG),
+    waterPerBirdMl: today.waterPerBird ?? resolvePerBird(num(SINGLE_TAGS.waterPerBirdMl), metric(METRIC_TAGS.waterL)),
+    feedPerBirdG: today.feedPerBird ?? resolvePerBird(num(SINGLE_TAGS.feedPerBirdG), metric(METRIC_TAGS.feedKg)),
     siloKg: metric(METRIC_TAGS.siloKg),
     ventLevel: num("通风级别"),
     ventMin: num("当前最小通风级别"),

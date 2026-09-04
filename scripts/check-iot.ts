@@ -274,6 +274,33 @@ try {
       );
       ok("the aggregate columns carry too", merged?.waterL === 400, `${merged?.waterL} L`);
       ok("as do the per-line ones", merged?.siloKg1 === 1000 && merged?.siloKg2 === 1000, `${merged?.siloKg1} + ${merged?.siloKg2}`);
+
+      /* ── The controller's arithmetic blinks; the instruments do not ─────── */
+      //
+      // 2026-09-04 16:33 IST, every shed at once: the totals, the silo and
+      // the per-bird figures all read 0 for one poll while the numbered lines
+      // carried on. L3's water total said 0 against 37,900 L on line 1.
+      const BLINK = `${DAY} 06:30:00`;
+      const tag = (leaf: string, value: string, unit = "") =>
+        ({ tagId: `${DEV}.基础数据.水料量.${leaf}`, value, quality: 0, unit, recordedAt: BLINK }) as BhTagValue;
+      await saveReadings(house.id, [
+        tag("今日总用水量", "0", "L"), tag("今日用水量1", "37900", "L"), tag("今日用水量2", "0", "L"),
+        tag("今日总用料量", "0", "KG"), tag("今日用料量1", "7969", "KG"),
+        tag("料塔当前总料量", "0", "kg"), tag("料塔实时重量1", "20042", "kg"),
+        tag("只鸡饮水量", "0", "ml"), tag("只鸡耗料量", "0", "g"),
+      ]);
+      const [blink] = await db
+        .select()
+        .from(iotHouseSample)
+        .where(and(eq(iotHouseSample.houseId, house.id), sql`${iotHouseSample.at} = ${BLINK}::timestamptz`));
+      ok("a total of 0 against a line of 37,900 stores the line", blink?.waterL === 37900, `${blink?.waterL} L`);
+      ok("feed likewise", blink?.feedKg === 7969, `${blink?.feedKg} kg`);
+      ok("and the silo", blink?.siloKg === 20042, `${blink?.siloKg} kg`);
+      ok(
+        "a per-bird figure of 0 against a real total is stored as nothing, not as 0",
+        blink?.waterPerBirdMl == null && blink?.feedPerBirdG == null,
+        `water ${blink?.waterPerBirdMl}, feed ${blink?.feedPerBirdG}`,
+      );
     }
 
     /* ── Detail thins with age; the day summary never does ────────────────── */

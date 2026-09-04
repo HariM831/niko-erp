@@ -97,6 +97,46 @@ export const METRIC_TAGS = {
  * behind the device, while history's wide rows carry only the name. The names
  * are unique within the template, so the last segment is the honest join key.
  */
+/**
+ * A family's figure: the aggregate tag, unless its numbered lines add up to
+ * more. A total can never be less than its parts, so when it is, the total is
+ * the bad reading.
+ *
+ * On 2026-09-04 at 16:33 IST every COMPUTED tag on every controller read 0
+ * for one poll — the totals, the silo, the per-bird figures — while every
+ * MEASURED tag carried on: L3's water total said 0 against 37,900 L on line
+ * 1, its silo 0 against 20,042 kg. The measured lines are the instrument; the
+ * totals are the controller's arithmetic, and the arithmetic blinks. Taking
+ * the larger of the two puts the sample right at the source, instead of
+ * storing a dip that every chart, summary and board then has to explain
+ * away. The same rule covers a line sensor that dies and takes a quarter off
+ * the aggregate.
+ *
+ * Null only when neither the total nor any line answered.
+ */
+export function resolveMetric(
+  get: (name: string) => number | null | undefined,
+  spec: { total: string; lines: readonly string[] },
+): number | null {
+  const total = get(spec.total) ?? null;
+  const parts = spec.lines.map((l) => get(l)).filter((x): x is number => x != null);
+  const sum = parts.length ? parts.reduce((a, b) => a + b, 0) : null;
+  if (total == null) return sum;
+  if (sum == null) return total;
+  return Math.max(total, sum);
+}
+
+/**
+ * A per-bird figure the controller worked out from a total. Zero while the
+ * total it comes from is not zero is the same blink as above: the
+ * arithmetic missed a beat, and nothing was measured. Null says so.
+ */
+export function resolvePerBird(perBird: number | null | undefined, total: number | null): number | null {
+  if (perBird == null) return null;
+  if (perBird === 0 && total != null && total > 0) return null;
+  return perBird;
+}
+
 export const SINGLE_TAGS = {
   tempC: "当前温度",
   targetTempC: "目标温度",
