@@ -13,7 +13,7 @@ import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { SINGLE_TAGS, METRIC_TAGS, nameOf, tokenExpiry } from "../services/iot/bhfarm";
 import { houseSamples, pollOnce, recentPolls } from "../services/iot/store";
-import { sinceReset } from "../services/iot/counters";
+import { climbSince, type CounterSample } from "../services/iot/counters";
 
 export const iotRouter = Router();
 
@@ -171,26 +171,23 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
   );
 
   /**
-   * Today's feed and water are the counter's PEAK since it last reset, not its
-   * latest reading.
+   * Today's feed and water are what the counters have CLIMBED since IST
+   * midnight, not their latest reading.
    *
-   * They are daily counters, and the controllers do not all roll them over at
-   * the same hour: L5's feed resets around 21:30 IST, L3's around 02:00, the
-   * water meters a few minutes past midnight. Read after its reset, a shed
-   * shows the new day's near-zero as if it were the whole day — on 2026-09-04
-   * L5 stood at -2 kg and 2 g a bird at 22:33, half an hour after closing the
-   * day on 7,650 kg.
+   * They are daily counters, and the controllers do not roll them over at
+   * midnight or at the same hour as each other: L5's feed resets around 21:30
+   * IST, L3's around 02:00, the water meters a few minutes past midnight. Read
+   * after its reset, a shed showed the new day's near-zero as if it were the
+   * whole day — on 2026-09-04 L5 stood at -2 kg and 2 g a bird at 22:33, half
+   * an hour after closing the day on 7,650 kg. Read before it, L3 showed
+   * yesterday's total all morning. `climbSince` adds up the climb across the
+   * reset, and skips the single-sample dropouts the controllers throw.
    *
-   * "Since IST midnight" is not the answer either: the last samples before a
-   * post-midnight reset belong to yesterday and would be today's maximum until
-   * the real day overtook them (L2's water read 30,200 L at 05:00 on a day it
-   * had drunk 8,000). So the day begins where the counter last fell — and only
-   * where it STAYED down, because the controllers also drop a single spurious
-   * 0 now and then (L3 went 4115, 0, 4115 inside fifteen minutes) and a
-   * dropout must not be mistaken for a new day. See `sinceReset`.
+   * Thirty hours of samples: the day so far, plus the value each counter held
+   * at midnight and the reset that may have come after it.
    */
   const series = await db.execute(sql`
-    SELECT house_id AS "houseId", feed_kg AS "feedKg", water_l AS "waterL",
+    SELECT house_id AS "houseId", at, feed_kg AS "feedKg", water_l AS "waterL",
            feed_per_bird_g AS "feedPerBirdG", water_per_bird_ml AS "waterPerBirdMl"
       FROM iot_house_sample
      WHERE at >= now() - interval '30 hours'
@@ -204,15 +201,14 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
   for (const [houseId, b] of byHouse) {
     const m = new Map([...named.get(houseId)!].map(([k, x]) => [k, x.v]));
     const rows = seriesOf.get(houseId) ?? [];
-    /** The counter's high-water mark since its last reset, or the live reading if that has passed it. */
+    /** The counter's climb since IST midnight; the live reading only when nothing was sampled today. */
     const peak = (col: string, live: number | null) => {
-      const values: number[] = [];
+      const samples: CounterSample[] = [];
       for (const r of rows) {
         const n = r[col] == null ? null : Number(r[col]);
-        if (n != null && Number.isFinite(n)) values.push(n);
+        if (n != null && Number.isFinite(n)) samples.push({ at: new Date(String(r.at)), v: n });
       }
-      const p = sinceReset(values);
-      return p != null && (live == null || p > live) ? p : live;
+      return climbSince(samples, istMidnight) ?? live;
     };
     b.tempC = m.get(SINGLE_TAGS.tempC) ?? null;
     b.targetTempC = m.get(SINGLE_TAGS.targetTempC) ?? null;
