@@ -22,7 +22,6 @@
  */
 import { Router, type NextFunction, type Request, type Response } from "express";
 import crypto from "node:crypto";
-import sharp from "sharp";
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
@@ -55,6 +54,7 @@ import { istDate, recomputeEmployeeDay } from "../services/day-resolution";
 import { requirePermission } from "../lib/rbac";
 import { looseNumber, validateBody } from "../lib/validate";
 import { respondToPgError } from "../lib/pg-errors";
+import { photoThumbnail } from "../services/photo";
 import { checkAttendancePresent } from "./canteen";
 
 type Conn = Db | Tx;
@@ -898,10 +898,14 @@ deviceRouter.get("/pull/state", requireDeviceToken(), async (req, res) => {
 
 deviceRouter.get("/photo/:personId", requireDeviceToken(), async (req, res) => {
   try {
-    const [emp] = await db.select({ photoUrl: employees.photoUrl }).from(employees).where(eq(employees.id, req.params.personId!));
-    const m = emp?.photoUrl ? /^data:image\/\w+;base64,(.+)$/.exec(emp.photoUrl) : null;
-    if (!m) return res.status(404).json({ error: "No photo for this person" });
-    const thumb = await sharp(Buffer.from(m[1]!, "base64")).resize(96, 96, { fit: "cover" }).jpeg({ quality: 80 }).toBuffer();
+    const [emp] = await db
+      .select({ photoUrl: employees.photoUrl, photoHash: employees.photoHash })
+      .from(employees)
+      .where(eq(employees.id, req.params.personId!));
+    // Shared with the browser roster, so a face is resized once however many
+    // devices and kiosks ask for it.
+    const thumb = await photoThumbnail(emp?.photoUrl ?? null, emp?.photoHash);
+    if (!thumb) return res.status(404).json({ error: "No photo for this person" });
     res.setHeader("Content-Type", "image/jpeg");
     res.setHeader("Cache-Control", "public, max-age=86400");
     res.send(thumb);

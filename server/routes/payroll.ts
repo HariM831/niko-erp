@@ -30,6 +30,7 @@ import {
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { REPEAT_PUNCH_WINDOW_MS } from "./device";
+import { photoThumbnail, photoThumbnails } from "../services/photo";
 import { looseNumber, nonBlank, timeOfDay, validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
 import {
@@ -403,6 +404,12 @@ payrollRouter.get("/employees", view, async (req, res) => {
 /**
  * The active roster for the browser kiosk: descriptor + photo, nothing else.
  * The ONLY route that ever ships faceDescriptor.
+ *
+ * The photo is a 96 px thumbnail, not the enrolment original. The kiosk shows
+ * it at 80 px at the very largest, and shipping the originals would put a
+ * couple of hundred kilobytes per worker on a response every open gate
+ * re-reads — the descriptors are the payload that has to be here, and they
+ * are large enough on their own.
  */
 payrollRouter.get("/employees/gallery", gatePerm, async (_req, res) => {
   const rows = await db
@@ -413,10 +420,12 @@ payrollRouter.get("/employees/gallery", gatePerm, async (_req, res) => {
       payType: employees.payType,
       faceDescriptor: employees.faceDescriptor,
       photoUrl: employees.photoUrl,
+      photoHash: employees.photoHash,
     })
     .from(employees)
     .where(and(eq(employees.isActive, true), sql`${employees.faceDescriptor} IS NOT NULL`));
-  res.json(rows);
+  const thumbs = await photoThumbnails(rows);
+  res.json(rows.map(({ photoHash: _h, ...r }, i) => ({ ...r, photoUrl: thumbs[i] })));
 });
 
 const employeeFields = z.object({
@@ -506,19 +515,20 @@ payrollRouter.patch("/employees/:id", employeesPerm, validateBody(employeeFields
 });
 
 /**
- * The list ships no photos; a table avatar fetches its own. The data URL is
- * decoded and streamed as an image so an <img src> can point straight here.
+ * The list ships no photos; a table avatar fetches its own, at the size an
+ * avatar is drawn. The full enrolment photo is only ever served inline on the
+ * one employee's own page, where it is the subject rather than a decoration.
  */
 payrollRouter.get("/employees/:id/photo", view, async (req, res) => {
   const [row] = await db
-    .select({ photoUrl: employees.photoUrl })
+    .select({ photoUrl: employees.photoUrl, photoHash: employees.photoHash })
     .from(employees)
     .where(eq(employees.id, req.params.id!));
-  const m = row?.photoUrl?.match(/^data:(image\/[\w.+-]+);base64,(.+)$/s);
-  if (!m) return res.status(404).json({ error: "No photo" });
-  res.setHeader("Content-Type", m[1]!);
+  const thumb = await photoThumbnail(row?.photoUrl ?? null, row?.photoHash);
+  if (!thumb) return res.status(404).json({ error: "No photo" });
+  res.setHeader("Content-Type", "image/jpeg");
   res.setHeader("Cache-Control", "private, max-age=300");
-  res.send(Buffer.from(m[2]!, "base64"));
+  res.send(thumb);
 });
 
 payrollRouter.get("/employees/:id", view, async (req, res) => {
