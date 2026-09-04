@@ -39,15 +39,20 @@ export interface CounterSample {
  *     minutes of showing the old total beats five minutes of showing a
  *     glitch as the day.
  *
- * "Near where it was" is half the old peak, judged on the first sample back
- * over a fifth of it. After a reset that sample sits at about a fifth; after
- * a dropout it sits at the old level. This needs samples closer together
- * than half a day's eating, which even the hourly thinning of old data is.
+ * "Near where it was" is nine tenths of the value just before the fall, and
+ * back within two hours of it. Not "near the old peak": feed arrives in
+ * runs, a feeding run moves tonnes in minutes, and the first run after an
+ * overnight reset put L4 at 4,445 kg against the 6,958 it had reset from —
+ * a level test called that a dropout and carried yesterday's total across
+ * as the baseline, storing 3,030 kg for a day of 9,988. A dropout returns to
+ * where it was; a new day does not.
  *
  * Each run that reaches into the day contributes its peak less the value it
  * held at midnight, and the day is their sum. Null when nothing was sampled
  * after `dayStart`.
  */
+const DROPOUT_AT_MOST_MS = 2 * 3_600_000;
+
 export function climbSince(samples: CounterSample[], dayStart: Date): number | null {
   interface Run {
     peak: number;
@@ -86,7 +91,10 @@ export function climbSince(samples: CounterSample[], dayStart: Date): number | n
     let j = i;
     while (j < samples.length && samples[j]!.v < 0.2 * run.peak) j++;
     const back = samples[j];
-    const dropout = back ? back.v >= 0.5 * run.peak : j - i < 2;
+    const before = samples[i - 1]!;
+    const dropout = back
+      ? back.v >= 0.9 * before.v && back.at.getTime() - s.at.getTime() <= DROPOUT_AT_MOST_MS
+      : j - i < 2;
     if (dropout) {
       i = j;
       continue;
