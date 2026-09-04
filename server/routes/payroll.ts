@@ -423,14 +423,24 @@ payrollRouter.get("/employees/gallery", gatePerm, async (req, res) => {
    * delta for every worker, twice a day, to say nothing had really changed
    * about them.
    */
-  // Epoch ms as float8, not a timestamp: a raw expression comes back from pg
-  // as whatever text it printed, and drizzle has no column to tell it that
-  // this one is a date. float8 arrives as a JS number, which is what a cursor
-  // wants to be anyway.
+  /*
+   * Written out in plain SQL, with the table named.
+   *
+   * Interpolating a drizzle column into a template renders it UNQUALIFIED —
+   * `${employees.id}` comes out as `"id"`, not `"employees"."id"`. Inside the
+   * correlated subquery below that binds to `punches.id`, so the condition
+   * became `p.employee_id = p.id`, matched nothing, and every gallery looked
+   * unchanged since its employee row was last touched. No error: newly taught
+   * faces simply never reached the kiosk.
+   *
+   * Epoch ms as float8 rather than a timestamp, because a raw expression
+   * arrives from pg as the text it printed and drizzle has no column to tell
+   * it otherwise — and a cursor wants to be a number regardless.
+   */
   const changedAt = sql<number>`(EXTRACT(EPOCH FROM GREATEST(
-    ${employees.updatedAt},
+    employees.updated_at,
     COALESCE((SELECT max(p.punched_at) FROM punches p
-               WHERE p.employee_id = ${employees.id} AND p.face_embedding IS NOT NULL), 'epoch'::timestamptz)
+               WHERE p.employee_id = employees.id AND p.face_embedding IS NOT NULL), 'epoch'::timestamptz)
   )) * 1000)::float8`;
 
   const rows = await db
@@ -458,7 +468,6 @@ payrollRouter.get("/employees/gallery", gatePerm, async (req, res) => {
   res.json({
     // Everything the caller has, so an unchanged fetch does not rewind it.
     cursor: rows.reduce((max, r) => Math.max(max, r.changedAt), since),
-    __debug: { sql: db.select({ changedAt }).from(employees).toSQL() },
     people: live.map((r, i) => ({
       id: r.id,
       empCode: r.empCode,
