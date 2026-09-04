@@ -458,6 +458,7 @@ payrollRouter.get("/employees/gallery", gatePerm, async (req, res) => {
   res.json({
     // Everything the caller has, so an unchanged fetch does not rewind it.
     cursor: rows.reduce((max, r) => Math.max(max, r.changedAt), since),
+    __debug: rows.slice(0, 3).map((r) => ({ n: r.name, t: typeof r.changedAt, v: r.changedAt })),
     people: live.map((r, i) => ({
       id: r.id,
       empCode: r.empCode,
