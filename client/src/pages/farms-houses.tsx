@@ -136,6 +136,9 @@ interface IotRow {
   siloKg: number | null;
   waterL: number | null;
   feedKg: number | null;
+  /** The controller's own per-bird figures: today's total over its head count. */
+  waterPerBirdMl: number | null;
+  feedPerBirdG: number | null;
   birdCount: number | null;
   /** Struck through when the controller has stopped moving the figure. */
   feedStale?: boolean;
@@ -1135,8 +1138,10 @@ export function FarmsHousesPage() {
                         <td className="col-portrait-hide px-3 py-2 text-right tabular-nums text-muted-foreground">{r.pressurePa == null ? "—" : fmtNum(r.pressurePa)}
                         </td>
                         <StaleCell v={r.siloKg} unit="kg" stale={r.siloStale} since={r.siloChangedAt} className="col-portrait-hide" />
-                        <StaleCell v={r.waterL} unit="L" stale={r.waterStale} since={r.waterChangedAt} className="col-portrait-hide" />
-                        <StaleCell v={r.feedKg} unit="kg" stale={r.feedStale} since={r.feedChangedAt} className="col-portrait-hide" />
+                        {/* Per bird, as the controller works it out; the stale test
+                            still runs on the shed totals those figures come from. */}
+                        <StaleCell v={r.waterPerBirdMl} unit="ml" stale={r.waterStale} since={r.waterChangedAt} className="col-portrait-hide" />
+                        <StaleCell v={r.feedPerBirdG} unit="g" stale={r.feedStale} since={r.feedChangedAt} className="col-portrait-hide" />
                       </tr>
                     );
                   })}

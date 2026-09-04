@@ -78,6 +78,12 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
     siloKg: number | null;
     waterL: number | null;
     feedKg: number | null;
+    /**
+     * The controller's own per-bird figures — the day's total over its own
+     * head count, so they move with the totals and freeze with them.
+     */
+    waterPerBirdMl: number | null;
+    feedPerBirdG: number | null;
     birdCount: number | null;
     birdAgeDays: number | null;
     /**
@@ -112,6 +118,8 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
         siloKg: null,
         waterL: null,
         feedKg: null,
+        waterPerBirdMl: null,
+        feedPerBirdG: null,
         birdCount: null,
         birdAgeDays: null,
         feedChangedAt: null,
@@ -153,6 +161,8 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
     b.siloKg = metric(m, METRIC_TAGS.siloKg);
     b.waterL = metric(m, METRIC_TAGS.waterL);
     b.feedKg = metric(m, METRIC_TAGS.feedKg);
+    b.waterPerBirdMl = m.get(SINGLE_TAGS.waterPerBirdMl) ?? null;
+    b.feedPerBirdG = m.get(SINGLE_TAGS.feedPerBirdG) ?? null;
   }
 
   /**
