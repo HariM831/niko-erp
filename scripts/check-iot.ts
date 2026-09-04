@@ -171,6 +171,49 @@ try {
       `${after?.waterL} L`,
     );
 
+    /* ── A counter that resets before the day is out ──────────────────────── */
+    //
+    // The controllers roll their daily counters over at their own hour, not
+    // at midnight: L5's feed at about 21:30 IST. The day's feed is what was
+    // eaten before the reset plus what has been eaten since, and the next
+    // day counts only the climb from midnight, not from the reset. Samples
+    // are written the way a live poll writes them, one instant at a time,
+    // and the summary is then asked for with the newest instant alone — the
+    // live poll's shape, which is the one that cannot see the day by itself.
+    const RESET_DAY = "2026-05-13";
+    const NEXT_DAY = "2026-05-14";
+    const ist = (day: string, hhmm: string) => `${day}T${hhmm}:00+05:30`;
+    const dayPolls = [
+      poll(DEV, ist(RESET_DAY, "06:00"), { feedTotal: 300 }),
+      poll(DEV, ist(RESET_DAY, "12:00"), { feedTotal: 800 }),
+      poll(DEV, ist(RESET_DAY, "12:05"), { feedTotal: 0 }), // a dropout, not a reset
+      poll(DEV, ist(RESET_DAY, "12:10"), { feedTotal: 810 }),
+      poll(DEV, ist(RESET_DAY, "18:00"), { feedTotal: 1400 }),
+      poll(DEV, ist(RESET_DAY, "21:00"), { feedTotal: 1850 }),
+      poll(DEV, ist(RESET_DAY, "21:35"), { feedTotal: 0 }),
+      poll(DEV, ist(RESET_DAY, "21:40"), { feedTotal: -2 }),
+      poll(DEV, ist(RESET_DAY, "23:00"), { feedTotal: 120 }),
+      poll(DEV, ist(NEXT_DAY, "00:05"), { feedTotal: 300 }),
+      poll(DEV, ist(NEXT_DAY, "00:30"), { feedTotal: 420 }),
+    ];
+    for (const p of dayPolls) await saveReadings(house.id, p);
+    await writeDay(house.id, RESET_DAY, [dayPolls[8]!]);
+    await writeDay(house.id, NEXT_DAY, [dayPolls[10]!]);
+    const dayRow = async (day: string) =>
+      (await db.select().from(iotHouseDay).where(and(eq(iotHouseDay.houseId, house.id), eq(iotHouseDay.day, day))))[0];
+    const resetDay = await dayRow(RESET_DAY);
+    const nextDay = await dayRow(NEXT_DAY);
+    ok(
+      "a counter reset before midnight keeps the feed eaten before it",
+      near(Number(resetDay?.feedKg), 1970),
+      `${resetDay?.feedKg} kg — 1,850 before the reset and 120 after; the highest reading was 1,850, the last 120`,
+    );
+    ok(
+      "the next day counts only the climb since midnight",
+      near(Number(nextDay?.feedKg), 300),
+      `${nextDay?.feedKg} kg — the counter stood at 120 at midnight and 420 by half past`,
+    );
+
     /* ── The frozen July tags must not be preferred ───────────────────────── */
     //
     // The pre-rename name still answers with the value it held on 2026-07-16.

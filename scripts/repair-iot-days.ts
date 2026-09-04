@@ -1,73 +1,79 @@
 /**
- * Rebuild iot_house_day from the samples it was summarised from.
+ * Rebuild the counters in iot_house_day from the samples they were summarised
+ * from.
  *
- * The day summary used to store the LAST reading of a daily counter. The
- * controller drops a single spurious 0 every so often, so a glitch landing
- * near midnight became the whole day: L4's 7,002 kg was stored as 63 and
- * L5's 9,103 as minus one, and both read as dead feed sensors.
+ * The day summary used to store a daily counter's highest reading since IST
+ * midnight. The controllers reset their counters once a day but not at
+ * midnight, and not at the same hour as each other — L5's feed around 21:30
+ * IST, L3's around 02:00, the water meters a few minutes past twelve — so the
+ * highest reading carried yesterday's closing figure into today until today
+ * overtook it, and put a shed's evening feed in the day after it was eaten.
  *
- * Feed and water reset at IST midnight and only climb, so their day figure is
- * the highest reading. The silo is a level, so it takes the last reading that
- * was not negative. Only days we hold samples for can be repaired; older days
- * keep whatever the vendor's own history gave them.
+ * The summary now stores what each counter CLIMBED between one midnight and
+ * the next (see `dayCounters` in the store). Only days we hold samples for
+ * can be rebuilt; older days keep what they have.
  *
- *   npx tsx scripts/repair-iot-days.ts          (dry)
+ *   npx tsx scripts/repair-iot-days.ts                (dry, every day held)
+ *   npx tsx scripts/repair-iot-days.ts --days 60      (dry, the last 60)
  *   npx tsx scripts/repair-iot-days.ts --apply
  */
 import { sql } from "drizzle-orm";
 import { db } from "../server/db";
+import { countersOf, recountDay } from "../server/services/iot/store";
 
 const APPLY = process.argv.includes("--apply");
+const daysArg = process.argv.indexOf("--days");
+const DAYS = daysArg >= 0 ? Number(process.argv[daysArg + 1]) : null;
 
-const rows = (
+const since = DAYS ? sql` AND s.at >= now() - (${DAYS} || ' days')::interval` : sql``;
+const held = (
   await db.execute(sql`
-    WITH agg AS (
-      SELECT house_id,
-             ((at AT TIME ZONE 'Asia/Kolkata')::date) AS day,
-             max(feed_kg)  AS feed_kg,
-             max(water_l)  AS water_l,
-             max(feed_per_bird_g)  AS feed_per_bird_g,
-             max(water_per_bird_ml) AS water_per_bird_ml
-        FROM iot_house_sample
-       GROUP BY 1, 2
-    )
-    SELECT h.code, a.day, a.feed_kg, a.water_l, a.feed_per_bird_g, a.water_per_bird_ml,
-           d.feed_kg AS stored_feed, d.water_l AS stored_water
-      FROM agg a
-      JOIN houses h ON h.id = a.house_id
-      JOIN iot_house_day d ON d.house_id = a.house_id AND d.day = a.day
-     WHERE d.feed_kg IS DISTINCT FROM a.feed_kg OR d.water_l IS DISTINCT FROM a.water_l
-     ORDER BY a.day DESC, h.code
-  `)
-).rows as Array<Record<string, unknown>>;
+    SELECT DISTINCT s.house_id AS "houseId", h.code,
+           ((s.at AT TIME ZONE 'Asia/Kolkata')::date)::text AS day
+      FROM iot_house_sample s JOIN houses h ON h.id = s.house_id
+     WHERE TRUE${since}
+     ORDER BY day DESC, h.code`)
+).rows as Array<{ houseId: string; code: string; day: string }>;
 
-console.log(`\n  ${rows.length} day(s) understate what the samples say\n`);
-for (const r of rows.slice(0, 20)) {
-  console.log(
-    `  ${r.code} ${String(r.day).slice(0, 10)}  feed ${r.stored_feed} -> ${r.feed_kg}   water ${r.stored_water} -> ${r.water_l}`,
-  );
+const stored = new Map<string, { feedKg: number | null; waterL: number | null }>();
+for (const r of (
+  await db.execute(sql`SELECT house_id AS "houseId", day::text AS day, feed_kg AS "feedKg", water_l AS "waterL" FROM iot_house_day`)
+).rows as Array<Record<string, unknown>>) {
+  const n = (v: unknown) => (v == null ? null : Number(v));
+  stored.set(`${r.houseId}|${r.day}`, { feedKg: n(r.feedKg), waterL: n(r.waterL) });
 }
-if (rows.length > 20) console.log(`  ... and ${rows.length - 20} more`);
+
+const fmt = (v: number | null) => (v == null ? "—" : Math.round(v).toLocaleString("en-IN"));
+const differs = (a: number | null, b: number | null) =>
+  a == null || b == null ? a !== b : Math.abs(a - b) >= 1;
+
+const changes: Array<{ houseId: string; code: string; day: string; line: string }> = [];
+let missing = 0;
+for (const h of held) {
+  const c = await countersOf(h.houseId, h.day);
+  const was = stored.get(`${h.houseId}|${h.day}`);
+  if (!was) {
+    missing++;
+    continue;
+  }
+  if (differs(was.feedKg, c.feedKg) || differs(was.waterL, c.waterL)) {
+    changes.push({
+      ...h,
+      line: `  ${h.code} ${h.day}  feed ${fmt(was.feedKg)} -> ${fmt(c.feedKg)} kg   water ${fmt(was.waterL)} -> ${fmt(c.waterL)} L`,
+    });
+  }
+}
+
+console.log(`\n  ${held.length} house-day(s) held as samples, ${changes.length} would change` + (missing ? `, ${missing} with no summary row` : "") + "\n");
+for (const c of changes.slice(0, 40)) console.log(c.line);
+if (changes.length > 40) console.log(`  ... and ${changes.length - 40} more`);
 
 if (!APPLY) {
   console.log("\n  dry run — add --apply to write\n");
   process.exit(0);
 }
 
-const r = await db.execute(sql`
-  WITH agg AS (
-    SELECT house_id, ((at AT TIME ZONE 'Asia/Kolkata')::date) AS day,
-           max(feed_kg) AS feed_kg, max(water_l) AS water_l,
-           max(feed_per_bird_g) AS feed_per_bird_g, max(water_per_bird_ml) AS water_per_bird_ml
-      FROM iot_house_sample GROUP BY 1, 2
-  )
-  UPDATE iot_house_day d
-     SET feed_kg = a.feed_kg, water_l = a.water_l,
-         feed_per_bird_g = a.feed_per_bird_g, water_per_bird_ml = a.water_per_bird_ml,
-         updated_at = now()
-    FROM agg a
-   WHERE d.house_id = a.house_id AND d.day = a.day
-     AND (d.feed_kg IS DISTINCT FROM a.feed_kg OR d.water_l IS DISTINCT FROM a.water_l)
-`);
-console.log(`\n  repaired ${r.rowCount ?? 0} day(s)\n`);
+let repaired = 0;
+for (const c of changes) if (await recountDay(c.houseId, c.day)) repaired++;
+console.log(`\n  repaired ${repaired} day(s)\n`);
 process.exit(0);

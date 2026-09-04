@@ -9,7 +9,7 @@
  * wrote on the sheet and what the instrument measured are two different claims
  * about the same day, and the day they disagree is the day you want both.
  */
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lt, lte, sql } from "drizzle-orm";
 import {
   houses,
   iotHouseDay,
@@ -32,6 +32,7 @@ import {
   unpackHistoryRow,
   type BhTagValue,
 } from "./bhfarm";
+import { climbSince, type CounterSample } from "./counters";
 
 /** Houses that name a controller, by device id. */
 export async function housesByDevice(): Promise<Map<string, { id: string; code: string }>> {
@@ -217,6 +218,7 @@ export async function writeSamples(
 
 /** One poll's worth of readings, reduced to the figures the day cares about. */
 interface Sample {
+  at: Date;
   temp: number | null;
   humidity: number | null;
   co2: number | null;
@@ -230,7 +232,7 @@ interface Sample {
   birdAge: number | null;
 }
 
-function toSample(readings: BhTagValue[]): Sample | null {
+function toSample(readings: BhTagValue[], at: Date): Sample | null {
   /**
    * Keyed on the tag's LAST segment.
    *
@@ -248,7 +250,9 @@ function toSample(readings: BhTagValue[]): Sample | null {
     byName.set(nameOf(r.tagId), v);
   }
   if (!byName.size) return null;
+  const recorded = readings.find((r) => r.recordedAt)?.recordedAt;
   return {
+    at: recorded ? new Date(recorded) : at,
     temp: byName.get(SINGLE_TAGS.tempC) ?? null,
     humidity: byName.get(SINGLE_TAGS.humidityPct) ?? null,
     co2: byName.get(SINGLE_TAGS.co2Ppm) ?? null,
@@ -261,6 +265,106 @@ function toSample(readings: BhTagValue[]): Sample | null {
     birdCount: byName.get(SINGLE_TAGS.birdCount) ?? null,
     birdAge: byName.get(SINGLE_TAGS.birdAgeDays) ?? null,
   };
+}
+
+/** IST midnight opening `day` (YYYY-MM-DD). */
+const startOfDay = (day: string) => new Date(`${day}T00:00:00+05:30`);
+
+interface DayCounters {
+  waterL: number | null;
+  feedKg: number | null;
+  waterPerBird: number | null;
+  feedPerBird: number | null;
+}
+
+/**
+ * The day's feed and water: what each counter CLIMBED between one IST
+ * midnight and the next, from every sample held for the day.
+ *
+ * Not the day's highest reading. The controllers reset their counters once a
+ * day but not at midnight, and not at the same hour as each other — L5's feed
+ * around 21:30 IST, L3's around 02:00, the water meters a few minutes past
+ * twelve. A peak since midnight therefore carried yesterday's closing figure
+ * into today until today overtook it (L2's water stood at 30,200 L on a
+ * morning it had drunk 8,000), and dropped a shed's evening feed from the day
+ * it was eaten into the day after. `climbSince` cuts the series at each
+ * confirmed reset and adds up the climbs, skipping the single-sample
+ * dropouts the controllers throw.
+ *
+ * Read from the sample table rather than from the polls handed in, because a
+ * live poll hands over ONE instant and the answer needs the whole day, plus
+ * the value each counter held at midnight — six hours of the evening before
+ * are fetched for that baseline. The polls are merged in for the instants the
+ * table does not have yet; where both know an instant, the table's merged row
+ * wins.
+ */
+async function dayCounters(houseId: string, day: string, own: Sample[] = []): Promise<DayCounters> {
+  const dayStart = startOfDay(day);
+  const dayEnd = new Date(dayStart.getTime() + 86_400_000);
+  const from = new Date(dayStart.getTime() - 6 * 3_600_000);
+  const held = await db
+    .select({
+      at: iotHouseSample.at,
+      waterL: iotHouseSample.waterL,
+      feedKg: iotHouseSample.feedKg,
+      waterPerBird: iotHouseSample.waterPerBirdMl,
+      feedPerBird: iotHouseSample.feedPerBirdG,
+    })
+    .from(iotHouseSample)
+    .where(
+      and(
+        eq(iotHouseSample.houseId, houseId),
+        gte(iotHouseSample.at, from),
+        lt(iotHouseSample.at, dayEnd),
+      ),
+    )
+    .orderBy(iotHouseSample.at);
+
+  type Row = { at: Date } & DayCounters;
+  const byInstant = new Map<number, Row>();
+  for (const r of held) byInstant.set(r.at.getTime(), r);
+  for (const s of own) if (!byInstant.has(s.at.getTime())) byInstant.set(s.at.getTime(), s);
+  const series = [...byInstant.values()].sort((a, b) => a.at.getTime() - b.at.getTime());
+
+  const climb = (pick: (r: Row) => number | null) => {
+    const points: CounterSample[] = [];
+    for (const r of series) {
+      const v = pick(r);
+      if (v != null) points.push({ at: r.at, v });
+    }
+    return climbSince(points, dayStart);
+  };
+  return {
+    waterL: climb((r) => r.waterL),
+    feedKg: climb((r) => r.feedKg),
+    waterPerBird: climb((r) => r.waterPerBird),
+    feedPerBird: climb((r) => r.feedPerBird),
+  };
+}
+
+/** What `dayCounters` would store for a day, for a repair to look at first. */
+export async function countersOf(houseId: string, day: string): Promise<DayCounters> {
+  return dayCounters(houseId, day);
+}
+
+/**
+ * Re-derive one day's counters from its samples and write them over the
+ * summary. Only the four counter columns move; the averages and extremes were
+ * right all along. Returns whether a row was there to update.
+ */
+export async function recountDay(houseId: string, day: string): Promise<boolean> {
+  const c = await dayCounters(houseId, day);
+  if (c.waterL == null && c.feedKg == null && c.waterPerBird == null && c.feedPerBird == null) {
+    return false;
+  }
+  const d = (v: number | null) => (v == null ? null : v.toFixed(2));
+  const r = await db.execute(sql`
+    UPDATE iot_house_day
+       SET water_l = ${d(c.waterL)}, feed_kg = ${d(c.feedKg)},
+           water_per_bird_ml = ${d(c.waterPerBird)}, feed_per_bird_g = ${d(c.feedPerBird)},
+           updated_at = now()
+     WHERE house_id = ${houseId} AND day = ${day}`);
+  return (r.rowCount ?? 0) > 0;
 }
 
 /**
@@ -279,9 +383,15 @@ function toSample(readings: BhTagValue[]): Sample | null {
  * sample wins rather than the sum: adding them would count the same litre once
  * per poll.
  */
-export async function writeDay(houseId: string, day: string, polls: BhTagValue[][]): Promise<void> {
-  const samples = polls.map(toSample).filter((s): s is Sample => s !== null);
+export async function writeDay(
+  houseId: string,
+  day: string,
+  polls: BhTagValue[][],
+  at = new Date(),
+): Promise<void> {
+  const samples = polls.map((p) => toSample(p, at)).filter((s): s is Sample => s !== null);
   if (!samples.length) return;
+  const counters = await dayCounters(houseId, day, samples);
 
   const vals = (pick: (s: Sample) => number | null) =>
     samples.map(pick).filter((v): v is number => v != null);
@@ -303,22 +413,6 @@ export async function writeDay(houseId: string, day: string, polls: BhTagValue[]
     return v.length ? v[v.length - 1]! : null;
   };
 
-  /**
-   * The day's figure for a counter that only climbs.
-   *
-   * Feed and water reset at IST midnight and rise all day, so the day's total
-   * is the HIGHEST reading, not the last one. The controller drops a single
-   * spurious 0 every so often — L3 went 4115, 0, 4115, 4168 inside fifteen
-   * minutes — and taking the last reading meant a glitch landing near midnight
-   * became the whole day: L4's 7,002 kg was stored as 63, L5's 9,103 as minus
-   * one, and both looked like dead feed sensors. A maximum cannot be dragged
-   * down by a dropout.
-   */
-  const peak = (pick: (s: Sample) => number | null) => {
-    const v = vals(pick);
-    return v.length ? Math.max(...v) : null;
-  };
-
   /** A level that went negative is a bad reading, not an empty silo. */
   const lastSane = (pick: (s: Sample) => number | null) => {
     const v = vals(pick).filter((x) => x >= 0);
@@ -338,8 +432,8 @@ export async function writeDay(houseId: string, day: string, polls: BhTagValue[]
       ${d(avg((s) => s.humidity))},
       ${d(avg((s) => s.co2))}, ${d(max((s) => s.co2))},
       ${d(avg((s) => s.pressure))},
-      ${d(peak((s) => s.waterL))}, ${d(peak((s) => s.feedKg))},
-      ${d(peak((s) => s.waterPerBird))}, ${d(peak((s) => s.feedPerBird))},
+      ${d(counters.waterL)}, ${d(counters.feedKg)},
+      ${d(counters.waterPerBird)}, ${d(counters.feedPerBird)},
       ${d(lastSane((s) => s.siloKg))},
       ${last((s) => s.birdCount)}, ${last((s) => s.birdAge)}, now())
     ON CONFLICT (house_id, day) DO UPDATE SET
@@ -355,14 +449,14 @@ export async function writeDay(houseId: string, day: string, polls: BhTagValue[]
       temp_max          = greatest(iot_house_day.temp_max, excluded.temp_max),
       co2_max           = greatest(iot_house_day.co2_max, excluded.co2_max),
       /*
-       * Running daily totals only ever climb until IST midnight resets them,
-       * so a poll reporting LESS than the day already has has glitched rather
-       * than learned something. The highest wins.
+       * The counters were worked out from every sample held for the day, not
+       * from this poll alone, so a fresh figure is always the better-informed
+       * one. See dayCounters.
        */
-      water_l           = greatest(coalesce(excluded.water_l, 0), coalesce(iot_house_day.water_l, 0)),
-      feed_kg           = greatest(coalesce(excluded.feed_kg, 0), coalesce(iot_house_day.feed_kg, 0)),
-      water_per_bird_ml = greatest(coalesce(excluded.water_per_bird_ml, 0), coalesce(iot_house_day.water_per_bird_ml, 0)),
-      feed_per_bird_g   = greatest(coalesce(excluded.feed_per_bird_g, 0), coalesce(iot_house_day.feed_per_bird_g, 0)),
+      water_l           = coalesce(excluded.water_l, iot_house_day.water_l),
+      feed_kg           = coalesce(excluded.feed_kg, iot_house_day.feed_kg),
+      water_per_bird_ml = coalesce(excluded.water_per_bird_ml, iot_house_day.water_per_bird_ml),
+      feed_per_bird_g   = coalesce(excluded.feed_per_bird_g, iot_house_day.feed_per_bird_g),
       silo_kg           = coalesce(excluded.silo_kg, iot_house_day.silo_kg),
       bird_count        = coalesce(excluded.bird_count, iot_house_day.bird_count),
       bird_age_days     = coalesce(excluded.bird_age_days, iot_house_day.bird_age_days),
