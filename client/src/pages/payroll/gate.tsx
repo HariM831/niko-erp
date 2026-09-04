@@ -25,7 +25,12 @@ interface GalleryEmployee {
   empCode: string;
   name: string;
   payType: string;
-  faceDescriptor: number[] | null;
+  /**
+   * The enrolment descriptor first, then whatever the gate has taught itself
+   * from this worker's own scans. A face is scored on its best one, so a
+   * short gallery is only ever a weaker match, never a wrong one.
+   */
+  descriptors: number[][];
   photoUrl: string | null;
   department?: string | null;
 }
@@ -45,7 +50,7 @@ interface Position { latitude: number; longitude: number; accuracy: number }
 type Stage =
   | { kind: "idle" }
   | { kind: "matching" }
-  | { kind: "confirm"; employee: GalleryEmployee; score: number; photo: string }
+  | { kind: "confirm"; employee: GalleryEmployee; score: number; photo: string; embedding: number[] }
   | { kind: "nomatch"; score: number; closest: GalleryEmployee | null; photo: string | null; spoofed?: boolean }
   | { kind: "posting" }
   | { kind: "success"; employee: GalleryEmployee; punchType: "in" | "out"; time: string };
@@ -102,13 +107,32 @@ export function PayrollGatePage() {
   // Picking a name moves to a photo step instead of punching immediately, so
   // the punch photo is aimed at the worker, not the floor.
   const [manualSelected, setManualSelected] = useState<{ employee: GalleryEmployee; punchType: "in" | "out" } | null>(null);
-  const [manualCapture, setManualCapture] = useState<{ photo: string } | null>(null);
+  const [manualCapture, setManualCapture] = useState<{ photo: string; embedding: number[] | null } | null>(null);
   const [capturing, setCapturing] = useState(false);
   const threshold = DEFAULT_MATCH_THRESHOLD;
 
+  /**
+   * The roster, accumulated rather than re-downloaded.
+   *
+   * Each worker now carries several descriptors, so a full roster is several
+   * megabytes and it was being re-fetched every five minutes for the sake of
+   * the handful of rows that had actually changed. The server answers from a
+   * cursor: send what changed since, and name whoever has gone. A reload
+   * starts from zero again, which is the one time a full copy is wanted.
+   */
+  const roster = useRef({ cursor: 0, byId: new Map<string, GalleryEmployee>() });
   const { data: gallery = [], isLoading: galleryLoading } = useQuery({
     queryKey: ["payroll", "gallery"],
-    queryFn: () => api<GalleryEmployee[]>("/api/payroll/employees/gallery"),
+    queryFn: async () => {
+      const r = roster.current;
+      const page = await api<{ cursor: number; people: GalleryEmployee[]; deleted: string[] }>(
+        `/api/payroll/employees/gallery?since=${r.cursor}`,
+      );
+      for (const id of page.deleted) r.byId.delete(id);
+      for (const p of page.people) r.byId.set(p.id, p);
+      r.cursor = page.cursor;
+      return [...r.byId.values()];
+    },
     staleTime: 5 * 60_000,
   });
   const today = istToday();
@@ -119,7 +143,7 @@ export function PayrollGatePage() {
   });
   const punches = punchData?.rows ?? [];
 
-  const enrolled = useMemo(() => gallery.filter((e) => Array.isArray(e.faceDescriptor) && e.faceDescriptor.length > 0), [gallery]);
+  const enrolled = useMemo(() => gallery.filter((e) => e.descriptors?.length > 0), [gallery]);
   const empById = useMemo(() => new Map(gallery.map((e) => [e.id, e])), [gallery]);
 
   useEffect(() => {
@@ -218,7 +242,7 @@ export function PayrollGatePage() {
       }
       const match = findBestMatch(
         face.embedding,
-        enrolled.map((e) => ({ id: e.id, descriptors: [e.faceDescriptor!] })),
+        enrolled.map((e) => ({ id: e.id, descriptors: e.descriptors })),
       );
       const employee = match.id ? empById.get(match.id) ?? null : null;
       // Auto-accept needs BOTH the absolute score over the threshold AND a
@@ -226,7 +250,7 @@ export function PayrollGatePage() {
       const decisiveMargin = match.score - match.secondScore >= MIN_MATCH_MARGIN;
       if (employee && match.score >= threshold && decisiveMargin) {
         if (navigator.vibrate) navigator.vibrate(50);
-        setStage({ kind: "confirm", employee, score: match.score, photo });
+        setStage({ kind: "confirm", employee, score: match.score, photo, embedding: face.embedding });
       } else {
         setStage({ kind: "nomatch", score: match.score, closest: employee, photo });
       }
@@ -236,7 +260,22 @@ export function PayrollGatePage() {
     }
   }
 
-  async function submitPunch(employee: GalleryEmployee, punchType: "in" | "out", method: "face" | "manual", score: number | null, photo: string | null) {
+  /**
+   * `embedding` is the vector of the face actually scanned, and it is what
+   * teaches this worker's gallery. A hand-picked name teaches too — the
+   * workers who need teaching are exactly the ones who never auto-match, so
+   * auto-only teaching never reaches them — but only when a face was really
+   * captured. Picking a name off the list with the camera off teaches nothing,
+   * because there is nothing to teach from.
+   */
+  async function submitPunch(
+    employee: GalleryEmployee,
+    punchType: "in" | "out",
+    method: "face" | "manual",
+    score: number | null,
+    photo: string | null,
+    embedding: number[] | null,
+  ) {
     setStage({ kind: "posting" });
     try {
       const pos = position ?? (await getPosition());
@@ -252,6 +291,7 @@ export function PayrollGatePage() {
           longitude: pos?.longitude ?? null,
           accuracyM: pos?.accuracy ?? null,
           photoUrl: photo,
+          faceEmbedding: embedding,
         },
       });
       qc.invalidateQueries({ queryKey: ["payroll", "punches-today"] });
@@ -282,7 +322,7 @@ export function PayrollGatePage() {
       const face = await getFaceEmbedding(video);
       if (!face.ok) { setManualCapture(null); setErr("No face detected — face the camera in good light and capture again."); return; }
       if (looksSpoofed(face)) { setManualCapture(null); setErr("That looks like a photo or a screen, not a live face."); return; }
-      setManualCapture({ photo });
+      setManualCapture({ photo, embedding: face.embedding ?? null });
       setErr(null);
       if (navigator.vibrate) navigator.vibrate(50);
     } catch (e) {
@@ -358,7 +398,7 @@ export function PayrollGatePage() {
                 {/* One action only — the next logical punch */}
                 <button
                   className={`inline-flex items-center gap-2 rounded-lg px-10 py-3 text-[15px] font-semibold text-white ${next === "in" ? "bg-emerald-600" : "bg-brand-600"}`}
-                  onClick={() => void submitPunch(stage.employee, next, "face", stage.score, stage.photo)}
+                  onClick={() => void submitPunch(stage.employee, next, "face", stage.score, stage.photo, stage.embedding)}
                 >
                   {next === "in" ? <><LogIn size={18} /> Punch IN</> : <><LogOut size={18} /> Punch OUT</>}
                 </button>
@@ -533,7 +573,7 @@ export function PayrollGatePage() {
                   const cap = manualCapture;
                   setManualOpen(false);
                   setManualSelected(null);
-                  void submitPunch(employee, punchType, "manual", null, cap?.photo ?? null);
+                  void submitPunch(employee, punchType, "manual", null, cap?.photo ?? null, cap?.embedding ?? null);
                 }}
               >
                 Confirm {manualSelected.punchType === "in" ? "In" : "Out"}

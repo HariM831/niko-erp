@@ -35,6 +35,7 @@ import { bankingRouter } from "./routes/banking";
 import { reportsRouter } from "./routes/reports";
 import { ownerBillingRouter } from "./routes/owner-billing";
 import { startIotPolling } from "./services/iot/scheduler";
+import { startFacePrune } from "./services/face-prune";
 import { iotRouter } from "./routes/iot";
 import { farmStoreRouter } from "./routes/farm-store";
 import { drEggsyRouter } from "./routes/dr-eggsy";
@@ -213,4 +214,6 @@ app.listen(port, () => {
   console.log(`niko server listening on :${port}`);
   // The sheds' instruments — reads every five minutes while the server is up.
   startIotPolling();
+  // The gate's taught faces — clears the vectors the roster has stopped serving.
+  startFacePrune();
 });

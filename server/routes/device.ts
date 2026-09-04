@@ -55,6 +55,7 @@ import { requirePermission } from "../lib/rbac";
 import { looseNumber, validateBody } from "../lib/validate";
 import { respondToPgError } from "../lib/pg-errors";
 import { photoThumbnail } from "../services/photo";
+import { isUsableEmbedding, roundEmbedding, taughtCapturesByEmployee } from "../services/face-gallery";
 import { checkAttendancePresent } from "./canteen";
 
 type Conn = Db | Tx;
@@ -134,11 +135,6 @@ export function generatePairingCode(): string {
 
 export function normalizePairingCode(raw: unknown): string {
   return typeof raw === "string" ? raw.replace(/[^A-Za-z0-9]/g, "").toUpperCase() : "";
-}
-
-/** Embeddings to 4 dp — a quarter of the bytes, no measurable match loss. */
-function roundEmbedding(e: number[]): number[] {
-  return e.map((n) => Math.round(n * 10_000) / 10_000);
 }
 
 /**
@@ -307,6 +303,12 @@ export async function pullPeople(conn: Conn, since: unknown, rawLimit: unknown) 
   let lastId: string | null = null;
   const people: unknown[] = [];
   const deleted: string[] = [];
+  // The taught half of each gallery, for this page only — these are the
+  // heaviest values in the payload and a page is at most PEOPLE_MAX_LIMIT.
+  const taught = await taughtCapturesByEmployee(
+    conn,
+    page.filter((r) => r.isActive).map((r) => r.id),
+  );
   for (const row of page) {
     newestMs = row.updatedAt.getTime();
     lastId = row.id;
@@ -320,7 +322,8 @@ export async function pullPeople(conn: Conn, since: unknown, rawLimit: unknown) 
       name: row.name,
       empCode: row.empCode,
       descriptor: Array.isArray(row.faceDescriptor) ? roundEmbedding(row.faceDescriptor) : null,
-      recentEmbeddings: [] as number[][],
+      // What the gate has taught itself about this face since enrolment.
+      recentEmbeddings: taught.get(row.id) ?? [],
       photoHash: row.photoHash,
       eligibility: { breakfast: row.breakfast ?? false, lunch: true, dinner: row.dinner ?? false },
       isActive: true,
@@ -506,6 +509,11 @@ export async function applyEvents(conn: Conn, device: DeviceWithSite, rawEvents:
             accuracyM: acc,
             locationId: device.locationId,
             photoUrl: keepPhoto ? photo : null,
+            // Sent by devices that compute a vector on the phone; older app
+            // builds simply do not, and teach nothing.
+            faceEmbedding: isUsableEmbedding(evt.embedding ?? evt.faceEmbedding)
+              ? roundEmbedding(evt.embedding ?? evt.faceEmbedding)
+              : null,
             deviceId: device.id,
             clientId: id,
           })

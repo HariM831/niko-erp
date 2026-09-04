@@ -610,6 +610,13 @@
       "when": 1788241874029,
       "tag": "0086_jumbo_box_size",
       "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1788241874030,
+      "tag": "0087_taught_faces",
+      "breakpoints": true
     }
   ]
 }

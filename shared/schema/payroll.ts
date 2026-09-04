@@ -241,6 +241,13 @@ export const punches = pgTable(
     accuracyM: real("accuracy_m"),
     locationId: uuid("location_id").references(() => locations.id),
     photoUrl: text("photo_url"),
+    /**
+     * The embedding of the face that was scanned, kept so a worker's gallery
+     * grows past the one photo taken at enrolment. Nulled by the nightly
+     * prune once it falls outside what the roster serves; the punch itself is
+     * the attendance record and outlives its vector by years.
+     */
+    faceEmbedding: jsonb("face_embedding").$type<number[]>(),
     /** Set by a paired device; its event id is the idempotency key. */
     deviceId: uuid("device_id"),
     clientId: varchar("client_id", { length: 64 }).unique(),

@@ -31,6 +31,7 @@ import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { REPEAT_PUNCH_WINDOW_MS } from "./device";
 import { photoThumbnail, photoThumbnails } from "../services/photo";
+import { isUsableEmbedding, roundEmbedding, taughtCapturesByEmployee } from "../services/face-gallery";
 import { looseNumber, nonBlank, timeOfDay, validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
 import {
@@ -411,21 +412,63 @@ payrollRouter.get("/employees", view, async (req, res) => {
  * re-reads — the descriptors are the payload that has to be here, and they
  * are large enough on their own.
  */
-payrollRouter.get("/employees/gallery", gatePerm, async (_req, res) => {
+payrollRouter.get("/employees/gallery", gatePerm, async (req, res) => {
+  const since = Number(req.query.since) || 0;
+
+  /*
+   * "Changed" for a roster means either the person changed or their gallery
+   * did, and a new capture does not touch the employee row. Taking the later
+   * of the two keeps a freshly taught face flowing to the kiosk without
+   * writing to `employees` on every punch — which would churn the device
+   * delta for every worker, twice a day, to say nothing had really changed
+   * about them.
+   */
+  const changedAt = sql<Date>`GREATEST(
+    ${employees.updatedAt},
+    COALESCE((SELECT max(p.punched_at) FROM punches p
+               WHERE p.employee_id = ${employees.id} AND p.face_embedding IS NOT NULL), 'epoch'::timestamptz)
+  )`;
+
   const rows = await db
     .select({
       id: employees.id,
       empCode: employees.empCode,
       name: employees.name,
       payType: employees.payType,
+      isActive: employees.isActive,
       faceDescriptor: employees.faceDescriptor,
       photoUrl: employees.photoUrl,
       photoHash: employees.photoHash,
+      changedAt,
     })
     .from(employees)
-    .where(and(eq(employees.isActive, true), sql`${employees.faceDescriptor} IS NOT NULL`));
-  const thumbs = await photoThumbnails(rows);
-  res.json(rows.map(({ photoHash: _h, ...r }, i) => ({ ...r, photoUrl: thumbs[i] })));
+    // `>=`, not `>`: two rows can share a millisecond, and re-sending the
+    // newest one costs a row while missing it costs a face at the gate. The
+    // kiosk merges by id, so a repeat is a no-op.
+    .where(since ? sql`${changedAt} >= ${new Date(since)}` : undefined);
+
+  const live = rows.filter((r) => r.isActive && r.faceDescriptor);
+  const taught = await taughtCapturesByEmployee(db, live.map((r) => r.id));
+  const thumbs = await photoThumbnails(live);
+
+  res.json({
+    // Everything the caller has, so an unchanged fetch does not rewind it.
+    cursor: rows.reduce((max, r) => Math.max(max, r.changedAt.getTime()), since),
+    people: live.map((r, i) => ({
+      id: r.id,
+      empCode: r.empCode,
+      name: r.name,
+      payType: r.payType,
+      photoUrl: thumbs[i],
+      // Enrolment first, then what the gate has taught itself. A face is
+      // scored on its BEST descriptor, so the order is for readers, not
+      // for the matcher.
+      descriptors: [roundEmbedding(r.faceDescriptor!), ...(taught.get(r.id) ?? [])],
+    })),
+    // Left, deactivated, or had their enrolment cleared. Named rather than
+    // simply absent, because the kiosk is holding a copy it has to drop.
+    deleted: rows.filter((r) => !r.isActive || !r.faceDescriptor).map((r) => r.id),
+  });
 });
 
 const employeeFields = z.object({
@@ -684,6 +727,13 @@ const punchBody = z.object({
   longitude: z.number().nullish(),
   accuracyM: z.number().nullish(),
   photoUrl: z.string().nullish(),
+  /**
+   * The embedding of the face just scanned. Kept so this worker's gallery
+   * grows; see server/services/face-gallery.ts. Absent when the guard picked
+   * a name without scanning at all, which teaches nothing because there is
+   * nothing to teach from.
+   */
+  faceEmbedding: z.array(z.number()).nullish(),
 });
 
 payrollRouter.post("/punches", gatePerm, validateBody(punchBody), async (req, res) => {
@@ -728,6 +778,7 @@ payrollRouter.post("/punches", gatePerm, validateBody(punchBody), async (req, re
           longitude: b.longitude ?? null,
           accuracyM: b.accuracyM ?? null,
           photoUrl: keepPhoto ? (b.photoUrl ?? null) : null,
+          faceEmbedding: isUsableEmbedding(b.faceEmbedding) ? roundEmbedding(b.faceEmbedding) : null,
           markedBy: req.session.user!.id,
         })
         .returning();
