@@ -12,8 +12,7 @@ import { houses, iotHouseDay, iotReadings } from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { SINGLE_TAGS, METRIC_TAGS, nameOf, tokenExpiry } from "../services/iot/bhfarm";
-import { houseSamples, pollOnce, recentPolls } from "../services/iot/store";
-import { climbSince, type CounterSample } from "../services/iot/counters";
+import { houseSamples, pollOnce, recentPolls, todayCounters } from "../services/iot/store";
 
 export const iotRouter = Router();
 
@@ -180,36 +179,13 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
    * after its reset, a shed showed the new day's near-zero as if it were the
    * whole day — on 2026-09-04 L5 stood at -2 kg and 2 g a bird at 22:33, half
    * an hour after closing the day on 7,650 kg. Read before it, L3 showed
-   * yesterday's total all morning. `climbSince` adds up the climb across the
-   * reset, and skips the single-sample dropouts the controllers throw.
-   *
-   * Thirty hours of samples: the day so far, plus the value each counter held
-   * at midnight and the reset that may have come after it.
+   * yesterday's total all morning. The store works the climb out from the
+   * day's samples; the same figure is what it writes into the day summary,
+   * so the board and the history agree.
    */
-  const series = await db.execute(sql`
-    SELECT house_id AS "houseId", at, feed_kg AS "feedKg", water_l AS "waterL",
-           feed_per_bird_g AS "feedPerBirdG", water_per_bird_ml AS "waterPerBirdMl"
-      FROM iot_house_sample
-     WHERE at >= now() - interval '30 hours'
-     ORDER BY house_id, at`);
-  const seriesOf = new Map<string, Array<Record<string, unknown>>>();
-  for (const row of series.rows as Array<Record<string, unknown>>) {
-    const id = String(row.houseId);
-    (seriesOf.get(id) ?? seriesOf.set(id, []).get(id)!).push(row);
-  }
-
   for (const [houseId, b] of byHouse) {
     const m = new Map([...named.get(houseId)!].map(([k, x]) => [k, x.v]));
-    const rows = seriesOf.get(houseId) ?? [];
-    /** The counter's climb since IST midnight; the live reading only when nothing was sampled today. */
-    const peak = (col: string, live: number | null) => {
-      const samples: CounterSample[] = [];
-      for (const r of rows) {
-        const n = r[col] == null ? null : Number(r[col]);
-        if (n != null && Number.isFinite(n)) samples.push({ at: new Date(String(r.at)), v: n });
-      }
-      return climbSince(samples, istMidnight) ?? live;
-    };
+    const today = await todayCounters(houseId);
     b.tempC = m.get(SINGLE_TAGS.tempC) ?? null;
     b.targetTempC = m.get(SINGLE_TAGS.targetTempC) ?? null;
     b.humidityPct = m.get(SINGLE_TAGS.humidityPct) ?? null;
@@ -221,10 +197,11 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
     // house's scale drifts a few kilos under its tare. Same rule as `writeDay`.
     const silo = metric(m, METRIC_TAGS.siloKg);
     b.siloKg = silo != null && silo < 0 ? null : silo;
-    b.waterL = peak("waterL", metric(m, METRIC_TAGS.waterL));
-    b.feedKg = peak("feedKg", metric(m, METRIC_TAGS.feedKg));
-    b.waterPerBirdMl = peak("waterPerBirdMl", m.get(SINGLE_TAGS.waterPerBirdMl) ?? null);
-    b.feedPerBirdG = peak("feedPerBirdG", m.get(SINGLE_TAGS.feedPerBirdG) ?? null);
+    // The live reading only when nothing has been sampled today.
+    b.waterL = today.waterL ?? metric(m, METRIC_TAGS.waterL);
+    b.feedKg = today.feedKg ?? metric(m, METRIC_TAGS.feedKg);
+    b.waterPerBirdMl = today.waterPerBird ?? m.get(SINGLE_TAGS.waterPerBirdMl) ?? null;
+    b.feedPerBirdG = today.feedPerBird ?? m.get(SINGLE_TAGS.feedPerBirdG) ?? null;
   }
 
   /**
@@ -356,6 +333,7 @@ iotRouter.get("/house/:id/live", requirePermission("farms", "view"), async (req,
   for (const { at } of newest.values()) {
     if (!fetchedAt || at > fetchedAt) fetchedAt = at;
   }
+  const today = await todayCounters(req.params.id!);
 
   res.json({
     temps,
@@ -367,8 +345,10 @@ iotRouter.get("/house/:id/live", requirePermission("farms", "view"), async (req,
     pressurePa: num(SINGLE_TAGS.pressurePa),
     birdCount: num(SINGLE_TAGS.birdCount),
     birdAgeDays: num(SINGLE_TAGS.birdAgeDays),
-    waterPerBirdMl: num(SINGLE_TAGS.waterPerBirdMl),
-    feedPerBirdG: num(SINGLE_TAGS.feedPerBirdG),
+    // Today's climb, as on the board — the controller's own counter reads
+    // near zero from its reset until midnight.
+    waterPerBirdMl: today.waterPerBird ?? num(SINGLE_TAGS.waterPerBirdMl),
+    feedPerBirdG: today.feedPerBird ?? num(SINGLE_TAGS.feedPerBirdG),
     siloKg: metric(METRIC_TAGS.siloKg),
     ventLevel: num("通风级别"),
     ventMin: num("当前最小通风级别"),

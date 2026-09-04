@@ -347,6 +347,11 @@ export async function countersOf(houseId: string, day: string): Promise<DayCount
   return dayCounters(houseId, day);
 }
 
+/** Today's climb so far, for the board and the shed screen. */
+export async function todayCounters(houseId: string): Promise<DayCounters> {
+  return dayCounters(houseId, dayOf(new Date()));
+}
+
 /**
  * Re-derive one day's counters from its samples and write them over the
  * summary. Only the four counter columns move; the averages and extremes were

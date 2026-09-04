@@ -283,6 +283,18 @@ export function HouseDetailPage() {
   useEffect(() => {
     if (!showRecordDialog || !shedId || !recordForm.date) return;
     let dropped = false;
+    /*
+     * A box the shed filled for one day is emptied before another day is
+     * asked for, or the first day's suggestion would sit there for every date
+     * chosen after it. Boxes a person typed in are not marked and stay.
+     */
+    if (fromSensor.size) {
+      setRecordForm((prev) => {
+        const next = { ...prev };
+        for (const field of fromSensor) next[field as keyof typeof next] = '';
+        return next;
+      });
+    }
     (async () => {
       try {
         const r = await fetch(
@@ -746,6 +758,8 @@ export function HouseDetailPage() {
       feedStockKg: record.feedStockKg?.toString() || '',
       eggsProduced: record.eggsProduced?.toString() || ''
     });
+    // What the person saved is theirs; no box here belongs to the shed.
+    setFromSensor(new Set());
     setEditingRecordId(record.id);
     setShowRecordDialog(true);
   };
@@ -1452,7 +1466,7 @@ export function HouseDetailPage() {
                           </DialogContent>
                         </Dialog>
                       )}
-                    <Dialog open={showRecordDialog} onOpenChange={(open) => { setShowRecordDialog(open); if (!open) setEditingRecordId(null); }}>
+                    <Dialog open={showRecordDialog} onOpenChange={(open) => { setShowRecordDialog(open); if (!open) { setEditingRecordId(null); setFromSensor(new Set()); } }}>
                       <DialogTrigger asChild>
                         <Button size="sm" className="min-h-[44px] bg-yolk-500 hover:bg-yolk-600" data-testid="button-add-record">
                           <Plus className="w-4 h-4 mr-2" />
