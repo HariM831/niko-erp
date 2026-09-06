@@ -55,16 +55,28 @@ for (const f of files) {
   if (j.valuesByWeek) values = j;
   else if (j.breed && j.points) breedFiles.push(j);
 }
-console.log(`\n  ${breedFiles.length} breed file(s), ${values ? "one" : "no"} bird value schedule\n`);
+console.log(`\n  ${breedFiles.length} breed file(s), ${values ? "one" : "no"} bird value schedule`);
+const existing = await db.select().from(breeds);
+console.log(`  breeds on file: ${existing.map((r) => `${r.name} (${r.code})`).join(", ") || "none"}\n`);
 
 const d = (v: number | null | undefined) => (v == null ? null : String(v));
 
+/**
+ * Code first, then the exact name, then an alias the farm's name CONTAINS.
+ *
+ * Never the other way round: a farm name contained in an alias would let
+ * "Hyline Brown" claim the W-80 file on the word Hyline. A brown layer is a
+ * different bird, and the aliases are kept specific for the same reason.
+ */
 async function findBreed(b: BreedFile["breed"]) {
   const [byCode] = await db.select().from(breeds).where(eq(breeds.code, b.code));
   if (byCode) return byCode;
-  const needles = [b.name, ...(b.aliases ?? [])].map((s) => s.toLowerCase());
   const all = await db.select().from(breeds);
-  return all.find((r) => needles.some((n) => r.name.toLowerCase().includes(n) || n.includes(r.name.toLowerCase()))) ?? null;
+  const norm = (s: string) => s.toLowerCase().replace(/[\s_-]+/g, " ").trim();
+  const exact = all.find((r) => norm(r.name) === norm(b.name));
+  if (exact) return exact;
+  const aliases = (b.aliases ?? []).map(norm);
+  return all.find((r) => aliases.some((a) => norm(r.name).includes(a))) ?? null;
 }
 
 const touched: Array<{ id: string; name: string }> = [];
