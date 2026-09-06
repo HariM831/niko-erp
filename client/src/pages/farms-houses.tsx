@@ -554,6 +554,8 @@ export function FarmsHousesPage() {
       ),
     [sheds, stocks, records, breedStandards, formulaTransfers, displayDate],
   );
+  /** Birds in each house by code, so an empty house gets no comfort band. */
+  const stockByCode = useMemo(() => new Map(shedMetrics.map((m) => [m.shed.name, m.closingStock])), [shedMetrics]);
 
   const summaryData = useMemo(() => {
     let totalEggs = 0;
@@ -1140,7 +1142,9 @@ export function FarmsHousesPage() {
                             for the air the fans move over the cages. Under 29 ok, 29 watch, 31 severe, 32.5 critical. */}
                         <td
                           className={`px-3 py-2 text-right tabular-nums ${
-                            r.feelsLike?.band === "critical"
+                            !((stockByCode.get(r.code) ?? 0) > 0)
+                              ? ""
+                              : r.feelsLike?.band === "critical"
                               ? "font-semibold text-destructive"
                               : r.feelsLike?.band === "severe"
                                 ? "font-semibold text-warning"
@@ -1149,13 +1153,15 @@ export function FarmsHousesPage() {
                                   : ""
                           }`}
                           title={
-                            r.feelsLike
+                            !((stockByCode.get(r.code) ?? 0) > 0)
+                              ? "no birds in this house"
+                              : r.feelsLike
                               ? `${r.feelsLike.band} · wet-bulb ${r.feelsLike.wetBulbC}° · ${r.feelsLike.velocity ?? "?"} m/s over the birds from ${r.feelsLike.fans} fans` +
                                 (r.feelsLike.exhaust != null ? ` · exhaust end ${r.feelsLike.exhaust}°` : "")
                               : undefined
                           }
                         >
-                          {r.feelsLike ? `${r.feelsLike.bft.toFixed(1)}°` : "—"}
+                          {r.feelsLike && (stockByCode.get(r.code) ?? 0) > 0 ? `${r.feelsLike.bft.toFixed(1)}°` : "—"}
                         </td>
                         <td
                           className={`col-portrait-hide px-3 py-2 text-right tabular-nums ${

@@ -42,6 +42,19 @@ iotRouter.post("/fetch-now", requirePermission("farms", "manage"), async (_req, 
   }
 });
 
+/** Yesterday's water-to-feed ratio from the day summary, or null when either side is missing. */
+async function lastDayWaterToFeed(houseId: string): Promise<number | null> {
+  const [row] = await db
+    .select({ water: iotHouseDay.waterPerBirdMl, feed: iotHouseDay.feedPerBirdG })
+    .from(iotHouseDay)
+    .where(and(eq(iotHouseDay.houseId, houseId), sql`${iotHouseDay.day} < (now() AT TIME ZONE 'Asia/Kolkata')::date`))
+    .orderBy(desc(iotHouseDay.day))
+    .limit(1);
+  const water = row?.water == null ? null : Number(row.water);
+  const feed = row?.feed == null ? null : Number(row.feed);
+  return water != null && feed != null && feed > 0 ? water / feed : null;
+}
+
 /**
  * The live board: one row per house, latest reading of the tags worth naming.
  *
@@ -219,7 +232,13 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
         const v = m.get(`风机组${String(g).padStart(2, "0")}`);
         if (v === 1) fans += fansInGroup(g);
       }
-      const wf = b.waterPerBirdMl != null && b.feedPerBirdG ? b.waterPerBirdMl / b.feedPerBirdG : null;
+      /*
+       * The birds' own confirmation is their water-to-feed ratio, but today's
+       * counters mislead until evening: feed arrives in runs while water climbs
+       * all day, so at four in the afternoon a shed that will finish at 2.4
+       * reads 6. The last complete day is the honest figure.
+       */
+      const wf = await lastDayWaterToFeed(houseId);
       const fl = houseFeelsLike(b.tempC, b.humidityPct, b.pressurePa, fans, wf);
       if (fl) {
         const v = velocity(fans, b.pressurePa);
