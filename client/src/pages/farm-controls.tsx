@@ -517,6 +517,7 @@ function FormPage({ page }: { page: PageLive }) {
             <th className="px-4 py-2 text-left font-semibold">Setting</th>
             <th className="px-4 py-2 text-right font-semibold">Now</th>
             <th className="px-4 py-2 text-left font-semibold">Range</th>
+            <th className="px-4 py-2 text-left font-semibold">What it does</th>
           </tr>
         </thead>
         <tbody>
@@ -527,15 +528,15 @@ function FormPage({ page }: { page: PageLive }) {
                 {f.readOnly && (
                   <span className="ml-2 rounded border border-soil-200 px-1.5 text-[10px] text-muted-foreground">status</span>
                 )}
-                {f.explain && <div className="mt-0.5 max-w-[52ch] text-[11.5px] leading-snug text-muted-foreground">{f.explain}</div>}
+
               </td>
-              <td className="px-4 py-2 text-right tabular-nums">
+              <td className="whitespace-nowrap px-4 py-2 text-right tabular-nums">
                 <span className={f.readOnly ? "text-muted-foreground" : "font-semibold text-soil-900"}>
                   {show(page.values[f.register], f.options, f.kind)}
                 </span>
                 {f.unit && !wordy(f.kind) && <span className="ml-1 text-[11px] text-muted-foreground">{f.unit}</span>}
               </td>
-              <td className="px-4 py-2 text-[11px] text-muted-foreground">
+              <td className="whitespace-nowrap px-4 py-2 text-[11px] text-muted-foreground">
                 {range(f.range)}
                 {f.options.length > 0 && !f.readOnly && (
                   <span title={f.options.map((o) => `${o.value} = ${o.labelEn}`).join(", ")}>
@@ -544,6 +545,7 @@ function FormPage({ page }: { page: PageLive }) {
                   </span>
                 )}
               </td>
+              <td className="max-w-[60ch] px-4 py-2 text-[12px] leading-snug text-muted-foreground">{f.explain ?? ""}</td>
             </tr>
           ))}
         </tbody>
