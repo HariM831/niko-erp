@@ -10,6 +10,7 @@
  * the controller reports it; see the migration for why.
  */
 import {
+  bigint,
   bigserial,
   boolean,
   date,
@@ -226,4 +227,53 @@ export const controllerChanges = pgTable(
     acknowledgedBy: uuid("acknowledged_by").references(() => users.id),
   },
   (t) => [index("ix_controller_changes_house_time").on(t.houseId, t.seenAt)],
+);
+
+/**
+ * A farm policy with parameters, held once at farm level (house_id null) and
+ * overridable per house: "pads start at 31.5 when the week's humidity is over
+ * 80%". See services/iot/rules.ts for the keys and their parameters.
+ */
+export const controllerRules = pgTable(
+  "controller_rules",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    houseId: uuid("house_id").references(() => houses.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    params: jsonb("params").notNull().default({}),
+    enabled: boolean("enabled").notNull().default(true),
+    updatedBy: uuid("updated_by").references(() => users.id),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("ix_controller_rules_key").on(t.key, t.houseId)],
+);
+
+/**
+ * What a rule wants changed on one house right now: the registers, was and
+ * will be, the evidence, and what happened when a person approved it. The
+ * only path a write to a controller may take.
+ */
+export const controllerProposals = pgTable(
+  "controller_proposals",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    houseId: uuid("house_id")
+      .notNull()
+      .references(() => houses.id, { onDelete: "cascade" }),
+    rule: text("rule").notNull(),
+    title: text("title").notNull(),
+    reason: text("reason").notNull(),
+    evidence: jsonb("evidence").notNull().default({}),
+    /** [{register, label, unit, before, after, critical}] */
+    changes: jsonb("changes").notNull().default([]),
+    /** open · approved · written · failed · dismissed · superseded */
+    status: text("status").notNull().default("open"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    decidedBy: uuid("decided_by").references(() => users.id),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    writtenAt: timestamp("written_at", { withTimezone: true }),
+    writeRecord: jsonb("write_record"),
+    snapshotBefore: bigint("snapshot_before", { mode: "number" }).references(() => controllerSnapshots.id),
+  },
+  (t) => [index("ix_controller_proposals_house").on(t.houseId, t.status, t.createdAt)],
 );

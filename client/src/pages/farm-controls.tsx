@@ -13,7 +13,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useRoute } from "wouter";
-import { ArrowLeft, Camera, RefreshCw, Wifi, WifiOff } from "lucide-react";
+import { ArrowLeft, Camera, Check, ClipboardList, RefreshCw, Settings2, Wifi, WifiOff, X } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 
@@ -93,6 +93,40 @@ interface Status {
   controller: boolean;
   live: boolean;
   snapshot: { takenAt: string; registers: number } | null;
+}
+interface ProposedChange {
+  register: string;
+  label: string;
+  unit: string;
+  before: string | null;
+  after: string;
+  critical: boolean;
+}
+interface Proposal {
+  id: number;
+  rule: string;
+  title: string;
+  reason: string;
+  evidence: Record<string, unknown>;
+  changes: ProposedChange[];
+  status: string;
+  createdAt: string;
+  decidedAt: string | null;
+  writtenAt: string | null;
+  writeRecord: { confirmed?: boolean; refused?: boolean; registers?: Array<{ fullName: string; before: string | null; sent: string; after: string | null; took: boolean }>; error?: string } | null;
+}
+interface RuleInfo {
+  key: string;
+  title: string;
+  description: string;
+  defaults: Record<string, number>;
+  params: Record<string, number>;
+  enabled: boolean;
+  houseOverride: boolean;
+}
+interface RulesDoc {
+  farm: { writesEnabled: boolean };
+  rules: RuleInfo[];
 }
 interface Change {
   id: number;
@@ -224,6 +258,13 @@ export function FarmControlsPage() {
   const [loadingPage, setLoadingPage] = useState(false);
   const [changes, setChanges] = useState<Change[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [decided, setDecided] = useState<Proposal[]>([]);
+  const [rules, setRules] = useState<RulesDoc | null>(null);
+  const [showRules, setShowRules] = useState(false);
+  const [showDecided, setShowDecided] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const controlPerm = can("farms", "control");
 
   const houseId = params?.id ?? houses[0]?.houseId ?? "";
   const house = houses.find((h) => h.houseId === houseId);
@@ -248,10 +289,89 @@ export function FarmControlsPage() {
       .then((d) => setChanges(d.changes))
       .catch(() => setChanges([]));
   };
+  const loadProposals = () => {
+    if (!houseId) return;
+    api<{ proposals: Proposal[] }>(`/api/farms/controls/${houseId}/proposals`)
+      .then((d) => setProposals(d.proposals))
+      .catch(() => setProposals([]));
+    api<{ proposals: Proposal[] }>(`/api/farms/controls/${houseId}/proposals?status=written,failed,dismissed,superseded`)
+      .then((d) => setDecided(d.proposals))
+      .catch(() => setDecided([]));
+  };
+  const loadRules = () => {
+    api<RulesDoc>(`/api/farms/controls/rules${houseId ? `?houseId=${houseId}` : ""}`)
+      .then(setRules)
+      .catch(() => setRules(null));
+  };
   useEffect(() => {
     loadStatus();
     loadChanges();
+    loadProposals();
+    loadRules();
   }, [houseId]);
+
+  const evaluateNow = async () => {
+    setBusy("evaluate");
+    setNotice(null);
+    try {
+      const r = await api<{ results: Array<{ code: string; drafts: number; created: number; superseded: number; skipped?: string }> }>(
+        "/api/farms/controls/proposals/evaluate",
+        { method: "POST", body: { houseId } },
+      );
+      const x = r.results[0];
+      setNotice(x?.skipped ? `Could not evaluate: ${x.skipped}` : `${x?.drafts ?? 0} rule(s) had something to say · ${x?.created ?? 0} new · ${x?.superseded ?? 0} withdrawn`);
+      loadProposals();
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : "Evaluation failed");
+    } finally {
+      setBusy(null);
+    }
+  };
+  const decide = async (p: Proposal, action: "approve" | "dismiss") => {
+    if (action === "approve") {
+      const lines = p.changes.map((c) => `${c.label}: ${show(c.before ?? undefined)} → ${c.after} ${c.unit}`).join("\n");
+      const ok = window.confirm(
+        `${p.changes.some((c) => c.critical) ? "This changes a master register on a live shed.\n\n" : ""}Send to ${house?.code ?? "the controller"}?\n\n${lines}`,
+      );
+      if (!ok) return;
+    }
+    setBusy(`p${p.id}`);
+    setNotice(null);
+    try {
+      const r = await api<{ record?: { confirmed: boolean; refused: boolean; registers: Array<{ took: boolean }> } }>(`/api/farms/controls/proposals/${p.id}/${action}`, { method: "POST" });
+      if (action === "approve") {
+        const took = r.record?.registers.filter((x) => x.took).length ?? 0;
+        setNotice(r.record?.confirmed ? `Written and read back: ${took} of ${p.changes.length} register(s) took.` : `The controller did not take every value: ${took} of ${p.changes.length}. See the decided list.`);
+        loadStatus();
+        loadChanges();
+        setCode((c) => c); // the open page re-reads on the next refresh
+      }
+      loadProposals();
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : "That did not go through");
+    } finally {
+      setBusy(null);
+    }
+  };
+  const saveRule = async (key: string, params: Record<string, number>, enabled: boolean) => {
+    setBusy(`r${key}`);
+    try {
+      await api(`/api/farms/controls/rules/${key}`, { method: "PUT", body: { houseId: null, params, enabled } });
+      loadRules();
+    } finally {
+      setBusy(null);
+    }
+  };
+  const setWrites = async (on: boolean) => {
+    if (on && !window.confirm("Turn on writing to the sheds' controllers for the whole farm? Approved proposals will then be sent to the controllers.")) return;
+    setBusy("farm");
+    try {
+      await api("/api/farms/controls/rules/farm", { method: "PUT", body: { houseId: null, params: { writesEnabled: on }, enabled: true } });
+      loadRules();
+    } finally {
+      setBusy(null);
+    }
+  };
 
   /*
    * Two answers for one page. The kept copy comes first and draws at once —
@@ -379,6 +499,29 @@ export function FarmControlsPage() {
         <div className="ml-auto flex items-center gap-2">
           {manage && houseId && (
             <button
+              onClick={evaluateNow}
+              disabled={busy !== null || !status?.snapshot}
+              title="Ask every rule what this week says about this house"
+              className="flex items-center gap-1.5 rounded-lg border border-soil-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-soil-900 hover:bg-yolk-50 disabled:opacity-50"
+            >
+              <ClipboardList className="h-3.5 w-3.5" /> {busy === "evaluate" ? "Asking…" : "Evaluate now"}
+            </button>
+          )}
+          {manage && (
+            <button
+              onClick={() => setShowRules((v) => !v)}
+              className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-[12px] font-semibold ${showRules ? "border-yolk-300 bg-yolk-100 text-yolk-800" : "border-soil-200 bg-white text-soil-900 hover:bg-yolk-50"}`}
+            >
+              <Settings2 className="h-3.5 w-3.5" /> Rules
+              {rules && (
+                <span className={`ml-1 rounded-full px-1.5 text-[10px] ${rules.farm.writesEnabled ? "bg-green-100 text-green-800" : "bg-soil-100 text-muted-foreground"}`}>
+                  {rules.farm.writesEnabled ? "writing on" : "writing off"}
+                </span>
+              )}
+            </button>
+          )}
+          {manage && houseId && (
+            <button
               onClick={snapshotNow}
               disabled={busy !== null || !catalog?.pages.length}
               className="flex items-center gap-1.5 rounded-lg border border-soil-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-soil-900 hover:bg-yolk-50 disabled:opacity-50"
@@ -428,8 +571,29 @@ export function FarmControlsPage() {
             ))}
           </nav>
 
+          {/* ── Proposals and rules, above the page ────────────────────── */}
+          <div className="min-w-0 space-y-4 lg:col-start-2">
+            {notice && (
+              <div className="rounded-lg border border-yolk-200 bg-yolk-50 px-3 py-2 text-[12px] text-yolk-800">{notice}</div>
+            )}
+            {showRules && rules && (
+              <RulesPanel rules={rules} busy={busy} onSave={saveRule} onWrites={setWrites} manage={manage} />
+            )}
+            <ProposalsPanel
+              proposals={proposals}
+              decided={decided}
+              showDecided={showDecided}
+              onToggleDecided={() => setShowDecided((v) => !v)}
+              canDecide={controlPerm}
+              writesOn={rules?.farm.writesEnabled ?? false}
+              busy={busy}
+              onDecide={decide}
+              houseCode={house?.code ?? ""}
+            />
+          </div>
+
           {/* ── The page ─────────────────────────────────────────────── */}
-          <section className="min-w-0 rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
+          <section className="min-w-0 rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)] lg:col-start-2">
             <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-soil-100/70 px-4 py-3">
               <div>
                 <div className="text-[14px] font-bold text-soil-900">{current?.title ?? code}</div>
@@ -669,5 +833,218 @@ function TablePage({ page }: { page: PageLive }) {
         </div>
       )}
     </div>
+  );
+}
+
+/** What the rules want changed on this house, and what a person did about it. */
+function ProposalsPanel({
+  proposals,
+  decided,
+  showDecided,
+  onToggleDecided,
+  canDecide,
+  writesOn,
+  busy,
+  onDecide,
+  houseCode,
+}: {
+  proposals: Proposal[];
+  decided: Proposal[];
+  showDecided: boolean;
+  onToggleDecided: () => void;
+  canDecide: boolean;
+  writesOn: boolean;
+  busy: string | null;
+  onDecide: (p: Proposal, action: "approve" | "dismiss") => void;
+  houseCode: string;
+}) {
+  return (
+    <section className="rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
+      <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-soil-100/70 px-4 py-3">
+        <div>
+          <div className="text-[14px] font-bold text-soil-900">
+            Proposals for {houseCode}
+            {proposals.length > 0 && <span className="ml-2 rounded-full bg-yolk-100 px-2 text-[11px] text-yolk-800">{proposals.length} open</span>}
+          </div>
+          <div className="text-[11px] text-muted-foreground">
+            What the farm's climate rules would change on this shed, from the last week's data. Nothing is written until someone approves it.
+          </div>
+        </div>
+        <button onClick={onToggleDecided} className="text-[11px] text-muted-foreground hover:text-soil-900">
+          {showDecided ? "hide decided" : `decided (${decided.length})`}
+        </button>
+      </header>
+      {proposals.length === 0 && (
+        <div className="px-4 py-4 text-[12px] text-muted-foreground">No open proposals. The rules are asked every morning after the settings are kept, and by Evaluate now.</div>
+      )}
+      <ul className="divide-y divide-soil-100/70">
+        {proposals.map((p) => (
+          <li key={p.id} className="px-4 py-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <div className="text-[13px] font-semibold text-soil-900">{p.title}</div>
+              <div className="text-[11px] text-muted-foreground">
+                {p.rule} · {fmtWhen(p.createdAt)}
+              </div>
+            </div>
+            <p className="mt-1 max-w-[80ch] text-[12.5px] leading-snug text-soil-900">{p.reason}</p>
+            {p.changes.length > 0 ? (
+              <table className="mt-2 text-[12.5px]">
+                <thead>
+                  <tr className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    <th className="py-1 pr-6 text-left font-semibold">Setting</th>
+                    <th className="py-1 pr-6 text-right font-semibold">Was</th>
+                    <th className="py-1 pr-6 text-right font-semibold">Will be</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {p.changes.map((c) => (
+                    <tr key={c.register} className="border-t border-soil-100/70">
+                      <td className="py-1 pr-6">
+                        {c.label}
+                        {c.critical && <span className="ml-2 rounded border border-yolk-300 px-1 text-[10px] text-yolk-800">master</span>}
+                      </td>
+                      <td className="py-1 pr-6 text-right tabular-nums text-muted-foreground">{show(c.before ?? undefined)}</td>
+                      <td className="py-1 pr-6 text-right tabular-nums font-semibold text-soil-900">
+                        {c.after} {c.unit}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="mt-2 text-[11.5px] text-muted-foreground">Nothing to write; this one asks for a sitting at the panel.</div>
+            )}
+            {canDecide && (
+              <div className="mt-2 flex items-center gap-2">
+                {p.changes.length > 0 && (
+                  <button
+                    onClick={() => onDecide(p, "approve")}
+                    disabled={busy !== null || !writesOn}
+                    title={writesOn ? "Write these values to the controller and read them back" : "Writing to controllers is off for the farm; a manager turns it on under Rules"}
+                    className="flex items-center gap-1 rounded-lg bg-yolk-500 px-3 py-1 text-[12px] font-semibold text-white hover:bg-yolk-600 disabled:opacity-50"
+                  >
+                    <Check className="h-3.5 w-3.5" /> {busy === `p${p.id}` ? "Sending…" : "Approve and send"}
+                  </button>
+                )}
+                <button
+                  onClick={() => onDecide(p, "dismiss")}
+                  disabled={busy !== null}
+                  className="flex items-center gap-1 rounded-lg border border-soil-200 bg-white px-3 py-1 text-[12px] text-soil-900 hover:bg-soil-50 disabled:opacity-50"
+                >
+                  <X className="h-3.5 w-3.5" /> Dismiss
+                </button>
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+      {showDecided && decided.length > 0 && (
+        <ul className="divide-y divide-soil-100/70 border-t border-soil-100/70 bg-soil-50/40">
+          {decided.map((p) => (
+            <li key={p.id} className="px-4 py-2 text-[12px]">
+              <span
+                className={`mr-2 rounded px-1.5 text-[10px] uppercase tracking-wide ${
+                  p.status === "written" ? "bg-green-100 text-green-800" : p.status === "failed" ? "bg-red-100 text-red-800" : "bg-soil-100 text-muted-foreground"
+                }`}
+              >
+                {p.status}
+              </span>
+              <span className="font-medium text-soil-900">{p.title}</span>
+              <span className="ml-2 text-muted-foreground">{fmtWhen(p.decidedAt ?? p.createdAt)}</span>
+              {p.writeRecord?.registers && (
+                <span className="ml-2 text-muted-foreground">
+                  {p.writeRecord.registers.filter((r) => r.took).length} of {p.writeRecord.registers.length} took
+                </span>
+              )}
+              {p.writeRecord?.error && <span className="ml-2 text-destructive">{p.writeRecord.error}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** The farm's climate rules and their numbers, and the switch that lets approved proposals reach a controller. */
+function RulesPanel({
+  rules,
+  busy,
+  onSave,
+  onWrites,
+  manage,
+}: {
+  rules: RulesDoc;
+  busy: string | null;
+  onSave: (key: string, params: Record<string, number>, enabled: boolean) => void;
+  onWrites: (on: boolean) => void;
+  manage: boolean;
+}) {
+  const [drafts, setDrafts] = useState<Record<string, Record<string, string>>>({});
+  const value = (r: RuleInfo, k: string) => drafts[r.key]?.[k] ?? String(r.params[k] ?? r.defaults[k] ?? "");
+  const edit = (r: RuleInfo, k: string, v: string) => setDrafts((d) => ({ ...d, [r.key]: { ...(d[r.key] ?? {}), [k]: v } }));
+  const commit = (r: RuleInfo, enabled = r.enabled) => {
+    const params: Record<string, number> = {};
+    for (const k of Object.keys(r.defaults)) {
+      const n = Number(value(r, k));
+      if (Number.isFinite(n)) params[k] = n;
+    }
+    onSave(r.key, params, enabled);
+  };
+  return (
+    <section className="rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-soil-100/70 px-4 py-3">
+        <div>
+          <div className="text-[14px] font-bold text-soil-900">Climate rules</div>
+          <div className="text-[11px] text-muted-foreground">Farm-wide numbers the rules read. Today's offsets, made relative, are the starting policy.</div>
+        </div>
+        {manage && (
+          <label className="flex items-center gap-2 text-[12px] font-semibold text-soil-900">
+            <input type="checkbox" checked={rules.farm.writesEnabled} disabled={busy !== null} onChange={(e) => onWrites(e.target.checked)} />
+            Writing to controllers {rules.farm.writesEnabled ? "on" : "off"}
+          </label>
+        )}
+      </header>
+      <ul className="divide-y divide-soil-100/70">
+        {rules.rules.map((r) => (
+          <li key={r.key} className="px-4 py-3">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <div className="text-[13px] font-semibold text-soil-900">{r.title}</div>
+              {manage && (
+                <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <input type="checkbox" checked={r.enabled} disabled={busy !== null} onChange={(e) => commit(r, e.target.checked)} /> enabled
+                </label>
+              )}
+            </div>
+            <p className="mt-0.5 max-w-[80ch] text-[12px] leading-snug text-muted-foreground">{r.description}</p>
+            {Object.keys(r.defaults).length > 0 && (
+              <div className="mt-2 flex flex-wrap items-end gap-3">
+                {Object.keys(r.defaults).map((k) => (
+                  <label key={k} className="text-[11px] text-muted-foreground">
+                    <div>{k}</div>
+                    <input
+                      type="number"
+                      step="any"
+                      value={value(r, k)}
+                      disabled={!manage || busy !== null}
+                      onChange={(e) => edit(r, k, e.target.value)}
+                      className="mt-0.5 w-24 rounded border border-soil-200 px-2 py-1 text-[12px] tabular-nums text-soil-900"
+                    />
+                  </label>
+                ))}
+                {manage && (
+                  <button
+                    onClick={() => commit(r)}
+                    disabled={busy !== null || !drafts[r.key]}
+                    className="rounded-lg border border-soil-200 bg-white px-3 py-1 text-[12px] font-semibold text-soil-900 hover:bg-yolk-50 disabled:opacity-50"
+                  >
+                    {busy === `r${r.key}` ? "Saving…" : "Save"}
+                  </button>
+                )}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

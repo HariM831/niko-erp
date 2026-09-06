@@ -12,6 +12,7 @@
 import { tokenExpiry } from "./bhfarm";
 import { fillGaps, pollOnce } from "./store";
 import { getCatalog, snapshotAll } from "./controls";
+import { evaluateAll } from "./proposals";
 import { db } from "../../db";
 import { controllerSnapshots } from "@shared/schema";
 import { desc } from "drizzle-orm";
@@ -73,6 +74,11 @@ async function snapshotTick(): Promise<void> {
     for (const r of results) {
       if (r.skipped) console.warn(`[controls] ${r.code}: snapshot skipped — ${r.skipped}`);
       else console.log(`[controls] ${r.code}: ${r.registers} register(s) kept, ${r.changes} changed since last`);
+    }
+    // With the settings freshly kept, ask the rules what the week says.
+    for (const r of await evaluateAll()) {
+      if (r.skipped) console.warn(`[rules] ${r.code}: ${r.skipped}`);
+      else if (r.created || r.superseded) console.log(`[rules] ${r.code}: ${r.created} proposal(s) raised, ${r.superseded} withdrawn`);
     }
   } catch (e) {
     console.error(`[controls] snapshot crashed: ${e instanceof Error ? e.message : e}`);

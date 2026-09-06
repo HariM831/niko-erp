@@ -624,6 +624,13 @@
       "when": 1788241874031,
       "tag": "0088_shed_controls",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1788241874032,
+      "tag": "0089_climate_rules",
+      "breakpoints": true
     }
   ]
 }

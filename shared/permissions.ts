@@ -71,6 +71,7 @@ export const PERMISSION_MODULES: PermissionModule[] = [
       { key: "flocks", label: "Place, transfer and deplete flocks" },
       { key: "health", label: "Vaccinations and medication" },
       { key: "manage", label: "Houses, breeds and standards" },
+      { key: "control", label: "Change shed controller settings" },
     ],
   },
   {

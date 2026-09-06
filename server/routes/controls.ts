@@ -22,10 +22,24 @@ import {
   snapshotAll,
   snapshotHouse,
 } from "../services/iot/controls";
+import {
+  FARM_KEY,
+  approveProposal,
+  dismissProposal,
+  evaluateAll,
+  evaluateHouse,
+  listProposals,
+  ruleParams,
+  saveRule,
+  WritesDisabled,
+} from "../services/iot/proposals";
+import { RULES } from "../services/iot/rules";
 
 export const controlsRouter = Router();
 const view = requirePermission("farms", "view");
 const manage = requirePermission("farms", "manage");
+/** Approving a proposal writes to a live shed; its own permission, granted to named people. */
+const control = requirePermission("farms", "control");
 
 /** The pages of the model's catalogue, without their registers — the tree the page draws. */
 controlsRouter.get("/catalog", view, async (_req, res) => {
@@ -115,4 +129,60 @@ controlsRouter.post("/:houseId/snapshot", manage, async (req, res) => {
 /** Every house, as the nightly job does. */
 controlsRouter.post("/snapshot-all", manage, async (_req, res) => {
   res.json({ results: await snapshotAll() });
+});
+
+/* ── Stage 2: rules and proposals ──────────────────────────────────────── */
+
+/** The rules, their defaults, and what the farm and this house have set. */
+controlsRouter.get("/rules", view, async (req, res) => {
+  const houseId = typeof req.query.houseId === "string" && req.query.houseId ? req.query.houseId : null;
+  const { params, enabled, farm, rows } = await ruleParams(houseId);
+  res.json({
+    farm,
+    rules: (Object.keys(RULES) as Array<keyof typeof RULES>).map((key) => ({
+      key,
+      title: RULES[key].title,
+      description: RULES[key].description,
+      defaults: RULES[key].params,
+      params: params[key] ?? {},
+      enabled: enabled[key] ?? true,
+      houseOverride: rows.some((r) => r.key === key && r.houseId === houseId && houseId !== null),
+    })),
+  });
+});
+
+/** Set a rule's parameters, for the farm or for one house. */
+controlsRouter.put("/rules/:key", manage, async (req, res) => {
+  const key = req.params.key!;
+  if (key !== FARM_KEY && !(key in RULES)) return res.status(404).json({ error: "No such rule" });
+  const body = req.body as { houseId?: string | null; params?: Record<string, unknown>; enabled?: boolean };
+  await saveRule(key, body.houseId ?? null, body.params ?? {}, body.enabled ?? true, req.session.user?.id ?? null);
+  res.json({ ok: true });
+});
+
+/** Open proposals for a house, or its history. */
+controlsRouter.get("/:houseId/proposals", view, async (req, res) => {
+  const status = typeof req.query.status === "string" ? req.query.status.split(",") : ["open"];
+  res.json({ proposals: await listProposals(req.params.houseId!, status) });
+});
+
+/** Ask the rules now, for one house or for all. */
+controlsRouter.post("/proposals/evaluate", manage, async (req, res) => {
+  const houseId = (req.body as { houseId?: string })?.houseId;
+  res.json({ results: houseId ? [await evaluateHouse(houseId)] : await evaluateAll() });
+});
+
+/** Say yes: write through the one path, with readback. */
+controlsRouter.post("/proposals/:id/approve", control, async (req, res) => {
+  try {
+    res.json(await approveProposal(Number(req.params.id), req.session.user!.id));
+  } catch (e) {
+    res.status(e instanceof WritesDisabled ? 423 : 422).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+/** Say no. The rule may raise it again when the week changes. */
+controlsRouter.post("/proposals/:id/dismiss", control, async (req, res) => {
+  await dismissProposal(Number(req.params.id), req.session.user!.id);
+  res.json({ ok: true });
 });
