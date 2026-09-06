@@ -199,6 +199,9 @@ function show(value: string | undefined, options?: Option[], kind?: string): str
   return n.toLocaleString("en-IN", { maximumFractionDigits: 3 });
 }
 
+/** The vendor writes a range as 0~999 or 0-99.9; one dash for both. */
+const range = (r: string) => r.replace(/\s*[~]\s*/g, "–").replace(/^(-?[\d.]+)-([\d.]+)$/, "$1–$2");
+
 /** Kinds whose value is a word, so a unit beside it would be noise. */
 const wordy = (kind: string) => kind === "switch" || kind === "select" || kind === "select-group" || kind === "switch-unit" || kind === "time";
 
@@ -449,7 +452,7 @@ export function FarmControlsPage() {
             {page?.page.shared && page.page.shared.length > 0 && (
               <div className="flex flex-wrap gap-x-5 gap-y-1 border-b border-soil-100/70 px-4 py-2 text-[12px]">
                 {page.page.shared.map((f) => (
-                  <span key={f.register} title={f.range ? `range ${f.range}` : undefined}>
+                  <span key={f.register} title={f.range ? `range ${range(f.range)}` : undefined}>
                     <span className="text-muted-foreground">{f.labelEn}</span>{" "}
                     <span className="font-semibold tabular-nums text-soil-900">
                       {show(page.values[f.register], f.options, f.kind)} {wordy(f.kind) ? "" : f.unit}
@@ -530,7 +533,7 @@ function FormPage({ page }: { page: PageLive }) {
                 {f.unit && !wordy(f.kind) && <span className="ml-1 text-[11px] text-muted-foreground">{f.unit}</span>}
               </td>
               <td className="px-4 py-2 text-[11px] text-muted-foreground">
-                {f.range}
+                {range(f.range)}
                 {f.options.length > 0 && !f.readOnly && (
                   <span title={f.options.map((o) => `${o.value} = ${o.labelEn}`).join(", ")}>
                     {f.range ? " · " : ""}
@@ -554,7 +557,11 @@ function FormPage({ page }: { page: PageLive }) {
 function TablePage({ page }: { page: PageLive }) {
   const cols = page.page.columns ?? [];
   const rows = page.page.rows ?? [];
-  const fanCols = cols.filter((c) => /^f\d+$/.test(c.key));
+  /* Fan groups the ladder never switches on — the farm wires 22 of the 26 the
+     controller allows — are left out, so the grid is as wide as the shed. */
+  const fanCols = cols.filter(
+    (c) => /^f\d+$/.test(c.key) && rows.some((r) => r.cells[c.key] && Number(page.values[r.cells[c.key]!] ?? 0) !== 0),
+  );
   const plainCols = cols.filter((c) => !/^f\d+$/.test(c.key));
   const isLadder = page.page.code === "TFJB_TFJB_S";
   /** Rows the vendor pads out with zeros, dropped when every settable cell is zero — beyond the farm's 25 steps, or curve rows never filled. */
@@ -574,14 +581,14 @@ function TablePage({ page }: { page: PageLive }) {
           <tr className="text-[10px] uppercase tracking-wide text-muted-foreground">
             <th className="sticky left-0 bg-white px-2 py-2 text-left font-semibold">{isLadder ? "Step" : "Row"}</th>
             {plainCols.map((c) => (
-              <th key={c.key} className="max-w-[92px] px-2 py-2 text-right font-semibold leading-tight" title={`${c.labelEn}${c.range ? ` · range ${c.range}` : ""}`}>
+              <th key={c.key} className="max-w-[92px] px-2 py-2 text-right font-semibold leading-tight" title={`${c.labelEn}${c.range ? ` · range ${range(c.range)}` : ""}`}>
                 {isLadder ? c.labelEn.replace(/^Level\s+/i, "") : c.labelEn}
                 {c.unit && !wordy(c.kind) && <span className="ml-1 normal-case tracking-normal text-muted-foreground/80">{c.unit}</span>}
               </th>
             ))}
             {fanCols.length > 0 && (
               <th className="px-1 py-2 text-left font-semibold" colSpan={fanCols.length} title={fanCols[0]!.options.map((o) => `${o.value} ${o.labelEn}`).join(" · ")}>
-                Fan groups 1–{fanCols.length}
+                Fan groups
               </th>
             )}
           </tr>
@@ -592,7 +599,11 @@ function TablePage({ page }: { page: PageLive }) {
               <td className="sticky left-0 bg-white px-2 py-1.5 font-semibold text-soil-900">{r.label}</td>
               {plainCols.map((c) => (
                 <td key={c.key} className="px-2 py-1.5 text-right tabular-nums text-soil-900">
-                  {r.cells[c.key] ? show(page.values[r.cells[c.key]!], c.options, c.kind) : ""}
+                  {r.cells[c.key]
+                    ? c.key === "day" && Number(page.values[r.cells[c.key]!]) === 999
+                      ? "onward"
+                      : show(page.values[r.cells[c.key]!], c.options, c.kind)
+                    : ""}
                 </td>
               ))}
               {fanCols.map((c) => {

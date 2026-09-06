@@ -136,7 +136,10 @@ const isTimeOfDay = (leaf: string) => {
   return timePatterns.some((re) => re.test(leaf));
 };
 /** The vendor prints some units in Chinese; the page should not. */
-const UNITS: Record<string, string> = { 秒: "s", 分: "min", 分钟: "min", 小时: "h", 天: "days", 只: "birds", 次: "times", 级: "", 度: "°C" };
+const UNITS: Record<string, string> = {
+  秒: "s", 分: "min", 分钟: "min", 小时: "h", 天: "days", 只: "birds", 次: "times", 级: "", 度: "°C",
+  "℃": "°C", Kg: "kg", KG: "kg", "Km³/h": "thousand m³/h", "%RH": "% RH",
+};
 const unitEn = (u: unknown) => {
   const s = String(u ?? "").trim();
   return UNITS[s] ?? s;
