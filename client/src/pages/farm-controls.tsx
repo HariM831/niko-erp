@@ -262,7 +262,7 @@ export function FarmControlsPage() {
     if (rest.length) {
       out.push({
         title: "Other",
-        pages: rest.map((p) => ({ code: p.code, title: p.pathEn.join(" › "), vendor: p.path.join(" › ") })),
+        pages: rest.map((p) => ({ code: p.code, title: p.pathEn.join(" › "), vendor: p.pathEn.join(" › ") })),
       });
     }
     return out;
@@ -384,7 +384,7 @@ export function FarmControlsPage() {
             <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-soil-100/70 px-4 py-3">
               <div>
                 <div className="text-[14px] font-bold text-soil-900">{current?.title ?? code}</div>
-                <div className="text-[11px] text-muted-foreground" title={page?.page.path.join(" › ")}>
+                <div className="text-[11px] text-muted-foreground">
                   {current?.vendor ?? page?.page.pathEn.join(" › ")}
                   {house ? ` · ${house.code}` : ""}
                 </div>
@@ -403,7 +403,7 @@ export function FarmControlsPage() {
             {page?.page.shared && page.page.shared.length > 0 && (
               <div className="flex flex-wrap gap-x-5 gap-y-1 border-b border-soil-100/70 px-4 py-2 text-[12px]">
                 {page.page.shared.map((f) => (
-                  <span key={f.register} title={`${f.label} · ${f.register}${f.range ? ` · range ${f.range}` : ""}`}>
+                  <span key={f.register} title={f.range ? `range ${f.range}` : undefined}>
                     <span className="text-muted-foreground">{f.labelEn}</span>{" "}
                     <span className="font-semibold tabular-nums text-soil-900">
                       {show(page.values[f.register], f.options)} {f.unit}
@@ -432,9 +432,7 @@ export function FarmControlsPage() {
               <ul className="max-h-[50vh] overflow-y-auto divide-y divide-soil-100/70">
                 {changes.map((c) => (
                   <li key={c.id} className="px-4 py-2.5 text-[12px]">
-                    <div className="font-semibold text-soil-900" title={c.register}>
-                      {c.labelEn}
-                    </div>
+                    <div className="font-semibold text-soil-900">{c.labelEn}</div>
                     <div className="text-muted-foreground">{c.pageEn}</div>
                     <div className="mt-0.5 tabular-nums">
                       <span className="text-muted-foreground line-through">{show(c.before ?? undefined)}</span>
@@ -474,9 +472,7 @@ function FormPage({ page }: { page: PageLive }) {
           {fields.map((f) => (
             <tr key={f.register} className="border-t border-soil-100/70">
               <td className="px-4 py-2">
-                <span className="font-medium text-soil-900" title={`${f.label} · ${f.register}`}>
-                  {f.labelEn}
-                </span>
+                <span className="font-medium text-soil-900">{f.labelEn}</span>
                 {f.readOnly && (
                   <span className="ml-2 rounded border border-soil-200 px-1.5 text-[10px] text-muted-foreground">status</span>
                 )}
@@ -547,7 +543,7 @@ function TablePage({ page }: { page: PageLive }) {
             <tr key={r.id} className="border-t border-soil-100/70">
               <td className="sticky left-0 bg-white px-2 py-1.5 font-semibold text-soil-900">{r.label}</td>
               {plainCols.map((c) => (
-                <td key={c.key} className="px-2 py-1.5 text-right tabular-nums text-soil-900" title={r.cells[c.key]}>
+                <td key={c.key} className="px-2 py-1.5 text-right tabular-nums text-soil-900">
                   {r.cells[c.key] ? show(page.values[r.cells[c.key]!], c.options) : ""}
                 </td>
               ))}

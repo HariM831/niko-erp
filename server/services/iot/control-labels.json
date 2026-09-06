@@ -37,7 +37,7 @@
   "降低级别延时时间": "Reduce level delay time",
   "退出纵向通风温度偏差值": "Tunnel Exit-Diff Below Tunnel",
   "纵向通风退出延时时间": "Tunnel ventilation exit delay time",
-  "纵向通风时允许室外温度低于纵向通风开启温度最大值": "纵向通风时允许室外温度低于纵向通风开启温度最大值",
+  "纵向通风时允许室外温度低于纵向通风开启温度最大值": "Outside may be below the tunnel temperature by at most",
   "冬季因子": "Winter factor",
   "冬季室外温度": "Outdoor temperature in winter",
   "最小/最大级别模式选择": "Mini/Max level mode selection",
@@ -171,6 +171,19 @@
   "延迟时间": "Delay Time",
   "低压报警压力": "Low Pressure Alarm",
   "压力连锁": "Pressure Interlock",
-  "高压报警压力": "High Pressure Alarm"
+  "高压报警压力": "High Pressure Alarm",
+  "停止": "Stopped",
+  "循环": "Cycles",
+  "持续": "Continuous",
+  "交替": "Alternates",
+  "停用": "Off",
+  "启用": "On",
+  "关闭": "Closed",
+  "开启": "Open",
+  "独立": "Independent",
+  "联动": "Linked",
+  "小窗": "Inlet",
+  "幕帘": "Curtain",
+  "侧窗": "Side inlet"
  }
 }

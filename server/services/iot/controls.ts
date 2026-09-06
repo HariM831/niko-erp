@@ -111,6 +111,19 @@ function labels(): LabelMap {
 }
 const en = (cn: string) => labels().labels[cn] ?? labels().labels[cn.replace(/\d+/g, "")] ?? cn;
 const enPage = (cn: string) => labels().pages[cn] ?? cn;
+/** The vendor prints some units in Chinese; the page should not. */
+const UNITS: Record<string, string> = { 秒: "s", 分: "min", 分钟: "min", 小时: "h", 天: "days", 只: "birds", 次: "times", 级: "", 度: "°C" };
+const unitEn = (u: unknown) => {
+  const s = String(u ?? "").trim();
+  return UNITS[s] ?? s;
+};
+
+/** A row's first-column label in English: a number stays a number, "inlet 1" keeps its 1. */
+const rowLabel = (x: string) => {
+  if (/^\d+$/.test(x)) return x;
+  const digits = x.match(/\d+/)?.[0] ?? "";
+  return `${en(x.replace(/\d+/g, ""))}${digits ? ` ${digits}` : ""}`;
+};
 
 /** The register without the house prefix. */
 const strip = (fullName: string, houseCode: string) =>
@@ -135,7 +148,7 @@ function normaliseForm(raw: unknown[], houseCode: string): Pick<CatalogPage, "fi
       labelEn: en(String(r.label ?? "")),
       register: strip(full, houseCode),
       range: String(r.range ?? ""),
-      unit: String(r.unit ?? ""),
+      unit: unitEn(r.unit),
       kind: String(r.type || "number"),
       options: opts(r.options),
       readOnly: r.readOnly === true,
@@ -177,7 +190,7 @@ function normaliseTable(raw: unknown[], houseCode: string): Pick<CatalogPage, "c
           key,
           labelEn: fan ? `Fan ${key.slice(1)}` : en(leaf.replace(/\d+/g, "")),
           range: String((fan ? r.fjRange : r[`${key}Range`]) ?? ""),
-          unit: String((fan ? "" : r[`${key}Unit`]) ?? ""),
+          unit: fan ? "" : unitEn(r[`${key}Unit`]),
           kind: String((fan ? r.fjType : r[`${key}Type`]) || "number"),
           options: opts(fan ? r.fjOptions : r[`${key}Options`]),
         });
@@ -186,7 +199,7 @@ function normaliseTable(raw: unknown[], houseCode: string): Pick<CatalogPage, "c
     if (!Object.keys(cells).length) continue;
     rows.push({
       id: Number(r.id ?? rows.length + 1),
-      label: String(r.level ?? r.name ?? r.id ?? rows.length + 1),
+      label: rowLabel(String(r.level ?? r.name ?? r.id ?? rows.length + 1)),
       cells,
     });
   }
