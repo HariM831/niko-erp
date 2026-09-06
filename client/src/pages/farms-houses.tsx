@@ -141,8 +141,8 @@ interface IotRow {
   feedPerBirdG: number | null;
   birdCount: number | null;
   ventLevel: number | null;
-  /** Temperature and humidity as one index, the number the birds feel. */
-  heatIndex: { thi: number; band: "comfortable" | "mild" | "moderate" | "severe" } | null;
+  /** What the birds feel: temperature, humidity and the air moving over them as one number, with Amino's bands. */
+  feelsLike: { bft: number; band: "ok" | "watch" | "severe" | "critical"; wetBulbC: number; velocity: number | null; fans: number; exhaust: number | null } | null;
   /** Fan power now and since midnight, estimated from the ladder; null until the controls module has kept the settings once. */
   fanKwNow: number | null;
   fanKwhToday: number | null;
@@ -1094,7 +1094,7 @@ export function FarmsHousesPage() {
                   <Th>Temp</Th>
                   <Th>Target</Th>
                   <Th>Humidity</Th>
-                  <Th>Heat index</Th>
+                  <Th>Feels like</Th>
                   <Th className="col-portrait-hide">CO₂</Th>
                   <Th className="col-portrait-hide">Pressure</Th>
                   <Th className="col-portrait-hide">Silo</Th>
@@ -1136,21 +1136,26 @@ export function FarmsHousesPage() {
                         <td className="px-3 py-2 text-right tabular-nums">
                           {r.humidityPct == null ? "—" : `${r.humidityPct.toFixed(0)}%`}
                         </td>
-                        {/* THI = 0.8·T + RH·(T − 14.4) + 46.4. Under 70 comfortable, to 75 mild,
-                            to 81 moderate, above severe — the vet's bands, not a law. */}
+                        {/* Amino's bird feels-like: dry-bulb plus a wet-bulb penalty, less the credit
+                            for the air the fans move over the cages. Under 29 ok, 29 watch, 31 severe, 32.5 critical. */}
                         <td
                           className={`px-3 py-2 text-right tabular-nums ${
-                            r.heatIndex?.band === "severe"
+                            r.feelsLike?.band === "critical"
                               ? "font-semibold text-destructive"
-                              : r.heatIndex?.band === "moderate"
+                              : r.feelsLike?.band === "severe"
                                 ? "font-semibold text-warning"
-                                : r.heatIndex?.band === "mild"
+                                : r.feelsLike?.band === "watch"
                                   ? "text-yolk-700"
                                   : ""
                           }`}
-                          title={r.heatIndex ? `${r.heatIndex.band} — temperature and humidity together` : undefined}
+                          title={
+                            r.feelsLike
+                              ? `${r.feelsLike.band} · wet-bulb ${r.feelsLike.wetBulbC}° · ${r.feelsLike.velocity ?? "?"} m/s over the birds from ${r.feelsLike.fans} fans` +
+                                (r.feelsLike.exhaust != null ? ` · exhaust end ${r.feelsLike.exhaust}°` : "")
+                              : undefined
+                          }
                         >
-                          {r.heatIndex ? r.heatIndex.thi.toFixed(0) : "—"}
+                          {r.feelsLike ? `${r.feelsLike.bft.toFixed(1)}°` : "—"}
                         </td>
                         <td
                           className={`col-portrait-hide px-3 py-2 text-right tabular-nums ${
@@ -1166,13 +1171,13 @@ export function FarmsHousesPage() {
                             still runs on the shed totals those figures come from. */}
                         <StaleCell v={r.waterPerBirdMl} unit="ml" stale={r.waterStale} since={r.waterChangedAt} className="col-portrait-hide" />
                         <StaleCell v={r.feedPerBirdG} unit="g" stale={r.feedStale} since={r.feedChangedAt} className="col-portrait-hide" />
-                        {/* Estimated: 1.5 kW a fan, two fans a group, from the ladder as last kept. */}
+                        {/* Estimated: 1.5 kW a fan, two fans a group and four in groups 21 and 22, from the ladder as last kept. */}
                         <td
                           className="col-portrait-hide px-3 py-2 text-right tabular-nums"
                           title={
                             r.fanKwNow == null
                               ? "Fan power is estimated from the ladder once the controller's settings have been kept"
-                              : `step ${r.ventLevel ?? "?"} · ${r.fanKwNow} kW now · about ${r.fanKwhToday ?? 0} kWh since midnight, estimated at 1.5 kW a fan`
+                              : `step ${r.ventLevel ?? "?"} · ${r.fanKwNow} kW now · about ${r.fanKwhToday ?? 0} kWh since midnight, at 1.5 kW a fan`
                           }
                         >
                           {r.fanKwNow == null ? "—" : (

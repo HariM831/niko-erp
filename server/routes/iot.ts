@@ -13,7 +13,8 @@ import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { SINGLE_TAGS, METRIC_TAGS, nameOf, resolveMetric, resolvePerBird, tokenExpiry } from "../services/iot/bhfarm";
 import { houseSamples, pollOnce, recentPolls, todayCounters } from "../services/iot/store";
-import { fanEnergyToday, heatIndex, ladderPower } from "../services/iot/controls";
+import { fanEnergyToday, ladderPower } from "../services/iot/controls";
+import { fansInGroup, houseFeelsLike, velocity, zoneFeelsLike, type LevelName } from "../services/iot/feels-like";
 
 export const iotRouter = Router();
 
@@ -86,9 +87,9 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
      */
     waterPerBirdMl: number | null;
     feedPerBirdG: number | null;
-    /** The current ventilation step, and what the birds feel: temperature and humidity as one index. */
+    /** The current ventilation step, and what the birds feel: Amino's feels-like from temperature, humidity and the air moving over them. */
     ventLevel: number | null;
-    heatIndex: { thi: number; band: "comfortable" | "mild" | "moderate" | "severe" } | null;
+    feelsLike: { bft: number; band: LevelName; wetBulbC: number; velocity: number | null; fans: number; exhaust: number | null } | null;
     /** Fan power now and since IST midnight, estimated from the ladder and the sampled step. Null until a snapshot exists. */
     fanKwNow: number | null;
     fanKwhToday: number | null;
@@ -134,7 +135,7 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
         waterChangedAt: null,
         siloChangedAt: null,
         ventLevel: null,
-        heatIndex: null,
+        feelsLike: null,
         fanKwNow: null,
         fanKwhToday: null,
         feedStale: false,
@@ -146,7 +147,8 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
     }
     if (!r.tagId) continue;
     if (r.fetchedAt && (!b.fetchedAt || r.fetchedAt > b.fetchedAt)) b.fetchedAt = r.fetchedAt;
-    const v = r.value == null ? null : Number(r.value);
+    const raw = r.value == null ? null : r.value === "True" ? "1" : r.value === "False" ? "0" : r.value;
+    const v = raw == null ? null : Number(raw);
     if (v == null || !Number.isFinite(v)) continue;
     /**
      * Keyed on the last segment — the one grain a live poll and the vendor's
@@ -210,7 +212,21 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
     b.waterPerBirdMl = today.waterPerBird ?? resolvePerBird(m.get(SINGLE_TAGS.waterPerBirdMl), b.waterL);
     b.feedPerBirdG = today.feedPerBird ?? resolvePerBird(m.get(SINGLE_TAGS.feedPerBirdG), b.feedKg);
     b.ventLevel = m.get("通风级别") ?? null;
-    b.heatIndex = heatIndex(b.tempC, b.humidityPct);
+    {
+      // Fans running now, from the 22 group states; water-to-feed from today's counters.
+      let fans = 0;
+      for (let g = 1; g <= 22; g++) {
+        const v = m.get(`风机组${String(g).padStart(2, "0")}`);
+        if (v === 1) fans += fansInGroup(g);
+      }
+      const wf = b.waterPerBirdMl != null && b.feedPerBirdG ? b.waterPerBirdMl / b.feedPerBirdG : null;
+      const fl = houseFeelsLike(b.tempC, b.humidityPct, b.pressurePa, fans, wf);
+      if (fl) {
+        const v = velocity(fans, b.pressurePa);
+        const zones = zoneFeelsLike((id) => m.get(`温度${id}`) ?? null, b.humidityPct, v);
+        b.feelsLike = { bft: fl.bft, band: fl.band, wetBulbC: fl.wetBulbC, velocity: fl.velocity, fans, exhaust: zones.worst?.feelsLike ?? null };
+      }
+    }
     // From the last snapshot of the house's ladder and today's sampled steps;
     // absent until the controls module has taken its first snapshot.
     const kw = await ladderPower(houseId);

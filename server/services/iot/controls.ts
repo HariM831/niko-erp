@@ -539,37 +539,39 @@ export async function recentChanges(houseId: string, days = 30) {
 
 /* ── Power and comfort, from what is already recorded ───────────────────── */
 
-/** From the equipment quotation: 50-inch direct-drive cone fans, 1.5 kW each. */
-export const FAN_KW = 1.5;
-/**
- * The controller switches fans in groups; the quotation does not say how many
- * fans a group holds. Two is the working assumption until the fan cabinet's
- * wiring is read, and every figure derived from it is marked estimated.
- */
-export const FANS_PER_GROUP = 2;
+import { FAN_KW, fansInGroup } from "./feels-like";
 
 /**
- * Kilowatts at each ventilation step, from the house's ladder as last
- * snapshotted: a fan group set to continuous counts fully, one set to cycle or
- * alternate counts half. Index 1..36; null when there is no snapshot yet.
+ * Fans running at each ventilation step, from the house's ladder as last
+ * snapshotted: a group set to continuous counts all its fans, one set to cycle
+ * or alternate counts half of them; groups 1–20 hold two fans, 21 and 22 hold
+ * four. Index 1..36; null when there is no snapshot yet.
  */
-export async function ladderPower(houseId: string): Promise<number[] | null> {
+export async function ladderFans(houseId: string): Promise<number[] | null> {
   const [cat, snap] = await Promise.all([getCatalog(), latestSnapshot(houseId)]);
   const page = cat?.pages.find((p) => p.code === "TFJB_TFJB_S");
   if (!page?.rows || !snap) return null;
   const values = snap.values as Record<string, string>;
-  const kw: number[] = [0];
+  const fans: number[] = [0];
   for (const row of page.rows) {
-    let fans = 0;
+    let n = 0;
     for (const [key, register] of Object.entries(row.cells)) {
-      if (!/^f\d+$/.test(key)) continue;
+      const m = /^f(\d+)$/.exec(key);
+      if (!m) continue;
       const mode = Number(values[register] ?? 0);
-      if (mode === 2) fans += 1;
-      else if (mode === 1 || mode === 3) fans += 0.5;
+      const inGroup = fansInGroup(Number(m[1]));
+      if (mode === 2) n += inGroup;
+      else if (mode === 1 || mode === 3) n += inGroup / 2;
     }
-    kw[row.id] = fans * FANS_PER_GROUP * FAN_KW;
+    fans[row.id] = n;
   }
-  return kw;
+  return fans;
+}
+
+/** Kilowatts at each step: the fans running there at 1.5 kW apiece. */
+export async function ladderPower(houseId: string): Promise<number[] | null> {
+  const fans = await ladderFans(houseId);
+  return fans ? fans.map((n) => n * FAN_KW) : null;
 }
 
 /**
