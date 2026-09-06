@@ -1,0 +1,154 @@
+{
+ "source": "Qingdao Big Herdsman Machinery quotation JBHLC250327WYQ, 29 March 2026, to Nandamuri Poultries LLP for the 5th layer house; PDF kept at docs/equipment/. Fan, panel-door and cable items are marked 'House NO.1', i.e. the same design as the first house.",
+ "house": {
+  "lengthM": 100,
+  "equipmentLengthM": 93,
+  "widthM": 18,
+  "eaveHeightM": 6.9,
+  "rows": 6,
+  "tiers": 8,
+  "birds": 98112,
+  "cageSystem": "BH600, 438 segments of 1206 mm, 7 birds per cage, 559.93 cm2 per bird",
+  "supply": "415 V 50 Hz 3-phase"
+ },
+ "controller": {
+  "model": "BH9200 climate controller, 10 inch, layer cage",
+  "sensors": {
+   "temperature": 13,
+   "humidity": 1,
+   "co2": 1,
+   "negativePressureMeter": 1,
+   "extraTempSensor": 1
+  },
+  "modules": [
+   "negative pressure module",
+   "smart sound and light alarm",
+   "frequency converter in the climate/egg cabinet"
+  ],
+  "iot": "BH FarmNet data collector, BH1603 alarm module, optical network equipment"
+ },
+ "electricalLoads": [
+  {
+   "item": "Tunnel fans",
+   "spec": "50 inch cone fan, direct drive, China-brand motor",
+   "qty": 48,
+   "kwEach": 1.5,
+   "kwTotal": 72.0,
+   "note": "The controller drives them in fan groups; the panel maps groups to fans. At two fans a group, one group is 3.0 kW."
+  },
+  {
+   "item": "Cooling pad pumps, gable wall",
+   "spec": "self-priming, 2.1 A",
+   "qty": 2,
+   "kwEach": 1.1,
+   "kwTotal": 2.2
+  },
+  {
+   "item": "Cooling pad pumps, side wall",
+   "spec": "self-priming, 2.1 A",
+   "qty": 4,
+   "kwEach": 1.5,
+   "kwTotal": 6.0
+  },
+  {
+   "item": "Panel door motors, side wall",
+   "spec": "auto motor, manual control available",
+   "qty": 4,
+   "kwEach": 0.55,
+   "kwTotal": 2.2
+  },
+  {
+   "item": "Panel door motor, gable wall",
+   "spec": "auto motor",
+   "qty": 1,
+   "kwEach": null,
+   "kwTotal": null,
+   "note": "rating not printed"
+  },
+  {
+   "item": "Air inlet motor",
+   "spec": "auto motor, 90 side-wall inlets 1200 x 270 mm",
+   "qty": 1,
+   "kwEach": null,
+   "kwTotal": null
+  },
+  {
+   "item": "Main feed line drives",
+   "spec": "125 mm auger",
+   "qty": 4,
+   "kwEach": 1.5,
+   "kwTotal": 6.0
+  },
+  {
+   "item": "Hopper trolleys",
+   "spec": "8 tiers, 70 kg per hopper; 0.75 kW plus two 0.4 kW per row",
+   "qty": 6,
+   "kwEach": 1.55,
+   "kwTotal": 9.3
+  },
+  {
+   "item": "Cage rear drives",
+   "spec": "1.1 kW, 4 per row",
+   "qty": 24,
+   "kwEach": 1.1,
+   "kwTotal": 26.4
+  },
+  {
+   "item": "Egg chain wheel boxes",
+   "spec": "0.4 kW, 2 per row, frequency controlled",
+   "qty": 12,
+   "kwEach": 0.4,
+   "kwTotal": 4.8
+  },
+  {
+   "item": "Egg lifting parts",
+   "spec": "0.4 kW, 1 per row",
+   "qty": 6,
+   "kwEach": 0.4,
+   "kwTotal": 2.4
+  },
+  {
+   "item": "Cross manure drive",
+   "spec": "",
+   "qty": 1,
+   "kwEach": 2.2,
+   "kwTotal": 2.2
+  },
+  {
+   "item": "Manure lifting drive",
+   "spec": "",
+   "qty": 1,
+   "kwEach": 2.2,
+   "kwTotal": 2.2
+  },
+  {
+   "item": "Silo vibration motor",
+   "spec": "",
+   "qty": 1,
+   "kwEach": null,
+   "kwTotal": null
+  },
+  {
+   "item": "Lighting",
+   "spec": "588 LED bulbs, non-dimmable, 12 W or below, 2.41 m spacing, 20 lux minimum at 1.7 m",
+   "qty": 588,
+   "kwEach": 0.012,
+   "kwTotal": 7.1,
+   "note": "upper bound at 12 W a bulb"
+  }
+ ],
+ "cooling": {
+  "gableWallPadM2": 85.0,
+  "sideWallPadM2": 242.9,
+  "padThicknessM": 0.15,
+  "padAngle": "45x45",
+  "panelDoors": "FRP sandwich baffles inside the pad inlets, 3 tiers, motorised"
+ },
+ "priceCNY": {
+  "goods": 3907419,
+  "afterDiscount": 3047800,
+  "inlandFreight": 57600,
+  "totalQingdaoPort": 3105400,
+  "discountPct": 22
+ }
+}
