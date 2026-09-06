@@ -222,5 +222,15 @@
   "^制冷\\d*启动时刻$",
   "^制冷\\d*停用时刻$",
   "^制冷\\d*启用时刻$"
- ]
+ ],
+ "explain": {
+  "最小/最大级别模式选择": "Where the lowest and highest steps come from: the age table, the age curve, or the birds' weight and breathing rate. Change it and the shed's fresh-air floor follows a different source from the next minute.",
+  "当前日龄": "The flock age the controller is counting. Every age-based curve looks up this number. It comes from the controller's own calendar and cannot be set here.",
+  "当前体重": "What the controller believes one bird weighs today, read off its weight curve. Used only when the floor and ceiling follow body weight.",
+  "当前最小通风级别": "The lowest step the shed can drop to tonight, however cool it gets. Lower and the night is stuffier and cheaper; higher and the air stays fresher at the cost of heat and power.",
+  "当前最大通风级别": "The highest step the shed may climb to today, however hot it gets. It caps how many fans can run at once.",
+  "调速风机时控": "Runs the variable-speed fan by the clock instead of by temperature. On, it cycles on a timer even when the shed is cool.",
+  "精细降温曲线": "Lets the controller move in smaller temperature steps between levels. On, the shed responds more smoothly; off, it steps.",
+  "当前风机开启时间": "How long the fans in a cycling step stay on in each cycle right now."
+ }
 }

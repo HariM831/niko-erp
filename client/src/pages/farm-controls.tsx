@@ -43,6 +43,7 @@ interface Option {
 interface Field {
   label: string;
   labelEn: string;
+  explain?: string;
   register: string;
   range: string;
   unit: string;
@@ -54,6 +55,7 @@ interface Field {
 interface Column {
   key: string;
   labelEn: string;
+  explain?: string;
   range: string;
   unit: string;
   kind: string;
@@ -525,6 +527,7 @@ function FormPage({ page }: { page: PageLive }) {
                 {f.readOnly && (
                   <span className="ml-2 rounded border border-soil-200 px-1.5 text-[10px] text-muted-foreground">status</span>
                 )}
+                {f.explain && <div className="mt-0.5 max-w-[52ch] text-[11.5px] leading-snug text-muted-foreground">{f.explain}</div>}
               </td>
               <td className="px-4 py-2 text-right tabular-nums">
                 <span className={f.readOnly ? "text-muted-foreground" : "font-semibold text-soil-900"}>

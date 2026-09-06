@@ -46,6 +46,8 @@ export interface CatalogOption {
 export interface CatalogField {
   label: string;
   labelEn: string;
+  /** What changing it does, in one sentence. */
+  explain?: string;
   register: string;
   range: string;
   unit: string;
@@ -57,6 +59,7 @@ export interface CatalogField {
 export interface CatalogColumn {
   key: string;
   labelEn: string;
+  explain?: string;
   range: string;
   unit: string;
   kind: string;
@@ -100,6 +103,8 @@ interface LabelMap {
   units: Record<string, string>;
   /** Register leaves that hold a time of day, encoded by the vendor as H.MM. */
   timeOfDay: string[];
+  /** One plain sentence per setting: what it is and what changing it does to the shed. */
+  explain: Record<string, string>;
 }
 let labelMap: LabelMap | null = null;
 /**
@@ -125,6 +130,10 @@ const en = (cn: string) => {
   return L[cn] ?? L[rowless(cn)] ?? L[cn.replace(/\d+/g, "")] ?? cn;
 };
 const enPage = (cn: string) => labels().pages[cn] ?? cn;
+const explain = (cn: string): string | undefined => {
+  const E = labels().explain ?? {};
+  return E[cn] ?? E[rowless(cn)] ?? E[cn.replace(/\d+/g, "")];
+};
 const unitFor = (leaf: string, vendor: unknown) => {
   const U = labels().units;
   return U[leaf] ?? U[rowless(leaf)] ?? unitEn(vendor);
@@ -175,6 +184,7 @@ function normaliseForm(raw: unknown[], houseCode: string): Pick<CatalogPage, "fi
     fields.push({
       label: String(r.label ?? ""),
       labelEn: en(String(r.label ?? "")),
+      explain: explain(String(r.label ?? "")) ?? explain(leaf),
       register,
       range: String(r.range ?? ""),
       unit: unitFor(leaf, r.unit),
@@ -218,6 +228,7 @@ function normaliseTable(raw: unknown[], houseCode: string): Pick<CatalogPage, "c
         columns.set(key, {
           key,
           labelEn: fan ? `Fan ${key.slice(1)}` : en(leaf),
+          explain: fan ? undefined : explain(leaf),
           range: String((fan ? r.fjRange : r[`${key}Range`]) ?? ""),
           unit: fan ? "" : unitFor(leaf, r[`${key}Unit`]),
           kind: isTimeOfDay(leaf) ? "time" : String((fan ? r.fjType : r[`${key}Type`]) || "number"),
