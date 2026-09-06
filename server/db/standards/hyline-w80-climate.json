@@ -1,0 +1,483 @@
+{
+ "breed": "Hy-Line W-80",
+ "source": "Hy-Line W-80 India Commercial Layers Management Guide, Srinivasa Hy-Line, May 2024 (c) Hy-Line International; 33 numbered pages, PDF file W-80-Management-Guide_compressed.pdf",
+ "purpose": "Climate and husbandry guidance for the shed autopilot. Not loaded by the standards seed; read by the climate rules.",
+ "performanceSummary": {
+  "rearingTo18Weeks": {
+   "livabilityPct": 96.9,
+   "feedConsumedKg": 5.64,
+   "bodyWeightAt18WeeksKg": 1.25
+  },
+  "layingTo100Weeks": {
+   "percentPeak": {
+    "min": 95,
+    "max": 96
+   },
+   "henHousedEggs": {
+    "to60Weeks": 257.0,
+    "to90Weeks": 427.1,
+    "to100Weeks": 476.9
+   },
+   "livabilityPct": {
+    "to60Weeks": 96.6,
+    "to90Weeks": 94.1,
+    "to100Weeks": 92.9
+   },
+   "averageEggWeightG": {
+    "at26Weeks": 54.8,
+    "at32Weeks": 57.2,
+    "at70Weeks": 60.5,
+    "at100Weeks": 62.0
+   },
+   "bodyWeightKg": {
+    "at26Weeks": 1.52,
+    "at32Weeks": 1.59,
+    "at70Weeks": 1.62,
+    "at100Weeks": 1.66
+   },
+   "averageDailyFeedGPerBird_19to100Weeks": 102,
+   "feedPerEggG_19to100Weeks": 123.14,
+   "freedomFromEggInclusions": "Excellent",
+   "shellStrength": "Excellent",
+   "conditionOfDroppings": "Dry",
+   "shellColourScore": "Uniformly white (05-10); first-week eggs typically darker (10-20)"
+  }
+ },
+ "environment": {
+  "temperatureRecommendationsC": [
+   {
+    "stage": "House pre-heat, 24 h before chick placement",
+    "min": 33,
+    "max": 36,
+    "note": "Air temperature measured at chick level, with 60% humidity. Pre-heat 24 h in normal climates, 48 h in cool climates, 72 h in cold climates."
+   },
+   {
+    "stage": "0-3 days, cage air temperature",
+    "min": 33,
+    "max": 36,
+    "note": "Floor temperature 35-36 C"
+   },
+   {
+    "stage": "4-7 days, cage air temperature",
+    "min": 30,
+    "max": 32,
+    "note": "Floor temperature 33-35 C"
+   },
+   {
+    "stage": "8-14 days, cage air temperature",
+    "min": 28,
+    "max": 30,
+    "note": "Floor temperature 31-33 C"
+   },
+   {
+    "stage": "15-21 days, cage air temperature",
+    "min": 26,
+    "max": 28,
+    "note": "Floor temperature 29-31 C"
+   },
+   {
+    "stage": "22-28 days, cage air temperature",
+    "min": 23,
+    "max": 26,
+    "note": "Floor temperature 26-27 C"
+   },
+   {
+    "stage": "29-35 days, cage air temperature",
+    "min": 21,
+    "max": 23,
+    "note": "Floor temperature 23-25 C"
+   },
+   {
+    "stage": "36-42 days, cage air temperature",
+    "min": 21,
+    "max": 21,
+    "note": "Floor temperature 21 C"
+   },
+   {
+    "stage": "Brooding humidity correction",
+    "min": null,
+    "max": null,
+    "note": "For every 5 percentage-point increase in relative humidity above 60%, reduce brooding temperature by 1 C. After the first week reduce temperature 2-3 C per week until reaching 21 C."
+   },
+   {
+    "stage": "Rearing / growing house (after brooding, to ~18 weeks)",
+    "min": 18,
+    "max": 21,
+    "note": "Phase-feeding chart: 18-21 C, only change 1 degree every 2 weeks"
+   },
+   {
+    "stage": "At housing in the laying house",
+    "min": 18,
+    "max": 20,
+    "note": "Increase house temperature about 1 C every 2 weeks until reaching 25 C, provided ventilation can maintain air quality"
+   },
+   {
+    "stage": "Production house",
+    "min": 18,
+    "max": 25,
+    "note": "Air Quality page: production house should be at 18-25 C and 40-60% humidity"
+   },
+   {
+    "stage": "Production house, phase-feeding chart (approx. 18-100 weeks)",
+    "min": 20,
+    "max": 25,
+    "note": "Use temperature to control feed consumption and egg size; only change 1 degree every 2 weeks. Lower (colder) temperatures after peak increase feed intake and work against egg-weight control."
+   },
+   {
+    "stage": "Temperature reference for feed/water tables",
+    "min": 21,
+    "max": 27,
+    "note": "Feed and water consumption in the performance tables assume 21-27 C"
+   }
+  ],
+  "humidityPct": {
+   "min": 40,
+   "max": 60,
+   "byStage": {
+    "hatching": 80,
+    "transportationToFarm": 70,
+    "broodingPeriod0to7Days": 60,
+    "growingMinimum": 40,
+    "layingMinimum": 40,
+    "productionHouse": {
+     "min": 40,
+     "max": 60
+    }
+   }
+  },
+  "ventilation": [
+   "General rule for required fan capacity: 4 m3 of air movement per kilogram of body weight per hour.",
+   "Production house should be kept at 18-25 C and 40-60% relative humidity.",
+   "Air movement table (m3/hour per 1000 birds) at ambient 32 C: week 1 = 340, week 3 = 510, week 6 = 1020, week 12 = 2550, week 18 = 5950, week 19+ = 4650-9350.",
+   "Air movement at ambient 21 C: week 1 = 170, week 3 = 255, week 6 = 510, week 12 = 1275, week 18 = 2550, week 19+ = 4250-5100.",
+   "Air movement at ambient 10 C: week 1 = 120, week 3 = 170, week 6 = 340, week 12 = 680, week 18 = 1870, week 19+ = 2550-3400.",
+   "Air movement at ambient 0 C: week 1 = 70, week 3 = 130, week 6 = 230, week 12 = 465, week 18 = 1260, week 19+ = 850-1300.",
+   "Air movement at ambient -12 C: week 1 = 70, week 3 = 100, week 6 = 170, week 12 = 340, week 18 = 500, week 19+ = 600-850.",
+   "Air movement at ambient -23 C: week 1 = 70, week 3 = 100, week 6 = 170, week 12 = 340, week 18 = 500, week 19+ = 600-680.",
+   "Ventilation must remove moisture, remove excessive heat, supply oxygen, remove carbon dioxide, remove dust and dilute aerosolised pathogens.",
+   "Place temperature sensors inside the cage; walkway temperature is significantly colder than inside cages, especially in stack-deck belted systems.",
+   "Use stir fans when shades are used on open-sided houses; keep shades clean and dust-free to allow air flow.",
+   "No tunnel-ventilation air-speed figure is given in this guide."
+  ],
+  "airQuality": {
+   "co2PpmMax": 5000,
+   "nh3PpmMax": 25,
+   "coPpmMax": 50,
+   "note": "Allowable levels of gases at floor level in the house: ammonia (NH3) < 25 ppm, carbon dioxide (CO2) < 5000 ppm, carbon monoxide (CO) < 50 ppm."
+  },
+  "heatStress": [
+   "The guide gives no temperature-humidity thresholds for heat stress; it refers to the 'Understanding Heat Stress in Layers' technical update (English and Telugu) and the 'Best Management Practices During Summer' poster at www.hyline.com.",
+   "Anticipate rapid rises in ambient temperature and adjust the diet accordingly; birds eat less when exposed to a rapid temperature increase.",
+   "High environmental temperatures depress feed intake; the water:feed ratio (normally 1.5-2.0) increases in high ambient temperatures.",
+   "Above the 21-27 C reference range, water consumption may rise to double the table values.",
+   "Midnight feeding helps maintain feed consumption in hot climates and may add 2-5 g feed per bird per day.",
+   "Use larger particle size mash or crumble to increase intake in hot climates.",
+   "Splash cups on drinkers are useful in hot climates.",
+   "Avoid direct sunlight on birds with shades or roof overhangs; black shades are preferred.",
+   "Energy correction: for each 0.5 C the house is above or below 22 C, subtract or add about 1.8 kcal ME per bird per day."
+  ],
+  "lighting": [
+   "Intermittent lighting for chicks is preferred from 0-7 days (can be used up to 14 days): repeating cycle of 4 h light / 2 h dark (16 h light, 8 h dark per 24 h).",
+   "If not using intermittent lighting, use 22 h light for 0-3 days and 21 h for 4-7 days (the light-controlled program page says 20 h for 0-7 days). Never use 24 h of light.",
+   "Light intensity 30-50 lux during 0-7 days; 25 lux from 8-28 days; 5-15 lux from 29 days through rearing; then 30 lux in lay.",
+   "Brooding table light hours: 0-3 d 20 h or intermittent; 4-7 d 20 h or intermittent; 8-14 d 19 h; 15-21 d 17 h; 22-28 d 16 h; 29-35 d 15 h; 36-42 d 14 h.",
+   "Light-controlled housing step-down (hours of light by week): wk1 20, wk2 18.5, wk3 17, wk4 15.5, wk5 14, wk6 12.5, wk7-16 11.",
+   "Light-controlled housing step-up: wk17 11.5, wk18 12, wk19 13, wk20 14, wk21 15, wk22 16; gradual increases up to 22 weeks, 16 h maximum to end of lay.",
+   "Light-controlled housing intensity: 30-50 lux week 1, 25 lux weeks 2-4, 5-15 lux weeks 5-16, 30 lux from ~17 weeks onwards.",
+   "Open-sided housing growing period: wk1 20 h, wk2 19, wk3 17, wk4 16, wk5 15, wk6 14, wk7 13, then natural daylight from week 8 until stimulation.",
+   "Open-sided housing stimulation: at 16 weeks when BW = 1100 g with 85% uniformity; wk17 +1 h, wk18 +1 h, wk19 +0.5 h, wk20 +0.5 h, wk21 +0.5 h, wk22-24 15-16 h (chart shows 13, 14, 14.5, 15, 15.5, 16 h for weeks 17-22, then 16 h).",
+   "Open-sided intensity: 30-50 lux week 1, 25 lux weeks 2-3, 5-15 lux to ~16 weeks, 20-25 lux around transfer (~16-17 weeks), 30 lux in lay.",
+   "Begin light stimulation when the flock reaches 1.1 kg body weight with more than 85% uniformity; delay if underweight or poorly uniform; in mixed-age or poorly uniform flocks stimulate on the youngest or lightest pullets.",
+   "Light stimulation period should extend into the peaking period.",
+   "Light intensity should increase gradually 2 weeks before transfer (not before 14 weeks); final rearing intensity must match the laying-house intensity; match light hours of rearing and laying houses at transfer.",
+   "Brighten lights for 3 days after transfer until birds settle.",
+   "Measure minimum light intensity at the feeder on bottom-tier cages, midway between lights.",
+   "Use warm lights (2700-3500 K) in laying flocks for sufficient red spectrum.",
+   "Customised open-sided programs (Hy-Line online tool) hold day length constant with artificial light from 12-17 weeks at the longest natural day length in that window.",
+   "Midnight feeding: turn lights on for 1-2 h in the middle of the dark period, at least 3 h of dark before and after; this is in addition to the 16 h day; if removed, reduce gradually at 15 minutes per week; may raise feed intake 2-5 g/bird/day."
+  ]
+ },
+ "feedAndWater": [
+  "Healthy birds drink 1.5-2.0 times more water than feed; the ratio increases in high ambient temperatures.",
+  "Feed and water intakes in the performance tables apply at 21-27 C; above this water intake may double.",
+  "Nipple drinkers should deliver a minimum of 60 ml per minute per nipple.",
+  "Do not give cold water to chicks; allow flushed water to warm to house temperature. Cup drinkers must be hand-filled for 0-3 days; adjust nipple pressure to leave a hanging drop for 0-3 days and at transfer.",
+  "Flush water lines before chick arrival and weekly during rearing and production; test water quality at least once a year, from source and end of line.",
+  "Ideal drinking-water pH is 5-7 (table limit 6.3-7.5; below 5 reduces intake and corrodes fittings; above 8 reduces intake and sanitiser effectiveness).",
+  "Water quality maxima (ppm or mg/L): nitrate 25, nitrate-N 6, nitrite 4, nitrite-N 1, total dissolved solids 1000 (up to 3000 may not affect performance), chloride 250, sulfate 250, iron <0.3, magnesium 125, potassium 20, sodium 50, manganese 0.05, arsenic 0.5, fluoride 2, aluminium 5, boron 5, cadmium 0.02, cobalt 1, copper 0.6, lead 0.02, mercury 0.003, zinc 1.5.",
+  "Water bacteria maxima: total bacteria 1000 CFU/ml, total coliforms 50 CFU/ml, faecal coliforms 0 CFU/ml; ORP 650-750 mEq (range at which 2-4 ppm free chlorine sanitises at pH 5-7).",
+  "Water samples: run well 2 minutes before sampling, keep below 10 C, deliver to lab within 24 hours.",
+  "Pre-transfer water consumption should be regained within 6 hours of arrival in the laying house; a drop in water consumption is often the first sign of a problem.",
+  "Chick body weight should double between arrival and 7 days of age; feed on paper 0-3 days (0-7 days for beak-treated chicks); remove paper at 7-14 days.",
+  "Crop fill targets: 75% of chicks with feed in crop at 6 h after placement, 85% at 12 h, 100% at 24 h.",
+  "Rearing diet changes are made on body weight, not age: Starter 1 to 180 g, Starter 2 to 410 g, Grower to 920 g, Developer to 1130 g, Pre-Lay for 10-14 days before first egg (not before 15 weeks, not after first egg).",
+  "Pullets should enter lay at 1.17-1.20 kg with uniformity above 90%; hit the 6, 12, 18, 24 and 30-week body-weight targets; exceed targets 0-12 weeks but avoid excessive gain after 12 weeks.",
+  "Body weight gain from 18-25 weeks should not exceed 20%.",
+  "Pre-peaking diet for low intakes (80-85 g/bird/day) begins at 1% production and is fed until average intake reaches 95 g/bird/day.",
+  "Layer phases are changed on production and egg size: Layer 1 first egg to peak (typical intake 95 g/day), Layer 2 peak to 90% (100 g/day), Layer 3 89-85% (105 g/day), Layer 4 below 85% (110 g/day).",
+  "Rearing diet energy (kcal ME/kg): Starter 1 2950, Starter 2 2850, Grower 2750, Developer 2650, Pre-Lay 2700; crude protein 20.00, 19.00, 17.50, 16.00, 16.50%; calcium 1.05, 1.00, 0.95, 0.90, 2.70%; available P 0.48, 0.47, 0.45, 0.40, 0.45%.",
+  "Layer daily intake targets: ME 260-270 kcal/day (Layer 1) and 270-280 kcal/day (Layers 2-4), i.e. 2550-2600 and 2550-2650 kcal/kg; crude protein 16.70, 16.00, 15.30, 14.70 g/day; SID lysine 750, 720, 680, 650 mg/day; sodium and chloride 200 mg/day; linoleic acid 1.60, 1.40, 1.20, 1.00 g/day; choline 180 mg/day.",
+  "Calcium g/day and available P mg/day by age: first egg-32 wk 4.10 and 432; 33-55 wk 4.30 and 379; 56-85 wk 4.45 and 352; 86+ wk 4.70 and 329.",
+  "Calcium particle size fine(0-2 mm):coarse(2-4 mm) = 100:0 in starter/grower/developer, 50:50 pre-lay, 30:70 from week 17; by age in lay 40:60 (to 32 wk), 35:65 (33-55), 30:70 (56-85), 25:75 (86+).",
+  "Feed particle profile (production): <1 mm under 15%, 1-2 mm 20-30%, 2-3 mm 30-40%, >3 mm 10-15%; starter crumble 1-3 mm with under 10% fines; add at least 0.5% liquid oil/fat to mash; leave a 3-4 h gap between mid-day feedings so fines are eaten.",
+  "Fibre can be raised to 5-6% from the developer diet to develop crop, gizzard and intestine.",
+  "Monitor egg weight every 2 weeks from 21 weeks until 35 weeks, then every 5 weeks; start controlling egg weight when average is within 2 g of target; weigh 100 eggs on the same day within a 3-hour window."
+ ],
+ "notes": [
+  "Space guidelines (cages): floor space 40 in2/bird to 6 weeks, 60 in2 from 6-19 weeks, 65 in2 from 19 weeks; nipples 8 birds/nipple to 6 weeks, 5 birds/nipple 6-19 weeks, 4 birds/nipple with access to 2 drinkers in lay; feeder 2.25 in/bird to 6 weeks, 4 in/bird 6-19 weeks, 4 in/bird (environment-controlled) or 5 in/bird (open-sided) in lay.",
+  "Uniformity targets (cage): >85% weeks 1-3, >80% weeks 4-12, >85% weeks 13-16, >90% weeks 17-18; 90% uniformity at transfer.",
+  "Body-weight monitoring: bulk-weigh 10 boxes of 10 chicks 0-3 weeks; weigh 100 birds individually weekly 4-29 weeks; every 5 weeks 30-90 weeks; weigh birds separately after 3 weeks.",
+  "Sera: collect 10-20 samples per flock at 8 weeks, 15 weeks, 16-24 weeks (at least 4 weeks after last inactivated vaccine) and every 10 weeks from 30-80 weeks.",
+  "Transfer to laying house by 16 weeks (or after the last live vaccines); if mortality exceeds 0.1% per week perform necropsies; supportive vitamins/probiotics/vitamin C 3 days before and 3 days after transfer; remove sex-slips around 7 weeks and at transfer; shift to growing cages or 60 in2 at 7-13 weeks.",
+  "Beak treatment: infrared at hatch or precision trim at 7-10 days (re-trim before 6 weeks or after 12 weeks); cauterise 2 seconds at 650 C (blade variation up to 40 C is common); guide holes 3.56, 4.00, 4.37 mm; vitamin K electrolytes 2 days before and after.",
+  "Ideal breast muscle score: ~2 at weeks 1-14, 2 at 14-20, 2-3 at 20-30, 3 after 30 (scale 0-3).",
+  "Minimum downtime between flocks 2 weeks; 1 m wide crushed rock or concrete perimeter against rodents.",
+  "Vitamin and trace mineral minimums per 1000 kg complete diet (rearing / laying): vitamin A 10,000,000 / 8,000,000 IU; vitamin D3 3,300,000 / 3,300,000 IU; vitamin E 30 / 25 g; vitamin K 3.5 / 3 g; thiamin 2.2 / 2.5 g; riboflavin 6.6 / 5.5 g; niacin 40 / 30 g; pantothenic acid 10 / 10 g; pyridoxine 4.5 / 5 g; biotin 100 / 75 mg; folic acid 1 / 0.9 g; B12 23 / 23 mg; manganese 100 / 100 g; zinc 85 / 80 g; iron 30 / 40 g; copper 15 / 8 g; magnesium 600 / 500 g; iodine 1.5 / 1.2 g; selenium 0.25 / 0.25 g.",
+  "Pages skipped as photographs or vaccination/scoring detail: IRBT scoring (pp. 8-11), feed ingredient table (p. 30), feed cost per egg (pp. 31-33)."
+ ],
+ "rearingByWeek": [
+  {
+   "week": 1,
+   "temperatureC": {
+    "min": 30,
+    "max": 36,
+    "note": "0-3 d 33-36 C, 4-7 d 30-32 C (cage air temp at chick level); floor temp 35-36 C then 33-35 C"
+   },
+   "lightHours": 20,
+   "lightLux": {
+    "min": 30,
+    "max": 50
+   },
+   "waterMlPerDay": {
+    "min": 18,
+    "max": 28
+   }
+  },
+  {
+   "week": 2,
+   "temperatureC": {
+    "min": 28,
+    "max": 30,
+    "note": "8-14 d (floor 31-33 C)"
+   },
+   "lightHours": 18.5,
+   "lightLux": 25,
+   "waterMlPerDay": {
+    "min": 23,
+    "max": 38
+   }
+  },
+  {
+   "week": 3,
+   "temperatureC": {
+    "min": 26,
+    "max": 28,
+    "note": "15-21 d (floor 29-31 C)"
+   },
+   "lightHours": 17,
+   "lightLux": 25,
+   "waterMlPerDay": {
+    "min": 32,
+    "max": 50
+   }
+  },
+  {
+   "week": 4,
+   "temperatureC": {
+    "min": 23,
+    "max": 26,
+    "note": "22-28 d (floor 26-27 C)"
+   },
+   "lightHours": 15.5,
+   "lightLux": 25,
+   "waterMlPerDay": {
+    "min": 41,
+    "max": 62
+   }
+  },
+  {
+   "week": 5,
+   "temperatureC": {
+    "min": 21,
+    "max": 23,
+    "note": "29-35 d (floor 23-25 C)"
+   },
+   "lightHours": 14,
+   "lightLux": {
+    "min": 5,
+    "max": 15
+   },
+   "waterMlPerDay": {
+    "min": 47,
+    "max": 70
+   }
+  },
+  {
+   "week": 6,
+   "temperatureC": {
+    "min": 21,
+    "max": 21,
+    "note": "36-42 d (floor 21 C)"
+   },
+   "lightHours": 12.5,
+   "lightLux": {
+    "min": 5,
+    "max": 15
+   },
+   "waterMlPerDay": {
+    "min": 53,
+    "max": 78
+   }
+  },
+  {
+   "week": 7,
+   "temperatureC": null,
+   "lightHours": 11,
+   "lightLux": {
+    "min": 5,
+    "max": 15
+   },
+   "waterMlPerDay": {
+    "min": 59,
+    "max": 86
+   }
+  },
+  {
+   "week": 8,
+   "temperatureC": null,
+   "lightHours": 11,
+   "lightLux": {
+    "min": 5,
+    "max": 15
+   },
+   "waterMlPerDay": {
+    "min": 63,
+    "max": 92
+   }
+  },
+  {
+   "week": 9,
+   "temperatureC": null,
+   "lightHours": 11,
+   "lightLux": {
+    "min": 5,
+    "max": 15
+   },
+   "waterMlPerDay": {
+    "min": 66,
+    "max": 100
+   }
+  },
+  {
+   "week": 10,
+   "temperatureC": null,
+   "lightHours": 11,
+   "lightLux": {
+    "min": 5,
+    "max": 15
+   },
+   "waterMlPerDay": {
+    "min": 71,
+    "max": 105
+   }
+  },
+  {
+   "week": 11,
+   "temperatureC": null,
+   "lightHours": 11,
+   "lightLux": {
+    "min": 5,
+    "max": 15
+   },
+   "waterMlPerDay": {
+    "min": 76,
+    "max": 111
+   }
+  },
+  {
+   "week": 12,
+   "temperatureC": null,
+   "lightHours": 11,
+   "lightLux": {
+    "min": 5,
+    "max": 15
+   },
+   "waterMlPerDay": {
+    "min": 80,
+    "max": 117
+   }
+  },
+  {
+   "week": 13,
+   "temperatureC": null,
+   "lightHours": 11,
+   "lightLux": {
+    "min": 5,
+    "max": 15
+   },
+   "waterMlPerDay": {
+    "min": 85,
+    "max": 123
+   }
+  },
+  {
+   "week": 14,
+   "temperatureC": null,
+   "lightHours": 11,
+   "lightLux": {
+    "min": 5,
+    "max": 15
+   },
+   "waterMlPerDay": {
+    "min": 89,
+    "max": 129
+   }
+  },
+  {
+   "week": 15,
+   "temperatureC": null,
+   "lightHours": 11,
+   "lightLux": {
+    "min": 5,
+    "max": 15
+   },
+   "waterMlPerDay": {
+    "min": 94,
+    "max": 135
+   }
+  },
+  {
+   "week": 16,
+   "temperatureC": null,
+   "lightHours": 11,
+   "lightLux": {
+    "min": 5,
+    "max": 15
+   },
+   "waterMlPerDay": {
+    "min": 100,
+    "max": 143
+   }
+  },
+  {
+   "week": 17,
+   "temperatureC": null,
+   "lightHours": 11.5,
+   "lightLux": 30,
+   "waterMlPerDay": {
+    "min": 104,
+    "max": 149
+   }
+  },
+  {
+   "week": 18,
+   "temperatureC": null,
+   "lightHours": 12,
+   "lightLux": 30,
+   "waterMlPerDay": {
+    "min": 111,
+    "max": 162
+   }
+  }
+ ]
+}
