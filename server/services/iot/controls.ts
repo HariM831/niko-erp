@@ -96,6 +96,10 @@ export interface Catalog {
 interface LabelMap {
   pages: Record<string, string>;
   labels: Record<string, string>;
+  /** Units the vendor leaves off, by register leaf without its row number. */
+  units: Record<string, string>;
+  /** Register leaves that hold a time of day, encoded by the vendor as H.MM. */
+  timeOfDay: string[];
 }
 let labelMap: LabelMap | null = null;
 /**
@@ -109,8 +113,28 @@ function labels(): LabelMap {
   }
   return labelMap;
 }
-const en = (cn: string) => labels().labels[cn] ?? labels().labels[cn.replace(/\d+/g, "")] ?? cn;
+/**
+ * A register leaf without the number that makes it one row of a table:
+ * "级别01温度偏差" → "级别温度偏差", "目标温度07" → "目标温度". Numbers that mean
+ * something — "幕帘2", "区域1", "开启时间2" — are kept, because the lookups
+ * try the exact leaf first and only then the row-stripped one.
+ */
+const rowless = (leaf: string) => leaf.replace(/^级别\d+/, "级别").replace(/\d+$/, "");
+const en = (cn: string) => {
+  const L = labels().labels;
+  return L[cn] ?? L[rowless(cn)] ?? L[cn.replace(/\d+/g, "")] ?? cn;
+};
 const enPage = (cn: string) => labels().pages[cn] ?? cn;
+const unitFor = (leaf: string, vendor: unknown) => {
+  const U = labels().units;
+  return U[leaf] ?? U[rowless(leaf)] ?? unitEn(vendor);
+};
+let timePatterns: RegExp[] | null = null;
+/** Whether a register holds a clock time. The vendor types these as numbers and prints them as H.MM. */
+const isTimeOfDay = (leaf: string) => {
+  timePatterns ??= labels().timeOfDay.map((x) => new RegExp(x));
+  return timePatterns.some((re) => re.test(leaf));
+};
 /** The vendor prints some units in Chinese; the page should not. */
 const UNITS: Record<string, string> = { 秒: "s", 分: "min", 分钟: "min", 小时: "h", 天: "days", 只: "birds", 次: "times", 级: "", 度: "°C" };
 const unitEn = (u: unknown) => {
@@ -143,13 +167,15 @@ function normaliseForm(raw: unknown[], houseCode: string): Pick<CatalogPage, "fi
   for (const r of raw as Array<Record<string, unknown>>) {
     const full = r.labelFullName;
     if (typeof full !== "string" || !full) continue;
+    const register = strip(full, houseCode);
+    const leaf = register.split(".").pop() ?? register;
     fields.push({
       label: String(r.label ?? ""),
       labelEn: en(String(r.label ?? "")),
-      register: strip(full, houseCode),
+      register,
       range: String(r.range ?? ""),
-      unit: unitEn(r.unit),
-      kind: String(r.type || "number"),
+      unit: unitFor(leaf, r.unit),
+      kind: isTimeOfDay(leaf) ? "time" : String(r.type || "number"),
       options: opts(r.options),
       readOnly: r.readOnly === true,
       group: String(r.group ?? ""),
@@ -188,10 +214,10 @@ function normaliseTable(raw: unknown[], houseCode: string): Pick<CatalogPage, "c
         const leaf = register.split(".").pop() ?? register;
         columns.set(key, {
           key,
-          labelEn: fan ? `Fan ${key.slice(1)}` : en(leaf.replace(/\d+/g, "")),
+          labelEn: fan ? `Fan ${key.slice(1)}` : en(leaf),
           range: String((fan ? r.fjRange : r[`${key}Range`]) ?? ""),
-          unit: fan ? "" : unitEn(r[`${key}Unit`]),
-          kind: String((fan ? r.fjType : r[`${key}Type`]) || "number"),
+          unit: fan ? "" : unitFor(leaf, r[`${key}Unit`]),
+          kind: isTimeOfDay(leaf) ? "time" : String((fan ? r.fjType : r[`${key}Type`]) || "number"),
           options: opts(fan ? r.fjOptions : r[`${key}Options`]),
         });
       }
@@ -467,12 +493,18 @@ export async function recentChanges(houseId: string, days = 30) {
   return rows.map((r) => {
     const page = r.pageCode ? pageOf.get(r.pageCode) : undefined;
     const leaf = r.register.split(".").pop() ?? r.register;
-    const field = page?.fields?.find((f) => f.register === r.register);
+    const field =
+      page?.fields?.find((f) => f.register === r.register) ?? page?.shared?.find((f) => f.register === r.register);
+    const column = page?.columns?.find((col) => page.rows?.some((row) => row.cells[col.key] === r.register));
+    const row = page?.rows?.find((row) => Object.values(row.cells).includes(r.register));
+    const rowName = row && page?.type === "Table" ? (page.code === "TFJB_TFJB_S" ? `step ${row.label}` : `row ${row.label}`) : "";
     return {
       ...r,
-      labelEn: field?.labelEn ?? en(leaf),
+      labelEn: field?.labelEn ?? (column ? `${column.labelEn}${rowName ? `, ${rowName}` : ""}` : en(leaf)),
       pageEn: page ? page.pathEn.join(" › ") : null,
-      unit: field?.unit ?? "",
+      unit: field?.unit ?? column?.unit ?? "",
+      kind: field?.kind ?? column?.kind ?? (isTimeOfDay(leaf) ? "time" : "number"),
+      options: field?.options ?? column?.options ?? [],
     };
   });
 }

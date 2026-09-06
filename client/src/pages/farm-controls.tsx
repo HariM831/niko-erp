@@ -101,6 +101,8 @@ interface Change {
   labelEn: string;
   pageEn: string | null;
   unit: string;
+  kind: string;
+  options: Option[];
 }
 
 /**
@@ -168,17 +170,37 @@ const FAN_GLYPH: Record<string, { glyph: string; title: string; cls: string }> =
 const fmtWhen = (iso: string) =>
   new Date(iso).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 
-/** A value as the vendor prints it: trailing zeros dropped, options named. */
-function show(value: string | undefined, options?: Option[]): string {
+/**
+ * A clock time the vendor encodes as H.MM in a number: 1.3 is 01:30, 5.3 is
+ * 05:30, 8 is 08:00, 14 is 14:00. The decimal part is minutes as two digits
+ * with any trailing zero dropped, so .3 means 30 and .05 means 5.
+ */
+function clock(value: string): string {
+  const raw = value.trim();
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return raw;
+  const [h, m = ""] = raw.split(".");
+  const minutes = Number(m.padEnd(2, "0").slice(0, 2));
+  return `${String(Number(h)).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+/** A value as a person would say it: options named, clock times as clock times, on and off as words. */
+function show(value: string | undefined, options?: Option[], kind?: string): string {
   if (value == null || value === "") return "—";
+  const asFlag = value === "True" ? "1" : value === "False" ? "0" : value;
   if (options?.length) {
-    const o = options.find((x) => Number(x.value) === Number(value) || x.value === value);
+    const o = options.find((x) => Number(x.value) === Number(asFlag) || x.value === asFlag);
     if (o) return o.labelEn || o.label;
   }
+  if (kind === "time") return clock(value);
   const n = Number(value);
   if (!Number.isFinite(n)) return value === "True" ? "on" : value === "False" ? "off" : value;
+  if (kind === "switch") return n ? "on" : "off";
   return n.toLocaleString("en-IN", { maximumFractionDigits: 3 });
 }
+
+/** Kinds whose value is a word, so a unit beside it would be noise. */
+const wordy = (kind: string) => kind === "switch" || kind === "select" || kind === "select-group" || kind === "switch-unit" || kind === "time";
 
 export function FarmControlsPage() {
   const [, params] = useRoute("/farms/controls/:id");
@@ -430,7 +452,7 @@ export function FarmControlsPage() {
                   <span key={f.register} title={f.range ? `range ${f.range}` : undefined}>
                     <span className="text-muted-foreground">{f.labelEn}</span>{" "}
                     <span className="font-semibold tabular-nums text-soil-900">
-                      {show(page.values[f.register], f.options)} {f.unit}
+                      {show(page.values[f.register], f.options, f.kind)} {wordy(f.kind) ? "" : f.unit}
                     </span>
                   </span>
                 ))}
@@ -459,10 +481,10 @@ export function FarmControlsPage() {
                     <div className="font-semibold text-soil-900">{c.labelEn}</div>
                     <div className="text-muted-foreground">{c.pageEn}</div>
                     <div className="mt-0.5 tabular-nums">
-                      <span className="text-muted-foreground line-through">{show(c.before ?? undefined)}</span>
+                      <span className="text-muted-foreground line-through">{show(c.before ?? undefined, c.options, c.kind)}</span>
                       <span className="mx-1.5 text-muted-foreground">→</span>
                       <span className="font-semibold text-soil-900">
-                        {show(c.after ?? undefined)} {c.unit}
+                        {show(c.after ?? undefined, c.options, c.kind)} {wordy(c.kind) ? "" : c.unit}
                       </span>
                     </div>
                     <div className="text-[11px] text-muted-foreground">
@@ -503,9 +525,9 @@ function FormPage({ page }: { page: PageLive }) {
               </td>
               <td className="px-4 py-2 text-right tabular-nums">
                 <span className={f.readOnly ? "text-muted-foreground" : "font-semibold text-soil-900"}>
-                  {show(page.values[f.register], f.options)}
+                  {show(page.values[f.register], f.options, f.kind)}
                 </span>
-                {f.unit && <span className="ml-1 text-[11px] text-muted-foreground">{f.unit}</span>}
+                {f.unit && !wordy(f.kind) && <span className="ml-1 text-[11px] text-muted-foreground">{f.unit}</span>}
               </td>
               <td className="px-4 py-2 text-[11px] text-muted-foreground">
                 {f.range}
@@ -552,7 +574,7 @@ function TablePage({ page }: { page: PageLive }) {
             {plainCols.map((c) => (
               <th key={c.key} className="max-w-[92px] px-2 py-2 text-right font-semibold leading-tight" title={`${c.labelEn}${c.range ? ` · range ${c.range}` : ""}`}>
                 {isLadder ? c.labelEn.replace(/^Level\s+/i, "") : c.labelEn}
-                {c.unit && <span className="ml-1 normal-case tracking-normal text-muted-foreground/80">{c.unit}</span>}
+                {c.unit && !wordy(c.kind) && <span className="ml-1 normal-case tracking-normal text-muted-foreground/80">{c.unit}</span>}
               </th>
             ))}
             {fanCols.length > 0 && (
@@ -568,7 +590,7 @@ function TablePage({ page }: { page: PageLive }) {
               <td className="sticky left-0 bg-white px-2 py-1.5 font-semibold text-soil-900">{r.label}</td>
               {plainCols.map((c) => (
                 <td key={c.key} className="px-2 py-1.5 text-right tabular-nums text-soil-900">
-                  {r.cells[c.key] ? show(page.values[r.cells[c.key]!], c.options) : ""}
+                  {r.cells[c.key] ? show(page.values[r.cells[c.key]!], c.options, c.kind) : ""}
                 </td>
               ))}
               {fanCols.map((c) => {
