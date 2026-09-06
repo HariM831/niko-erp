@@ -41,6 +41,8 @@ export interface HouseContext {
   stats: WeekStats;
   /** Fans running at each step from the kept ladder, index = step. */
   fansAtStep: number[] | null;
+  /** When the ladder page last changed; pressure readings from before it were taken under another ladder. */
+  ladderChangedAt?: Date | null;
 }
 
 /* ── The rules and their parameters ────────────────────────────────────── */
@@ -341,12 +343,16 @@ const ladderReach: Rule = (ctx, p) => {
   const A2 = p.curtain2Area!;
   const pct = (r: CatalogRow, key: string) => num(ctx.settings[r.cells[key] ?? ""]);
   const areaToday = (r: CatalogRow) => ((pct(r, "mlRate") ?? 0) / 100) * A1 + ((pct(r, "mL2Rate") ?? 0) / 100) * A2;
+  // Only readings taken under the ladder as it is now say anything about it.
+  const sinceMs = ctx.ladderChangedAt?.getTime() ?? 0;
+  const paByStep = new Map<number, number[]>();
+  for (const [at, step, pa] of ctx.stats.pressureSamples) if (at >= sinceMs) paByStep.set(step, [...(paByStep.get(step) ?? []), pa]);
   const points: Array<{ step: number; n: number; pa: number; fans: number; area: number }> = [];
   for (const r of rows) {
-    const s = ctx.stats.pressureByStep[r.id];
+    const xs = paByStep.get(r.id);
     const fans = ctx.fansAtStep?.[r.id] ?? null;
     const area = areaToday(r);
-    if (s && s.n >= 5 && fans && fans > 0 && area > 0) points.push({ step: r.id, n: s.n, pa: s.mean, fans, area });
+    if (xs && xs.length >= 5 && fans && fans > 0 && area > 0) points.push({ step: r.id, n: xs.length, pa: Math.round((xs.reduce((u, v) => u + v, 0) / xs.length) * 10) / 10, fans, area });
   }
   let fit: { a: number; b: number } | null = null;
   if (points.length >= 3) {
@@ -423,6 +429,8 @@ const ladderReach: Rule = (ctx, p) => {
         ["mlRate", c1, "curtain 1 open"],
         ["mL2Rate", c2, "curtain 2 open"],
       ] as const) {
+        // a curtain moves for a real difference, not for the fit's rounding
+        if (Math.abs((pct(r, key) ?? 0) - want) < 10) continue;
         const cc = change(ctx, r.cells[key]!, `Step ${r.id}, ${name}`, "%", want, "0~100");
         if (cc) changes.push(cc);
       }
@@ -443,7 +451,7 @@ const ladderReach: Rule = (ctx, p) => {
   const allOpen = fit ? Math.round(topFans * topFans * (fit.a + fit.b / ((A1 + A2) * (A1 + A2)))) : null;
   const curtains = fit
     ? ` Curtain 1 on the gable wall (${A1} m²) opens first and fully before curtain 2 on the side walls (${A2} m²) starts; each step's opening is sized to hold ${fmt(p.pressurePa!)} Pa, from this week's pressure at ${points.length} steps (${points.map((q) => `step ${q.step}: ${q.pa} Pa at ${q.fans} fans`).join(", ")}). With every curtain open, ${topFans} fans would read about ${allOpen} Pa: the pads set that floor.`
-    : ` The curtains are left as they are: the week gave too few steady readings at enough steps to size them (${points.length} usable).`;
+    : ` The curtains are left as they are: too few readings yet on this ladder to size them (${points.length} usable step(s)${ctx.ladderChangedAt ? `, counted since the ladder changed on ${ctx.ladderChangedAt.toISOString().slice(0, 10)}` : ""}).`;
   const comfort =
     st.feelsLikeHoursSevere != null
       ? ` On the feels-like scale the house spent ${st.feelsLikeHoursSevere} h in the severe band and ${st.feelsLikeHoursCritical ?? 0} h critical this week, at a mean step of ${st.stepMean ?? "?"}.`

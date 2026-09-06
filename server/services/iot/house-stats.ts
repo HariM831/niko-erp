@@ -45,6 +45,8 @@ export interface WeekStats {
   fanKwhPerDay: number | null;
   /** The week's mean static pressure at each ladder step, with the sample count. */
   pressureByStep: Record<number, { n: number; mean: number }>;
+  /** Every pressure reading with its time and step, for a fit that must know which ladder was in force. */
+  pressureSamples: Array<[atMs: number, step: number, pa: number]>;
 }
 
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
@@ -83,6 +85,7 @@ export async function weekStats(houseId: string, fansAtStep: number[] | null, tu
   let kwh = 0;
   const stepHours = new Map<number, number>();
   const paByStep = new Map<number, number[]>();
+  const paSamples: Array<[number, number, number]> = [];
   const h5 = 5 / 60;
 
   for (const r of rows) {
@@ -94,7 +97,10 @@ export async function weekStats(houseId: string, fansAtStep: number[] | null, tu
       const s = Math.round(r.step);
       steps.push(s);
       stepHours.set(s, (stepHours.get(s) ?? 0) + h5);
-      if (r.pa != null) paByStep.set(s, [...(paByStep.get(s) ?? []), r.pa]);
+      if (r.pa != null) {
+        paByStep.set(s, [...(paByStep.get(s) ?? []), r.pa]);
+        paSamples.push([r.at.getTime(), s, r.pa]);
+      }
       const fans = fansAtStep?.[s] ?? null;
       if (fans != null) {
         kwh += fans * 1.5 * h5;
@@ -160,5 +166,6 @@ export async function weekStats(houseId: string, fansAtStep: number[] | null, tu
     restartMinutesUnderVentilated: underMinutes,
     fanKwhPerDay: hours ? Math.round(kwh / (hours / 24)) : null,
     pressureByStep: Object.fromEntries([...paByStep].map(([s, xs]) => [s, { n: xs.length, mean: Math.round(mean(xs)! * 10) / 10 }])),
+    pressureSamples: paSamples,
   };
 }

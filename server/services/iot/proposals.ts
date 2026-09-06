@@ -91,7 +91,12 @@ async function houseContext(houseId: string, code: string) {
   const tunnelStep = Number(Object.entries(settings).find(([k]) => k.endsWith("通风级别调整.纵向通风开启级别"))?.[1]) || null;
   const ageDays = Number(Object.entries(settings).find(([k]) => k.endsWith("日龄.当前日龄"))?.[1]) || null;
   const stats = await weekStats(houseId, fansAtStep, tunnelStep);
-  return { code, ageDays, settings, catalog: cat, stats, fansAtStep };
+  // When the ladder page last changed, by anyone: readings before that were taken under another ladder.
+  const [lastLadder] = await db
+    .select({ at: sql<Date | null>`max(${controllerChanges.seenAt})` })
+    .from(controllerChanges)
+    .where(and(eq(controllerChanges.houseId, houseId), sql`${controllerChanges.register} LIKE '%通风级别.级别%'`));
+  return { code, ageDays, settings, catalog: cat, stats, fansAtStep, ladderChangedAt: lastLadder?.at ? new Date(lastLadder.at) : null };
 }
 
 const sameChanges = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -141,7 +146,7 @@ export async function evaluateHouse(houseId: string): Promise<EvaluationResult> 
 }
 
 function summarise(s: Awaited<ReturnType<typeof weekStats>>) {
-  const { hoursAtOrBelowStep: _drop, ...rest } = s;
+  const { hoursAtOrBelowStep: _drop, pressureSamples: _samples, ...rest } = s;
   return rest;
 }
 
