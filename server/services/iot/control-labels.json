@@ -178,12 +178,23 @@
   "交替": "Alternates",
   "停用": "Off",
   "启用": "On",
-  "关闭": "Closed",
-  "开启": "Open",
+  "关闭": "Off",
+  "开启": "On",
   "独立": "Independent",
   "联动": "Linked",
   "小窗": "Inlet",
   "幕帘": "Curtain",
-  "侧窗": "Side inlet"
+  "侧窗": "Side inlet",
+  "根据日龄": "By age table",
+  "根据日龄曲线": "By age curve",
+  "根据体重": "By body weight",
+  "不分区": "Not zoned",
+  "分区": "Zoned",
+  "打开": "On",
+  "时间优先": "Time priority",
+  "温度优先": "Temperature priority",
+  "自动调整": "Automatic",
+  "时间": "By time",
+  "次数": "By count"
  }
 }
