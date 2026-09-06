@@ -306,26 +306,35 @@ const ladderReach: Rule = (ctx, p) => {
   const mode = (r: CatalogRow, g: string) => num(ctx.settings[r.cells[g] ?? ""]) ?? 0;
   const fansOf = (m: number, g: string) => (m === 2 ? fansInGroup(groupNo(g)) : m > 0 ? fansInGroup(groupNo(g)) / 2 : 0);
 
+  // The vendor's page has columns for more groups than the wall holds; a
+  // group no step anywhere uses does not exist and is never switched on.
+  const used = groupKeys.filter((g) => pg.rows!.some((r) => mode(r, g) > 0));
   // The order the ladder already brings groups in — the commissioning
-  // engineer's spread across the fan wall — then any it never uses.
+  // engineer's spread across the fan wall — then any it uses only higher up.
   const order: string[] = [];
-  for (const r of rows) for (const g of groupKeys) if (mode(r, g) > 0 && !order.includes(g)) order.push(g);
-  for (const g of groupKeys) if (!order.includes(g)) order.push(g);
+  for (const r of rows) for (const g of used) if (mode(r, g) > 0 && !order.includes(g)) order.push(g);
+  for (const g of used) if (!order.includes(g)) order.push(g);
   const total = order.length;
-  const firstCount = Math.max(2, groupKeys.filter((g) => mode(rows[0]!, g) > 0).length);
+  const countToday = (r: CatalogRow) => used.filter((g) => mode(r, g) > 0).length;
+  const firstCount = Math.max(2, countToday(rows[0]!));
   const span = rows.length - 1;
 
   const changes: ProposedChange[] = [];
   const ladder: Array<{ step: number; offsetWas: number | null; offset: number; fansWas: number; fans: number }> = [];
+  // Each step runs at least as many groups as it does today, at least as
+  // many as the step below, and climbs to every group at the top.
+  let prevCount = 0;
   rows.forEach((r, i) => {
     const offset = Math.round(((topOffset * i) / span) * 10) / 10;
-    const count = Math.round(firstCount + ((total - firstCount) * i) / span);
+    const ramp = Math.round(firstCount + ((total - firstCount) * i) / span);
+    const count = Math.min(total, Math.max(prevCount, countToday(r), ramp));
+    prevCount = count;
     const on = new Set(order.slice(0, count));
     const oc = change(ctx, r.cells.tempOffset!, `Step ${r.id} starts, above the tunnel temperature`, offCol.unit || "°C", offset, offCol.range || "0~999");
     if (oc) changes.push(oc);
     let fansWas = 0;
     let fans = 0;
-    for (const g of groupKeys) {
+    for (const g of used) {
       const was = mode(r, g);
       const want = on.has(g) ? (was > 0 ? was : 2) : 0;
       fansWas += fansOf(was, g);
@@ -348,6 +357,12 @@ const ladderReach: Rule = (ctx, p) => {
   const top = ladder[ladder.length - 1]!;
   const topFans = top.fans;
   const st = ctx.stats;
+  // What the week's mean temperature would have cost on each ladder.
+  const stepAt = (excess: number, key: "offsetWas" | "offset") => ladder.reduce((best, l) => ((l[key] ?? 0) <= excess ? l : best), ladder[0]!);
+  const mean = st.tempMean == null ? null : { was: stepAt(st.tempMean - tunnelTemp, "offsetWas"), will: stepAt(st.tempMean - tunnelTemp, "offset") };
+  const cost = mean
+    ? ` At the week's mean the ladder sits at step ${mean.was.step} with ${mean.was.fansWas} fans today (${Math.round(mean.was.fansWas * FAN_KW)} kW) and would sit at step ${mean.will.step} with ${mean.will.fans} fans (${Math.round(mean.will.fans * FAN_KW)} kW): that is the price of the air.`
+    : "";
   const comfort =
     st.feelsLikeHoursSevere != null
       ? ` On the feels-like scale the house spent ${st.feelsLikeHoursSevere} h in the severe band and ${st.feelsLikeHoursCritical ?? 0} h critical this week, at a mean step of ${st.stepMean ?? "?"}.`
@@ -358,8 +373,8 @@ const ladderReach: Rule = (ctx, p) => {
     reason:
       `In tunnel the steps are measured from the tunnel temperature, ${fmt(tunnelTemp)}°C. Today step ${top.step} starts ${fmt(top.offsetWas ?? 0)}° above it, at ${fmt(tunnelTemp + (top.offsetWas ?? 0))}°C house average, and runs ${top.fansWas} of ${topFans} fans; the week's mean was ${st.tempMean ?? "?"}°C.${comfort} ` +
       `Spaced ${fmt(topOffset / span)}° apart, the top step with all ${topFans} fans arrives at ${fmt(p.topAt!)}°C average, about ${fmt(p.topAt! + 1.3)}°C at the exhaust end; each step adds fan groups in the order the ladder already brings them in, so no step has fewer fans than the one below. ` +
-      `${changes.length} registers on the ladder page, steps ${rows[0]!.id} to ${top.step}. At the top every fan runs, ${Math.round(topFans * FAN_KW)} kW: the generator must carry that.`,
-    evidence: { tunnelTemp, start, maxStep, topAt: p.topAt, topOffset, order: order.map(groupNo), ladder, tempMean: st.tempMean, feelsLikeHoursSevere: st.feelsLikeHoursSevere, feelsLikeHoursCritical: st.feelsLikeHoursCritical },
+      `${changes.length} registers on the ladder page, steps ${rows[0]!.id} to ${top.step}. At the top every fan runs, ${Math.round(topFans * FAN_KW)} kW: the generator must carry that.${cost}`,
+    evidence: { tunnelTemp, start, maxStep, topAt: p.topAt, topOffset, order: order.map(groupNo), ladder, tempMean: st.tempMean, atMean: mean ? { stepWas: mean.was.step, fansWas: mean.was.fansWas, step: mean.will.step, fans: mean.will.fans } : null, feelsLikeHoursSevere: st.feelsLikeHoursSevere, feelsLikeHoursCritical: st.feelsLikeHoursCritical },
     changes,
   };
 };
