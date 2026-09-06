@@ -15,8 +15,9 @@ import { fetchDeviceStatus } from "../services/iot/bhfarm";
 import {
   getCatalog,
   latestSnapshot,
-  pageWithLive,
+  pageKept,
   recentChanges,
+  refreshPage,
   refreshCatalog,
   snapshotAll,
   snapshotHouse,
@@ -78,10 +79,19 @@ controlsRouter.get("/:houseId/status", view, async (req, res) => {
   });
 });
 
-/** One page, as the catalogue defines it, with what the controller says right now. */
+/** One page, as the catalogue defines it, with the values as last kept — instant, no controller in the loop. */
 controlsRouter.get("/:houseId/page/:code", view, async (req, res) => {
   try {
-    res.json(await pageWithLive(req.params.houseId!, req.params.code!));
+    res.json(await pageKept(req.params.houseId!, req.params.code!));
+  } catch (e) {
+    res.status(422).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+/** The same page from the controller itself; folds the answer into the kept copy and records what moved. */
+controlsRouter.get("/:houseId/page/:code/live", view, async (req, res) => {
+  try {
+    res.json(await refreshPage(req.params.houseId!, req.params.code!));
   } catch (e) {
     res.status(422).json({ error: e instanceof Error ? e.message : String(e) });
   }

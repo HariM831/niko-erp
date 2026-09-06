@@ -317,15 +317,59 @@ export async function liveValues(houseCode: string, registers: string[]): Promis
   return new Map(rows.map((r) => [strip(r.fullName, houseCode), r.value]));
 }
 
-/** One page of the catalogue with the controller's current values for it. */
-export async function pageWithLive(houseId: string, code: string) {
-  const cat = await getCatalog();
+function pageOf(cat: Catalog | null, code: string): CatalogPage {
   const page = cat?.pages.find((p) => p.code === code);
   if (!page) throw new Error(`no page ${code} in the catalogue`);
+  return page;
+}
+
+/**
+ * One page of the catalogue with the values as last KEPT — answered from the
+ * newest snapshot, no controller in the loop, so the page opens at once.
+ * Settings change rarely; the kept copy is the right first answer, and
+ * `refreshPage` brings the controller's word behind it.
+ */
+export async function pageKept(houseId: string, code: string) {
+  const page = pageOf(await getCatalog(), code);
+  const snap = await latestSnapshot(houseId);
+  const all = (snap?.values ?? {}) as Record<string, string>;
+  const values: Record<string, string> = {};
+  for (const r of page.registers) if (all[r] !== undefined) values[r] = all[r]!;
+  return { page, values, at: snap?.takenAt ?? null, source: "kept" as const };
+}
+
+/**
+ * Ask the controller for one page's registers, fold the answer into the kept
+ * copy, and record anything that moved since it was kept. Opening a page in
+ * niko is therefore a small change check as well as a read.
+ */
+export async function refreshPage(houseId: string, code: string) {
+  const cat = await getCatalog();
+  const page = pageOf(cat, code);
   const h = await houseDevice(houseId);
   const status = await fetchDeviceStatus(h.houseCode);
-  const values = status.isLiving ? await liveValues(h.houseCode, page.registers) : new Map<string, string>();
-  return { page, live: status.isLiving, values: Object.fromEntries(values), at: new Date() };
+  if (!status.isLiving) return { page, live: false as const, values: {}, at: new Date(), changes: 0 };
+
+  const live = await liveValues(h.houseCode, page.registers);
+  const at = new Date();
+  const snap = await latestSnapshot(houseId);
+  let changes = 0;
+  if (snap) {
+    const kept = { ...(snap.values as Record<string, string>) };
+    const ro = new Set(page.readOnlyRegisters);
+    const rows: Array<typeof controllerChanges.$inferInsert> = [];
+    for (const [register, after] of live) {
+      const before = kept[register];
+      if (before !== undefined && !ro.has(register) && Number(before) !== Number(after) && before !== after) {
+        rows.push({ houseId, register, pageCode: page.code, before, after, seenAt: at, source: "outside" });
+      }
+      kept[register] = after;
+    }
+    if (rows.length) await db.insert(controllerChanges).values(rows);
+    changes = rows.length;
+    await db.update(controllerSnapshots).set({ values: kept }).where(eq(controllerSnapshots.id, snap.id));
+  }
+  return { page, live: true as const, values: Object.fromEntries(live), at, changes };
 }
 
 export interface SnapshotResult {

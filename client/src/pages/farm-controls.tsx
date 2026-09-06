@@ -78,9 +78,11 @@ interface PageDef {
 }
 interface PageLive {
   page: PageDef;
-  live: boolean;
   values: Record<string, string>;
-  at: string;
+  /** When the values are from: the kept copy's time, or the controller's answer. */
+  at: string | null;
+  /** "kept" until the controller has answered; then "live", or "offline" if it did not. */
+  source: "kept" | "live" | "offline";
 }
 interface Status {
   code: string;
@@ -222,20 +224,38 @@ export function FarmControlsPage() {
     loadChanges();
   }, [houseId]);
 
+  /*
+   * Two answers for one page. The kept copy comes first and draws at once —
+   * these settings change rarely and the copy is hours old at most. Then the
+   * controller is asked in the background and its values replace the kept
+   * ones when they arrive; if it does not answer, the kept copy stays, marked.
+   */
   useEffect(() => {
     if (!houseId || !code || !catalog?.pages.length) return;
     let stop = false;
-    setLoadingPage(true);
     setPageError(null);
-    api<PageLive>(`/api/farms/controls/${houseId}/page/${code}`)
+    setLoadingPage(true);
+    api<{ page: PageDef; values: Record<string, string>; at: string | null }>(`/api/farms/controls/${houseId}/page/${code}`)
       .then((d) => {
-        if (!stop) setPage(d);
+        if (!stop) setPage({ page: d.page, values: d.values, at: d.at, source: "kept" });
       })
       .catch((e) => {
-        if (!stop) {
-          setPage(null);
-          setPageError(e instanceof Error ? e.message : "Could not read the page");
+        if (!stop) setPageError(e instanceof Error ? e.message : "Could not read the page");
+      });
+    api<{ page: PageDef; live: boolean; values: Record<string, string>; at: string; changes: number }>(
+      `/api/farms/controls/${houseId}/page/${code}/live`,
+    )
+      .then((d) => {
+        if (stop) return;
+        if (d.live) {
+          setPage({ page: d.page, values: d.values, at: d.at, source: "live" });
+          if (d.changes) loadChanges();
+        } else {
+          setPage((prev) => (prev ? { ...prev, source: "offline" } : { page: d.page, values: {}, at: null, source: "offline" }));
         }
+      })
+      .catch(() => {
+        if (!stop) setPage((prev) => (prev ? { ...prev, source: "offline" } : prev));
       })
       .finally(() => {
         if (!stop) setLoadingPage(false);
@@ -389,14 +409,18 @@ export function FarmControlsPage() {
                   {house ? ` · ${house.code}` : ""}
                 </div>
               </div>
-              <div className="text-[11px] text-muted-foreground">
-                {loadingPage
-                  ? "asking the controller…"
-                  : page
-                    ? page.live
-                      ? `as the controller reports it, ${fmtWhen(page.at)}`
-                      : "controller not reachable — no live values"
-                    : ""}
+              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                {page?.source === "kept" && page.at && <span>as kept {fmtWhen(page.at)}</span>}
+                {page?.source === "kept" && !page.at && <span>not yet kept</span>}
+                {page?.source === "live" && page.at && <span>as the controller reports it, {fmtWhen(page.at)}</span>}
+                {page?.source === "offline" && (
+                  <span className="text-warning">controller not reachable{page.at ? ` — as kept ${fmtWhen(page.at)}` : ""}</span>
+                )}
+                {loadingPage && (
+                  <span className="flex items-center gap-1">
+                    <RefreshCw className="h-3 w-3 animate-spin" /> asking the controller
+                  </span>
+                )}
               </div>
             </header>
             {pageError && <div className="px-4 py-3 text-[12px] text-destructive">{pageError}</div>}
