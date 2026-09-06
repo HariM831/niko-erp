@@ -70,8 +70,24 @@ export async function writeAndConfirm(
   const refused =
     typeof reply === "object" && reply !== null && (reply as { status?: unknown }).status === false;
 
-  await sleep(opts.settleMs ?? 3000);
-  const after = valueOf(await readRegisters(names));
+  /*
+   * The vendor answers the write at once; the controller takes it later. On
+   * 2026-09-06 four registers written to L2 still read their old values
+   * three seconds after "status: true" and their new ones twenty seconds
+   * after. So the readback is polled: every few seconds until every register
+   * reports the value sent, or the patience runs out and the record says
+   * which ones never did.
+   */
+  const took = (a: string | undefined, sent: string) => a != null && Number(a) === Number(sent);
+  const patience = opts.settleMs ?? 90_000;
+  const started = Date.now();
+  let after = new Map<string, string>();
+  for (;;) {
+    await sleep(after.size ? 5000 : 3000);
+    after = valueOf(await readRegisters(names));
+    if (changes.every((c) => took(after.get(c.key), c.value))) break;
+    if (Date.now() - started > patience) break;
+  }
 
   const registers = changes.map((c) => {
     const a = after.get(c.key) ?? null;
@@ -80,7 +96,7 @@ export async function writeAndConfirm(
       before: before.get(c.key) ?? null,
       sent: c.value,
       after: a,
-      took: a != null && Number(a) === Number(c.value),
+      took: took(a ?? undefined, c.value),
     };
   });
   return {
