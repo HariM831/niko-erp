@@ -366,17 +366,24 @@ const ladderReach: Rule = (ctx, p) => {
   const ladder: Array<{ step: number; offsetWas: number | null; offset: number; fansWas: number; fans: number; c1Was?: number | null; c1?: number; c2Was?: number | null; c2?: number }> = [];
   let prevC1 = 0;
   let prevC2 = 0;
-  // Each step runs at least as many groups as it does today, at least as
-  // many as the step below, and climbs to every group at the top.
+  // Fans climb evenly from the first tunnel step to the cap at the top, each
+  // step at least as strong as the one below. Only the steps at or below the
+  // night floor keep what they run today, so the floor keeps its air; above
+  // it today's shape is what is being replaced. (6 September 2026: a first
+  // version kept every step at today's strength, and today's step 18, an
+  // outlier with 38 fans, made steps 19 to 25 add nothing.)
   const fansToday = (r: CatalogRow) => used.reduce((n, g) => n + fansOf(mode(r, g), g), 0);
+  const floorRow = rowInForce(ctx.catalog, "JXJB_ZXZDJBQX_S", ctx.settings, ctx.ageDays, "day");
+  const floorStep = (floorRow && num(ctx.settings[floorRow.cells.minLevel ?? ""])) || start;
   let prevCount = 0;
   let prevFans = 0;
   rows.forEach((r, i) => {
     const offset = Math.round(((topOffset * i) / span) * 10) / 10;
     const ramp = Math.round(firstCount + ((total - firstCount) * i) / span);
-    let count = Math.min(total, Math.max(prevCount, countToday(r), ramp));
+    const keep = r.id <= floorStep ? countToday(r) : 0;
+    let count = Math.min(total, Math.max(prevCount, keep, ramp));
     // groups 21 and 22 hold four fans, so a step's fans, not only its groups, must not fall
-    while (count < total && fansIn(count) < Math.max(prevFans, fansToday(r))) count++;
+    while (count < total && fansIn(count) < Math.max(prevFans, r.id <= floorStep ? fansToday(r) : 0)) count++;
     prevCount = count;
     prevFans = fansIn(count);
     const on = new Set(order.slice(0, count));
@@ -445,7 +452,7 @@ const ladderReach: Rule = (ctx, p) => {
       `In tunnel the steps are measured from the tunnel temperature, ${fmt(tunnelTemp)}°C. Today step ${top.step} starts ${fmt(top.offsetWas ?? 0)}° above it, at ${fmt(tunnelTemp + (top.offsetWas ?? 0))}°C house average, and runs ${top.fansWas} of ${topFans} fans; the week's mean was ${st.tempMean ?? "?"}°C.${comfort} ` +
       `Spread over ${fmt(topOffset)}°, ${fmt(topOffset / span)}° a step, the top step arrives at ${fmt(tunnelTemp + topOffset)}°C average, about ${fmt(tunnelTemp + topOffset + 1.3)}°C at the exhaust end, and runs ${topFans} of the ${fansIn(order.length)} fans, the cap; each step adds fan groups in the order the ladder already brings them in, so no step has fewer fans than the one below. ` +
       `${changes.length} registers on the ladder page, steps ${rows[0]!.id} to ${top.step}. At the top ${Math.round(topFans * FAN_KW)} kW runs.${cost}${curtains}`,
-    evidence: { tunnelTemp, start, maxStep, spread: p.spread, maxFans: p.maxFans, pressurePa: p.pressurePa, topOffset, fit, points, allOpenPa: allOpen, order: order.map(groupNo), ladder, tempMean: st.tempMean, atMean: mean ? { stepWas: mean.was.step, fansWas: mean.was.fansWas, step: mean.will.step, fans: mean.will.fans } : null, feelsLikeHoursSevere: st.feelsLikeHoursSevere, feelsLikeHoursCritical: st.feelsLikeHoursCritical },
+    evidence: { tunnelTemp, start, floorStep, maxStep, spread: p.spread, maxFans: p.maxFans, pressurePa: p.pressurePa, topOffset, fit, points, allOpenPa: allOpen, order: order.map(groupNo), ladder, tempMean: st.tempMean, atMean: mean ? { stepWas: mean.was.step, fansWas: mean.was.fansWas, step: mean.will.step, fans: mean.will.fans } : null, feelsLikeHoursSevere: st.feelsLikeHoursSevere, feelsLikeHoursCritical: st.feelsLikeHoursCritical },
     changes,
   };
 };
