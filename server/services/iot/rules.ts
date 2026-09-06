@@ -13,7 +13,8 @@
  * monsoon changes. Every one is a number a manager may edit, at farm level
  * or for one house, and the rule reads the edited value.
  */
-import type { Catalog, CatalogPage } from "./controls";
+import type { Catalog, CatalogPage, CatalogRow } from "./controls";
+import { FAN_KW, fansInGroup } from "./feels-like";
 import type { WeekStats } from "./house-stats";
 
 export interface ProposedChange {
@@ -78,6 +79,18 @@ export const RULES = {
     title: "The ladder must not run backwards",
     description: "Every step up should add air. A step with fewer fans than the one below is a place the controller climbs into and gets less; this names them for a sitting at the ladder page.",
     params: {},
+  },
+  "ladder-reach": {
+    title: "The whole ladder within reach",
+    description:
+      "In tunnel the steps are measured from the tunnel temperature, and today's ladders put the top step five degrees above it, where the birds at the exhaust end are already in the critical band, with fans still idle. This spaces the tunnel steps evenly so the top step, with every fan group, arrives when the house average reaches the top temperature; each step up adds fan groups in the order the ladder already brings them in, so no step has fewer fans than the one below.",
+    params: { topAt: 30.0 },
+  },
+  "target-reachable": {
+    title: "A target the air can deliver",
+    description:
+      "A target below the coolest the shed reached all week is a number the outside air cannot deliver; it only holds the ladder up through every night. The target for the age row rises to the week's low less a little slack, to the nearest half degree and never above the ceiling. It is never lowered here: when the weather turns that is the vet's call.",
+    params: { slack: 0.4, ceiling: 28 },
   },
 } as const;
 export type RuleKey = keyof typeof RULES;
@@ -266,6 +279,113 @@ const ladderMonotonic: Rule = (ctx) => {
   };
 };
 
+/**
+ * The tunnel part of the ladder, rebuilt: offsets spaced evenly from the
+ * tunnel temperature to `topAt`, fan groups added step by step in the order
+ * the ladder already uses, every group running at the top.
+ */
+const ladderReach: Rule = (ctx, p) => {
+  const pg = page(ctx.catalog, "TFJB_TFJB_S");
+  const offCol = pg?.columns?.find((c) => c.key === "tempOffset");
+  if (!pg?.rows || !offCol) return null;
+  const setting = (leaf: string) => num(Object.entries(ctx.settings).find(([k]) => k.endsWith(leaf))?.[1]);
+  const maxStep = setting("当前最大通风级别") ?? 25;
+  const start = setting("纵向通风开启级别");
+  const row = rowInForce(ctx.catalog, "QXTZ_WDQX_S", ctx.settings, ctx.ageDays, "day", "target");
+  const tunnelTemp = row ? num(ctx.settings[row.cells.zxtf ?? ""]) : null;
+  if (start == null || tunnelTemp == null || start >= maxStep) return null;
+  const topOffset = Math.round((p.topAt! - tunnelTemp) * 10) / 10;
+  if (topOffset < 1) return null;
+
+  const rows = pg.rows.filter((r) => r.id >= start && r.id <= maxStep).sort((a, b) => a.id - b.id);
+  if (rows.length < 3) return null;
+  const groupKeys = Object.keys(rows[0]!.cells)
+    .filter((k) => /^f\d+$/.test(k))
+    .sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
+  const groupNo = (g: string) => Number(g.slice(1));
+  const mode = (r: CatalogRow, g: string) => num(ctx.settings[r.cells[g] ?? ""]) ?? 0;
+  const fansOf = (m: number, g: string) => (m === 2 ? fansInGroup(groupNo(g)) : m > 0 ? fansInGroup(groupNo(g)) / 2 : 0);
+
+  // The order the ladder already brings groups in — the commissioning
+  // engineer's spread across the fan wall — then any it never uses.
+  const order: string[] = [];
+  for (const r of rows) for (const g of groupKeys) if (mode(r, g) > 0 && !order.includes(g)) order.push(g);
+  for (const g of groupKeys) if (!order.includes(g)) order.push(g);
+  const total = order.length;
+  const firstCount = Math.max(2, groupKeys.filter((g) => mode(rows[0]!, g) > 0).length);
+  const span = rows.length - 1;
+
+  const changes: ProposedChange[] = [];
+  const ladder: Array<{ step: number; offsetWas: number | null; offset: number; fansWas: number; fans: number }> = [];
+  rows.forEach((r, i) => {
+    const offset = Math.round(((topOffset * i) / span) * 10) / 10;
+    const count = Math.round(firstCount + ((total - firstCount) * i) / span);
+    const on = new Set(order.slice(0, count));
+    const oc = change(ctx, r.cells.tempOffset!, `Step ${r.id} starts, above the tunnel temperature`, offCol.unit || "°C", offset, offCol.range || "0~999");
+    if (oc) changes.push(oc);
+    let fansWas = 0;
+    let fans = 0;
+    for (const g of groupKeys) {
+      const was = mode(r, g);
+      const want = on.has(g) ? (was > 0 ? was : 2) : 0;
+      fansWas += fansOf(was, g);
+      fans += fansOf(want, g);
+      if (want !== was) {
+        changes.push({
+          register: r.cells[g]!,
+          label: `Step ${r.id}, fan group ${groupNo(g)}`,
+          unit: "",
+          before: ctx.settings[r.cells[g]!] ?? null,
+          after: String(want),
+          critical: false,
+        });
+      }
+    }
+    ladder.push({ step: r.id, offsetWas: num(ctx.settings[r.cells.tempOffset!]), offset, fansWas, fans });
+  });
+  if (!changes.length) return null;
+
+  const top = ladder[ladder.length - 1]!;
+  const topFans = top.fans;
+  const st = ctx.stats;
+  const comfort =
+    st.feelsLikeHoursSevere != null
+      ? ` On the feels-like scale the house spent ${st.feelsLikeHoursSevere} h in the severe band and ${st.feelsLikeHoursCritical ?? 0} h critical this week, at a mean step of ${st.stepMean ?? "?"}.`
+      : "";
+  return {
+    rule: "ladder-reach",
+    title: RULES["ladder-reach"].title,
+    reason:
+      `In tunnel the steps are measured from the tunnel temperature, ${fmt(tunnelTemp)}°C. Today step ${top.step} starts ${fmt(top.offsetWas ?? 0)}° above it, at ${fmt(tunnelTemp + (top.offsetWas ?? 0))}°C house average, and runs ${top.fansWas} of ${topFans} fans; the week's mean was ${st.tempMean ?? "?"}°C.${comfort} ` +
+      `Spaced ${fmt(topOffset / span)}° apart, the top step with all ${topFans} fans arrives at ${fmt(p.topAt!)}°C average, about ${fmt(p.topAt! + 1.3)}°C at the exhaust end; each step adds fan groups in the order the ladder already brings them in, so no step has fewer fans than the one below. ` +
+      `${changes.length} registers on the ladder page, steps ${rows[0]!.id} to ${top.step}. At the top every fan runs, ${Math.round(topFans * FAN_KW)} kW: the generator must carry that.`,
+    evidence: { tunnelTemp, start, maxStep, topAt: p.topAt, topOffset, order: order.map(groupNo), ladder, tempMean: st.tempMean, feelsLikeHoursSevere: st.feelsLikeHoursSevere, feelsLikeHoursCritical: st.feelsLikeHoursCritical },
+    changes,
+  };
+};
+
+const targetReachable: Rule = (ctx, p) => {
+  const row = rowInForce(ctx.catalog, "QXTZ_WDQX_S", ctx.settings, ctx.ageDays, "day", "target");
+  const low = ctx.stats.tempMin;
+  if (!row || low == null) return null;
+  const target = num(ctx.settings[row.cells.target ?? ""]);
+  if (target == null) return null;
+  const want = Math.min(p.ceiling!, Math.round((low - p.slack!) * 2) / 2);
+  if (want <= target + 0.05) return null;
+  const col = page(ctx.catalog, "QXTZ_WDQX_S")!.columns!.find((c) => c.key === "target")!;
+  const c = change(ctx, row.cells.target!, `Target, age row from day ${num(ctx.settings[row.cells.day!])}`, col.unit || "°C", want, col.range || "0~50", true);
+  if (!c) return null;
+  return {
+    rule: "target-reachable",
+    title: RULES["target-reachable"].title,
+    reason:
+      `The shed's coolest reading all week was ${fmt(low)}°C and the target for this age row is ${fmt(target)}°C: a number the outside air did not deliver once in ${Math.round(ctx.stats.hours)} hours, so the ladder held its ceiling through every night for nothing. ` +
+      `A target of ${fmt(want)}°C, the week's low less ${fmt(p.slack!)}° to the nearest half degree and never above ${fmt(p.ceiling!)}, asks for what the air can give. Once written, the companions rule brings the tunnel temperature and the high alarm up with it.`,
+    evidence: { tempMin: low, tempMean: ctx.stats.tempMean, target, want, hours: ctx.stats.hours, ageDays: ctx.ageDays },
+    changes: [c],
+  };
+};
+
 export const RULE_FNS: Record<RuleKey, Rule> = {
   companions,
   "pads-humidity": padsHumidity,
@@ -273,6 +393,8 @@ export const RULE_FNS: Record<RuleKey, Rule> = {
   floor,
   consistency,
   "ladder-monotonic": ladderMonotonic,
+  "ladder-reach": ladderReach,
+  "target-reachable": targetReachable,
 };
 
 /** Every enabled rule's answer for one house. */
@@ -284,5 +406,7 @@ export function evaluate(ctx: HouseContext, params: Partial<Record<RuleKey, Reco
     const d = RULE_FNS[key](ctx, p);
     if (d) out.push(d);
   }
+  // A rebuilt ladder is monotonic by construction; the sitting is not needed while it is on the table.
+  if (out.some((d) => d.rule === "ladder-reach" && d.changes.length)) return out.filter((d) => d.rule !== "ladder-monotonic");
   return out;
 }

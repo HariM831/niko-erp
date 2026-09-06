@@ -329,7 +329,10 @@ export function FarmControlsPage() {
   };
   const decide = async (p: Proposal, action: "approve" | "dismiss") => {
     if (action === "approve") {
-      const lines = p.changes.map((c) => `${c.label}: ${show(c.before ?? undefined)} → ${c.after} ${c.unit}`).join("\n");
+      const lines =
+        p.changes.length > 12
+          ? `${p.changes.length} registers on one page, as the proposal's table shows.`
+          : p.changes.map((c) => `${c.label}: ${show(c.before ?? undefined)} → ${c.after} ${c.unit}`).join("\n");
       const ok = window.confirm(
         `${p.changes.some((c) => c.critical) ? "This changes a master register on a live shed.\n\n" : ""}Send to ${house?.code ?? "the controller"}?\n\n${lines}`,
       );
@@ -887,7 +890,9 @@ function ProposalsPanel({
               </div>
             </div>
             <p className="mt-1 max-w-[80ch] text-[12.5px] leading-snug text-soil-900">{p.reason}</p>
-            {p.changes.length > 0 ? (
+            {Array.isArray(p.evidence.ladder) ? (
+              <LadderGrid ladder={p.evidence.ladder as LadderRow[]} registers={p.changes.length} />
+            ) : p.changes.length > 0 ? (
               <table className="mt-2 text-[12.5px]">
                 <thead>
                   <tr className="text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -962,6 +967,54 @@ function ProposalsPanel({
         </ul>
       )}
     </section>
+  );
+}
+
+interface LadderRow {
+  step: number;
+  offsetWas: number | null;
+  offset: number;
+  fansWas: number;
+  fans: number;
+}
+
+/** A rebuilt ladder, step by step: where each step starts and how many fans it runs, was and will be. */
+function LadderGrid({ ladder, registers }: { ladder: LadderRow[]; registers: number }) {
+  const cell = (was: number | null, will: number, unit = "") => (
+    <>
+      <td className="py-0.5 pr-3 text-right tabular-nums text-muted-foreground">{was == null ? "—" : `${was}${unit}`}</td>
+      <td className={`py-0.5 pr-5 text-right tabular-nums ${was !== will ? "font-semibold text-soil-900" : "text-muted-foreground"}`}>
+        {will}
+        {unit}
+      </td>
+    </>
+  );
+  return (
+    <div className="mt-2 overflow-x-auto">
+      <table className="text-[12px]">
+        <thead>
+          <tr className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            <th className="py-1 pr-4 text-left font-semibold">Step</th>
+            <th className="py-1 pr-3 text-right font-semibold">Starts, was</th>
+            <th className="py-1 pr-5 text-right font-semibold">Will be</th>
+            <th className="py-1 pr-3 text-right font-semibold">Fans, was</th>
+            <th className="py-1 pr-5 text-right font-semibold">Will be</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ladder.map((r) => (
+            <tr key={r.step} className="border-t border-soil-100/70">
+              <td className="py-0.5 pr-4 tabular-nums">{r.step}</td>
+              {cell(r.offsetWas, r.offset, "°")}
+              {cell(r.fansWas, r.fans)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="mt-1 text-[11px] text-muted-foreground">
+        "Starts" is degrees above the tunnel temperature. {registers} registers on the ladder page change; fans are added in the order the ladder already uses.
+      </div>
+    </div>
   );
 }
 

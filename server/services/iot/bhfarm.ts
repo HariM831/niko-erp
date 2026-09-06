@@ -649,7 +649,17 @@ export interface BhWrite {
  * write log keeps it.
  */
 export async function writeRegisters(changes: BhWrite[]): Promise<unknown> {
-  return post<unknown>(EP.controlWrite, changes);
+  if (changes.length <= CHUNK()) return post<unknown>(EP.controlWrite, changes);
+  // A rebuilt ladder is hundreds of registers. The vendor's page sends one
+  // page at a time, so send it in pages and answer with one merged reply.
+  const replies: unknown[] = [];
+  for (let i = 0; i < changes.length; i += CHUNK()) replies.push(await post<unknown>(EP.controlWrite, changes.slice(i, i + CHUNK())));
+  const objs = replies.filter((r): r is { status?: unknown; noAdressListDtos?: unknown[] } => typeof r === "object" && r !== null);
+  return {
+    status: objs.every((r) => r.status !== false),
+    noAdressListDtos: objs.flatMap((r) => (Array.isArray(r.noAdressListDtos) ? r.noAdressListDtos : [])),
+    replies,
+  };
 }
 
 /** The same write for several houses at once: {houseCode: changes}. */
