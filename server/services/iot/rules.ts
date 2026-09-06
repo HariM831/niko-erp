@@ -377,13 +377,16 @@ const ladderReach: Rule = (ctx, p) => {
   const floorStep = (floorRow && num(ctx.settings[floorRow.cells.minLevel ?? ""])) || start;
   let prevCount = 0;
   let prevFans = 0;
+  // above the floor the ramp runs from the floor's own strength to the cap
+  let rampFrom: { step: number; count: number } = { step: start, count: firstCount };
   rows.forEach((r, i) => {
     const offset = Math.round(((topOffset * i) / span) * 10) / 10;
-    const ramp = Math.round(firstCount + ((total - firstCount) * i) / span);
+    const ramp = Math.round(rampFrom.count + ((total - rampFrom.count) * (r.id - rampFrom.step)) / Math.max(1, maxStep - rampFrom.step));
     const keep = r.id <= floorStep ? countToday(r) : 0;
     let count = Math.min(total, Math.max(prevCount, keep, ramp));
     // groups 21 and 22 hold four fans, so a step's fans, not only its groups, must not fall
     while (count < total && fansIn(count) < Math.max(prevFans, r.id <= floorStep ? fansToday(r) : 0)) count++;
+    if (r.id === floorStep) rampFrom = { step: r.id, count };
     prevCount = count;
     prevFans = fansIn(count);
     const on = new Set(order.slice(0, count));
