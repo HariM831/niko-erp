@@ -586,7 +586,7 @@ function TablePage({ page }: { page: PageLive }) {
           <tr className="text-[10px] uppercase tracking-wide text-muted-foreground">
             <th className="sticky left-0 bg-white px-2 py-2 text-left font-semibold">{isLadder ? "Step" : "Row"}</th>
             {plainCols.map((c) => (
-              <th key={c.key} className="max-w-[92px] px-2 py-2 text-right font-semibold leading-tight" title={`${c.labelEn}${c.range ? ` · range ${range(c.range)}` : ""}`}>
+              <th key={c.key} className="max-w-[92px] px-2 py-2 text-right font-semibold leading-tight" title={`${c.labelEn}${c.range ? ` · range ${range(c.range)}` : ""}${c.explain ? `\n${c.explain}` : ""}`}>
                 {isLadder ? c.labelEn.replace(/^Level\s+/i, "") : c.labelEn}
                 {c.unit && !wordy(c.kind) && <span className="ml-1 normal-case tracking-normal text-muted-foreground/80">{c.unit}</span>}
               </th>
@@ -625,6 +625,28 @@ function TablePage({ page }: { page: PageLive }) {
           ))}
         </tbody>
       </table>
+      {/* What each column does, once, since a grid has no room for a sentence per cell. */}
+      {(plainCols.some((c) => c.explain) || (page.page.shared ?? []).some((f) => f.explain)) && (
+        <div className="border-t border-soil-100/70 px-3 py-3">
+          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">What each column does</div>
+          <dl className="grid gap-x-6 gap-y-1.5 text-[12px] md:grid-cols-2">
+            {[...(page.page.shared ?? []), ...plainCols]
+              .filter((c) => c.explain)
+              .map((c) => (
+                <div key={"key" in c ? c.key : c.register} className="grid grid-cols-[minmax(90px,140px)_1fr] gap-2">
+                  <dt className="font-medium text-soil-900">{c.labelEn}</dt>
+                  <dd className="m-0 leading-snug text-muted-foreground">{c.explain}</dd>
+                </div>
+              ))}
+            {fanCols.length > 0 && fanCols[0]!.explain && (
+              <div className="grid grid-cols-[minmax(90px,140px)_1fr] gap-2">
+                <dt className="font-medium text-soil-900">Fan groups</dt>
+                <dd className="m-0 leading-snug text-muted-foreground">{fanCols[0]!.explain}</dd>
+              </div>
+            )}
+          </dl>
+        </div>
+      )}
       {fanCols.length > 0 && (
         <div className="flex flex-wrap gap-4 px-3 py-2 text-[11px] text-muted-foreground">
           {Object.entries(FAN_GLYPH).map(([k, g]) => (

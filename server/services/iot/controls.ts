@@ -228,7 +228,7 @@ function normaliseTable(raw: unknown[], houseCode: string): Pick<CatalogPage, "c
         columns.set(key, {
           key,
           labelEn: fan ? `Fan ${key.slice(1)}` : en(leaf),
-          explain: fan ? undefined : explain(leaf),
+          explain: fan ? explain("级别风机") : explain(leaf),
           range: String((fan ? r.fjRange : r[`${key}Range`]) ?? ""),
           unit: fan ? "" : unitFor(leaf, r[`${key}Unit`]),
           kind: isTimeOfDay(leaf) ? "time" : String((fan ? r.fjType : r[`${key}Type`]) || "number"),
