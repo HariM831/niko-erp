@@ -560,6 +560,8 @@ function TablePage({ page }: { page: PageLive }) {
   /** Rows the vendor pads out with zeros, dropped when every settable cell is zero — beyond the farm's 25 steps, or curve rows never filled. */
   const shown = rows.filter((r, i) => {
     if (i < 1) return true;
+    // A schedule or curve row whose age is 0 is a row the vendor pads out, whatever else it holds.
+    if (r.cells.day && Number(page.values[r.cells.day] ?? 0) === 0) return false;
     return Object.values(r.cells).some((reg) => {
       const v = Number(page.values[reg] ?? 0);
       return Number.isFinite(v) && v !== 0;
