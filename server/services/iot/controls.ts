@@ -78,6 +78,8 @@ export interface CatalogPage {
   fields?: CatalogField[];
   columns?: CatalogColumn[];
   rows?: CatalogRow[];
+  /** Registers the vendor repeats in every row of a table but that belong to the page — the fan cycle time, the tunnel entry step. */
+  shared?: CatalogField[];
   /** Every register on the page, in order. */
   registers: string[];
   /** Registers the vendor marks read-only (status figures on a settings page). */
@@ -153,7 +155,7 @@ function normaliseForm(raw: unknown[], houseCode: string): Pick<CatalogPage, "fi
  * for each settable cell, and fan cells as `f1`..`f26` with shared
  * `fjOptions`/`fjType`/`fjRange`. Columns are discovered from the keys.
  */
-function normaliseTable(raw: unknown[], houseCode: string): Pick<CatalogPage, "columns" | "rows" | "registers" | "readOnlyRegisters"> {
+function normaliseTable(raw: unknown[], houseCode: string): Pick<CatalogPage, "columns" | "rows" | "shared" | "registers" | "readOnlyRegisters"> {
   const columns = new Map<string, CatalogColumn>();
   const rows: CatalogRow[] = [];
   const registers: string[] = [];
@@ -188,7 +190,34 @@ function normaliseTable(raw: unknown[], houseCode: string): Pick<CatalogPage, "c
       cells,
     });
   }
-  return { columns: [...columns.values()], rows, registers, readOnlyRegisters: [] };
+  /*
+   * A column whose register is the same in every row is not a column: the
+   * vendor repeats the page's own settings (fan cycle time, tunnel entry step)
+   * on each row for its grid's convenience. Lifted out, so the grid holds only
+   * what varies by row and the page shows the rest once.
+   */
+  const shared: CatalogField[] = [];
+  if (rows.length > 1) {
+    for (const col of [...columns.values()]) {
+      const regs = new Set(rows.map((r) => r.cells[col.key]).filter(Boolean));
+      if (regs.size !== 1 || rows.some((r) => !r.cells[col.key])) continue;
+      const register = [...regs][0]!;
+      shared.push({
+        label: register.split(".").pop() ?? register,
+        labelEn: col.labelEn,
+        register,
+        range: col.range,
+        unit: col.unit,
+        kind: col.kind,
+        options: col.options,
+        readOnly: false,
+        group: "",
+      });
+      columns.delete(col.key);
+      for (const r of rows) delete r.cells[col.key];
+    }
+  }
+  return { columns: [...columns.values()], rows, shared, registers: [...new Set(registers)], readOnlyRegisters: [] };
 }
 
 /** Walk the vendor's tree into a flat list of (path, layout) pairs. */

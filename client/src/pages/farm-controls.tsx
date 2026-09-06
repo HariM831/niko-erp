@@ -72,6 +72,7 @@ interface PageDef {
   fields?: Field[];
   columns?: Column[];
   rows?: Row[];
+  shared?: Field[];
   registers: string[];
   readOnlyRegisters: string[];
 }
@@ -356,7 +357,7 @@ export function FarmControlsPage() {
           {manage ? " Use Fetch catalogue above; it asks the vendor for every page once." : " Ask a farm manager to fetch it."}
         </div>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)_280px]">
+        <div className="grid gap-4 lg:grid-cols-[210px_minmax(0,1fr)]">
           {/* ── Sections ─────────────────────────────────────────────── */}
           <nav className="rounded-2xl bg-white p-2 shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)] lg:sticky lg:top-4 lg:self-start">
             {sections.map((s) => (
@@ -399,12 +400,24 @@ export function FarmControlsPage() {
               </div>
             </header>
             {pageError && <div className="px-4 py-3 text-[12px] text-destructive">{pageError}</div>}
+            {page?.page.shared && page.page.shared.length > 0 && (
+              <div className="flex flex-wrap gap-x-5 gap-y-1 border-b border-soil-100/70 px-4 py-2 text-[12px]">
+                {page.page.shared.map((f) => (
+                  <span key={f.register} title={`${f.label} · ${f.register}${f.range ? ` · range ${f.range}` : ""}`}>
+                    <span className="text-muted-foreground">{f.labelEn}</span>{" "}
+                    <span className="font-semibold tabular-nums text-soil-900">
+                      {show(page.values[f.register], f.options)} {f.unit}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            )}
             {page?.page.type === "Form" && <FormPage page={page} />}
             {page?.page.type === "Table" && <TablePage page={page} />}
           </section>
 
           {/* ── Changed outside niko ─────────────────────────────────── */}
-          <aside className="rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)] lg:sticky lg:top-4 lg:self-start">
+          <aside className="rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)] lg:col-start-2">
             <div className="border-b border-soil-100/70 px-4 py-3">
               <div className="text-[13px] font-bold text-soil-900">Changed outside niko</div>
               <div className="text-[11px] text-muted-foreground">
@@ -416,7 +429,7 @@ export function FarmControlsPage() {
                 {status?.snapshot ? "Nothing has changed since the settings were first kept." : "Nothing to compare yet."}
               </div>
             ) : (
-              <ul className="max-h-[70vh] overflow-y-auto divide-y divide-soil-100/70">
+              <ul className="max-h-[50vh] overflow-y-auto divide-y divide-soil-100/70">
                 {changes.map((c) => (
                   <li key={c.id} className="px-4 py-2.5 text-[12px]">
                     <div className="font-semibold text-soil-900" title={c.register}>
@@ -515,26 +528,26 @@ function TablePage({ page }: { page: PageLive }) {
       <table className="text-[12.5px]">
         <thead>
           <tr className="text-[10px] uppercase tracking-wide text-muted-foreground">
-            <th className="sticky left-0 bg-white px-3 py-2 text-left font-semibold">{isLadder ? "Step" : "Row"}</th>
+            <th className="sticky left-0 bg-white px-2 py-2 text-left font-semibold">{isLadder ? "Step" : "Row"}</th>
             {plainCols.map((c) => (
-              <th key={c.key} className="px-3 py-2 text-right font-semibold" title={c.range ? `range ${c.range}` : undefined}>
-                {c.labelEn}
+              <th key={c.key} className="max-w-[92px] px-2 py-2 text-right font-semibold leading-tight" title={`${c.labelEn}${c.range ? ` · range ${c.range}` : ""}`}>
+                {isLadder ? c.labelEn.replace(/^Level\s+/i, "") : c.labelEn}
                 {c.unit && <span className="ml-1 normal-case tracking-normal text-muted-foreground/80">{c.unit}</span>}
               </th>
             ))}
-            {fanCols.map((c) => (
-              <th key={c.key} className="px-1 py-2 text-center font-semibold" title={c.options.map((o) => `${o.value} ${o.labelEn}`).join(" · ")}>
-                {c.key.slice(1)}
+            {fanCols.length > 0 && (
+              <th className="px-1 py-2 text-left font-semibold" colSpan={fanCols.length} title={fanCols[0]!.options.map((o) => `${o.value} ${o.labelEn}`).join(" · ")}>
+                Fan groups 1–{fanCols.length}
               </th>
-            ))}
+            )}
           </tr>
         </thead>
         <tbody>
           {shown.map((r) => (
             <tr key={r.id} className="border-t border-soil-100/70">
-              <td className="sticky left-0 bg-white px-3 py-1.5 font-semibold text-soil-900">{r.label}</td>
+              <td className="sticky left-0 bg-white px-2 py-1.5 font-semibold text-soil-900">{r.label}</td>
               {plainCols.map((c) => (
-                <td key={c.key} className="px-3 py-1.5 text-right tabular-nums text-soil-900" title={r.cells[c.key]}>
+                <td key={c.key} className="px-2 py-1.5 text-right tabular-nums text-soil-900" title={r.cells[c.key]}>
                   {r.cells[c.key] ? show(page.values[r.cells[c.key]!], c.options) : ""}
                 </td>
               ))}
@@ -543,7 +556,7 @@ function TablePage({ page }: { page: PageLive }) {
                 const v = reg ? page.values[reg] : undefined;
                 const g = v == null ? null : FAN_GLYPH[String(Math.round(Number(v)))] ?? null;
                 return (
-                  <td key={c.key} className={`px-1 py-1.5 text-center text-[15px] leading-none ${g?.cls ?? "text-soil-200"}`} title={g ? `fan group ${c.key.slice(1)}: ${g.title}` : undefined}>
+                  <td key={c.key} className={`w-[18px] px-0 py-1.5 text-center text-[14px] leading-none ${g?.cls ?? "text-soil-200"}`} title={g ? `fan group ${c.key.slice(1)}: ${g.title}` : undefined}>
                     {g?.glyph ?? "·"}
                   </td>
                 );
