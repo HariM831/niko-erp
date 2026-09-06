@@ -327,17 +327,14 @@ export function FarmControlsPage() {
       setBusy(null);
     }
   };
-  const decide = async (p: Proposal, action: "approve" | "dismiss") => {
-    if (action === "approve") {
-      const lines =
-        p.changes.length > 12
-          ? `${p.changes.length} registers on one page, as the proposal's table shows.`
-          : p.changes.map((c) => `${c.label}: ${show(c.before ?? undefined)} → ${c.after} ${c.unit}`).join("\n");
-      const ok = window.confirm(
-        `${p.changes.some((c) => c.critical) ? "This changes a master register on a live shed.\n\n" : ""}Send to ${house?.code ?? "the controller"}?\n\n${lines}`,
-      );
-      if (!ok) return;
+  const [confirming, setConfirming] = useState<number | null>(null);
+  const decide = async (p: Proposal, action: "approve" | "dismiss", confirmed = false) => {
+    // Approval asks once more, on the page itself: a browser dialog is swallowed in some shells.
+    if (action === "approve" && !confirmed) {
+      setConfirming(p.id);
+      return;
     }
+    setConfirming(null);
     setBusy(`p${p.id}`);
     setNotice(null);
     try {
@@ -591,6 +588,8 @@ export function FarmControlsPage() {
               writesOn={rules?.farm.writesEnabled ?? false}
               busy={busy}
               onDecide={decide}
+              confirming={confirming}
+              onCancel={() => setConfirming(null)}
               houseCode={house?.code ?? ""}
             />
           </div>
@@ -849,6 +848,8 @@ function ProposalsPanel({
   writesOn,
   busy,
   onDecide,
+  confirming,
+  onCancel,
   houseCode,
 }: {
   proposals: Proposal[];
@@ -858,7 +859,9 @@ function ProposalsPanel({
   canDecide: boolean;
   writesOn: boolean;
   busy: string | null;
-  onDecide: (p: Proposal, action: "approve" | "dismiss") => void;
+  onDecide: (p: Proposal, action: "approve" | "dismiss", confirmed?: boolean) => void;
+  confirming: number | null;
+  onCancel: () => void;
   houseCode: string;
 }) {
   return (
@@ -919,7 +922,30 @@ function ProposalsPanel({
             ) : (
               <div className="mt-2 text-[11.5px] text-muted-foreground">Nothing to write; this one asks for a sitting at the panel.</div>
             )}
-            {canDecide && (
+            {canDecide && confirming === p.id && (
+              <div className="mt-2 rounded-lg border border-yolk-300 bg-yolk-50 px-3 py-2 text-[12px] text-soil-900">
+                <div className="font-semibold">
+                  Send {p.changes.length} register{p.changes.length === 1 ? "" : "s"} to {houseCode}?
+                  {p.changes.some((c) => c.critical) && <span className="ml-2 font-normal text-yolk-800">This changes a master register on a live shed.</span>}
+                </div>
+                <div className="mt-0.5 text-[11.5px] text-muted-foreground">
+                  niko reads the registers, writes, and reads them back until the controller reports the new values, up to a minute or two for a whole ladder.
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <button
+                    onClick={() => onDecide(p, "approve", true)}
+                    disabled={busy !== null}
+                    className="rounded-lg bg-yolk-500 px-3 py-1 text-[12px] font-semibold text-white hover:bg-yolk-600 disabled:opacity-50"
+                  >
+                    {busy === `p${p.id}` ? "Sending…" : "Yes, send"}
+                  </button>
+                  <button onClick={onCancel} disabled={busy !== null} className="rounded-lg border border-soil-200 bg-white px-3 py-1 text-[12px] hover:bg-soil-50 disabled:opacity-50">
+                    Not now
+                  </button>
+                </div>
+              </div>
+            )}
+            {canDecide && confirming !== p.id && (
               <div className="mt-2 flex items-center gap-2">
                 {p.changes.length > 0 && (
                   <button
@@ -976,10 +1002,15 @@ interface LadderRow {
   offset: number;
   fansWas: number;
   fans: number;
+  c1Was?: number | null;
+  c1?: number;
+  c2Was?: number | null;
+  c2?: number;
 }
 
 /** A rebuilt ladder, step by step: where each step starts and how many fans it runs, was and will be. */
 function LadderGrid({ ladder, registers }: { ladder: LadderRow[]; registers: number }) {
+  const curtains = ladder.some((r) => r.c1 != null);
   const cell = (was: number | null, will: number, unit = "") => (
     <>
       <td className="py-0.5 pr-3 text-right tabular-nums text-muted-foreground">{was == null ? "—" : `${was}${unit}`}</td>
@@ -999,6 +1030,14 @@ function LadderGrid({ ladder, registers }: { ladder: LadderRow[]; registers: num
             <th className="py-1 pr-5 text-right font-semibold">Will be</th>
             <th className="py-1 pr-3 text-right font-semibold">Fans, was</th>
             <th className="py-1 pr-5 text-right font-semibold">Will be</th>
+            {curtains && (
+              <>
+                <th className="py-1 pr-3 text-right font-semibold">Gable curtain, was</th>
+                <th className="py-1 pr-5 text-right font-semibold">Will be</th>
+                <th className="py-1 pr-3 text-right font-semibold">Side curtains, was</th>
+                <th className="py-1 pr-5 text-right font-semibold">Will be</th>
+              </>
+            )}
           </tr>
         </thead>
         <tbody>
@@ -1007,12 +1046,15 @@ function LadderGrid({ ladder, registers }: { ladder: LadderRow[]; registers: num
               <td className="py-0.5 pr-4 tabular-nums">{r.step}</td>
               {cell(r.offsetWas, r.offset, "°")}
               {cell(r.fansWas, r.fans)}
+              {curtains && cell(r.c1Was ?? null, r.c1 ?? 0, "%")}
+              {curtains && cell(r.c2Was ?? null, r.c2 ?? 0, "%")}
             </tr>
           ))}
         </tbody>
       </table>
       <div className="mt-1 text-[11px] text-muted-foreground">
-        "Starts" is degrees above the tunnel temperature. {registers} registers on the ladder page change; fans are added in the order the ladder already uses.
+        "Starts" is degrees above the tunnel temperature. {registers} registers on the ladder page change; fans are added in the order the ladder already uses
+        {curtains ? "; the gable curtain opens fully before the side curtains start" : ""}.
       </div>
     </div>
   );

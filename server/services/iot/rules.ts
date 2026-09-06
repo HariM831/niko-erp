@@ -72,8 +72,8 @@ export const RULES = {
   },
   consistency: {
     title: "One policy for every shed",
-    description: "Negative pressure control on, so the inlets are managed for jet speed in tunnel mode; spray humidity setpoint at 100 while the spray is not in use.",
-    params: { pressureControl: 1, sprayHumiditySetpoint: 100 },
+    description: "Negative pressure control on and the same pressure whatever the outside temperature, so the openings are managed for jet speed; spray humidity setpoint at 100 while the spray is not in use.",
+    params: { pressureControl: 1, pressurePa: 25, sprayHumiditySetpoint: 100 },
   },
   "ladder-monotonic": {
     title: "The ladder must not run backwards",
@@ -83,8 +83,8 @@ export const RULES = {
   "ladder-reach": {
     title: "The whole ladder within reach",
     description:
-      "In tunnel the steps are measured from the tunnel temperature, and today's ladders put the top step five degrees above it, where the birds at the exhaust end are already in the critical band, with fans still idle. This spaces the tunnel steps evenly so the top step, with every fan group, arrives when the house average reaches the top temperature; each step up adds fan groups in the order the ladder already brings them in, so no step has fewer fans than the one below.",
-    params: { topAt: 30.0 },
+      "In tunnel the steps are measured from the tunnel temperature, and today's ladders put the top step five degrees above it, where the birds at the exhaust end are already in the critical band, with fans still idle. This spaces the tunnel steps evenly over the spread, so the top step arrives that many degrees above the tunnel temperature and runs as many fans as the cap allows; each step up adds fan groups in the order the ladder already brings them in, so no step has fewer fans than the one below. The tunnel curtains open in proportion: curtain 1 on the gable wall opens first and fully before curtain 2 on the side walls starts, each step's opening sized from the week's pressure readings to hold the set pressure. Decided 6 September 2026: a spread of 4° because the house reaches 31 at times, 40 fans at the top, 25 Pa.",
+    params: { spread: 4.0, maxFans: 40, pressurePa: 25, curtain1Area: 108, curtain2Area: 216 },
   },
   "target-reachable": {
     title: "A target the air can deliver",
@@ -246,6 +246,12 @@ const consistency: Rule = (ctx, p) => {
     const c = change(ctx, pc.register, pc.labelEn, "", p.pressureControl!, "0~1");
     if (c) changes.push({ ...c, after: fmt(p.pressureControl!) });
   }
+  for (const leaf of ["低温压力", "高温压力"]) {
+    const f = fieldByLeaf(ctx.catalog, "FYSD_S", leaf);
+    if (!f) continue;
+    const c = change(ctx, f.register, f.labelEn, f.unit || "Pa", p.pressurePa!, f.range || "0~100");
+    if (c) changes.push(c);
+  }
   const sp = page(ctx.catalog, "PW_S")?.fields?.find((f) => f.register.endsWith("湿度设定") && !f.register.endsWith("喷雾湿度设定"));
   if (sp) {
     const c = change(ctx, sp.register, sp.labelEn, sp.unit, p.sprayHumiditySetpoint!, sp.range || "0~100");
@@ -294,7 +300,7 @@ const ladderReach: Rule = (ctx, p) => {
   const row = rowInForce(ctx.catalog, "QXTZ_WDQX_S", ctx.settings, ctx.ageDays, "day", "target");
   const tunnelTemp = row ? num(ctx.settings[row.cells.zxtf ?? ""]) : null;
   if (start == null || tunnelTemp == null || start >= maxStep) return null;
-  const topOffset = Math.round((p.topAt! - tunnelTemp) * 10) / 10;
+  const topOffset = Math.round(p.spread! * 10) / 10;
   if (topOffset < 1) return null;
 
   const rows = pg.rows.filter((r) => r.id >= start && r.id <= maxStep).sort((a, b) => a.id - b.id);
@@ -314,16 +320,54 @@ const ladderReach: Rule = (ctx, p) => {
   const order: string[] = [];
   for (const r of rows) for (const g of used) if (mode(r, g) > 0 && !order.includes(g)) order.push(g);
   for (const g of used) if (!order.includes(g)) order.push(g);
-  const total = order.length;
+  const fansIn = (count: number) => order.slice(0, count).reduce((n, g) => n + fansInGroup(groupNo(g)), 0);
+  // As many groups as the fan cap allows, in that order.
+  let total = order.length;
+  while (total > 1 && fansIn(total) > p.maxFans!) total--;
   const countToday = (r: CatalogRow) => used.filter((g) => mode(r, g) > 0).length;
   const firstCount = Math.max(2, countToday(rows[0]!));
   const span = rows.length - 1;
 
+  /*
+   * The curtains. Static pressure is what the fans pull against the pads and
+   * the curtain opening in series: P ≈ fans² · (a + b / area²), with a the
+   * pads' share and b the curtains'. Both are fitted from this week's samples
+   * — the mean pressure at each step, against today's fans and opening at
+   * that step — so the sizing is this house's, not a textbook's. Curtain 1 on
+   * the gable wall opens first and fully; curtain 2 on the side walls only
+   * after it.
+   */
+  const A1 = p.curtain1Area!;
+  const A2 = p.curtain2Area!;
+  const pct = (r: CatalogRow, key: string) => num(ctx.settings[r.cells[key] ?? ""]);
+  const areaToday = (r: CatalogRow) => ((pct(r, "mlRate") ?? 0) / 100) * A1 + ((pct(r, "mL2Rate") ?? 0) / 100) * A2;
+  const points: Array<{ step: number; n: number; pa: number; fans: number; area: number }> = [];
+  for (const r of rows) {
+    const s = ctx.stats.pressureByStep[r.id];
+    const fans = ctx.fansAtStep?.[r.id] ?? null;
+    const area = areaToday(r);
+    if (s && s.n >= 5 && fans && fans > 0 && area > 0) points.push({ step: r.id, n: s.n, pa: s.mean, fans, area });
+  }
+  let fit: { a: number; b: number } | null = null;
+  if (points.length >= 3) {
+    const xs = points.map((q) => 1 / (q.area * q.area));
+    const ys = points.map((q) => q.pa / (q.fans * q.fans));
+    const mx = xs.reduce((u, v) => u + v, 0) / xs.length;
+    const my = ys.reduce((u, v) => u + v, 0) / ys.length;
+    const sxx = xs.reduce((u, x) => u + (x - mx) * (x - mx), 0);
+    const b = sxx > 0 ? xs.reduce((u, x, i) => u + (x - mx) * (ys[i]! - my), 0) / sxx : 0;
+    const a = my - b * mx;
+    if (b > 0 && a >= 0) fit = { a, b };
+  }
+  const round5 = (x: number) => Math.max(0, Math.min(100, Math.round(x / 5) * 5));
+  const hasCurtains = rows.every((r) => r.cells.mlRate && r.cells.mL2Rate);
+
   const changes: ProposedChange[] = [];
-  const ladder: Array<{ step: number; offsetWas: number | null; offset: number; fansWas: number; fans: number }> = [];
+  const ladder: Array<{ step: number; offsetWas: number | null; offset: number; fansWas: number; fans: number; c1Was?: number | null; c1?: number; c2Was?: number | null; c2?: number }> = [];
+  let prevC1 = 0;
+  let prevC2 = 0;
   // Each step runs at least as many groups as it does today, at least as
   // many as the step below, and climbs to every group at the top.
-  const fansIn = (count: number) => order.slice(0, count).reduce((n, g) => n + fansInGroup(groupNo(g)), 0);
   const fansToday = (r: CatalogRow) => used.reduce((n, g) => n + fansOf(mode(r, g), g), 0);
   let prevCount = 0;
   let prevFans = 0;
@@ -356,7 +400,24 @@ const ladderReach: Rule = (ctx, p) => {
         });
       }
     }
-    ladder.push({ step: r.id, offsetWas: num(ctx.settings[r.cells.tempOffset!]), offset, fansWas, fans });
+    const entry: (typeof ladder)[number] = { step: r.id, offsetWas: num(ctx.settings[r.cells.tempOffset!]), offset, fansWas, fans };
+    if (fit && hasCurtains) {
+      const need = p.pressurePa! / (fans * fans) - fit.a;
+      const area = need > 0 ? Math.sqrt(fit.b / need) : Infinity;
+      const c1 = Math.max(prevC1, round5((Math.min(area, A1) / A1) * 100));
+      const c2 = Math.max(prevC2, area <= A1 ? 0 : round5((Math.min(area - A1, A2) / A2) * 100));
+      prevC1 = c1;
+      prevC2 = c2;
+      Object.assign(entry, { c1Was: pct(r, "mlRate"), c1, c2Was: pct(r, "mL2Rate"), c2 });
+      for (const [key, want, name] of [
+        ["mlRate", c1, "curtain 1 open"],
+        ["mL2Rate", c2, "curtain 2 open"],
+      ] as const) {
+        const cc = change(ctx, r.cells[key]!, `Step ${r.id}, ${name}`, "%", want, "0~100");
+        if (cc) changes.push(cc);
+      }
+    }
+    ladder.push(entry);
   });
   if (!changes.length) return null;
 
@@ -369,6 +430,10 @@ const ladderReach: Rule = (ctx, p) => {
   const cost = mean
     ? ` At the week's mean the ladder sits at step ${mean.was.step} with ${mean.was.fansWas} fans today (${Math.round(mean.was.fansWas * FAN_KW)} kW) and would sit at step ${mean.will.step} with ${mean.will.fans} fans (${Math.round(mean.will.fans * FAN_KW)} kW): that is the price of the air.`
     : "";
+  const allOpen = fit ? Math.round(topFans * topFans * (fit.a + fit.b / ((A1 + A2) * (A1 + A2)))) : null;
+  const curtains = fit
+    ? ` Curtain 1 on the gable wall (${A1} m²) opens first and fully before curtain 2 on the side walls (${A2} m²) starts; each step's opening is sized to hold ${fmt(p.pressurePa!)} Pa, from this week's pressure at ${points.length} steps (${points.map((q) => `step ${q.step}: ${q.pa} Pa at ${q.fans} fans`).join(", ")}). With every curtain open, ${topFans} fans would read about ${allOpen} Pa: the pads set that floor.`
+    : ` The curtains are left as they are: the week gave too few steady readings at enough steps to size them (${points.length} usable).`;
   const comfort =
     st.feelsLikeHoursSevere != null
       ? ` On the feels-like scale the house spent ${st.feelsLikeHoursSevere} h in the severe band and ${st.feelsLikeHoursCritical ?? 0} h critical this week, at a mean step of ${st.stepMean ?? "?"}.`
@@ -378,9 +443,9 @@ const ladderReach: Rule = (ctx, p) => {
     title: RULES["ladder-reach"].title,
     reason:
       `In tunnel the steps are measured from the tunnel temperature, ${fmt(tunnelTemp)}°C. Today step ${top.step} starts ${fmt(top.offsetWas ?? 0)}° above it, at ${fmt(tunnelTemp + (top.offsetWas ?? 0))}°C house average, and runs ${top.fansWas} of ${topFans} fans; the week's mean was ${st.tempMean ?? "?"}°C.${comfort} ` +
-      `Spaced ${fmt(topOffset / span)}° apart, the top step with all ${topFans} fans arrives at ${fmt(p.topAt!)}°C average, about ${fmt(p.topAt! + 1.3)}°C at the exhaust end; each step adds fan groups in the order the ladder already brings them in, so no step has fewer fans than the one below. ` +
-      `${changes.length} registers on the ladder page, steps ${rows[0]!.id} to ${top.step}. At the top every fan runs, ${Math.round(topFans * FAN_KW)} kW: the generator must carry that.${cost}`,
-    evidence: { tunnelTemp, start, maxStep, topAt: p.topAt, topOffset, order: order.map(groupNo), ladder, tempMean: st.tempMean, atMean: mean ? { stepWas: mean.was.step, fansWas: mean.was.fansWas, step: mean.will.step, fans: mean.will.fans } : null, feelsLikeHoursSevere: st.feelsLikeHoursSevere, feelsLikeHoursCritical: st.feelsLikeHoursCritical },
+      `Spread over ${fmt(topOffset)}°, ${fmt(topOffset / span)}° a step, the top step arrives at ${fmt(tunnelTemp + topOffset)}°C average, about ${fmt(tunnelTemp + topOffset + 1.3)}°C at the exhaust end, and runs ${topFans} of the ${fansIn(order.length)} fans, the cap; each step adds fan groups in the order the ladder already brings them in, so no step has fewer fans than the one below. ` +
+      `${changes.length} registers on the ladder page, steps ${rows[0]!.id} to ${top.step}. At the top ${Math.round(topFans * FAN_KW)} kW runs.${cost}${curtains}`,
+    evidence: { tunnelTemp, start, maxStep, spread: p.spread, maxFans: p.maxFans, pressurePa: p.pressurePa, topOffset, fit, points, allOpenPa: allOpen, order: order.map(groupNo), ladder, tempMean: st.tempMean, atMean: mean ? { stepWas: mean.was.step, fansWas: mean.was.fansWas, step: mean.will.step, fans: mean.will.fans } : null, feelsLikeHoursSevere: st.feelsLikeHoursSevere, feelsLikeHoursCritical: st.feelsLikeHoursCritical },
     changes,
   };
 };
