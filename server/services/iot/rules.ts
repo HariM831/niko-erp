@@ -323,12 +323,18 @@ const ladderReach: Rule = (ctx, p) => {
   const ladder: Array<{ step: number; offsetWas: number | null; offset: number; fansWas: number; fans: number }> = [];
   // Each step runs at least as many groups as it does today, at least as
   // many as the step below, and climbs to every group at the top.
+  const fansIn = (count: number) => order.slice(0, count).reduce((n, g) => n + fansInGroup(groupNo(g)), 0);
+  const fansToday = (r: CatalogRow) => used.reduce((n, g) => n + fansOf(mode(r, g), g), 0);
   let prevCount = 0;
+  let prevFans = 0;
   rows.forEach((r, i) => {
     const offset = Math.round(((topOffset * i) / span) * 10) / 10;
     const ramp = Math.round(firstCount + ((total - firstCount) * i) / span);
-    const count = Math.min(total, Math.max(prevCount, countToday(r), ramp));
+    let count = Math.min(total, Math.max(prevCount, countToday(r), ramp));
+    // groups 21 and 22 hold four fans, so a step's fans, not only its groups, must not fall
+    while (count < total && fansIn(count) < Math.max(prevFans, fansToday(r))) count++;
     prevCount = count;
+    prevFans = fansIn(count);
     const on = new Set(order.slice(0, count));
     const oc = change(ctx, r.cells.tempOffset!, `Step ${r.id} starts, above the tunnel temperature`, offCol.unit || "°C", offset, offCol.range || "0~999");
     if (oc) changes.push(oc);
