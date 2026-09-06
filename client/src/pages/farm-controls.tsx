@@ -85,6 +85,8 @@ interface PageLive {
   at: string | null;
   /** "kept" until the controller has answered; then "live", or "offline" if it did not. */
   source: "kept" | "live" | "offline";
+  /** The shed's ladder ceiling, from the controller's own status; rows above it are padding. */
+  maxStep?: number | null;
 }
 interface Status {
   code: string;
@@ -262,20 +264,20 @@ export function FarmControlsPage() {
     let stop = false;
     setPageError(null);
     setLoadingPage(true);
-    api<{ page: PageDef; values: Record<string, string>; at: string | null }>(`/api/farms/controls/${houseId}/page/${code}`)
+    api<{ page: PageDef; values: Record<string, string>; at: string | null; maxStep?: number | null }>(`/api/farms/controls/${houseId}/page/${code}`)
       .then((d) => {
-        if (!stop) setPage({ page: d.page, values: d.values, at: d.at, source: "kept" });
+        if (!stop) setPage({ page: d.page, values: d.values, at: d.at, source: "kept", maxStep: d.maxStep });
       })
       .catch((e) => {
         if (!stop) setPageError(e instanceof Error ? e.message : "Could not read the page");
       });
-    api<{ page: PageDef; live: boolean; values: Record<string, string>; at: string; changes: number }>(
+    api<{ page: PageDef; live: boolean; values: Record<string, string>; at: string; changes: number; maxStep?: number | null }>(
       `/api/farms/controls/${houseId}/page/${code}/live`,
     )
       .then((d) => {
         if (stop) return;
         if (d.live) {
-          setPage({ page: d.page, values: d.values, at: d.at, source: "live" });
+          setPage({ page: d.page, values: d.values, at: d.at, source: "live", maxStep: d.maxStep });
           if (d.changes) loadChanges();
         } else {
           setPage((prev) => (prev ? { ...prev, source: "offline" } : { page: d.page, values: {}, at: null, source: "offline" }));
@@ -572,6 +574,8 @@ function TablePage({ page }: { page: PageLive }) {
   /** Rows the vendor pads out with zeros, dropped when every settable cell is zero — beyond the farm's 25 steps, or curve rows never filled. */
   const shown = rows.filter((r, i) => {
     if (i < 1) return true;
+    // The ladder stops where the shed's ceiling is; the vendor pads the rows above it.
+    if (isLadder && page.maxStep && r.id > page.maxStep) return false;
     // A schedule or curve row whose age is 0 is a row the vendor pads out, whatever else it holds.
     if (r.cells.day && Number(page.values[r.cells.day] ?? 0) === 0) return false;
     return Object.values(r.cells).some((reg) => {
@@ -655,7 +659,13 @@ function TablePage({ page }: { page: PageLive }) {
               {g.title}
             </span>
           ))}
-          {rows.length > shown.length && <span>{rows.length - shown.length} unused rows hidden</span>}
+          {rows.length > shown.length && (
+            <span>
+              {isLadder && page.maxStep
+                ? `steps above ${page.maxStep}, the shed's ceiling, are not in use`
+                : `${rows.length - shown.length} unused rows hidden`}
+            </span>
+          )}
         </div>
       )}
     </div>

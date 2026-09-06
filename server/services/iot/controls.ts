@@ -258,6 +258,7 @@ function normaliseTable(raw: unknown[], houseCode: string): Pick<CatalogPage, "c
       shared.push({
         label: register.split(".").pop() ?? register,
         labelEn: col.labelEn,
+        explain: col.explain,
         register,
         range: col.range,
         unit: col.unit,
@@ -370,12 +371,24 @@ function pageOf(cat: Catalog | null, code: string): CatalogPage {
  * `refreshPage` brings the controller's word behind it.
  */
 export async function pageKept(houseId: string, code: string) {
-  const page = pageOf(await getCatalog(), code);
+  const cat = await getCatalog();
+  const page = pageOf(cat, code);
   const snap = await latestSnapshot(houseId);
   const all = (snap?.values ?? {}) as Record<string, string>;
   const values: Record<string, string> = {};
   for (const r of page.registers) if (all[r] !== undefined) values[r] = all[r]!;
-  return { page, values, at: snap?.takenAt ?? null, source: "kept" as const };
+  return { page, values, at: snap?.takenAt ?? null, source: "kept" as const, maxStep: maxStepOf(cat, all) };
+}
+
+/**
+ * The highest step the controller will climb to, from its own status register
+ * as last kept. The ladder has 36 rows and the vendor pads the ones above the
+ * ceiling with values; the page stops drawing where the shed stops climbing.
+ */
+function maxStepOf(cat: Catalog | null, values: Record<string, string>): number | null {
+  const field = cat?.pages.find((p) => p.code === "JXJB_JXJB_S")?.fields?.find((f) => f.register.endsWith("当前最大通风级别"));
+  const v = field ? Number(values[field.register]) : NaN;
+  return Number.isFinite(v) && v > 0 ? v : null;
 }
 
 /**
@@ -409,7 +422,8 @@ export async function refreshPage(houseId: string, code: string) {
     changes = rows.length;
     await db.update(controllerSnapshots).set({ values: kept }).where(eq(controllerSnapshots.id, snap.id));
   }
-  return { page, live: true as const, values: Object.fromEntries(live), at, changes };
+  const kept = (await latestSnapshot(houseId))?.values as Record<string, string> | undefined;
+  return { page, live: true as const, values: Object.fromEntries(live), at, changes, maxStep: maxStepOf(cat, kept ?? {}) };
 }
 
 export interface SnapshotResult {
