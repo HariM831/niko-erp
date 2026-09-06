@@ -1,0 +1,919 @@
+{
+ "breed": {
+  "code": "BOVANS-WHITE",
+  "name": "Bovans White",
+  "aliases": [
+   "bovans",
+   "bovans white",
+   "layer commercial bovans"
+  ]
+ },
+ "set": {
+  "name": "Hendrix Genetics product guide (alternative housing), L1211-1, 2021",
+  "source": "breeder",
+  "version": 1,
+  "note": "Alternative-housing edition. The guide prints body weight and feed as ranges; the points carry the midpoints. No water, environment or lighting guidance in this booklet."
+ },
+ "points": [
+  {
+   "ageWeek": 1,
+   "bodyWeightG": 60.5,
+   "feedGPerBirdDay": 10.0,
+   "waterMlPerBirdDay": null,
+   "layPct": null,
+   "eggWeightG": null,
+   "cumMortalityPct": null
+  },
+  {
+   "ageWeek": 2,
+   "bodyWeightG": 120.0,
+   "feedGPerBirdDay": 15.0,
+   "waterMlPerBirdDay": null,
+   "layPct": null,
+   "eggWeightG": null,
+   "cumMortalityPct": null
+  },
+  {
+   "ageWeek": 3,
+   "bodyWeightG": 195.0,
+   "feedGPerBirdDay": 21.0,
+   "waterMlPerBirdDay": null,
+   "layPct": null,
+   "eggWeightG": null,
+   "cumMortalityPct": null
+  },
+  {
+   "ageWeek": 4,
+   "bodyWeightG": 265.0,
+   "feedGPerBirdDay": 26.0,
+   "waterMlPerBirdDay": null,
+   "layPct": null,
+   "eggWeightG": null,
+   "cumMortalityPct": null
+  },
+  {
+   "ageWeek": 5,
+   "bodyWeightG": 340.5,
+   "feedGPerBirdDay": 31.0,
+   "waterMlPerBirdDay": null,
+   "layPct": null,
+   "eggWeightG": null,
+   "cumMortalityPct": null
+  },
+  {
+   "ageWeek": 6,
+   "bodyWeightG": 420.5,
+   "feedGPerBirdDay": 36.0,
+   "waterMlPerBirdDay": null,
+   "layPct": null,
+   "eggWeightG": null,
+   "cumMortalityPct": null
+  },
+  {
+   "ageWeek": 7,
+   "bodyWeightG": 500.5,
+   "feedGPerBirdDay": 41.0,
+   "waterMlPerBirdDay": null,
+   "layPct": null,
+   "eggWeightG": null,
+   "cumMortalityPct": null
+  },
+  {
+   "ageWeek": 8,
+   "bodyWeightG": 580.5,
+   "feedGPerBirdDay": 45.0,
+   "waterMlPerBirdDay": null,
+   "layPct": null,
+   "eggWeightG": null,
+   "cumMortalityPct": null
+  },
+  {
+   "ageWeek": 9,
+   "bodyWeightG": 660.5,
+   "feedGPerBirdDay": 48.0,
+   "waterMlPerBirdDay": null,
+   "layPct": null,
+   "eggWeightG": null,
+   "cumMortalityPct": null
+  },
+  {
+   "ageWeek": 10,
+   "bodyWeightG": 740.5,
+   "feedGPerBirdDay": 51.0,
+   "waterMlPerBirdDay": null,
+   "layPct": null,
+   "eggWeightG": null,
+   "cumMortalityPct": null
+  },
+  {
+   "ageWeek": 11,
+   "bodyWeightG": 815.0,
+   "feedGPerBirdDay": 54.0,
+   "waterMlPerBirdDay": null,
+   "layPct": null,
+   "eggWeightG": null,
+   "cumMortalityPct": null
+  },
+  {
+   "ageWeek": 12,
+   "bodyWeightG": 895.0,
+   "feedGPerBirdDay": 57.0,
+   "waterMlPerBirdDay": null,
+   "layPct": null,
+   "eggWeightG": null,
+   "cumMortalityPct": null
+  },
+  {
+   "ageWeek": 13,
+   "bodyWeightG": 960.0,
+   "feedGPerBirdDay": 60.0,
+   "waterMlPerBirdDay": null,
+   "layPct": null,
+   "eggWeightG": null,
+   "cumMortalityPct": null
+  },
+  {
+   "ageWeek": 14,
+   "bodyWeightG": 1030.0,
+   "feedGPerBirdDay": 63.0,
+   "waterMlPerBirdDay": null,
+   "layPct": null,
+   "eggWeightG": null,
+   "cumMortalityPct": null
+  },
+  {
+   "ageWeek": 15,
+   "bodyWeightG": 1095.0,
+   "feedGPerBirdDay": 66.0,
+   "waterMlPerBirdDay": null,
+   "layPct": null,
+   "eggWeightG": null,
+   "cumMortalityPct": null
+  },
+  {
+   "ageWeek": 16,
+   "bodyWeightG": 1150.0,
+   "feedGPerBirdDay": 69.0,
+   "waterMlPerBirdDay": null,
+   "layPct": null,
+   "eggWeightG": null,
+   "cumMortalityPct": null
+  },
+  {
+   "ageWeek": 17,
+   "bodyWeightG": 1205.0,
+   "feedGPerBirdDay": 73.0,
+   "waterMlPerBirdDay": null,
+   "layPct": null,
+   "eggWeightG": null,
+   "cumMortalityPct": null
+  },
+  {
+   "ageWeek": 18,
+   "bodyWeightG": 1250,
+   "feedGPerBirdDay": 78,
+   "waterMlPerBirdDay": null,
+   "layPct": 0.0,
+   "eggWeightG": 0.0,
+   "cumMortalityPct": 0.1
+  },
+  {
+   "ageWeek": 19,
+   "bodyWeightG": 1310,
+   "feedGPerBirdDay": 86,
+   "waterMlPerBirdDay": null,
+   "layPct": 6.2,
+   "eggWeightG": 43.0,
+   "cumMortalityPct": 0.2
+  },
+  {
+   "ageWeek": 20,
+   "bodyWeightG": 1370,
+   "feedGPerBirdDay": 95,
+   "waterMlPerBirdDay": null,
+   "layPct": 41.6,
+   "eggWeightG": 46.1,
+   "cumMortalityPct": 0.3
+  },
+  {
+   "ageWeek": 21,
+   "bodyWeightG": 1445,
+   "feedGPerBirdDay": 101,
+   "waterMlPerBirdDay": null,
+   "layPct": 66.3,
+   "eggWeightG": 48.6,
+   "cumMortalityPct": 0.4
+  },
+  {
+   "ageWeek": 22,
+   "bodyWeightG": 1495,
+   "feedGPerBirdDay": 106,
+   "waterMlPerBirdDay": null,
+   "layPct": 82.0,
+   "eggWeightG": 50.8,
+   "cumMortalityPct": 0.5
+  },
+  {
+   "ageWeek": 23,
+   "bodyWeightG": 1530,
+   "feedGPerBirdDay": 110,
+   "waterMlPerBirdDay": null,
+   "layPct": 90.7,
+   "eggWeightG": 52.7,
+   "cumMortalityPct": 0.6
+  },
+  {
+   "ageWeek": 24,
+   "bodyWeightG": 1550,
+   "feedGPerBirdDay": 113,
+   "waterMlPerBirdDay": null,
+   "layPct": 94.3,
+   "eggWeightG": 54.4,
+   "cumMortalityPct": 0.7
+  },
+  {
+   "ageWeek": 25,
+   "bodyWeightG": 1565,
+   "feedGPerBirdDay": 115,
+   "waterMlPerBirdDay": null,
+   "layPct": 95.2,
+   "eggWeightG": 55.7,
+   "cumMortalityPct": 0.8
+  },
+  {
+   "ageWeek": 26,
+   "bodyWeightG": 1580,
+   "feedGPerBirdDay": 116,
+   "waterMlPerBirdDay": null,
+   "layPct": 95.6,
+   "eggWeightG": 56.7,
+   "cumMortalityPct": 0.9
+  },
+  {
+   "ageWeek": 27,
+   "bodyWeightG": 1590,
+   "feedGPerBirdDay": 117,
+   "waterMlPerBirdDay": null,
+   "layPct": 95.9,
+   "eggWeightG": 57.6,
+   "cumMortalityPct": 1.0
+  },
+  {
+   "ageWeek": 28,
+   "bodyWeightG": 1602,
+   "feedGPerBirdDay": 118,
+   "waterMlPerBirdDay": null,
+   "layPct": 96.1,
+   "eggWeightG": 58.3,
+   "cumMortalityPct": 1.1
+  },
+  {
+   "ageWeek": 29,
+   "bodyWeightG": 1608,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 96.3,
+   "eggWeightG": 58.9,
+   "cumMortalityPct": 1.2
+  },
+  {
+   "ageWeek": 30,
+   "bodyWeightG": 1616,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 96.4,
+   "eggWeightG": 59.4,
+   "cumMortalityPct": 1.2
+  },
+  {
+   "ageWeek": 31,
+   "bodyWeightG": 1621,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 96.5,
+   "eggWeightG": 59.8,
+   "cumMortalityPct": 1.3
+  },
+  {
+   "ageWeek": 32,
+   "bodyWeightG": 1626,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 96.5,
+   "eggWeightG": 60.1,
+   "cumMortalityPct": 1.4
+  },
+  {
+   "ageWeek": 33,
+   "bodyWeightG": 1629,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 96.5,
+   "eggWeightG": 60.3,
+   "cumMortalityPct": 1.5
+  },
+  {
+   "ageWeek": 34,
+   "bodyWeightG": 1632,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 96.4,
+   "eggWeightG": 60.5,
+   "cumMortalityPct": 1.6
+  },
+  {
+   "ageWeek": 35,
+   "bodyWeightG": 1635,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 96.3,
+   "eggWeightG": 60.7,
+   "cumMortalityPct": 1.7
+  },
+  {
+   "ageWeek": 36,
+   "bodyWeightG": 1638,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 96.1,
+   "eggWeightG": 60.8,
+   "cumMortalityPct": 1.8
+  },
+  {
+   "ageWeek": 37,
+   "bodyWeightG": 1641,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 95.9,
+   "eggWeightG": 61.0,
+   "cumMortalityPct": 1.9
+  },
+  {
+   "ageWeek": 38,
+   "bodyWeightG": 1644,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 95.7,
+   "eggWeightG": 61.2,
+   "cumMortalityPct": 2.0
+  },
+  {
+   "ageWeek": 39,
+   "bodyWeightG": 1647,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 95.5,
+   "eggWeightG": 61.3,
+   "cumMortalityPct": 2.1
+  },
+  {
+   "ageWeek": 40,
+   "bodyWeightG": 1650,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 95.3,
+   "eggWeightG": 61.4,
+   "cumMortalityPct": 2.2
+  },
+  {
+   "ageWeek": 41,
+   "bodyWeightG": 1652,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 95.0,
+   "eggWeightG": 61.5,
+   "cumMortalityPct": 2.3
+  },
+  {
+   "ageWeek": 42,
+   "bodyWeightG": 1654,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 94.8,
+   "eggWeightG": 61.7,
+   "cumMortalityPct": 2.4
+  },
+  {
+   "ageWeek": 43,
+   "bodyWeightG": 1656,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 94.6,
+   "eggWeightG": 61.8,
+   "cumMortalityPct": 2.5
+  },
+  {
+   "ageWeek": 44,
+   "bodyWeightG": 1658,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 94.3,
+   "eggWeightG": 61.8,
+   "cumMortalityPct": 2.6
+  },
+  {
+   "ageWeek": 45,
+   "bodyWeightG": 1660,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 93.9,
+   "eggWeightG": 61.9,
+   "cumMortalityPct": 2.7
+  },
+  {
+   "ageWeek": 46,
+   "bodyWeightG": 1661,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 93.7,
+   "eggWeightG": 62.0,
+   "cumMortalityPct": 2.8
+  },
+  {
+   "ageWeek": 47,
+   "bodyWeightG": 1662,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 93.4,
+   "eggWeightG": 62.1,
+   "cumMortalityPct": 2.9
+  },
+  {
+   "ageWeek": 48,
+   "bodyWeightG": 1663,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 93.1,
+   "eggWeightG": 62.2,
+   "cumMortalityPct": 3.0
+  },
+  {
+   "ageWeek": 49,
+   "bodyWeightG": 1664,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 92.8,
+   "eggWeightG": 62.3,
+   "cumMortalityPct": 3.1
+  },
+  {
+   "ageWeek": 50,
+   "bodyWeightG": 1665,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 92.6,
+   "eggWeightG": 62.3,
+   "cumMortalityPct": 3.2
+  },
+  {
+   "ageWeek": 51,
+   "bodyWeightG": 1666,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 92.3,
+   "eggWeightG": 62.4,
+   "cumMortalityPct": 3.3
+  },
+  {
+   "ageWeek": 52,
+   "bodyWeightG": 1667,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 92.0,
+   "eggWeightG": 62.5,
+   "cumMortalityPct": 3.4
+  },
+  {
+   "ageWeek": 53,
+   "bodyWeightG": 1668,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 91.7,
+   "eggWeightG": 62.5,
+   "cumMortalityPct": 3.5
+  },
+  {
+   "ageWeek": 54,
+   "bodyWeightG": 1669,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 91.4,
+   "eggWeightG": 62.6,
+   "cumMortalityPct": 3.6
+  },
+  {
+   "ageWeek": 55,
+   "bodyWeightG": 1670,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 91.1,
+   "eggWeightG": 62.7,
+   "cumMortalityPct": 3.6
+  },
+  {
+   "ageWeek": 56,
+   "bodyWeightG": 1671,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 90.8,
+   "eggWeightG": 62.7,
+   "cumMortalityPct": 3.7
+  },
+  {
+   "ageWeek": 57,
+   "bodyWeightG": 1672,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 90.5,
+   "eggWeightG": 62.8,
+   "cumMortalityPct": 3.8
+  },
+  {
+   "ageWeek": 58,
+   "bodyWeightG": 1673,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 90.2,
+   "eggWeightG": 62.8,
+   "cumMortalityPct": 3.9
+  },
+  {
+   "ageWeek": 59,
+   "bodyWeightG": 1674,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 89.9,
+   "eggWeightG": 62.8,
+   "cumMortalityPct": 4.0
+  },
+  {
+   "ageWeek": 60,
+   "bodyWeightG": 1675,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 89.7,
+   "eggWeightG": 62.9,
+   "cumMortalityPct": 4.1
+  },
+  {
+   "ageWeek": 61,
+   "bodyWeightG": 1676,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 89.4,
+   "eggWeightG": 62.9,
+   "cumMortalityPct": 4.2
+  },
+  {
+   "ageWeek": 62,
+   "bodyWeightG": 1677,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 89.1,
+   "eggWeightG": 63.0,
+   "cumMortalityPct": 4.3
+  },
+  {
+   "ageWeek": 63,
+   "bodyWeightG": 1678,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 88.8,
+   "eggWeightG": 63.0,
+   "cumMortalityPct": 4.4
+  },
+  {
+   "ageWeek": 64,
+   "bodyWeightG": 1679,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 88.6,
+   "eggWeightG": 63.0,
+   "cumMortalityPct": 4.5
+  },
+  {
+   "ageWeek": 65,
+   "bodyWeightG": 1680,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 88.3,
+   "eggWeightG": 63.0,
+   "cumMortalityPct": 4.6
+  },
+  {
+   "ageWeek": 66,
+   "bodyWeightG": 1681,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 88.0,
+   "eggWeightG": 63.1,
+   "cumMortalityPct": 4.7
+  },
+  {
+   "ageWeek": 67,
+   "bodyWeightG": 1682,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 87.8,
+   "eggWeightG": 63.1,
+   "cumMortalityPct": 4.8
+  },
+  {
+   "ageWeek": 68,
+   "bodyWeightG": 1683,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 87.5,
+   "eggWeightG": 63.1,
+   "cumMortalityPct": 4.9
+  },
+  {
+   "ageWeek": 69,
+   "bodyWeightG": 1684,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 87.2,
+   "eggWeightG": 63.1,
+   "cumMortalityPct": 5.0
+  },
+  {
+   "ageWeek": 70,
+   "bodyWeightG": 1685,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 87.0,
+   "eggWeightG": 63.1,
+   "cumMortalityPct": 5.1
+  },
+  {
+   "ageWeek": 71,
+   "bodyWeightG": 1686,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 86.7,
+   "eggWeightG": 63.1,
+   "cumMortalityPct": 5.2
+  },
+  {
+   "ageWeek": 72,
+   "bodyWeightG": 1687,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 86.5,
+   "eggWeightG": 63.1,
+   "cumMortalityPct": 5.3
+  },
+  {
+   "ageWeek": 73,
+   "bodyWeightG": 1688,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 86.2,
+   "eggWeightG": 63.1,
+   "cumMortalityPct": 5.4
+  },
+  {
+   "ageWeek": 74,
+   "bodyWeightG": 1689,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 86.0,
+   "eggWeightG": 63.1,
+   "cumMortalityPct": 5.5
+  },
+  {
+   "ageWeek": 75,
+   "bodyWeightG": 1690,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 85.7,
+   "eggWeightG": 63.2,
+   "cumMortalityPct": 5.6
+  },
+  {
+   "ageWeek": 76,
+   "bodyWeightG": 1691,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 85.4,
+   "eggWeightG": 63.2,
+   "cumMortalityPct": 5.7
+  },
+  {
+   "ageWeek": 77,
+   "bodyWeightG": 1692,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 85.2,
+   "eggWeightG": 63.2,
+   "cumMortalityPct": 5.8
+  },
+  {
+   "ageWeek": 78,
+   "bodyWeightG": 1693,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 84.9,
+   "eggWeightG": 63.2,
+   "cumMortalityPct": 5.9
+  },
+  {
+   "ageWeek": 79,
+   "bodyWeightG": 1694,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 84.7,
+   "eggWeightG": 63.2,
+   "cumMortalityPct": 6.0
+  },
+  {
+   "ageWeek": 80,
+   "bodyWeightG": 1695,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 84.4,
+   "eggWeightG": 63.2,
+   "cumMortalityPct": 6.0
+  },
+  {
+   "ageWeek": 81,
+   "bodyWeightG": 1696,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 84.2,
+   "eggWeightG": 63.2,
+   "cumMortalityPct": 6.1
+  },
+  {
+   "ageWeek": 82,
+   "bodyWeightG": 1697,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 83.9,
+   "eggWeightG": 63.2,
+   "cumMortalityPct": 6.2
+  },
+  {
+   "ageWeek": 83,
+   "bodyWeightG": 1698,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 83.7,
+   "eggWeightG": 63.2,
+   "cumMortalityPct": 6.3
+  },
+  {
+   "ageWeek": 84,
+   "bodyWeightG": 1699,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 83.4,
+   "eggWeightG": 63.2,
+   "cumMortalityPct": 6.4
+  },
+  {
+   "ageWeek": 85,
+   "bodyWeightG": 1700,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 83.1,
+   "eggWeightG": 63.3,
+   "cumMortalityPct": 6.5
+  },
+  {
+   "ageWeek": 86,
+   "bodyWeightG": 1700,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 82.8,
+   "eggWeightG": 63.3,
+   "cumMortalityPct": 6.6
+  },
+  {
+   "ageWeek": 87,
+   "bodyWeightG": 1700,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 82.6,
+   "eggWeightG": 63.3,
+   "cumMortalityPct": 6.7
+  },
+  {
+   "ageWeek": 88,
+   "bodyWeightG": 1700,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 82.3,
+   "eggWeightG": 63.3,
+   "cumMortalityPct": 6.8
+  },
+  {
+   "ageWeek": 89,
+   "bodyWeightG": 1700,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 82.0,
+   "eggWeightG": 63.3,
+   "cumMortalityPct": 6.9
+  },
+  {
+   "ageWeek": 90,
+   "bodyWeightG": 1700,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 81.7,
+   "eggWeightG": 63.3,
+   "cumMortalityPct": 7.0
+  },
+  {
+   "ageWeek": 91,
+   "bodyWeightG": 1700,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 81.4,
+   "eggWeightG": 63.3,
+   "cumMortalityPct": 7.1
+  },
+  {
+   "ageWeek": 92,
+   "bodyWeightG": 1700,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 81.1,
+   "eggWeightG": 63.3,
+   "cumMortalityPct": 7.2
+  },
+  {
+   "ageWeek": 93,
+   "bodyWeightG": 1700,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 80.8,
+   "eggWeightG": 63.3,
+   "cumMortalityPct": 7.3
+  },
+  {
+   "ageWeek": 94,
+   "bodyWeightG": 1700,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 80.4,
+   "eggWeightG": 63.3,
+   "cumMortalityPct": 7.4
+  },
+  {
+   "ageWeek": 95,
+   "bodyWeightG": 1700,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 80.1,
+   "eggWeightG": 63.4,
+   "cumMortalityPct": 7.5
+  },
+  {
+   "ageWeek": 96,
+   "bodyWeightG": 1700,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 79.7,
+   "eggWeightG": 63.4,
+   "cumMortalityPct": 7.6
+  },
+  {
+   "ageWeek": 97,
+   "bodyWeightG": 1700,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 79.3,
+   "eggWeightG": 63.4,
+   "cumMortalityPct": 7.7
+  },
+  {
+   "ageWeek": 98,
+   "bodyWeightG": 1700,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 79.0,
+   "eggWeightG": 63.4,
+   "cumMortalityPct": 7.8
+  },
+  {
+   "ageWeek": 99,
+   "bodyWeightG": 1700,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 78.6,
+   "eggWeightG": 63.4,
+   "cumMortalityPct": 7.9
+  },
+  {
+   "ageWeek": 100,
+   "bodyWeightG": 1700,
+   "feedGPerBirdDay": 119,
+   "waterMlPerBirdDay": null,
+   "layPct": 78.1,
+   "eggWeightG": 63.4,
+   "cumMortalityPct": 8.0
+  }
+ ]
+}
