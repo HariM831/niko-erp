@@ -41,6 +41,13 @@ const EP = {
   tagTree: `${BASE}/IB/monitoring-category/monitoring-category-and-tag-tree`,
   currentValues: `${BASE}/IB/current-tag/get-process-tag-value-list`,
   history: `${BASE}/IB/contrast-analysis/find-data-by-date-time`,
+  // The controller's SETTINGS, as opposed to its readings. See "Control" below.
+  controlMenu: `${BASE}/IB/control/menu-list`,
+  controlPage: `${BASE}/IB/control/page-data-by-menu`,
+  controlRefresh: `${BASE}/IB/control/refresh-tag-values`,
+  controlWrite: `${BASE}/IB/control/direct-write-tag-values`,
+  controlWriteMany: `${BASE}/IB/control/direct-write-list`,
+  controlDeviceStatus: `${BASE}/IB/control/house-device-status`,
 } as const;
 
 const DEFAULT_TENANT = "3a212727-cd22-5ec7-d508-5decf119d32c";
@@ -562,3 +569,99 @@ export const HISTORY_TAGS: ReadonlySet<string> = new Set(Object.values(SAMPLE_CO
 
 /** Is this reading one to keep beyond "the current value"? */
 export const keepHistory = (tagId: string) => HISTORY_TAGS.has(nameOf(tagId));
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * Control: the registers a controller runs on, and writing to them.
+ *
+ * A different family of tags from the readings above. Readings live under
+ * `基础数据` and `环境` and only ever flow out; settings live under `基础控制`
+ * and can be written. The vendor's Remote Control screen is built from
+ * `menu-list` (the tree, with a page code and shape per leaf) and
+ * `page-data-by-menu` (every register on a page with its range, unit, kind
+ * and last-seen value). `refresh-tag-values` asks the controller itself for
+ * current values; `direct-write-tag-values` writes them. Surveyed 5 Sept 2026
+ * against the vendor's own page code; the write path proven in stage 0.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+export interface BhControlLayout {
+  Name: string;
+  Type: "Table" | "Form" | string;
+  Data: string;
+}
+export interface BhControlMenu {
+  Name: string;
+  id: number | string;
+  LayoutName?: string;
+  Layout?: BhControlLayout[] | string;
+  Children?: BhControlMenu[];
+}
+
+/** The settings tree for a house: groups, leaves, and each leaf's page codes. */
+export async function fetchControlMenu(houseCode: string): Promise<BhControlMenu[]> {
+  return get<BhControlMenu[]>(`${EP.controlMenu}?houseCode=${encodeURIComponent(houseCode)}`);
+}
+
+/**
+ * One page's definition: for a Form, rows of {label, labelFullName, value,
+ * range, unit, type, options, readOnly}; for a Table, one object per row with
+ * `<column>FullName` / `<column>` / `<column>Range` / `<column>Unit` triples.
+ * The values are the vendor's last-seen, not the controller's current — read
+ * those with `readRegisters`.
+ */
+export async function fetchControlPage(
+  code: string,
+  houseCode: string,
+  type: string,
+  position: string,
+  deviceType = "9200",
+): Promise<unknown[]> {
+  const q = new URLSearchParams({ title: code, houseCode, deviceType, type, position });
+  return get<unknown[]>(`${EP.controlPage}?${q}`);
+}
+
+export interface BhRegisterValue {
+  fullName: string;
+  tagName: string;
+  value: string;
+}
+
+/** Current values straight from the controller, for register full names. */
+export async function readRegisters(fullNames: string[]): Promise<BhRegisterValue[]> {
+  const out: BhRegisterValue[] = [];
+  for (let i = 0; i < fullNames.length; i += CHUNK()) {
+    const data = await post<BhRegisterValue[]>(EP.controlRefresh, fullNames.slice(i, i + CHUNK()));
+    out.push(...(Array.isArray(data) ? data : []));
+  }
+  return out;
+}
+
+export interface BhWrite {
+  key: string;
+  value: string;
+}
+
+/**
+ * Write registers on one house. The body is what the vendor's own page sends:
+ * a bare array of {key: fullName, value: string}. The reply, seen in stage 0
+ * on 2026-09-06, is `{status: true, noAdressListDtos: []}`; the page code
+ * treats `status === false` as a refused submission, and the list presumably
+ * names registers the controller has no address for. Passed back whole so the
+ * write log keeps it.
+ */
+export async function writeRegisters(changes: BhWrite[]): Promise<unknown> {
+  return post<unknown>(EP.controlWrite, changes);
+}
+
+/** The same write for several houses at once: {houseCode: changes}. */
+export async function writeRegistersMany(byHouse: Record<string, BhWrite[]>): Promise<unknown> {
+  return post<unknown>(EP.controlWriteMany, byHouse);
+}
+
+/** Whether the controller is reachable right now. Nothing should be written when it is not. */
+export async function fetchDeviceStatus(houseCode: string): Promise<{ isLiving: boolean; lastStatusTime: string | null }> {
+  const farmId = await discoverFarmId();
+  const q = new URLSearchParams({ houseCode, farmId });
+  const r = await get<{ isLiving?: boolean; lastStatusTime?: string | null }>(`${EP.controlDeviceStatus}?${q}`);
+  return { isLiving: r.isLiving === true, lastStatusTime: r.lastStatusTime ?? null };
+}
+
