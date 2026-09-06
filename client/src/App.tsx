@@ -23,6 +23,7 @@ import { EggBenchmarkPage } from "./pages/egg-benchmark";
 import { EggLoadingPage } from "./pages/egg-loading";
 import { EggGradingPage } from "./pages/egg-grading";
 import { HouseDetailPage } from "./pages/house-detail";
+import { FarmControlsPage } from "./pages/farm-controls";
 import { FlockDetailPage } from "./pages/flock-detail";
 import {
   CustomersPage,
@@ -218,6 +219,8 @@ export function App() {
         {/* The controller's own readings, drawn. Its own screen rather than a
             tab on the house: a sensor and a tally sheet are two claims. */}
         <Route path="/farms/conditions/:id" component={ShedConditionsPage} />
+        <Route path="/farms/controls/:id" component={FarmControlsPage} />
+        <Route path="/farms/controls" component={FarmControlsPage} />
         <Route path="/farms/houses/:id" component={HouseDetailPage} />
         <Route path="/farms/flocks/:id" component={FlockDetailPage} />
         {/* Feed transfer is weighed on the same platform, so it lives with the

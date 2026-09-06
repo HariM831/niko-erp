@@ -617,6 +617,13 @@
       "when": 1788241874030,
       "tag": "0087_taught_faces",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1788241874031,
+      "tag": "0088_shed_controls",
+      "breakpoints": true
     }
   ]
 }

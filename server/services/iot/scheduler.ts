@@ -11,6 +11,10 @@
  */
 import { tokenExpiry } from "./bhfarm";
 import { fillGaps, pollOnce } from "./store";
+import { getCatalog, snapshotAll } from "./controls";
+import { db } from "../../db";
+import { controllerSnapshots } from "@shared/schema";
+import { desc } from "drizzle-orm";
 
 const INTERVAL = () => Number(process.env.BH_POLL_MS ?? 300_000);
 /** Long enough after boot that the first poll and the migrations are done with. */
@@ -48,6 +52,46 @@ async function fillTick(): Promise<void> {
   } finally {
     filling = false;
   }
+}
+
+/**
+ * The controllers' settings, kept once a night.
+ *
+ * At 02:30 IST, when nobody is on a panel and the vendor's API is quiet. Reads
+ * every register of every house and records what changed since the night
+ * before. Also runs shortly after boot when the newest snapshot is older than
+ * a day, so a long outage does not leave a hole in the record of what the
+ * sheds were set to. Skipped entirely until the catalogue exists.
+ */
+let snapping = false;
+async function snapshotTick(): Promise<void> {
+  if (snapping) return;
+  snapping = true;
+  try {
+    if (!(await getCatalog())) return;
+    const results = await snapshotAll();
+    for (const r of results) {
+      if (r.skipped) console.warn(`[controls] ${r.code}: snapshot skipped — ${r.skipped}`);
+      else console.log(`[controls] ${r.code}: ${r.registers} register(s) kept, ${r.changes} changed since last`);
+    }
+  } catch (e) {
+    console.error(`[controls] snapshot crashed: ${e instanceof Error ? e.message : e}`);
+  } finally {
+    snapping = false;
+  }
+}
+
+/** Milliseconds until the next 02:30 IST. */
+function untilNightly(): number {
+  const now = Date.now();
+  const ist = new Date(now + 5.5 * 3_600_000);
+  const next = Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate(), 2, 30) - 5.5 * 3_600_000;
+  return next > now ? next - now : next + 86_400_000 - now;
+}
+
+async function snapshotIsStale(): Promise<boolean> {
+  const [last] = await db.select({ at: controllerSnapshots.takenAt }).from(controllerSnapshots).orderBy(desc(controllerSnapshots.takenAt)).limit(1);
+  return !last || Date.now() - last.at.getTime() > 86_400_000;
 }
 
 async function tick(): Promise<void> {
@@ -109,4 +153,15 @@ export function startIotPolling(): void {
   first.unref?.();
   fillTimer = setInterval(() => void fillTick(), FILL_EVERY_MS);
   fillTimer.unref?.();
+
+  const catchUp = setTimeout(async () => {
+    if (await snapshotIsStale().catch(() => false)) void snapshotTick();
+  }, FILL_DELAY_MS + 60_000);
+  catchUp.unref?.();
+  const nightly = setTimeout(() => {
+    void snapshotTick();
+    const daily = setInterval(() => void snapshotTick(), 86_400_000);
+    daily.unref?.();
+  }, untilNightly());
+  nightly.unref?.();
 }

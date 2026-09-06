@@ -140,6 +140,12 @@ interface IotRow {
   waterPerBirdMl: number | null;
   feedPerBirdG: number | null;
   birdCount: number | null;
+  ventLevel: number | null;
+  /** Temperature and humidity as one index, the number the birds feel. */
+  heatIndex: { thi: number; band: "comfortable" | "mild" | "moderate" | "severe" } | null;
+  /** Fan power now and since midnight, estimated from the ladder; null until the controls module has kept the settings once. */
+  fanKwNow: number | null;
+  fanKwhToday: number | null;
   /** Struck through when the controller has stopped moving the figure. */
   feedStale?: boolean;
   waterStale?: boolean;
@@ -1088,11 +1094,13 @@ export function FarmsHousesPage() {
                   <Th>Temp</Th>
                   <Th>Target</Th>
                   <Th>Humidity</Th>
+                  <Th>Heat index</Th>
                   <Th className="col-portrait-hide">CO₂</Th>
                   <Th className="col-portrait-hide">Pressure</Th>
                   <Th className="col-portrait-hide">Silo</Th>
                   <Th className="col-portrait-hide">Water today</Th>
                   <Th className="col-portrait-hide">Feed today</Th>
+                  <Th className="col-portrait-hide">Fans</Th>
                 </tr>
               </thead>
               <tbody>
@@ -1128,6 +1136,22 @@ export function FarmsHousesPage() {
                         <td className="px-3 py-2 text-right tabular-nums">
                           {r.humidityPct == null ? "—" : `${r.humidityPct.toFixed(0)}%`}
                         </td>
+                        {/* THI = 0.8·T + RH·(T − 14.4) + 46.4. Under 70 comfortable, to 75 mild,
+                            to 81 moderate, above severe — the vet's bands, not a law. */}
+                        <td
+                          className={`px-3 py-2 text-right tabular-nums ${
+                            r.heatIndex?.band === "severe"
+                              ? "font-semibold text-destructive"
+                              : r.heatIndex?.band === "moderate"
+                                ? "font-semibold text-warning"
+                                : r.heatIndex?.band === "mild"
+                                  ? "text-yolk-700"
+                                  : ""
+                          }`}
+                          title={r.heatIndex ? `${r.heatIndex.band} — temperature and humidity together` : undefined}
+                        >
+                          {r.heatIndex ? r.heatIndex.thi.toFixed(0) : "—"}
+                        </td>
                         <td
                           className={`col-portrait-hide px-3 py-2 text-right tabular-nums ${
                             (r.co2Ppm ?? 0) > 3000 ? "font-semibold text-destructive" : ""
@@ -1142,6 +1166,24 @@ export function FarmsHousesPage() {
                             still runs on the shed totals those figures come from. */}
                         <StaleCell v={r.waterPerBirdMl} unit="ml" stale={r.waterStale} since={r.waterChangedAt} className="col-portrait-hide" />
                         <StaleCell v={r.feedPerBirdG} unit="g" stale={r.feedStale} since={r.feedChangedAt} className="col-portrait-hide" />
+                        {/* Estimated: 1.5 kW a fan, two fans a group, from the ladder as last kept. */}
+                        <td
+                          className="col-portrait-hide px-3 py-2 text-right tabular-nums"
+                          title={
+                            r.fanKwNow == null
+                              ? "Fan power is estimated from the ladder once the controller's settings have been kept"
+                              : `step ${r.ventLevel ?? "?"} · ${r.fanKwNow} kW now · about ${r.fanKwhToday ?? 0} kWh since midnight, estimated at 1.5 kW a fan`
+                          }
+                        >
+                          {r.fanKwNow == null ? "—" : (
+                            <>
+                              {fmtNum(r.fanKwNow)} kW
+                              {r.fanKwhToday != null && (
+                                <span className="ml-1 text-[11px] text-muted-foreground">{fmtNum(r.fanKwhToday)} kWh</span>
+                              )}
+                            </>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}

@@ -177,6 +177,9 @@ const NAV: NavItem[] = [
       { label: "Farm store", path: "/farms/store", perm: ["farms", "view"] },
       /* Field photos sent for a model's first opinion, with the flock record. */
       { label: "Dr niko", path: "/farms/dr-eggsy", perm: ["farms", "view"] },
+      /* What each shed's controller is set to, in niko's words, and what
+         changed on the panel. Reads everything; writes come in a later stage. */
+      { label: "Controls", path: "/farms/controls", perm: ["farms", "view"] },
     ],
   },
   {

@@ -13,6 +13,7 @@ import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { SINGLE_TAGS, METRIC_TAGS, nameOf, resolveMetric, resolvePerBird, tokenExpiry } from "../services/iot/bhfarm";
 import { houseSamples, pollOnce, recentPolls, todayCounters } from "../services/iot/store";
+import { fanEnergyToday, heatIndex, ladderPower } from "../services/iot/controls";
 
 export const iotRouter = Router();
 
@@ -85,6 +86,12 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
      */
     waterPerBirdMl: number | null;
     feedPerBirdG: number | null;
+    /** The current ventilation step, and what the birds feel: temperature and humidity as one index. */
+    ventLevel: number | null;
+    heatIndex: { thi: number; band: "comfortable" | "mild" | "moderate" | "severe" } | null;
+    /** Fan power now and since IST midnight, estimated from the ladder and the sampled step. Null until a snapshot exists. */
+    fanKwNow: number | null;
+    fanKwhToday: number | null;
     birdCount: number | null;
     birdAgeDays: number | null;
     /**
@@ -126,6 +133,10 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
         feedChangedAt: null,
         waterChangedAt: null,
         siloChangedAt: null,
+        ventLevel: null,
+        heatIndex: null,
+        fanKwNow: null,
+        fanKwhToday: null,
         feedStale: false,
         waterStale: false,
         siloStale: false,
@@ -198,6 +209,16 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
     b.feedKg = today.feedKg ?? metric(m, METRIC_TAGS.feedKg);
     b.waterPerBirdMl = today.waterPerBird ?? resolvePerBird(m.get(SINGLE_TAGS.waterPerBirdMl), b.waterL);
     b.feedPerBirdG = today.feedPerBird ?? resolvePerBird(m.get(SINGLE_TAGS.feedPerBirdG), b.feedKg);
+    b.ventLevel = m.get("通风级别") ?? null;
+    b.heatIndex = heatIndex(b.tempC, b.humidityPct);
+    // From the last snapshot of the house's ladder and today's sampled steps;
+    // absent until the controls module has taken its first snapshot.
+    const kw = await ladderPower(houseId);
+    if (kw) {
+      const energy = await fanEnergyToday(houseId, kw);
+      b.fanKwNow = b.ventLevel != null ? (kw[Math.round(b.ventLevel)] ?? null) : energy?.kwNow ?? null;
+      b.fanKwhToday = energy?.kwh ?? null;
+    }
   }
 
   /**

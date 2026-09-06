@@ -15,6 +15,7 @@ import {
   date,
   index,
   integer,
+  jsonb,
   numeric,
   pgTable,
   primaryKey,
@@ -24,6 +25,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { houses } from "./farms";
+import { users } from "./auth";
 
 /** The latest value of every tag — a dial on a wall, not a record. */
 export const iotReadings = pgTable(
@@ -168,4 +170,60 @@ export const iotPollLog = pgTable(
     error: text("error"),
   },
   (t) => [index("ix_iot_poll_log_time").on(t.startedAt)],
+);
+
+/* ── The controllers' settings, beside their readings ───────────────────── */
+
+/**
+ * What a controller model can be told: every page of the vendor's
+ * remote-control screen and every register on it, with range, unit and kind.
+ * One row per model; all six houses are 9200s. See services/iot/controls.ts.
+ */
+export const controllerCatalog = pgTable("controller_catalog", {
+  model: text("model").primaryKey(),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
+  sourceHouseCode: text("source_house_code"),
+  menu: jsonb("menu").notNull(),
+  pages: jsonb("pages").notNull(),
+});
+
+/**
+ * Every register of one house at one instant — about 1,900 values — kept
+ * whole, nightly and on demand, so a change made on the panel shows up as a
+ * diff the next night rather than a mystery a month later.
+ */
+export const controllerSnapshots = pgTable(
+  "controller_snapshots",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    houseId: uuid("house_id")
+      .notNull()
+      .references(() => houses.id, { onDelete: "cascade" }),
+    takenAt: timestamp("taken_at", { withTimezone: true }).notNull().defaultNow(),
+    registers: integer("registers").notNull(),
+    /** Register (without the house prefix) → value as the controller reports it. */
+    values: jsonb("values").notNull(),
+  },
+  (t) => [index("ix_controller_snapshots_house_time").on(t.houseId, t.takenAt)],
+);
+
+/** One register that differed between two snapshots, or that niko wrote. */
+export const controllerChanges = pgTable(
+  "controller_changes",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    houseId: uuid("house_id")
+      .notNull()
+      .references(() => houses.id, { onDelete: "cascade" }),
+    register: text("register").notNull(),
+    pageCode: text("page_code"),
+    before: text("before"),
+    after: text("after"),
+    seenAt: timestamp("seen_at", { withTimezone: true }).notNull().defaultNow(),
+    /** "outside": seen between snapshots, made on the panel or the vendor's site. "niko": written here. */
+    source: text("source").notNull(),
+    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+    acknowledgedBy: uuid("acknowledged_by").references(() => users.id),
+  },
+  (t) => [index("ix_controller_changes_house_time").on(t.houseId, t.seenAt)],
 );
