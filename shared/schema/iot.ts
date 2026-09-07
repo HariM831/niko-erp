@@ -75,6 +75,8 @@ export const iotHouseSample = pgTable(
     humidityPct: real("humidity_pct"),
     co2Ppm: real("co2_ppm"),
     pressurePa: real("pressure_pa"),
+    /** 1 while the cooling-pad pump runs, 0 while it rests; the day's pad minutes are counted from it. */
+    pumpOn: real("pump_on"),
     birdCount: real("bird_count"),
     birdAgeDays: real("bird_age_days"),
     feedPerBirdG: real("feed_per_bird_g"),

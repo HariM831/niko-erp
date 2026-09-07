@@ -19,7 +19,7 @@
  * Houses, where they get their site, owner and feed store together.
  */
 import { useState, useEffect, useMemo } from "react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import {
   X,
   Egg,
@@ -146,6 +146,9 @@ interface IotRow {
   /** Fan power now and since midnight, estimated from the ladder; null until the controls module has kept the settings once. */
   fanKwNow: number | null;
   fanKwhToday: number | null;
+  padsOn: boolean | null;
+  padsMinutesToday: number | null;
+  outsideChanges24h: number;
   /** Struck through when the controller has stopped moving the figure. */
   feedStale?: boolean;
   waterStale?: boolean;
@@ -1103,6 +1106,7 @@ export function FarmsHousesPage() {
                   <Th className="col-portrait-hide">Water today</Th>
                   <Th className="col-portrait-hide">Feed today</Th>
                   <Th className="col-portrait-hide">Fans</Th>
+                  <Th className="col-portrait-hide">Pads</Th>
                 </tr>
               </thead>
               <tbody>
@@ -1124,7 +1128,19 @@ export function FarmsHousesPage() {
                         onClick={() => setLocation(`/farms/conditions/${r.houseId}`)}
                         className="cursor-pointer border-b border-soil-100/70 last:border-0 transition-colors hover:bg-yolk-50/70"
                       >
-                        <td className="px-3 py-2 font-semibold text-yolk-700">{r.code}</td>
+                        <td className="px-3 py-2 font-semibold text-yolk-700">
+                          {r.code}
+                          {r.outsideChanges24h > 0 && (
+                            <Link href={`/farms/controls?house=${r.houseId}`}>
+                              <span
+                                className="ml-2 rounded border border-warning px-1 text-[10px] font-normal text-warning"
+                                title={`${r.outsideChanges24h} setting(s) changed at the panel in the last day — open Controls to see which`}
+                              >
+                                changed at panel
+                              </span>
+                            </Link>
+                          )}
+                        </td>
                         <td
                           className={`px-3 py-2 text-right tabular-nums ${
                             off != null && off > 1 ? "font-semibold text-warning" : ""
@@ -1191,6 +1207,22 @@ export function FarmsHousesPage() {
                               {fmtNum(r.fanKwNow)} kW
                               {r.fanKwhToday != null && (
                                 <span className="ml-1 text-[11px] text-muted-foreground">{fmtNum(r.fanKwhToday)} kWh</span>
+                              )}
+                            </>
+                          )}
+                        </td>
+                        {/* The pad pump: running now or not, and how long it has run since midnight, from the five-minute samples. */}
+                        <td
+                          className="col-portrait-hide px-3 py-2 text-right tabular-nums"
+                          title={r.padsOn == null ? "The controller does not report the pad pump" : `pump ${r.padsOn ? "running" : "off"} now · ${r.padsMinutesToday ?? 0} minutes since midnight`}
+                        >
+                          {r.padsOn == null ? "—" : (
+                            <>
+                              <span className={r.padsOn ? "font-semibold text-sky-700" : "text-muted-foreground"}>{r.padsOn ? "on" : "off"}</span>
+                              {r.padsMinutesToday != null && (
+                                <span className="ml-1 text-[11px] text-muted-foreground">
+                                  {Math.floor(r.padsMinutesToday / 60)} h {String(r.padsMinutesToday % 60).padStart(2, "0")} m
+                                </span>
                               )}
                             </>
                           )}

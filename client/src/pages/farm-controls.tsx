@@ -362,10 +362,10 @@ export function FarmControlsPage() {
     const t = setInterval(loadProposals, 60_000);
     return () => clearInterval(t);
   }, [houseId]);
-  const saveRule = async (key: string, params: Record<string, number>, enabled: boolean) => {
+  const saveRule = async (key: string, params: Record<string, number>, enabled: boolean, thisHouse = false) => {
     setBusy(`r${key}`);
     try {
-      await api(`/api/farms/controls/rules/${key}`, { method: "PUT", body: { houseId: null, params, enabled } });
+      await api(`/api/farms/controls/rules/${key}`, { method: "PUT", body: { houseId: thisHouse ? houseId : null, params, enabled } });
       loadRules();
     } finally {
       setBusy(null);
@@ -586,7 +586,7 @@ export function FarmControlsPage() {
               <div className="rounded-lg border border-yolk-200 bg-yolk-50 px-3 py-2 text-[12px] text-yolk-800">{notice}</div>
             )}
             {showRules && rules && (
-              <RulesPanel rules={rules} busy={busy} onSave={saveRule} onWrites={setWrites} manage={manage} />
+              <RulesPanel rules={rules} busy={busy} onSave={saveRule} onWrites={setWrites} manage={manage} houseCode={house?.code ?? ""} />
             )}
             <ProposalsPanel
               proposals={proposals}
@@ -1076,14 +1076,19 @@ function RulesPanel({
   onSave,
   onWrites,
   manage,
+  houseCode,
 }: {
   rules: RulesDoc;
   busy: string | null;
-  onSave: (key: string, params: Record<string, number>, enabled: boolean) => void;
+  onSave: (key: string, params: Record<string, number>, enabled: boolean, thisHouse?: boolean) => void;
   onWrites: (on: boolean) => void;
   manage: boolean;
+  houseCode: string;
 }) {
   const [drafts, setDrafts] = useState<Record<string, Record<string, string>>>({});
+  // Whether a save goes to this shed only, or to the farm. A rule already set for this shed starts as "this shed".
+  const [scope, setScope] = useState<Record<string, boolean>>({});
+  const forHouse = (r: RuleInfo) => scope[r.key] ?? r.houseOverride;
   const value = (r: RuleInfo, k: string) => drafts[r.key]?.[k] ?? String(r.params[k] ?? r.defaults[k] ?? "");
   const edit = (r: RuleInfo, k: string, v: string) => setDrafts((d) => ({ ...d, [r.key]: { ...(d[r.key] ?? {}), [k]: v } }));
   const commit = (r: RuleInfo, enabled = r.enabled) => {
@@ -1092,14 +1097,14 @@ function RulesPanel({
       const n = Number(value(r, k));
       if (Number.isFinite(n)) params[k] = n;
     }
-    onSave(r.key, params, enabled);
+    onSave(r.key, params, enabled, forHouse(r));
   };
   return (
     <section className="rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-soil-100/70 px-4 py-3">
         <div>
           <div className="text-[14px] font-bold text-soil-900">Climate rules</div>
-          <div className="text-[11px] text-muted-foreground">Farm-wide numbers the rules read. Today's offsets, made relative, are the starting policy.</div>
+          <div className="text-[11px] text-muted-foreground">The numbers the rules read: farm-wide, or set for one shed with "this shed only".</div>
         </div>
         {manage && (
           <label className="flex items-center gap-2 text-[12px] font-semibold text-soil-900">
@@ -1114,9 +1119,15 @@ function RulesPanel({
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <div className="text-[13px] font-semibold text-soil-900">{r.title}</div>
               {manage && (
-                <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                  <input type="checkbox" checked={r.enabled} disabled={busy !== null} onChange={(e) => commit(r, e.target.checked)} /> enabled
-                </label>
+                <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                  {r.houseOverride && <span className="rounded bg-yolk-100 px-1.5 text-[10px] text-yolk-800">set for {houseCode}</span>}
+                  <label className="flex items-center gap-1.5">
+                    <input type="checkbox" checked={forHouse(r)} disabled={busy !== null || !houseCode} onChange={(e) => setScope((s) => ({ ...s, [r.key]: e.target.checked }))} /> {houseCode || "this shed"} only
+                  </label>
+                  <label className="flex items-center gap-1.5">
+                    <input type="checkbox" checked={r.enabled} disabled={busy !== null} onChange={(e) => commit(r, e.target.checked)} /> enabled
+                  </label>
+                </div>
               )}
             </div>
             <p className="mt-0.5 max-w-[80ch] text-[12px] leading-snug text-muted-foreground">{r.description}</p>

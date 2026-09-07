@@ -526,6 +526,8 @@ export const SAMPLE_COLUMNS = {
   humidity_pct: SINGLE_TAGS.humidityPct,
   co2_ppm: SINGLE_TAGS.co2Ppm,
   pressure_pa: SINGLE_TAGS.pressurePa,
+  /** The pad pump, True/False from the controller, stored as 1/0. */
+  pump_on: "冷却水泵1",
   bird_count: SINGLE_TAGS.birdCount,
   bird_age_days: SINGLE_TAGS.birdAgeDays,
   feed_per_bird_g: SINGLE_TAGS.feedPerBirdG,

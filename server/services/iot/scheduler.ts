@@ -13,6 +13,8 @@ import { tokenExpiry } from "./bhfarm";
 import { fillGaps, pollOnce } from "./store";
 import { getCatalog, snapshotAll } from "./controls";
 import { evaluateAll } from "./proposals";
+import { watchMasters } from "./watch";
+import { nightSetbackTick } from "./setback";
 import { db } from "../../db";
 import { controllerSnapshots } from "@shared/schema";
 import { desc } from "drizzle-orm";
@@ -110,6 +112,14 @@ async function tick(): Promise<void> {
     } else {
       console.log(`[iot] ${r.houses} house(s), ${r.readings} reading(s)`);
       for (const s of r.skipped) console.log(`[iot] · ${s}`);
+      // The masters' twins came in with the readings: anything moved since the last poll is logged now, not at 02:30.
+      await watchMasters().catch((e) => console.error(`[watch] crashed: ${e instanceof Error ? e.message : e}`));
+      // The one live loop so far: the night target, for sheds that have it on.
+      const setbacks = await nightSetbackTick().catch((e) => {
+        console.error(`[setback] crashed: ${e instanceof Error ? e.message : e}`);
+        return [];
+      });
+      for (const sb of setbacks) if (sb.note) console.log(`[setback] ${sb.code}: ${sb.note}`);
     }
   } catch (e) {
     console.error(`[iot] poll crashed: ${e instanceof Error ? e.message : e}`);

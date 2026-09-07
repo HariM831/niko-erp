@@ -43,6 +43,8 @@ export interface WeekStats {
   restarts: number;
   restartMinutesUnderVentilated: number;
   fanKwhPerDay: number | null;
+  /** Minutes a day the pad pump ran, over the days that have the reading. */
+  padsMinutesPerDay: number | null;
   /** The week's mean static pressure at each ladder step, with the sample count. */
   pressureByStep: Record<number, { n: number; mean: number }>;
   /** Every pressure reading with its time and step, for a fit that must know which ladder was in force. */
@@ -69,6 +71,7 @@ export async function weekStats(houseId: string, fansAtStep: number[] | null, tu
       co2: iotHouseSample.co2Ppm,
       pa: iotHouseSample.pressurePa,
       step: iotHouseSample.ventLevel,
+      pump: iotHouseSample.pumpOn,
     })
     .from(iotHouseSample)
     .where(and(eq(iotHouseSample.houseId, houseId), gte(iotHouseSample.at, from)))
@@ -86,9 +89,15 @@ export async function weekStats(houseId: string, fansAtStep: number[] | null, tu
   const stepHours = new Map<number, number>();
   const paByStep = new Map<number, number[]>();
   const paSamples: Array<[number, number, number]> = [];
+  let pumpOn = 0;
+  let pumpKnown = 0;
   const h5 = 5 / 60;
 
   for (const r of rows) {
+    if (r.pump != null) {
+      pumpKnown++;
+      if (r.pump >= 0.5) pumpOn++;
+    }
     if (r.t != null) temps.push(r.t);
     if (r.rh != null) rhs.push(r.rh);
     if (r.co2 != null) co2s.push(r.co2);
@@ -167,5 +176,6 @@ export async function weekStats(houseId: string, fansAtStep: number[] | null, tu
     fanKwhPerDay: hours ? Math.round(kwh / (hours / 24)) : null,
     pressureByStep: Object.fromEntries([...paByStep].map(([s, xs]) => [s, { n: xs.length, mean: Math.round(mean(xs)! * 10) / 10 }])),
     pressureSamples: paSamples,
+    padsMinutesPerDay: pumpKnown ? Math.round((pumpOn * 5) / (pumpKnown / 288)) : null,
   };
 }

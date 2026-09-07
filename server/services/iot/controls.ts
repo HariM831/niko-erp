@@ -568,6 +568,18 @@ export async function ladderFans(houseId: string): Promise<number[] | null> {
   return fans;
 }
 
+/** Minutes the pad pump has run since IST midnight, from the five-minute samples. */
+export async function pumpMinutesToday(houseId: string): Promise<number | null> {
+  const nowIst = new Date(Date.now() + 5.5 * 3_600_000);
+  const midnight = new Date(Date.UTC(nowIst.getUTCFullYear(), nowIst.getUTCMonth(), nowIst.getUTCDate()) - 5.5 * 3_600_000);
+  const [r] = await db
+    .select({ on: sql<number>`count(*) FILTER (WHERE ${iotHouseSample.pumpOn} >= 0.5)::int`, all: sql<number>`count(${iotHouseSample.pumpOn})::int` })
+    .from(iotHouseSample)
+    .where(and(eq(iotHouseSample.houseId, houseId), gte(iotHouseSample.at, midnight)));
+  if (!r || !r.all) return null;
+  return r.on * 5;
+}
+
 /** Kilowatts at each step: the fans running there at 1.5 kW apiece. */
 export async function ladderPower(houseId: string): Promise<number[] | null> {
   const fans = await ladderFans(houseId);

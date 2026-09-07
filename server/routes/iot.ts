@@ -13,7 +13,8 @@ import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { SINGLE_TAGS, METRIC_TAGS, nameOf, resolveMetric, resolvePerBird, tokenExpiry } from "../services/iot/bhfarm";
 import { houseSamples, pollOnce, recentPolls, todayCounters } from "../services/iot/store";
-import { fanEnergyToday, ladderPower } from "../services/iot/controls";
+import { fanEnergyToday, ladderPower, pumpMinutesToday } from "../services/iot/controls";
+import { outsideChangesSince } from "../services/iot/watch";
 import { fansInGroup, houseFeelsLike, velocity, zoneFeelsLike, type LevelName } from "../services/iot/feels-like";
 
 export const iotRouter = Router();
@@ -106,6 +107,11 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
     /** Fan power now and since IST midnight, estimated from the ladder and the sampled step. Null until a snapshot exists. */
     fanKwNow: number | null;
     fanKwhToday: number | null;
+    /** The pad pump now, and its minutes since IST midnight from the samples. */
+    padsOn: boolean | null;
+    padsMinutesToday: number | null;
+    /** Settings changed at the panel, or by anyone but niko, in the last day. */
+    outsideChanges24h: number;
     birdCount: number | null;
     birdAgeDays: number | null;
     /**
@@ -151,6 +157,9 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
         feelsLike: null,
         fanKwNow: null,
         fanKwhToday: null,
+        padsOn: null,
+        padsMinutesToday: null,
+        outsideChanges24h: 0,
         feedStale: false,
         waterStale: false,
         siloStale: false,
@@ -254,6 +263,10 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
       b.fanKwNow = b.ventLevel != null ? (kw[Math.round(b.ventLevel)] ?? null) : energy?.kwNow ?? null;
       b.fanKwhToday = energy?.kwh ?? null;
     }
+    const pump = m.get("冷却水泵1");
+    b.padsOn = pump == null ? null : pump === 1;
+    b.padsMinutesToday = await pumpMinutesToday(houseId);
+    b.outsideChanges24h = await outsideChangesSince(houseId, new Date(Date.now() - 86_400_000));
   }
 
   /**

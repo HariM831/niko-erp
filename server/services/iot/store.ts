@@ -157,7 +157,7 @@ function sampleValues(readings: BhTagValue[]): (number | null)[] | null {
     if (r.quality !== 0 && r.quality !== 1) continue;
     const column = COLUMN_OF_TAG.get(nameOf(r.tagId));
     if (!column) continue;
-    const v = num(r.value);
+    const v = num(r.value === "True" ? "1" : r.value === "False" ? "0" : r.value);
     if (v != null) byColumn.set(column, v);
   }
   if (!byColumn.size) return null;

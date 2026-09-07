@@ -55,10 +55,10 @@ export const RULES = {
     params: { tunnelAbove: 0.7, highAlarmAbove: 6.0, tolerance: 0.25 },
   },
   "pads-humidity": {
-    title: "Pads only when they work",
+    title: "Pads start",
     description:
-      "An evaporative pad in saturated air cools a degree and raises the wet-bulb, which the birds feel as hotter. When the week's humidity is over the threshold the pads start later; when it is dry again they start at the dry setting.",
-    params: { rhWet: 80, padStartWet: 31.5, padStartDry: 29.0 },
+      "The house temperature at which the cooling pads start, one number for wet weeks and one for dry. The theory that a pad in saturated air only raises the wet-bulb was tried on L2 on 6 September 2026 with a wet start of 31.5: the shed ran a degree hotter than L3 all night at the same humidity reading, so the pads do cool here even at 90%. Both starts are 29 until the data says otherwise.",
+    params: { rhWet: 80, padStartWet: 29.0, padStartDry: 29.0 },
   },
   stability: {
     title: "Stop the hunting, keep the air",
@@ -87,6 +87,12 @@ export const RULES = {
     description:
       "In tunnel the steps are measured from the tunnel temperature, and today's ladders put the top step five degrees above it, where the birds at the exhaust end are already in the critical band, with fans still idle. This spaces the tunnel steps evenly over the spread, so the top step arrives that many degrees above the tunnel temperature and runs as many fans as the cap allows; each step up adds fan groups in the order the ladder already brings them in, so no step has fewer fans than the one below. The tunnel curtains open in proportion: curtain 1 on the gable wall opens first and fully before curtain 2 on the side walls starts, each step's opening sized from the week's pressure readings to hold the set pressure. Decided 6 September 2026: a spread of 4° because the house reaches 31 at times, 40 fans at the top, 25 Pa.",
     params: { spread: 4.0, maxFans: 40, pressurePa: 25, curtain1Area: 108, curtain2Area: 216 },
+  },
+  "night-setback": {
+    title: "Night target",
+    description:
+      "This controller holds one target per age row and no night target; what L3 shows as 27 and 26 are two age rows. So the night target is niko's: between nightFrom and nightTo (hours IST) it writes the curve's target correction to minus the setback, and clears it at dawn, through the confirmed write path, logged as its own decision. Off unless enabled for a shed with writing on. Note that in a month when the shed cannot get down to its day target at night, a setback only holds the ladder up for nothing.",
+    params: { nightFrom: 20, nightTo: 5, setback: 1.0 },
   },
   "target-reachable": {
     title: "A target the air can deliver",
@@ -500,6 +506,8 @@ export const RULE_FNS: Record<RuleKey, Rule> = {
   "ladder-monotonic": ladderMonotonic,
   "ladder-reach": ladderReach,
   "target-reachable": targetReachable,
+  // Not an evaluation rule: the scheduler acts on it directly (see setback.ts).
+  "night-setback": () => null,
 };
 
 /** Every enabled rule's answer for one house. */
