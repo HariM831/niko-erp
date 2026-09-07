@@ -1,0 +1,22 @@
+{
+  "cameras": [
+    {
+      "name": "plate",
+      "label": "Number plate",
+      "host": "192.168.1.65",
+      "port": 80,
+      "user": "admin",
+      "password": "PUT-THE-PASSWORD-HERE",
+      "path": "/ISAPI/Streaming/channels/101/picture"
+    },
+    {
+      "name": "load",
+      "label": "Load bed",
+      "host": "192.168.1.66",
+      "port": 80,
+      "user": "admin",
+      "password": "PUT-THE-PASSWORD-HERE",
+      "path": "/ISAPI/Streaming/channels/101/picture"
+    }
+  ]
+}

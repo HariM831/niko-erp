@@ -5,11 +5,12 @@
  * and a month later there is no way to tell which truck it belonged to. A
  * still taken at the moment of the reading is what makes it evidence.
  *
- * A plain USB webcam through `getUserMedia`, deliberately, rather than the
- * Hikvision the old system was configured for: that camera is on the farm LAN
- * over plain HTTP, and a page served over HTTPS cannot fetch it at all — mixed
- * content, and no CORS even if it could. Reaching it would mean a relay process
- * on the cabin desktop, which is the thing this whole approach avoids.
+ * Two sources. A USB webcam through `getUserMedia` needs nothing installed and
+ * is the fallback everywhere; an IP camera has the lens that actually reads a
+ * number plate, and no browser can reach one — an HTTPS page may not fetch
+ * http://, the cameras send no CORS headers, an <img> cannot do digest auth,
+ * and nothing plays RTSP. `agent/weighbridge-cameras.mjs` bridges that from the
+ * cabin desktop, and this offers its cameras only when it is answering.
  *
  * A capture is handed out as a `File`, not a blob URL, so it drops straight
  * into the attachment queue every other create screen already uses. There is
@@ -20,12 +21,36 @@ import { Camera, CameraOff, Download, RefreshCw } from "lucide-react";
 
 /** The picked camera outlives the visit; a cabin has one and it does not move. */
 const DEVICE_KEY = "niko.weighbridge.camera";
+const SOURCE_KEY = "niko.weighbridge.camera-source";
+
+/**
+ * The cabin's camera relay, if somebody is running one.
+ *
+ * A webcam is what works with nothing installed, but it is a wide lens a metre
+ * from a windscreen and a number plate in it is often a grey smudge. The mill
+ * already owns IP cameras with proper lenses, and no browser can reach one: an
+ * HTTPS page may not fetch http://, the cameras send no CORS headers, an <img>
+ * cannot do digest auth, and nothing plays RTSP.
+ *
+ * `agent/weighbridge-cameras.mjs` bridges that from the cabin desktop. 127.0.0.1
+ * is a trustworthy origin even to an HTTPS page, so this is the one address the
+ * browser will let us ask.
+ *
+ * Probed, never required. If it is not running the webcam is still there, and a
+ * missing photograph has never been allowed to stop a weighment.
+ */
+const RELAY = "http://127.0.0.1:9099";
 
 /** Enough to see a number plate; more than a webcam usually gives. */
 const IDEAL = { width: 1280, height: 720 };
 
 /** Stills are held in memory, so the strip is short on purpose. */
 const MAX_SHOTS = 12;
+
+interface RelayCamera {
+  name: string;
+  label: string;
+}
 
 export interface Shot {
   id: string;
@@ -71,6 +96,14 @@ export function WeighbridgeCamera({
   const [error, setError] = useState<string | null>(null);
   const [shots, setShots] = useState<Shot[]>([]);
   const [busy, setBusy] = useState(false);
+  /** Cameras the relay offers; empty when nothing is running on this desktop. */
+  const [relayCams, setRelayCams] = useState<RelayCamera[]>([]);
+  const [source, setSource] = useState<string>(() => localStorage.getItem(SOURCE_KEY) ?? "webcam");
+  const [ipPreview, setIpPreview] = useState<string | null>(null);
+  const ipPreviewRef = useRef<string | null>(null);
+
+  const usingRelay = source.startsWith("ip:");
+  const relayName = usingRelay ? source.slice(3) : null;
 
   const supported =
     typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
@@ -143,6 +176,103 @@ export function WeighbridgeCamera({
     }
   };
 
+  const keep = useCallback(
+    (blob: Blob, width: number, height: number) => {
+      const at = new Date();
+      const stamp = at.toISOString().slice(0, 19).replace(/[:T]/g, "");
+      const shot: Shot = {
+        id: `${at.getTime()}`,
+        at,
+        file: new File([blob], `weighbridge-${stamp}.jpg`, { type: "image/jpeg" }),
+        url: URL.createObjectURL(blob),
+        width,
+        height,
+        note: note ?? null,
+      };
+      setShots((prev) => {
+        const next = [shot, ...prev];
+        for (const dropped of next.slice(MAX_SHOTS)) URL.revokeObjectURL(dropped.url);
+        const kept = next.slice(0, MAX_SHOTS);
+        shotsRef.current = kept;
+        return kept;
+      });
+      onCapture?.(shot);
+    },
+    [note, onCapture],
+  );
+
+  /* Ask the relay what it has, once. Silence is the normal answer — most
+     desktops are not running one — so a failure here is never shown. */
+  useEffect(() => {
+    let cancelled = false;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 1500);
+    fetch(`${RELAY}/cameras`, { signal: ctrl.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { cameras?: RelayCamera[] } | null) => {
+        if (!cancelled && d?.cameras?.length) setRelayCams(d.cameras);
+      })
+      .catch(() => {})
+      .finally(() => clearTimeout(timer));
+    return () => {
+      cancelled = true;
+      ctrl.abort();
+    };
+  }, []);
+
+  /* A still every second and a half is a preview good enough to aim by, and
+     it is all a snapshot API can give — these cameras have no stream a browser
+     could play. Only while an IP camera is the chosen source. */
+  useEffect(() => {
+    if (!relayName) {
+      if (ipPreviewRef.current) URL.revokeObjectURL(ipPreviewRef.current);
+      ipPreviewRef.current = null;
+      setIpPreview(null);
+      return;
+    }
+    let stopped = false;
+    const tick = async () => {
+      try {
+        const r = await fetch(`${RELAY}/snapshot/${encodeURIComponent(relayName)}?t=${Date.now()}`);
+        if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`);
+        const blob = await r.blob();
+        if (stopped) return;
+        const url = URL.createObjectURL(blob);
+        if (ipPreviewRef.current) URL.revokeObjectURL(ipPreviewRef.current);
+        ipPreviewRef.current = url;
+        setIpPreview(url);
+        setError(null);
+      } catch (e) {
+        if (!stopped) setError(e instanceof Error ? e.message : "The camera did not answer");
+      }
+    };
+    void tick();
+    const id = window.setInterval(() => void tick(), 1500);
+    return () => {
+      stopped = true;
+      window.clearInterval(id);
+    };
+  }, [relayName]);
+
+  /** A still straight off the IP camera, at whatever it actually shoots. */
+  const captureIp = async () => {
+    if (!relayName) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`${RELAY}/snapshot/${encodeURIComponent(relayName)}?t=${Date.now()}`);
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`);
+      const blob = await r.blob();
+      const bitmap = await createImageBitmap(blob).catch(() => null);
+      keep(blob, bitmap?.width ?? 0, bitmap?.height ?? 0);
+      setSize(bitmap ? { w: bitmap.width, h: bitmap.height } : null);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not take a still");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const capture = () => {
     const video = videoRef.current;
     if (!video || !video.videoWidth) return;
@@ -153,28 +283,7 @@ export function WeighbridgeCamera({
     if (!ctx) return;
     ctx.drawImage(video, 0, 0);
     canvas.toBlob(
-      (blob) => {
-        if (!blob) return;
-        const at = new Date();
-        const stamp = at.toISOString().slice(0, 19).replace(/[:T]/g, "");
-        const shot: Shot = {
-          id: `${at.getTime()}`,
-          at,
-          file: new File([blob], `weighbridge-${stamp}.jpg`, { type: "image/jpeg" }),
-          url: URL.createObjectURL(blob),
-          width: canvas.width,
-          height: canvas.height,
-          note: note ?? null,
-        };
-        setShots((prev) => {
-          const next = [shot, ...prev];
-          for (const dropped of next.slice(MAX_SHOTS)) URL.revokeObjectURL(dropped.url);
-          const kept = next.slice(0, MAX_SHOTS);
-          shotsRef.current = kept;
-          return kept;
-        });
-        onCapture?.(shot);
-      },
+      (blob) => blob && keep(blob, canvas.width, canvas.height),
       "image/jpeg",
       0.9,
     );
@@ -190,8 +299,39 @@ export function WeighbridgeCamera({
 
   return (
     <div className="card p-4">
+      {/* Only offered when a relay is actually answering. On a desktop without
+          one there is nothing to choose between, and a dropdown with a single
+          entry is a question nobody asked. */}
+      {relayCams.length > 0 && (
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <span className="text-[11px] uppercase tracking-wide text-gray-400">Source</span>
+          <select
+            className="input w-auto"
+            value={source}
+            onChange={(e) => {
+              stop();
+              setError(null);
+              setSource(e.target.value);
+              localStorage.setItem(SOURCE_KEY, e.target.value);
+            }}
+          >
+            <option value="webcam">USB webcam</option>
+            {relayCams.map((c) => (
+              <option key={c.name} value={`ip:${c.name}`}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        {!live ? (
+        {usingRelay ? (
+          <button className="btn-primary" onClick={() => void captureIp()} disabled={busy}>
+            <Camera className="h-3.5 w-3.5" />
+            {busy ? "Taking…" : "Take a still"}
+          </button>
+        ) : !live ? (
           <button className="btn-primary" onClick={() => void start()} disabled={busy}>
             <Camera className="h-3.5 w-3.5" />
             {busy ? "Starting…" : "Start camera"}
@@ -208,7 +348,7 @@ export function WeighbridgeCamera({
             </button>
           </>
         )}
-        {devices.length > 1 && (
+        {!usingRelay && devices.length > 1 && (
           <select
             className="input w-auto"
             value={deviceId}
@@ -225,7 +365,7 @@ export function WeighbridgeCamera({
             ))}
           </select>
         )}
-        {live && (
+        {!usingRelay && live && (
           <button className="btn-ghost" onClick={() => void start()} title="Reopen the stream">
             <RefreshCw className="h-3.5 w-3.5" />
           </button>
@@ -237,7 +377,7 @@ export function WeighbridgeCamera({
             }`}
           >
             {size.w} × {size.h}
-            {size.h < 720 && " — below 720p; a plate may not be legible"}
+            {size.h < 720 && !usingRelay && " — below 720p; a plate may not be legible"}
           </span>
         )}
       </div>
@@ -249,20 +389,39 @@ export function WeighbridgeCamera({
       )}
 
       <div className="overflow-hidden rounded-lg bg-gray-900">
-        <video
-          ref={videoRef}
-          className={`w-full ${live ? "" : "hidden"}`}
-          playsInline
-          muted
-          autoPlay
-          onLoadedMetadata={(e) =>
-            setSize({ w: e.currentTarget.videoWidth, h: e.currentTarget.videoHeight })
-          }
-        />
-        {!live && (
-          <div className="flex h-40 items-center justify-center text-[13px] text-gray-400">
-            Camera off.
-          </div>
+        {usingRelay ? (
+          ipPreview ? (
+            <img
+              src={ipPreview}
+              alt=""
+              className="w-full"
+              onLoad={(e) =>
+                setSize({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })
+              }
+            />
+          ) : (
+            <div className="flex h-40 items-center justify-center text-[13px] text-gray-400">
+              Waiting for the camera…
+            </div>
+          )
+        ) : (
+          <>
+            <video
+              ref={videoRef}
+              className={`w-full ${live ? "" : "hidden"}`}
+              playsInline
+              muted
+              autoPlay
+              onLoadedMetadata={(e) =>
+                setSize({ w: e.currentTarget.videoWidth, h: e.currentTarget.videoHeight })
+              }
+            />
+            {!live && (
+              <div className="flex h-40 items-center justify-center text-[13px] text-gray-400">
+                Camera off.
+              </div>
+            )}
+          </>
         )}
       </div>
 
