@@ -26,7 +26,26 @@ import {
   subscribe,
 } from "../lib/weighbridge";
 
-export function PlatformWeight({ onUse }: { onUse: (kg: string) => void }) {
+/** One button the operator can press to take the current reading. */
+export interface Take {
+  label: string;
+  onUse: (kg: string) => void;
+}
+
+/**
+ * `takes` is a list because not every weighment is one reading. A lorry at a
+ * station is weighed once per visit, but a feed tanker is weighed empty and
+ * again loaded, and the feed is the difference — so that screen needs two
+ * buttons against the same live reading.
+ */
+export function PlatformWeight({
+  onUse,
+  takes,
+}: {
+  onUse?: (kg: string) => void;
+  takes?: Take[];
+}) {
+  const buttons: Take[] = takes ?? (onUse ? [{ label: "Use this weight", onUse }] : []);
   const state = useSyncExternalStore(subscribe, getSnapshot);
   const supported = canConnect();
 
@@ -90,14 +109,19 @@ export function PlatformWeight({ onUse }: { onUse: (kg: string) => void }) {
           </div>
         </div>
 
-        <button
-          className="btn-primary shrink-0"
-          disabled={!stable}
-          onClick={() => stable && onUse(String(stable.kg))}
-          title={stable ? "" : "Waiting for the reading to hold still"}
-        >
-          Use this weight
-        </button>
+        <div className="flex shrink-0 gap-2">
+          {buttons.map((b) => (
+            <button
+              key={b.label}
+              className="btn-primary"
+              disabled={!stable}
+              onClick={() => stable && b.onUse(String(stable.kg))}
+              title={stable ? "" : "Waiting for the reading to hold still"}
+            >
+              {b.label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

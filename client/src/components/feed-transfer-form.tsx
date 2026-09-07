@@ -11,6 +11,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Send } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
 import { StatusBadge } from "../components/status-badge";
+import { PlatformWeight } from "./platform-weight";
 
 interface Context {
   feeds: Array<{ itemId: string; formulaName: string; itemName: string; quantity: number; value: number }>;
@@ -46,8 +47,25 @@ export function FeedTransferForm() {
   const [fromId, setFromId] = useState("");
   const [toId, setToId] = useState("");
   const [quantity, setQuantity] = useState("");
+  /*
+   * A tanker is weighed twice and the feed is the difference.
+   *
+   * Every feed tanker in the old system's book was weighed empty (~12,800 kg)
+   * and again loaded (~31,000 kg) for ~18,200 kg of feed. Taking one reading
+   * into Quantity would send a shed the weight of the lorry — nearly double
+   * the feed, overdrawing the mill and charging the shed for it — so the two
+   * are captured separately and only their difference reaches the field.
+   */
+  const [emptyKg, setEmptyKg] = useState("");
+  const [loadedKg, setLoadedKg] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+
+  const weighedNet =
+    emptyKg && loadedKg ? Number(loadedKg) - Number(emptyKg) : null;
+  useEffect(() => {
+    if (weighedNet != null && weighedNet > 0) setQuantity(String(weighedNet));
+  }, [weighedNet]);
 
   const { data: ctx } = useQuery<Context>({
     queryKey: ["feed-transfer-context"],
@@ -123,6 +141,36 @@ export function FeedTransferForm() {
           )}
 
           <div className="card mb-4 p-5">
+            {/* Empty then loaded, in the order the tanker meets the platform:
+                it weighs out empty, loads, and weighs again on the way back. */}
+            <PlatformWeight
+              takes={[
+                { label: "Empty", onUse: setEmptyKg },
+                { label: "Loaded", onUse: setLoadedKg },
+              ]}
+            />
+            {(emptyKg || loadedKg) && (
+              <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-gray-50 px-3 py-2 text-[12px]">
+                <span className="text-gray-500">
+                  Empty <span className="tabular-nums text-gray-900">{emptyKg ? kg(emptyKg) : "—"}</span>
+                </span>
+                <span className="text-gray-500">
+                  Loaded <span className="tabular-nums text-gray-900">{loadedKg ? kg(loadedKg) : "—"}</span>
+                </span>
+                {weighedNet != null && weighedNet > 0 && (
+                  <span className="font-medium text-gray-900">→ {kg(weighedNet)} of feed</span>
+                )}
+                <button
+                  className="ml-auto text-gray-400 hover:text-gray-700"
+                  onClick={() => {
+                    setEmptyKg("");
+                    setLoadedKg("");
+                  }}
+                >
+                  Clear
+                </button>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
                 <label className="label-required">Formula *</label>
@@ -166,13 +214,23 @@ export function FeedTransferForm() {
                 <label className="label-required">Quantity (kg) *</label>
                 <input
                   value={quantity}
-                  onChange={(e) => setQuantity(e.target.value)}
+                  onChange={(e) => {
+                    // Typing wins: the pair above is a convenience, not a lock.
+                    setEmptyKg("");
+                    setLoadedKg("");
+                    setQuantity(e.target.value);
+                  }}
                   inputMode="decimal"
                   className="input text-right"
                 />
                 {over && (
                   <p className="mt-0.5 text-[11px] text-red-600">
                     Only {kg(held!.quantity)} in stock.
+                  </p>
+                )}
+                {weighedNet != null && weighedNet <= 0 && (
+                  <p className="mt-0.5 text-[11px] text-red-600">
+                    Loaded is not heavier than empty — check which reading went where.
                   </p>
                 )}
               </div>
