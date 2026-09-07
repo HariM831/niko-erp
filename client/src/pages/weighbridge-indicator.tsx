@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import { ArrowLeft, Copy, Download, Plug, Square } from "lucide-react";
 import { useAuth } from "../auth";
+import { WeighbridgeCamera } from "../components/weighbridge-camera";
 import {
   FrameSplitter,
   type Frame,
@@ -304,6 +305,9 @@ export function WeighbridgeIndicatorPage() {
   };
 
   const analysis = useMemo(() => analyse(frames), [frames]);
+
+  /** The newest thing the line said, for stamping a still. */
+  const latestFrameText = frames.length ? escapeBytes((frames[frames.length - 1] as Frame).bytes) : null;
 
   const elapsed = counters.openedAt ? (Date.now() - counters.openedAt) / 1000 : 0;
   const rate = elapsed > 0 ? counters.bytes / elapsed : 0;
@@ -698,6 +702,21 @@ export function WeighbridgeIndicatorPage() {
             {hexDump(raw.subarray(Math.max(0, raw.length - 4096)))}
           </pre>
         )}
+      </div>
+
+      {/* The camera sits under the bytes because the pairing is the point: a
+          still is only worth keeping if it can be tied to a reading. Each one
+          is stamped with whatever the line was saying at the shutter. */}
+      <div className="mt-4">
+        <div className="mb-2 flex items-baseline justify-between">
+          <h2 className="text-[15px] font-semibold text-gray-900">Camera</h2>
+          <span className="text-[12px] text-gray-400">
+            {latestFrameText
+              ? "Stills are stamped with the live reading"
+              : "Connect the port and stills carry the reading too"}
+          </span>
+        </div>
+        <WeighbridgeCamera note={latestFrameText} />
       </div>
 
       <p className="mt-3 text-[12px] leading-relaxed text-gray-400">
