@@ -10,7 +10,7 @@ import {
   vendorPayments,
 } from "@shared/schema";
 import { db } from "../db";
-import { requirePermission } from "../lib/rbac";
+import { allowContact } from "../lib/contact-access";
 
 export const contactInsightsRouter = Router();
 
@@ -21,10 +21,10 @@ async function loadContact(id: string) {
 /** Outstanding + unused credits, Zoho's Receivables/Payables card. */
 contactInsightsRouter.get(
   "/:id/summary",
-  requirePermission("sales", "view"),
   async (req, res) => {
     const contact = await loadContact(req.params.id!);
     if (!contact) return res.status(404).json({ error: "Contact not found" });
+    if (!allowContact(req, res, contact.type, "view")) return;
 
     /**
      * Both sides, always.
@@ -83,10 +83,10 @@ contactInsightsRouter.get(
 /** All transactions for the Transactions tab, grouped by type. */
 contactInsightsRouter.get(
   "/:id/transactions",
-  requirePermission("sales", "view"),
   async (req, res) => {
     const contact = await loadContact(req.params.id!);
     if (!contact) return res.status(404).json({ error: "Contact not found" });
+    if (!allowContact(req, res, contact.type, "view")) return;
 
     // A contact that trades both ways gets both sets; the screen decides which
     // sections to show.
@@ -133,10 +133,10 @@ contactInsightsRouter.get(
 /** Monthly Income (customers) / Expense (vendors) bar-chart data, accrual or cash basis. */
 contactInsightsRouter.get(
   "/:id/income-chart",
-  requirePermission("sales", "view"),
   async (req, res) => {
     const contact = await loadContact(req.params.id!);
     if (!contact) return res.status(404).json({ error: "Contact not found" });
+    if (!allowContact(req, res, contact.type, "view")) return;
     const months = Math.min(Math.max(Number(req.query.months) || 6, 1), 24);
     const basis = req.query.basis === "cash" ? "cash" : "accrual";
 
@@ -235,10 +235,10 @@ interface StatementRow {
 /** Statement of account: chronological documents with a running balance. */
 contactInsightsRouter.get(
   "/:id/statement",
-  requirePermission("sales", "view"),
   async (req, res) => {
     const contact = await loadContact(req.params.id!);
     if (!contact) return res.status(404).json({ error: "Contact not found" });
+    if (!allowContact(req, res, contact.type, "view")) return;
     const { from, to } = req.query as Record<string, string | undefined>;
 
     /**

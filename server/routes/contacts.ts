@@ -11,7 +11,11 @@ import {
   invoices,
 } from "@shared/schema";
 import { db } from "../db";
-import { requirePermission } from "../lib/rbac";
+import {
+  allowContact,
+  mayAccessContact,
+  requireContactPermission,
+} from "../lib/contact-access";
 import { contains } from "../services/document-search";
 import { gstStateCode, nonBlank, validateBody } from "../lib/validate";
 import { getPreferences } from "../services/preferences";
@@ -111,15 +115,10 @@ const contactSchema = contactObjectSchema
     { message: "This GST treatment does not carry a GSTIN", path: ["gstin"] },
   );
 
-// The module permission is "sales" for customers and "purchases" for vendors;
-// contact routes accept either, checking against the requested type.
-function moduleFor(type: string | undefined) {
-  return type === "vendor" ? "purchases" : "sales";
-}
-
 /** The gradient hero strip on the Customers / Vendors lists. */
-contactsRouter.get("/summary", requirePermission("sales", "view"), async (req, res) => {
+contactsRouter.get("/summary", async (req, res) => {
   const type = (req.query.type as string | undefined) === "vendor" ? "vendor" : "customer";
+  if (!allowContact(req, res, type, "view")) return;
   const typeCond = inArray(contacts.type, [type, "both"]);
   const notGroup = eq(contacts.isGroupCompany, false);
 
@@ -151,16 +150,34 @@ contactsRouter.get("/summary", requirePermission("sales", "view"), async (req, r
   });
 });
 
-contactsRouter.get("/", requirePermission("sales", "view"), async (req, res) => {
+contactsRouter.get("/", async (req, res) => {
   const { type, search, isActive } = req.query as Record<string, string | undefined>;
   const conditions = [];
-  // A party that trades both ways belongs in both lists, so asking for
-  // customers has to return it too.
   if (type === "customer" || type === "vendor") {
+    if (!allowContact(req, res, type, "view")) return;
+    // A party that trades both ways belongs in both lists, so asking for
+    // customers has to return it too.
     conditions.push(inArray(contacts.type, [type, "both"]));
     // The group's own companies are neither customers nor vendors to the
     // market; their ledger has its own page under Accountant.
     conditions.push(eq(contacts.isGroupCompany, false));
+  } else {
+    /*
+     * No type asked for — a lookup field, or Bulk Update. Either right opens
+     * the list, and the answer narrows to the side that holds it: a purchase
+     * manager's picker offers vendors, rather than hundreds of names whose
+     * own pages would refuse them.
+     */
+    const sides = (["customer", "vendor"] as const).filter((t) =>
+      mayAccessContact(req, t, "view"),
+    );
+    if (!sides.length) {
+      // "both" so the refusal names both rights, not whichever one the caller
+      // happened not to ask for.
+      allowContact(req, res, "both", "view");
+      return;
+    }
+    if (sides.length === 1) conditions.push(inArray(contacts.type, [sides[0]!, "both"]));
   }
   if (isActive !== undefined) conditions.push(eq(contacts.isActive, isActive === "true"));
   if (search) {
@@ -252,11 +269,12 @@ contactsRouter.get("/", requirePermission("sales", "view"), async (req, res) => 
   );
 });
 
-contactsRouter.get("/:id", requirePermission("sales", "view"), async (req, res) => {
+contactsRouter.get("/:id", async (req, res) => {
   const contact = await db.query.contacts.findFirst({
     where: eq(contacts.id, req.params.id!),
   });
   if (!contact) return res.status(404).json({ error: "Contact not found" });
+  if (!allowContact(req, res, contact.type, "view")) return;
   const [persons, addresses] = await Promise.all([
     db.select().from(contactPersons).where(eq(contactPersons.contactId, contact.id)),
     db.select().from(contactAddresses).where(eq(contactAddresses.contactId, contact.id)),
@@ -267,7 +285,7 @@ contactsRouter.get("/:id", requirePermission("sales", "view"), async (req, res) 
 
 contactsRouter.post("/", validateBody(contactSchema), async (req, res, next) => {
   const body = req.body as z.infer<typeof contactSchema>;
-  requirePermission(moduleFor(body.type), "create")(req, res, async () => {
+  requireContactPermission(body.type, "create")(req, res, async () => {
     try {
       const result = await db.transaction(async (tx) => {
         // displayName carries no unique index, because whether duplicates are
@@ -319,7 +337,7 @@ contactsRouter.patch("/:id", validateBody(contactPatchSchema), async (req, res, 
     columns: { id: true, type: true },
   });
   if (!existing) return res.status(404).json({ error: "Contact not found" });
-  requirePermission(moduleFor(existing.type), "edit")(req, res, async () => {
+  requireContactPermission(existing.type, "edit")(req, res, async () => {
     try {
       const body = req.body as z.infer<typeof contactPatchSchema>;
       const result = await db.transaction(async (tx) => {
@@ -368,7 +386,7 @@ contactsRouter.delete("/:id", async (req, res, next) => {
     columns: { id: true, type: true },
   });
   if (!existing) return res.status(404).json({ error: "Contact not found" });
-  requirePermission(moduleFor(existing.type), "delete")(req, res, async () => {
+  requireContactPermission(existing.type, "delete")(req, res, async () => {
     try {
       await db
         .update(contacts)
