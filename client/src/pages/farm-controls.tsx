@@ -349,10 +349,16 @@ export function FarmControlsPage() {
       loadProposals();
     } catch (e) {
       setNotice(e instanceof Error ? e.message : "That did not go through");
+      loadProposals(); // the proposal may have been replaced under us
     } finally {
       setBusy(null);
     }
   };
+  // proposals are replaced by every evaluation, so keep the list current while the page is open
+  useEffect(() => {
+    const t = setInterval(loadProposals, 60_000);
+    return () => clearInterval(t);
+  }, [houseId]);
   const saveRule = async (key: string, params: Record<string, number>, enabled: boolean) => {
     setBusy(`r${key}`);
     try {

@@ -198,7 +198,8 @@ export class WritesDisabled extends Error {
 export async function approveProposal(id: number, userId: string) {
   const [p] = await db.select().from(controllerProposals).where(eq(controllerProposals.id, id));
   if (!p) throw new Error("No such proposal");
-  if (p.status !== "open") throw new Error(`Proposal is ${p.status}`);
+  if (p.status === "superseded") throw new Error("This proposal was replaced by a newer evaluation. The list has been refreshed; approve the new one.");
+  if (p.status !== "open") throw new Error(`Proposal is already ${p.status}`);
   const changes = p.changes as Array<{ register: string; label: string; unit: string; before: string | null; after: string }>;
   if (!changes.length) throw new Error("This proposal has nothing to write; it asks for a sitting at the panel.");
   const { farm } = await ruleParams(p.houseId);
