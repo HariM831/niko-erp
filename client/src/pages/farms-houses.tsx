@@ -1106,7 +1106,7 @@ export function FarmsHousesPage() {
                   <Th className="col-portrait-hide">Water today</Th>
                   <Th className="col-portrait-hide">Feed today</Th>
                   <Th className="col-portrait-hide">Fans</Th>
-                  <Th className="col-portrait-hide">Pads</Th>
+                  <Th>Pads</Th>
                 </tr>
               </thead>
               <tbody>
@@ -1213,7 +1213,7 @@ export function FarmsHousesPage() {
                         </td>
                         {/* The pad pump: running now or not, and how long it has run since midnight, from the five-minute samples. */}
                         <td
-                          className="col-portrait-hide px-3 py-2 text-right tabular-nums"
+                          className="px-3 py-2 text-right tabular-nums whitespace-nowrap"
                           title={r.padsOn == null ? "The controller does not report the pad pump" : `pump ${r.padsOn ? "running" : "off"} now · ${r.padsMinutesToday ?? 0} minutes since midnight`}
                         >
                           {r.padsOn == null ? "—" : (
