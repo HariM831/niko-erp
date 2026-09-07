@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  PERMISSION_ACTIONS,
   type PermissionModule,
   actionsFor,
   effectiveActions,
-  hasCustomActions,
   isAdminMap,
 } from "@shared/permissions";
+import { overviewPagesForModule, pagesForAction } from "@shared/pages";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import {
@@ -580,77 +579,116 @@ function RoleEditor({
         </div>
       </div>
 
+      {/*
+        Modules, but read as screens.
+
+        The grid this replaced listed verbs — "Run the formulator", "Manage
+        deduction rules" — and never said which page any of them opened, so
+        building a role meant ticking something and going to look. Each right
+        now names the screens it reveals.
+
+        Where several screens share one right they are listed together and the
+        row says so. That is the honest shape of it outside Feed Mill and
+        Payroll: every Sales screen rides one `view`, and a row that named only
+        Invoices while quietly revealing seven more would be worse than the
+        verbs were.
+      */}
       {!admin && (
-        <table className="w-full text-[13px]">
-          <thead className="table-head">
-            <tr>
-              <th className="px-3 py-2 text-left">Module</th>
-              {PERMISSION_ACTIONS.map((a) => (
-                <th key={a.key} className="w-20 px-2 py-2 text-center">
-                  {a.label}
-                </th>
-              ))}
-              <th className="w-16 px-2 py-2 text-center">All</th>
-            </tr>
-          </thead>
-          <tbody>
-            {modules.map((m) => {
-              const actions = perms[m.key] ?? [];
-              const own = actionsFor(m.key);
-              const all = own.every((a) => actions.includes(a.key));
-              const custom = hasCustomActions(m.key);
-              return (
-                <tr key={m.key} className="border-b border-gray-100">
-                  <td className="px-3 py-2">
-                    <div>{m.label}</div>
+        <div className="space-y-2">
+          {modules.map((m) => {
+            const actions = perms[m.key] ?? [];
+            const own = actionsFor(m.key);
+            const all = own.every((a) => actions.includes(a.key));
+            const opens = own.filter((a) => pagesForAction(m.key, a.key).length > 0);
+            const verbs = own.filter((a) => pagesForAction(m.key, a.key).length === 0);
+            const overviews = overviewPagesForModule(m.key);
+            return (
+              <div key={m.key} className="rounded-lg border border-gray-200 p-3">
+                <div className="mb-2 flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="text-[13px] font-medium text-gray-900">{m.label}</div>
                     <div className="text-[11px] text-gray-400">{m.description}</div>
-                  </td>
-                  {/* A module with verbs of its own gets one cell across the
-                      standard columns — create/edit/delete mean nothing to it. */}
-                  {custom ? (
-                    <td colSpan={PERMISSION_ACTIONS.length} className="px-2 py-2">
-                      <div className="flex flex-wrap justify-center gap-x-3 gap-y-1">
-                        {own.map((a) => (
-                          <label
-                            key={a.key}
-                            className="inline-flex items-center gap-1 text-[12px] text-gray-600"
-                          >
-                            <input
-                              type="checkbox"
-                              disabled={readOnly}
-                              checked={actions.includes(a.key)}
-                              onChange={() => toggle(m.key, a.key)}
-                            />
-                            {a.label}
-                          </label>
-                        ))}
-                      </div>
-                    </td>
-                  ) : (
-                    own.map((a) => (
-                      <td key={a.key} className="px-2 py-2 text-center">
-                        <input
-                          type="checkbox"
-                          disabled={readOnly}
-                          checked={actions.includes(a.key)}
-                          onChange={() => toggle(m.key, a.key)}
-                        />
-                      </td>
-                    ))
-                  )}
-                  <td className="px-2 py-2 text-center">
+                  </div>
+                  <label className="flex shrink-0 items-center gap-1.5 text-[12px] text-gray-500">
                     <input
                       type="checkbox"
                       disabled={readOnly}
                       checked={all}
                       onChange={(e) => toggleModule(m.key, e.target.checked)}
                     />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                    Everything
+                  </label>
+                </div>
+
+                {opens.length > 0 && (
+                  <div className="mb-2">
+                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                      Pages
+                    </div>
+                    <div className="space-y-1">
+                      {opens.map((a) => {
+                        const pages = pagesForAction(m.key, a.key);
+                        return (
+                          <label key={a.key} className="flex items-start gap-2 text-[12px]">
+                            <input
+                              type="checkbox"
+                              className="mt-[3px]"
+                              disabled={readOnly}
+                              checked={actions.includes(a.key)}
+                              onChange={() => toggle(m.key, a.key)}
+                            />
+                            <span className="min-w-0">
+                              <span className="text-gray-800">
+                                {pages.map((pg) => pg.label).join(" · ")}
+                              </span>
+                              {pages.length > 1 && (
+                                <span className="text-gray-400">
+                                  {" "}
+                                  — {pages.length} screens on one right, so they are granted together
+                                </span>
+                              )}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {verbs.length > 0 && (
+                  <div>
+                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+                      {opens.length ? "Also allowed" : "Allowed"}
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1">
+                      {verbs.map((a) => (
+                        <label
+                          key={a.key}
+                          className="inline-flex items-center gap-1.5 text-[12px] text-gray-600"
+                        >
+                          <input
+                            type="checkbox"
+                            disabled={readOnly}
+                            checked={actions.includes(a.key)}
+                            onChange={() => toggle(m.key, a.key)}
+                          />
+                          {a.label}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {overviews.length > 0 && (
+                  <p className="mt-2 text-[11px] text-gray-400">
+                    {overviews.map((pg) => pg.label).join(", ")} opens for anyone holding any
+                    right in this menu.
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
       )}
 
       {!admin && (

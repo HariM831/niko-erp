@@ -589,7 +589,7 @@ officeRouter.post(
   },
 );
 
-officeRouter.get("/receipts", requirePermission("office", "view"), async (req, res) => {
+officeRouter.get("/receipts", requirePermission("office", "receipts"), async (req, res) => {
   const { status, vendorId, locationId } = req.query as Record<string, string | undefined>;
   const where = [];
   if (status) where.push(eq(officeReceipts.status, status as ReceiptStatus));

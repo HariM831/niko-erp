@@ -79,7 +79,15 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     label: "Office",
     description: "Goods receipts: gate in, weighment, QC, settlement",
     actions: [
-      { key: "view", label: "View" },
+      // Not a page any more. Every station reads reference data and the
+      // receipt it is working on, so this is the floor they all stand on —
+      // the editor adds it with the first page ticked.
+      { key: "view", label: "Read access (added with any page)" },
+      // Split out of `view` so the Goods Receipts register can be withheld
+      // from someone who still needs the floor to work a station. Every
+      // station reads a receipt to do its job; reading the whole book of them
+      // is a different thing to be allowed.
+      { key: "receipts", label: "Goods Receipts" },
       { key: "gate_in", label: "Gate In" },
       { key: "weighbridge", label: "Weighbridge" },
       { key: "quality_control", label: "QC" },
@@ -99,7 +107,11 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     label: "Feed Mill",
     description: "Nutrient profiles, feed standards, formulas, production and feed transfers",
     actions: [
-      { key: "view", label: "View" },
+      { key: "view", label: "Read access (added with any page)" },
+      // Split out of `view`. A mill hand issuing production picks a formula by
+      // name; the inclusion rates behind that name are the recipe, and the
+      // floor should not hand them over just because somebody may run a batch.
+      { key: "formulas", label: "Formulas" },
       // Naming what a material is made of is a nutritionist's job, and a
       // least-cost mix is only as good as the analysis behind it.
       { key: "nutrients", label: "Edit nutrient profiles" },

@@ -113,7 +113,41 @@ async function formulaProblem(body: Body): Promise<string | null> {
  * reads is the same one production will charge — moisture and overhead come
  * from the mill's own preferences, not from constants in a component.
  */
-feedFormulasRouter.get("/matrix", requirePermission("feed_mill", "view"), async (_req, res) => {
+/**
+ * Just enough of a formula to choose one: its name, and what the live version
+ * makes. Production needs this to fill a dropdown, and it sits on the module
+ * floor because picking a formula by name is not reading its recipe — that is
+ * `GET /` above, and it is gated separately.
+ *
+ * Declared before any parameterised route so "picker" is never read as an id.
+ */
+feedFormulasRouter.get("/picker", requirePermission("feed_mill", "view"), async (_req, res) => {
+  const rows = await db
+    .select({
+      id: formulas.id,
+      name: formulas.name,
+      version: formulas.version,
+      batchSizeKg: formulas.batchSizeKg,
+      outputItemName: items.name,
+    })
+    .from(formulas)
+    .leftJoin(items, eq(items.id, formulas.outputItemId))
+    .where(eq(formulas.isActive, true))
+    .orderBy(asc(formulas.name));
+  res.json(
+    rows.map((r) => ({
+      name: r.name,
+      active: {
+        id: r.id,
+        version: r.version,
+        batchSizeKg: r.batchSizeKg,
+        outputItemName: r.outputItemName,
+      },
+    })),
+  );
+});
+
+feedFormulasRouter.get("/matrix", requirePermission("feed_mill", "formulas"), async (_req, res) => {
   const live = await db
     .select({
       id: formulas.id,
@@ -261,7 +295,7 @@ feedFormulasRouter.get("/matrix", requirePermission("feed_mill", "view"), async 
   res.json({ formulas: heads, ingredients, nutrients, withoutLive });
 });
 
-feedFormulasRouter.get("/", requirePermission("feed_mill", "view"), async (_req, res) => {
+feedFormulasRouter.get("/", requirePermission("feed_mill", "formulas"), async (_req, res) => {
   const versions = await db
     .select({
       id: formulas.id,
@@ -411,7 +445,7 @@ feedFormulasRouter.delete(
 );
 
 /** Items a formula may output: tracked, not themselves ingredients. */
-feedFormulasRouter.get("/output-items", requirePermission("feed_mill", "view"), async (_req, res) => {
+feedFormulasRouter.get("/output-items", requirePermission("feed_mill", "formulas"), async (_req, res) => {
   const rows = await db
     .select({ id: items.id, name: items.name, unit: items.unit, trackInventory: items.trackInventory })
     .from(items)

@@ -54,9 +54,11 @@ export function FeedProductionPage() {
   const [voiding, setVoiding] = useState<string | null>(null);
   const [voidReason, setVoidReason] = useState("");
 
+  /* The picker, not the full list: issuing a batch means choosing a formula by
+     name, and the recipe behind that name is a separate right. */
   const { data: groups } = useQuery<FormulaGroup[]>({
-    queryKey: ["feed-formulas"],
-    queryFn: () => api("/api/feed/formulas"),
+    queryKey: ["feed-formula-picker"],
+    queryFn: () => api("/api/feed/formulas/picker"),
   });
   const { data: rows } = useQuery<ProductionRow[]>({
     queryKey: ["feed-production"],
