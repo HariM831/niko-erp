@@ -16,7 +16,7 @@
  * is the same authority that records a gross weight at Weigh In.
  */
 import { Router } from "express";
-import { and, asc, desc, eq, isNotNull, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { contacts, items, locations, orgProfile, users, weighTickets } from "@shared/schema";
 import { db } from "../db";
@@ -106,6 +106,28 @@ weighTicketsRouter.get(
 );
 
 /**
+ * Categories that never cross a platform.
+ *
+ * An exclusion rather than a list of what does, because nothing in the item
+ * master says "weighbridge" and inventing that judgement at a keyboard gets it
+ * wrong: construction looks like the obvious thing to drop until you notice
+ * Crusher Sand and 20mm Aggregate in it, which is exactly what a tipper is
+ * weighed for.
+ *
+ * These three are safe. A vial of vaccine and a strip of medicine arrive in a
+ * box, and eggs leave by tray through the Loading Bay and are counted, never
+ * weighed.
+ *
+ * `category` is nullable — five items have never been classified — and a bare
+ * NOT IN would drop every one of them, because in SQL a NULL is not "not in"
+ * anything. Unclassified means nobody has said yet, not "hide it".
+ */
+const NOT_WEIGHED = or(
+  isNull(items.category),
+  notInArray(items.category, ["vaccines", "medicines", "eggs"]),
+);
+
+/**
  * Everything the form picks from.
  *
  * Not `/api/office/context`, which narrows contacts to vendors and items to
@@ -134,7 +156,7 @@ weighTicketsRouter.get(
       db
         .select({ id: items.id, name: items.name, unit: items.unit })
         .from(items)
-        .where(eq(items.isActive, true))
+        .where(and(eq(items.isActive, true), NOT_WEIGHED))
         .orderBy(asc(items.name)),
     ]);
     res.json({ locations: locs, parties, items: materials });
