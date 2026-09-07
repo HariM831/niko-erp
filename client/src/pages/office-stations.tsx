@@ -24,8 +24,9 @@ import { useAuth } from "../auth";
 import { StatusBadge } from "../components/status-badge";
 import { FeedTransferForm } from "../components/feed-transfer-form";
 import { PlatformWeight } from "../components/platform-weight";
+import { WeighbridgeSlips } from "../components/weighbridge-slips";
 
-export type Station = "weighbridge" | "qc" | "weigh-out" | "transfer";
+export type Station = "weighbridge" | "qc" | "weigh-out" | "transfer" | "slips";
 
 /**
  * Tab order is the order a truck meets them.
@@ -34,7 +35,7 @@ export type Station = "weighbridge" | "qc" | "weigh-out" | "transfer";
  * come off and the empty vehicle goes straight on the weighbridge, so it is
  * one act by one operator and it belongs to Weigh Out.
  */
-export const STATION_ORDER: Station[] = ["weighbridge", "qc", "weigh-out", "transfer"];
+export const STATION_ORDER: Station[] = ["weighbridge", "qc", "weigh-out", "transfer", "slips"];
 
 /**
  * Feed transfer has no queue: it is not a truck waiting on somebody, it is a
@@ -42,7 +43,7 @@ export const STATION_ORDER: Station[] = ["weighbridge", "qc", "weigh-out", "tran
  * a vehicle, out to a shed — and the platform is where the scales and the
  * operator are.
  */
-const QUEUELESS: Station[] = ["transfer"];
+const QUEUELESS: Station[] = ["transfer", "slips"];
 
 export const isStation = (v: string): v is Station =>
   (STATION_ORDER as string[]).includes(v);
@@ -54,6 +55,7 @@ const QUEUE_OF: Record<Station, string> = {
   qc: "qc",
   "weigh-out": "tare",
   transfer: "",
+  slips: "",
 };
 
 const TITLE: Record<Station, { title: string; sub: string; empty: string }> = {
@@ -72,6 +74,13 @@ const TITLE: Record<Station, { title: string; sub: string; empty: string }> = {
     title: "Weigh Out",
     sub: "Cleared by QC — count the bags off and weigh the empty truck",
     empty: "No trucks waiting to weigh out.",
+  },
+  /* Not a station on the receipt's journey — a weighbridge in its own right,
+     for the loads that are not a purchase at all. */
+  slips: {
+    title: "Weighbridge",
+    sub: "Weigh anything and print a slip",
+    empty: "",
   },
 };
 
@@ -729,7 +738,9 @@ export function StationPage({ station }: { station: Station }) {
         <div className="mb-3 text-right text-[13px] text-gray-400">{queue?.length ?? 0} waiting</div>
       )}
 
-      {QUEUELESS.includes(station) ? (
+      {station === "slips" ? (
+        <WeighbridgeSlips />
+      ) : QUEUELESS.includes(station) ? (
         <FeedTransferForm />
       ) : (
       <div className="grid gap-4 md:grid-cols-2">

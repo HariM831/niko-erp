@@ -12,6 +12,7 @@ import {
   items,
   journalEntries,
   officeReceiptLines,
+  weighTickets,
   officeReceipts,
   purchaseOrders,
   vendorCredits,
@@ -45,6 +46,7 @@ const TABLE_OF: Record<string, PgTable> = {
   inventory_adjustment: inventoryAdjustments,
   office_receipt: officeReceipts,
   office_receipt_line: officeReceiptLines,
+  weigh_ticket: weighTickets,
   ai_observation: aiObservations,
 };
 

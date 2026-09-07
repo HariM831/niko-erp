@@ -156,6 +156,23 @@ export const ENTITIES: EntityDef[] = [
     lookupTarget: false,
   },
   {
+    /*
+     * A weighbridge slip that is not a purchase.
+     *
+     * Separate from office_receipt because a goods receipt carries a vendor
+     * bill, PO-matched lines, a QC verdict and a settlement. Weighing a load of
+     * scrap out of the yard has none of that shape — a vehicle, a material, two
+     * weighments and a printed slip. Registered here so the vehicle photo rides
+     * the same attachments machinery as every other file.
+     */
+    key: "weigh_ticket",
+    label: "Weigh Slip",
+    plural: "Weigh Slips",
+    module: "office",
+    numbered: true,
+    lookupTarget: false,
+  },
+  {
     /**
      * A Dr niko field observation — photos of what somebody found in a shed,
      * sent for diagnosis. Registered so the photos ride the same attachments

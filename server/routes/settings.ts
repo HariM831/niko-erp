@@ -76,6 +76,7 @@ const DEFAULT_PREFIX: Record<string, string> = {
   bill: "BILL-", purchase_order: "PO-", vendor_credit: "VCN-",
   vendor_payment: "VP-", expense: "EXP-", journal_entry: "JE-",
   fixed_asset: "FA-", inventory_adjustment: "IA-", attachment: "DOC-",
+  weigh_ticket: "WS-",
 };
 
 const newSeriesSchema = z.object({

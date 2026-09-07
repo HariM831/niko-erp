@@ -528,3 +528,70 @@ export const deductionRules = pgTable(
 export type QcSpec = typeof qcSpecs.$inferSelect;
 export type QcSpecParam = typeof qcSpecParams.$inferSelect;
 export type DeductionRule = typeof deductionRules.$inferSelect;
+
+// ───────────────────────── The standalone weigh slip ─────────────────────
+
+/**
+ * A vehicle weighed, and nothing more claimed than that.
+ *
+ * Separate from `officeReceipts` on purpose. A goods receipt is a purchase: it
+ * carries a vendor bill, lines matched to a purchase order, a QC verdict and a
+ * settlement that ends in a Bill. Selling gunny bags or scrap has none of that
+ * shape — there is a vehicle, a material, two weighments and a printed slip —
+ * and forcing it through the receipt flow would mean inventing a bill and a
+ * purchase order for a load of scrap leaving the yard.
+ *
+ * Modelled on WBSoftCAM, which has run this mill's weighbridge for years:
+ * one row per visit holding BOTH weighments, in whichever order they happen.
+ * Its book shows tare recorded before gross as often as after — a feed tanker
+ * weighs empty on the way out and full on the way back — so neither is "first"
+ * in the schema, only in time.
+ */
+export const weighTickets = pgTable(
+  "weigh_tickets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    number: text("number").notNull().unique(),
+    locationId: uuid("location_id").references(() => locations.id),
+    vehicleNumber: varchar("vehicle_number", { length: 20 }).notNull(),
+    /** Who the load is for. Null while a driver is still being identified. */
+    partyId: uuid("party_id").references(() => contacts.id),
+    /** What is on the vehicle, from the item catalogue rather than free text. */
+    itemId: uuid("item_id").references(() => items.id),
+
+    grossWeightKg: qty("gross_weight_kg"),
+    grossAt: timestamp("gross_at"),
+    grossBy: uuid("gross_by").references(() => users.id),
+
+    tareWeightKg: qty("tare_weight_kg"),
+    tareAt: timestamp("tare_at"),
+    tareBy: uuid("tare_by").references(() => users.id),
+
+    /**
+     * GENERATED ALWAYS AS (gross - tare) STORED, added in the migration.
+     * The net is what the slip is for and what a load is sold on; it must not
+     * be able to drift from the two weighments it comes from.
+     */
+    netWeightKg: qty("net_weight_kg"),
+
+    notes: text("notes"),
+    /**
+     * How many times the finished slip has been printed.
+     *
+     * WBSoftCAM stamps the first print Original and every one after it
+     * Duplicate, which is the only thing stopping a second slip for the same
+     * load being passed off as the first. Cheap to keep, and the reason to
+     * keep it does not show up until somebody tries it.
+     */
+    printCount: integer("print_count").notNull().default(0),
+
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    createdBy: uuid("created_by").references(() => users.id),
+  },
+  (t) => [
+    index("idx_weigh_tickets_vehicle").on(t.vehicleNumber),
+    index("idx_weigh_tickets_created").on(t.createdAt),
+  ],
+);
+
+export type WeighTicket = typeof weighTickets.$inferSelect;

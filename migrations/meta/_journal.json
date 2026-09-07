@@ -645,6 +645,13 @@
       "when": 1788767706578,
       "tag": "0091_page_rights_feed_mill",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1788774611593,
+      "tag": "0092_weigh_tickets",
+      "breakpoints": true
     }
   ]
 }

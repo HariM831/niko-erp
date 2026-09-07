@@ -26,6 +26,7 @@ import { farmsRouter } from "./routes/farms";
 import { farmsFlockRouter } from "./routes/farms-flocks";
 import { farmsCompatRouter } from "./routes/farms-compat";
 import { officeSitesRouter } from "./routes/office-sites";
+import { weighTicketsRouter } from "./routes/weigh-tickets";
 import { feedNutrientsRouter } from "./routes/feed-nutrients";
 import { feedStandardsRouter } from "./routes/feed-standards";
 import { feedFormulasRouter } from "./routes/feed-formulas";
@@ -134,6 +135,7 @@ app.use("/api/purchases", requireAuth, purchasesRouter);
 app.use("/api/office", requireAuth, officeRouter);
 app.use("/api/deduction-rules", requireAuth, deductionRulesRouter);
 app.use("/api/office-sites", requireAuth, officeSitesRouter);
+app.use("/api/weigh-tickets", requireAuth, weighTicketsRouter);
 app.use("/api/farms", requireAuth, farmsRouter);
 app.use("/api/farms", requireAuth, farmsFlockRouter);
 // The ported screens post in the farm app's shapes; translated in the router.
