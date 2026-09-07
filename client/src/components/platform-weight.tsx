@@ -41,9 +41,19 @@ export interface Take {
 export function PlatformWeight({
   onUse,
   takes,
+  compact,
 }: {
   onUse?: (kg: string) => void;
   takes?: Take[];
+  /**
+   * A one-line readout for a page header, with nothing to press.
+   *
+   * The stations only render their capture panel once a truck is picked, so
+   * until then the screen said nothing about the platform at all — and an
+   * operator wants to see what is on it the way they can see the indicator on
+   * the wall, whether or not a receipt is open yet.
+   */
+  compact?: boolean;
 }) {
   const buttons: Take[] = takes ?? (onUse ? [{ label: "Use this weight", onUse }] : []);
   const state = useSyncExternalStore(subscribe, getSnapshot);
@@ -60,8 +70,38 @@ export function PlatformWeight({
   if (!supported) return null;
 
   const { status, reading, stable, unreadable } = state;
+  const live = status === "open" || status === "connecting";
 
-  if (status !== "open" && status !== "connecting") {
+  if (compact) {
+    if (!live) {
+      return (
+        <button
+          className="text-[12px] text-gray-400 hover:text-brand-600 hover:underline"
+          onClick={() => void choosePort()}
+        >
+          Connect platform
+        </button>
+      );
+    }
+    return (
+      <span className="flex items-baseline gap-1.5" title="Live from the weighbridge">
+        <span className="text-[15px] font-semibold tabular-nums text-gray-900">
+          {reading ? reading.kg.toLocaleString("en-IN", { maximumFractionDigits: 1 }) : "—"}
+        </span>
+        <span className="text-[11px] text-gray-400">kg</span>
+        {reading && (
+          <span
+            className={`h-1.5 w-1.5 shrink-0 self-center rounded-full ${
+              stable ? "bg-green-500" : "bg-amber-500"
+            }`}
+            title={stable ? "Stable" : "Settling"}
+          />
+        )}
+      </span>
+    );
+  }
+
+  if (!live) {
     return (
       <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-dashed border-gray-300 bg-gray-50/60 px-3 py-2">
         <div className="min-w-0 text-[12px] text-gray-500">
