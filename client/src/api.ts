@@ -31,6 +31,8 @@ export async function api<T = unknown>(
     } catch {
       /* non-JSON error body */
     }
+    // A session that has quietly expired should say so, not read as a failed action.
+    if (res.status === 401) message = "Your session has expired. Reload the page and sign in again.";
     throw new ApiError(res.status, message, issues, data);
   }
   return res.json() as Promise<T>;

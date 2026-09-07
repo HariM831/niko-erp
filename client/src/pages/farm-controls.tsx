@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { ArrowLeft, Camera, Check, ClipboardList, RefreshCw, Settings2, Wifi, WifiOff, X } from "lucide-react";
-import { api } from "../api";
+import { api, ApiError } from "../api";
 import { useAuth } from "../auth";
 
 interface BoardRow {
@@ -293,7 +293,10 @@ export function FarmControlsPage() {
     if (!houseId) return;
     api<{ proposals: Proposal[] }>(`/api/farms/controls/${houseId}/proposals`)
       .then((d) => setProposals(d.proposals))
-      .catch(() => setProposals([]));
+      .catch((e) => {
+        setProposals([]);
+        if (e instanceof ApiError && e.status === 401) setNotice(e.message);
+      });
     api<{ proposals: Proposal[] }>(`/api/farms/controls/${houseId}/proposals?status=written,failed,dismissed,superseded`)
       .then((d) => setDecided(d.proposals))
       .catch(() => setDecided([]));

@@ -174,9 +174,15 @@ controlsRouter.post("/proposals/evaluate", manage, async (req, res) => {
 
 /** Say yes: write through the one path, with readback. */
 controlsRouter.post("/proposals/:id/approve", control, async (req, res) => {
+  const who = req.session.user!.id;
+  console.log(`[controls] approve #${req.params.id} requested by ${who}`);
   try {
-    res.json(await approveProposal(Number(req.params.id), req.session.user!.id));
+    const out = await approveProposal(Number(req.params.id), who);
+    const took = out.record.registers.filter((r) => r.took).length;
+    console.log(`[controls] approve #${req.params.id} on ${out.house}: ${out.record.confirmed ? "confirmed" : "NOT confirmed"}, ${took}/${out.record.registers.length} took`);
+    res.json(out);
   } catch (e) {
+    console.warn(`[controls] approve #${req.params.id} refused: ${e instanceof Error ? e.message : String(e)}`);
     res.status(e instanceof WritesDisabled ? 423 : 422).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });
