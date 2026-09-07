@@ -420,8 +420,11 @@ const ladderReach: Rule = (ctx, p) => {
     if (fit && hasCurtains) {
       const need = p.pressurePa! / (fans * fans) - fit.a;
       const area = need > 0 ? Math.sqrt(fit.b / need) : Infinity;
-      const c1 = Math.max(prevC1, round5((Math.min(area, A1) / A1) * 100));
-      const c2 = Math.max(prevC2, area <= A1 ? 0 : round5((Math.min(area - A1, A2) / A2) * 100));
+      let c1 = Math.max(prevC1, round5((Math.min(area, A1) / A1) * 100));
+      let c2 = Math.max(prevC2, area <= A1 ? 0 : round5((Math.min(area - A1, A2) / A2) * 100));
+      // a curtain moves for a real difference, not for the fit's rounding; otherwise it stays, and the grid says so
+      if (Math.abs((pct(r, "mlRate") ?? 0) - c1) < 10) c1 = pct(r, "mlRate") ?? c1;
+      if (Math.abs((pct(r, "mL2Rate") ?? 0) - c2) < 10) c2 = pct(r, "mL2Rate") ?? c2;
       prevC1 = c1;
       prevC2 = c2;
       Object.assign(entry, { c1Was: pct(r, "mlRate"), c1, c2Was: pct(r, "mL2Rate"), c2 });
@@ -429,8 +432,6 @@ const ladderReach: Rule = (ctx, p) => {
         ["mlRate", c1, "curtain 1 open"],
         ["mL2Rate", c2, "curtain 2 open"],
       ] as const) {
-        // a curtain moves for a real difference, not for the fit's rounding
-        if (Math.abs((pct(r, key) ?? 0) - want) < 10) continue;
         const cc = change(ctx, r.cells[key]!, `Step ${r.id}, ${name}`, "%", want, "0~100");
         if (cc) changes.push(cc);
       }
