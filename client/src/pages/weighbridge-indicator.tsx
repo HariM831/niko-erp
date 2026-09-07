@@ -29,7 +29,10 @@ import {
   escapeBytes,
   hexDump,
   numbersIn,
+  parseReading,
   readPort,
+  settled,
+  type Reading,
   serialApi,
   toHex,
 } from "../lib/serial";
@@ -306,6 +309,26 @@ export function WeighbridgeIndicatorPage() {
 
   const analysis = useMemo(() => analyse(frames), [frames]);
 
+  /*
+   * What the line means, not just what it says.
+   *
+   * Decoded here rather than in the read loop so a frame that stops matching
+   * shows up as "not recognised" on screen instead of quietly holding the last
+   * good number — an indicator in a state nobody has captured yet must look
+   * different from one that agrees with us.
+   */
+  const readings = useMemo(() => {
+    const out: Reading[] = [];
+    for (const f of frames) {
+      const r = parseReading(f.bytes);
+      if (r) out.push(r);
+    }
+    return out;
+  }, [frames]);
+  const latest = readings.length ? readings[readings.length - 1]! : null;
+  const stable = settled(readings);
+  const unreadable = frames.length - readings.length;
+
   /** The newest thing the line said, for stamping a still. */
   const latestFrameText = frames.length ? escapeBytes((frames[frames.length - 1] as Frame).bytes) : null;
 
@@ -342,6 +365,12 @@ export function WeighbridgeIndicatorPage() {
         );
       }
     }
+    lines.push(
+      `Decoded       ${
+        latest ? `${latest.kg} kg  (${latest.raw} — ${latest.value} ${latest.unit}, mode ${latest.mode})` : "nothing recognised"
+      }`,
+    );
+    lines.push(`              ${readings.length} of ${frames.length} frames decoded, ${stable ? "stable" : "settling"}`);
     lines.push("");
     lines.push(`Last ${Math.min(frames.length, 60)} frames (escaped, newest last):`);
     for (const f of frames.slice(-60)) {
@@ -353,7 +382,7 @@ export function WeighbridgeIndicatorPage() {
     lines.push(`Raw hex, last ${Math.min(raw.length, 2048)} bytes:`);
     lines.push(hexDump(raw.subarray(Math.max(0, raw.length - 2048))));
     return lines.join("\n");
-  }, [analysis, counters, elapsed, frames, port, rate, raw, settings]);
+  }, [analysis, counters, elapsed, frames, latest, port, rate, raw, readings, settings, stable]);
 
   const download = () => {
     const blob = new Blob([report], { type: "text/plain" });
@@ -572,6 +601,50 @@ export function WeighbridgeIndicatorPage() {
             only speaks when polled, or the cable is a null-modem where a straight one is wanted.
             Try the other ports in the picker before changing the baud rate.
           </Notice>
+        </div>
+      )}
+
+      {/* ── What it currently reads ── */}
+      {connected && (
+        <div className="card mb-4 p-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-3">
+            <div>
+              <div className="text-[11px] uppercase tracking-wide text-gray-400">
+                Decoded weight
+              </div>
+              {latest ? (
+                <div className="text-[34px] font-semibold leading-tight tabular-nums text-gray-900">
+                  {latest.kg.toLocaleString("en-IN", { maximumFractionDigits: 1 })}
+                  <span className="ml-1 text-[16px] font-normal text-gray-400">kg</span>
+                </div>
+              ) : (
+                <div className="text-[20px] text-gray-400">—</div>
+              )}
+              {latest && (
+                <div className="font-mono text-[11px] text-gray-400">
+                  {latest.raw} · {latest.value} {latest.unit === "t" ? "tonnes" : latest.unit} ·
+                  mode {latest.mode}
+                </div>
+              )}
+            </div>
+            <div className="text-right">
+              {stable ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-2.5 py-1 text-[12px] font-medium text-green-700">
+                  <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                  Stable
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-[12px] font-medium text-amber-700">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                  Settling
+                </span>
+              )}
+              <div className="mt-1 text-[11px] text-gray-400">
+                {readings.length} read
+                {unreadable > 0 && <span className="text-amber-600"> · {unreadable} not recognised</span>}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

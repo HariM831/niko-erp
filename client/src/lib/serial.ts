@@ -171,6 +171,11 @@ export class FrameSplitter {
         } else if (terminator === "LF" && this.last?.end === "CR") {
           // A CRLF pair, not an empty frame between two terminators.
           this.last.end = "CRLF";
+        } else if (terminator === "CR" && this.last?.end === "LF") {
+          // And the other way round. The mill's indicator ends every frame
+          // LF-then-CR, which is backwards from the usual pair and would
+          // otherwise be reported as a bare LF followed by nothing.
+          this.last.end = "LFCR";
         }
         continue;
       }
@@ -210,6 +215,85 @@ export function numbersIn(bytes: Uint8Array): string[] {
   let text = "";
   for (const b of bytes) text += b >= 0x20 && b <= 0x7e ? String.fromCharCode(b) : " ";
   return text.match(/[+-]?\d+(?:\.\d+)?/g) ?? [];
+}
+
+// ──────────────────────────── Reading a frame ────────────────────────────
+
+/**
+ * What the mill's indicator sends, captured 7 Sep 2026 on COM3 at 2400,N,8,1:
+ *
+ *     74 20 30 31 2E 30 39 30 20 20 67 20 0A 0D
+ *     't' ' ' '0' '1' '.' '0' '9' '0' ' ' ' ' 'g' ' ' LF  CR
+ *
+ * Twelve bytes of payload, then LF and CR in that order — backwards from the
+ * usual pair, which is worth knowing before assuming a stream is malformed.
+ *
+ * The leading letter is the UNIT and the trailing one the MODE: `t` for
+ * tonnes, `g` for gross. So `t 01.090  g` is 1.090 t — 1090 kg.
+ *
+ * The old FoxPro system corroborates the scale exactly. Its settings carry
+ * "Multiply" by "1000" at 0 decimal places, and its stored weights are whole
+ * kilograms ending in zero — 13230 kg is this indicator's 13.230 t. Those two
+ * fields looked inert next to a table of plain kilograms; they are in fact the
+ * conversion, and reading them as decoration would have divided every weight
+ * in the mill by a thousand.
+ */
+const UNIT_SCALE: Record<string, number> = { t: 1000, k: 1, g: 0.001 };
+
+export interface Reading {
+  /** The number as sent, unscaled. */
+  value: number;
+  /** In kilograms, which is the only unit niko stores. */
+  kg: number;
+  /** Leading letter — the unit the indicator says it is using. */
+  unit: string;
+  /** Trailing letter — gross, net, tare, however this indicator spells it. */
+  mode: string;
+  /** The payload exactly as it arrived. */
+  raw: string;
+}
+
+/** `<unit> <number>  <mode>`, which is all this indicator ever sends. */
+const READING = /^\s*([A-Za-z])\s+([+-]?\d+(?:\.\d+)?)\s+([A-Za-z])\s*$/;
+
+/**
+ * Decode one frame, or null if it is not a reading.
+ *
+ * Null rather than a guess, always. An indicator has states nobody has
+ * captured yet — in motion, overloaded, in net mode after a tare — and a
+ * regex stretched to accept them would turn an unknown state into a confident
+ * number. A frame this does not recognise is shown to the operator as
+ * unrecognised, which is a thing they can act on.
+ */
+export function parseReading(bytes: Uint8Array): Reading | null {
+  let text = "";
+  for (const b of bytes) text += b >= 0x20 && b <= 0x7e ? String.fromCharCode(b) : "";
+  const m = READING.exec(text);
+  if (!m) return null;
+  const [, unit = "", raw = "", mode = ""] = m;
+  const scale = UNIT_SCALE[unit.toLowerCase()];
+  if (scale === undefined) return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return null;
+  return { value, kg: value * scale, unit, mode, raw: text.trim() };
+}
+
+/**
+ * A reading worth acting on: unchanged for long enough that the truck has
+ * stopped rocking.
+ *
+ * The platform streams roughly twice a second and the number wanders while a
+ * vehicle settles, so "what it says right now" is the wrong thing to record.
+ * Four identical frames is about two seconds.
+ */
+export const STABLE_FRAMES = 4;
+
+export function settled(recent: Reading[]): Reading | null {
+  if (recent.length < STABLE_FRAMES) return null;
+  const tail = recent.slice(-STABLE_FRAMES);
+  const first = tail[0];
+  if (!first) return null;
+  return tail.every((r) => r.kg === first.kg && r.mode === first.mode) ? first : null;
 }
 
 /**
