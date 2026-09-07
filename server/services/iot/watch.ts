@@ -22,7 +22,7 @@
  * a change made while the server was down, which the nightly snapshot still
  * catches.
  */
-import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import { controllerChanges, controllerProposals, houses, iotReadings } from "@shared/schema";
 import { db } from "../../db";
 import { latestSnapshot } from "./controls";
@@ -165,7 +165,6 @@ export async function outsideChangesSince(houseId: string, since: Date): Promise
   const [r] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(controllerChanges)
-    .where(and(eq(controllerChanges.houseId, houseId), eq(controllerChanges.source, "outside"), gte(controllerChanges.seenAt, since)))
-    .orderBy(desc(controllerChanges.seenAt));
+    .where(and(eq(controllerChanges.houseId, houseId), eq(controllerChanges.source, "outside"), gte(controllerChanges.seenAt, since)));
   return r?.n ?? 0;
 }
