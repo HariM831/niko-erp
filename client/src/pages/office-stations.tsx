@@ -17,7 +17,7 @@
  * as the rest of niko — no second design system.
  */
 import { useState } from "react";
-import { Link, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api } from "../api";
 import { useAuth } from "../auth";
@@ -687,21 +687,16 @@ export function StationPage({ station }: { station: Station }) {
     <div className="mx-auto max-w-4xl p-4 sm:p-6">
       <div className="page-header -mx-4 mb-4 flex items-baseline justify-between gap-4 px-4 py-3 sm:-mx-6 sm:px-6">
         <h1 className="text-[19px] font-semibold text-gray-900">Weighment</h1>
-        <div className="flex items-baseline gap-4">
-          {/* What is on the platform, whether or not a truck has been picked.
-              The two weighing stations only; QC weighs nothing, and Feed
-              Transfer already carries a reading that does not wait on a
-              selection. */}
-          {(station === "weighbridge" || station === "weigh-out") && <PlatformWeight compact />}
-          {/* Quiet on purpose. Nobody needs it during a normal shift; it is what
-              you open when the platform shows a weight and this screen does not. */}
-          <Link
-            href="/office/weighbridge/indicator"
-            className="text-[12px] text-gray-400 hover:text-brand-600 hover:underline"
-          >
-            Indicator
-          </Link>
-        </div>
+        {/* What is on the platform, whether or not a truck has been picked.
+            The two weighing stations only; QC weighs nothing, and Feed Transfer
+            already carries a reading that does not wait on a selection.
+
+            The raw-bytes screen it used to sit beside is still at
+            /office/weighbridge/indicator. It lost its link once the reading
+            was on the header and every panel could connect the port itself —
+            it is a diagnostic for a platform that has stopped making sense,
+            not something a shift needs in front of it. */}
+        {(station === "weighbridge" || station === "weigh-out") && <PlatformWeight compact />}
       </div>
       <div className="mb-4 flex gap-1 border-b border-gray-200" role="tablist">
         {STATION_ORDER.map((s) => {
