@@ -23,6 +23,7 @@ import { ApiError, api } from "../api";
 import { useAuth } from "../auth";
 import { StatusBadge } from "../components/status-badge";
 import { FeedTransferForm } from "../components/feed-transfer-form";
+import { PlatformWeight } from "../components/platform-weight";
 
 export type Station = "weighbridge" | "qc" | "weigh-out" | "transfer";
 
@@ -143,6 +144,7 @@ function GrossPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
   return (
     <>
       {error && <Err msg={error} />}
+      <PlatformWeight onUse={setWeight} />
       <Field label="Gross weight from our platform (kg)">
         <input
           value={weight}
@@ -549,6 +551,8 @@ function TarePanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
           );
         })}
       </div>
+
+      <PlatformWeight onUse={setTare} />
 
       <Field label="Tare weight from our platform (kg)">
         <input
