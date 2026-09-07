@@ -78,6 +78,7 @@ import { GoodsReceiptsPage } from "./pages/office-receipts";
 import { FeedMillOverviewPage } from "./pages/feed-mill-overview";
 import { GateInPage } from "./pages/office-gate";
 import { StationPage, isStation, stationPath } from "./pages/office-stations";
+import { WeighbridgeIndicatorPage } from "./pages/weighbridge-indicator";
 import { SettlementPage } from "./pages/office-settlement";
 import { PayrollOverviewPage } from "./pages/payroll/overview";
 import { PayrollEmployeesPage } from "./pages/payroll/employees";
@@ -194,6 +195,9 @@ export function App() {
           }
         </Route>
         <Route path="/office/unloading">{() => <StationPage station="weighbridge" />}</Route>
+        {/* Reads the RS232 line raw. Two segments deep, so it is matched before
+            the single-segment station routes get a look at it. */}
+        <Route path="/office/weighbridge/indicator" component={WeighbridgeIndicatorPage} />
         {/* The stations had a sidebar entry each before they became tabs. */}
         <Route path="/office/weighbridge">{() => <Redirect to={stationPath("weighbridge")} />}</Route>
         <Route path="/office/qc">{() => <Redirect to={stationPath("qc")} />}</Route>

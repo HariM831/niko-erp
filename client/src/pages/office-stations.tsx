@@ -17,7 +17,7 @@
  * as the rest of niko — no second design system.
  */
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api } from "../api";
 import { useAuth } from "../auth";
@@ -674,6 +674,14 @@ export function StationPage({ station }: { station: Station }) {
     <div className="mx-auto max-w-4xl p-4 sm:p-6">
       <div className="page-header -mx-4 mb-4 flex items-baseline justify-between gap-4 px-4 py-3 sm:-mx-6 sm:px-6">
         <h1 className="text-[19px] font-semibold text-gray-900">Weighment</h1>
+        {/* Quiet on purpose. Nobody needs it during a normal shift; it is what
+            you open when the platform shows a weight and this screen does not. */}
+        <Link
+          href="/office/weighbridge/indicator"
+          className="text-[12px] text-gray-400 hover:text-brand-600 hover:underline"
+        >
+          Indicator
+        </Link>
       </div>
       <div className="mb-4 flex gap-1 border-b border-gray-200" role="tablist">
         {STATION_ORDER.map((s) => {
