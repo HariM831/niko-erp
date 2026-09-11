@@ -133,6 +133,10 @@ export async function watchMasters(): Promise<WatchEvent[]> {
       const a = asNumber(before);
       const b = asNumber(after);
       if (a == null || b == null || Math.abs(a - b) < 0.05) continue;
+      // L3's controller runs a day-and-night programme of its own: the target and both alarms glide
+      // 27 → 26 from 18:11 and back from 05:41, a tenth or two every five minutes. That is the
+      // controller, not a hand; a hand moves in halves and wholes. Seen 8–11 September 2026.
+      if (Math.abs(a - b) < 0.35 && /温度/.test(t.leaf)) continue;
       const register = t.register(settings, age);
       if (register && (await nikosOwn(h.id, register, t.leaf))) continue;
       // A twin that moved because the flock crossed into the next age row is the curve, not a hand.
