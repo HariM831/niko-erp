@@ -85,8 +85,8 @@ export const RULES = {
   "ladder-reach": {
     title: "The whole ladder within reach",
     description:
-      "In tunnel the steps are measured from the tunnel temperature, and today's ladders put the top step five degrees above it, where the birds at the exhaust end are already in the critical band, with fans still idle. This spaces the tunnel steps evenly over the spread, so the top step arrives that many degrees above the tunnel temperature and runs as many fans as the cap allows; each step up adds fan groups in the order the ladder already brings them in, so no step has fewer fans than the one below. The tunnel curtains open in proportion: curtain 1 on the gable wall opens first and fully before curtain 2 on the side walls starts, each step's opening sized from the week's pressure readings to hold the set pressure. Decided 6 September 2026: a spread of 4° because the house reaches 31 at times, 40 fans at the top, 25 Pa.",
-    params: { spread: 4.0, maxFans: 40, pressurePa: 25, curtain1Area: 108, curtain2Area: 216 },
+      "In tunnel the steps are measured from the tunnel temperature, and today's ladders put the top step five degrees above it, where the birds at the exhaust end are already in the critical band, with fans still idle. This spaces the tunnel steps evenly over the spread, so the top step arrives that many degrees above the tunnel temperature and runs as many fans as the cap allows; each step up adds fan groups in the order the ladder already brings them in, so no step has fewer fans than the one below. The tunnel curtains open in proportion: curtain 1 on the gable wall opens first and fully before curtain 2 on the side walls starts, each step's opening sized from the week's pressure readings to hold the set pressure. Decided 6 September 2026: a spread of 4° because the house reaches 31 at times, 40 fans at the top, 25 Pa. Two slopes when lowSpacing and lowSteps are set: the first lowSteps steps are lowSpacing apart, so a mild day sits lower on the ladder, and the rest share what remains of the spread; 12 September, L2 ran 24 fans at 29° where L3 ran 20 for the same comfort.",
+    params: { spread: 4.0, maxFans: 40, pressurePa: 25, curtain1Area: 108, curtain2Area: 216, lowSpacing: 0, lowSteps: 0 },
   },
   "night-setback": {
     title: "Night target",
@@ -391,8 +391,14 @@ const ladderReach: Rule = (ctx, p) => {
   let prevFans = 0;
   // above the floor the ramp runs from the floor's own strength to the cap
   let rampFrom: { step: number; count: number } = { step: start, count: firstCount };
+  // Two slopes: coarse for the first `lowSteps` intervals, then the rest of the spread evenly.
+  const lowSpacing = Math.max(0, p.lowSpacing ?? 0);
+  const lowSteps = Math.min(span - 1, Math.max(0, Math.round(p.lowSteps ?? 0)));
+  const lowTop = lowSpacing * lowSteps;
+  const upperSpacing = lowSteps > 0 ? (topOffset - lowTop) / (span - lowSteps) : topOffset / span;
+  const offsetAt = (i: number) => (lowSteps > 0 && i <= lowSteps ? lowSpacing * i : lowSteps > 0 ? lowTop + upperSpacing * (i - lowSteps) : (topOffset * i) / span);
   rows.forEach((r, i) => {
-    const offset = Math.round(((topOffset * i) / span) * 10) / 10;
+    const offset = Math.round(offsetAt(i) * 10) / 10;
     const ramp = Math.round(rampFrom.count + ((total - rampFrom.count) * (r.id - rampFrom.step)) / Math.max(1, maxStep - rampFrom.step));
     const keep = r.id <= floorStep ? countToday(r) : 0;
     let count = Math.min(total, Math.max(prevCount, keep, ramp));
@@ -468,7 +474,7 @@ const ladderReach: Rule = (ctx, p) => {
     title: RULES["ladder-reach"].title,
     reason:
       `In tunnel the steps are measured from the tunnel temperature, ${fmt(tunnelTemp)}°C. Today step ${top.step} starts ${fmt(top.offsetWas ?? 0)}° above it, at ${fmt(tunnelTemp + (top.offsetWas ?? 0))}°C house average, and runs ${top.fansWas} of ${topFans} fans; the week's mean was ${st.tempMean ?? "?"}°C.${comfort} ` +
-      `Spread over ${fmt(topOffset)}°, ${fmt(topOffset / span)}° a step, the top step arrives at ${fmt(tunnelTemp + topOffset)}°C average, about ${fmt(tunnelTemp + topOffset + 1.3)}°C at the exhaust end, and runs ${topFans} of the ${fansIn(order.length)} fans, the cap; each step adds fan groups in the order the ladder already brings them in, so no step has fewer fans than the one below. ` +
+      `Spread over ${fmt(topOffset)}°${lowSteps > 0 ? `: ${fmt(lowSpacing)}° a step for the first ${lowSteps} steps, to +${fmt(lowTop)} at step ${rows[0]!.id + lowSteps}, then ${fmt(upperSpacing)}° a step` : `, ${fmt(topOffset / span)}° a step`}, the top step arrives at ${fmt(tunnelTemp + topOffset)}°C average, about ${fmt(tunnelTemp + topOffset + 1.3)}°C at the exhaust end, and runs ${topFans} of the ${fansIn(order.length)} fans, the cap; each step adds fan groups in the order the ladder already brings them in, so no step has fewer fans than the one below. ` +
       `${changes.length} registers on the ladder page, steps ${rows[0]!.id} to ${top.step}. At the top ${Math.round(topFans * FAN_KW)} kW runs.${cost}${curtains}`,
     evidence: { tunnelTemp, start, floorStep, maxStep, spread: p.spread, maxFans: p.maxFans, pressurePa: p.pressurePa, topOffset, fit, points, allOpenPa: allOpen, order: order.map(groupNo), ladder, tempMean: st.tempMean, atMean: mean ? { stepWas: mean.was.step, fansWas: mean.was.fansWas, step: mean.will.step, fans: mean.will.fans } : null, feelsLikeHoursSevere: st.feelsLikeHoursSevere, feelsLikeHoursCritical: st.feelsLikeHoursCritical },
     changes,
