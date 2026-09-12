@@ -30,6 +30,8 @@ export const HORIZON_DAYS = 28;
  * few months is the floor. Kept in step with MIN_HISTORY there.
  */
 const MIN_HISTORY_DAYS = 364 + 120;
+/** Past this, the newest rate is history and there is nothing ahead to draw. */
+const STALE_AFTER_DAYS = 7;
 const SCRIPT = "scripts/forecast/egg_price_forecast.py";
 /** Cold start loads 800 MB of weights; a warm one is seconds. */
 const TIMEOUT_MS = 300_000;
@@ -145,6 +147,13 @@ export async function refreshForecast(
   }
 
   const anchorDate = series[series.length - 1]!.date;
+  // A forecast anchored to a rate nobody has refreshed in a week is a
+  // forecast of days that have already happened. The home page declines to
+  // draw one; there is no reason to spend fifteen seconds of model making it.
+  if (anchorDate < addDays(istDate(), -STALE_AFTER_DAYS)) {
+    return { ran: false, reason: `benchmark last set ${anchorDate}`, anchorDate };
+  }
+
   const [have] = await db
     .select({ anchor: eggPriceForecasts.anchorDate })
     .from(eggPriceForecasts)

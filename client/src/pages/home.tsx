@@ -352,9 +352,15 @@ function Sparkline({
   // silently shrinking to a fortnight.
   const hist = forecast ? points.slice(-horizon * 2) : points.slice(-30);
   const lastActual = hist[hist.length - 1]!;
-  // A rate set for tomorrow is already history here; the forecast only starts
-  // where the known rates stop.
-  const ahead = (forecast?.points ?? []).filter((p) => p.date > lastActual.date).slice(0, horizon);
+  const today = istToday();
+  // Two filters, and the second is the one that matters. A rate set for
+  // tomorrow is already history here, so the forecast starts where the known
+  // rates stop — but a forecast whose days have themselves gone by is not a
+  // forecast. A benchmark nobody has set for months would otherwise have the
+  // tile drawing last winter as though it were next week.
+  const ahead = (forecast?.points ?? [])
+    .filter((p) => p.date > lastActual.date && p.date > today)
+    .slice(0, horizon);
 
   const values = [...hist.map((p) => p.price), ...ahead.flatMap((p) => [p.p10, p.p90])];
   const min = Math.min(...values);
@@ -381,14 +387,17 @@ function Sparkline({
 
   const avg = ahead.length ? ahead.reduce((a, p) => a + p.p50, 0) / ahead.length : null;
   const move = avg == null ? null : ((avg - lastActual.price) / lastActual.price) * 100;
-  const istToday_ = istToday();
-  const stale = forecast ? forecast.anchorDate < shift(istToday_, -1) : false;
+  const stale = forecast ? forecast.anchorDate < shift(today, -1) : false;
+  // A forecast exists but every day of it has already happened: the benchmark
+  // has not been set in a month of Sundays and the model is anchored back
+  // there. Say that, rather than draw a line about last winter.
+  const outrun = forecast != null && ahead.length === 0;
 
   return (
     <div>
       <div className="mb-1 flex items-center justify-between">
         <span className="text-[11px] text-soil-400">Benchmark</span>
-        {forecast && (
+        {ahead.length > 0 && (
           <div className="flex gap-0.5">
             {HORIZONS.map((d) => (
               <button
@@ -442,6 +451,11 @@ function Sparkline({
           </span>
           <span className="text-soil-400"> vs today</span>
           {stale && <span className="ml-1 text-soil-400">· anchored to {dmy(forecast!.anchorDate)}</span>}
+        </div>
+      )}
+      {outrun && (
+        <div className="mt-1.5 border-t border-soil-100 pt-1.5 text-[11px] text-soil-400">
+          No forecast: the benchmark has not been set since {dmy(lastActual.date)}.
         </div>
       )}
     </div>
