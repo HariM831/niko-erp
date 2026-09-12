@@ -98,6 +98,14 @@ systemctl enable --now niko niko-staging
 The home page's egg-price line is TimesFM 2.5 run as a short-lived child of
 the web process. It needs a Python of its own:
 
+Ubuntu ships Python without `ensurepip`, so the venv module has to be
+installed before a venv can be made — `python3 -m venv` otherwise fails with
+"You may need to use sudo", leaving a directory that is not a venv behind:
+
+```bash
+apt install -y python3-venv python3-pip
+```
+
 ```bash
 sudo -u niko python3 -m venv /srv/niko/.venv-timesfm
 sudo -u niko /srv/niko/.venv-timesfm/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu

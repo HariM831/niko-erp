@@ -234,6 +234,8 @@ const FIRST_DELAY_MS = 120_000;
 
 let running = false;
 let timer: ReturnType<typeof setInterval> | null = null;
+/** The last reason printed, so a standing condition is said once, not hourly. */
+let saidWhy: string | null = null;
 
 async function tick() {
   if (running) return; // a slow run holds the next back rather than stacking
@@ -242,6 +244,13 @@ async function tick() {
     const r = await refreshForecast();
     // Silent when the anchor has not moved, which is most half-hours.
     if (r.ran) console.log(`[price] forecast refreshed from ${r.anchorDate}`);
+    // But not silent about a reason there is no forecast at all. A blank tile
+    // and an empty log is the combination nobody can diagnose — and "the
+    // benchmark has not been set since January" is the answer.
+    else if (r.reason && r.reason !== "already forecast" && r.reason !== saidWhy) {
+      saidWhy = r.reason;
+      console.log(`[price] no forecast — ${r.reason}`);
+    }
   } catch (e) {
     // The last forecast stays on the tile. A model that cannot run is not a
     // reason to draw a worse line — it is a reason to draw the old one.
