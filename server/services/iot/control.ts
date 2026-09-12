@@ -55,7 +55,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export async function writeAndConfirm(
   houseCode: string,
   changes: BhWrite[],
-  opts: { settleMs?: number } = {},
+  opts: { settleMs?: number; holdMs?: number } = {},
 ): Promise<WriteRecord> {
   const startedAt = new Date();
   const status = await fetchDeviceStatus(houseCode);
@@ -87,6 +87,17 @@ export async function writeAndConfirm(
     after = valueOf(await readRegisters(names));
     if (changes.every((c) => took(after.get(c.key), c.value))) break;
     if (Date.now() - started > patience) break;
+  }
+  /*
+   * And once more, later. On 2026-09-12 a target of 28 read back as 28 at
+   * 11:04 and the controller held 27 from then on: the platform had echoed
+   * the write before the controller declined it. A value that is still there
+   * after `holdMs` is one the controller has actually kept.
+   */
+  if (changes.every((c) => took(after.get(c.key), c.value))) {
+    await sleep(opts.holdMs ?? 45_000);
+    const again = valueOf(await readRegisters(names));
+    for (const c of changes) if (again.has(c.key)) after.set(c.key, again.get(c.key)!);
   }
 
   const registers = changes.map((c) => {

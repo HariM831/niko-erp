@@ -210,7 +210,16 @@ export async function approveProposal(id: number, userId: string) {
   const status = await fetchDeviceStatus(h.device);
   if (!status.isLiving) throw new Error(`${h.code}'s controller is not reachable; nothing was written`);
 
-  const before = await snapshotHouse(p.houseId);
+  /*
+   * A snapshot before the write, unless one was taken in the last few minutes:
+   * on 2026-09-12 a second approval nineteen seconds after the first took a
+   * fresh snapshot, the platform answered it with the ladder as it was before
+   * the first write, and the kept settings went stale with 44 false "outside"
+   * changes. The platform lags its own writes; a snapshot a minute old is the
+   * safer record.
+   */
+  const recent = await latestSnapshot(p.houseId);
+  const before = recent && Date.now() - recent.takenAt.getTime() < 5 * 60_000 ? { takenAt: recent.takenAt } : await snapshotHouse(p.houseId);
   const snapBefore = await latestSnapshot(p.houseId);
   await db
     .update(controllerProposals)
