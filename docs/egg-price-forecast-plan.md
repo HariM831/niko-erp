@@ -306,15 +306,30 @@ forecast simply does not appear.
 6. The tile.
 7. The backtest, and this document updated with what it actually scored.
 
-## Done, and what is left
+## What is live, and the one thing holding it back
 
-1–6 are written and typecheck clean; 7 is above. Not yet run against a real
-database: `DATABASE_URL` is empty in the working copy, so the import has never
-inserted a row and the tile has never drawn a live forecast. Both need one
-pass against the real books:
+Deployed to production on 12 Sep 2026 (`91f7b91`). Migration 0093 applied,
+2,458 rates imported — 01 Apr 2019 → 30 Jan 2026, every row
+`source = zoho-history`, per-year counts matching the workbook. TimesFM and
+its venv are installed on the droplet with a 1 GB swapfile behind them.
 
-```bash
-npx tsx scripts/import-benchmark-history.ts          # report
-npx tsx scripts/import-benchmark-history.ts --write  # apply
-npm run db:migrate
-```
+**And the tile will stay bare until somebody enters a rate.**
+`egg_benchmark_prices` was empty when the import ran — the books were emptied
+in August and the daily benchmark has not been set since. The newest rate in
+the system is therefore 30 Jan 2026, seven months old, so:
+
+- the service declines to forecast (`STALE_AFTER_DAYS = 7`) and logs
+  `[price] no forecast — benchmark last set 2026-01-30` once;
+- the tile drops the dashed line, the band and the horizon selector, and says
+  *No forecast: the benchmark has not been set since 30/01.*
+
+Both are deliberate. A forecast anchored to last winter would draw February
+as though it were the week ahead. The moment a rate is set on the Egg
+benchmark screen the anchor moves, the tick notices within half an hour, and
+the line appears with no further work.
+
+Two things were never verified and should be, the first time a real forecast
+exists: the tile rendered in a browser against live data (checked here only
+as far as the database — `/api/boss-view` is behind auth), and the model's
+first run on the droplet's own CPU, which is slower than the machine the
+timings in this document came from.
