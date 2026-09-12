@@ -118,10 +118,16 @@ export function ItemNewPage({ editId }: { editId?: string }) {
 
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
+  /** Only what the farm produces is sold; everything else is bought to use. */
+  const sellable = (PRODUCE_CATEGORIES as readonly string[]).includes(form.category);
+  // Gated on the *effective* flag, not the raw one. The Sales checkbox is
+  // disabled for a non-produce category, so isSold can neither be unticked nor
+  // priced there — reading it literally left Save permanently dead for every
+  // item that isn't eggs, birds or manure.
   const canSave =
     form.name.trim() &&
     (!form.trackInventory || form.inventoryAccountId) &&
-    (!form.isSold || form.sellingPrice.trim()) &&
+    (!(sellable && form.isSold) || form.sellingPrice.trim()) &&
     (!form.isPurchased || form.costPrice.trim());
 
   const save = async () => {
@@ -177,9 +183,6 @@ export function ItemNewPage({ editId }: { editId?: string }) {
       setBusy(false);
     }
   };
-
-  /** Only what the farm produces is sold; everything else is bought to use. */
-  const sellable = (PRODUCE_CATEGORIES as readonly string[]).includes(form.category);
 
   const inputCls = "input";
   const label = "label";
