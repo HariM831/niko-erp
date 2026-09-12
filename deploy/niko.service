@@ -24,6 +24,11 @@ WorkingDirectory=/srv/niko
 EnvironmentFile=/etc/niko/prod.env
 Environment=NODE_ENV=production
 
+# Where TimesFM keeps its weights. The forecast runs as a child of this
+# process, so it inherits this unit's sandbox and needs somewhere writable to
+# cache the 800 MB it downloads once.
+Environment=HF_HOME=/srv/niko/.cache/huggingface
+
 ExecStart=/usr/bin/node dist/server.js
 
 Restart=always
@@ -33,13 +38,14 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=niko
 
-# The app writes uploaded bills and photos under WorkingDirectory/uploads and
-# needs nothing else on the box, so the rest of the filesystem is read-only.
+# The app writes uploaded bills and photos under WorkingDirectory/uploads, and
+# the forecast caches model weights under .cache; it needs nothing else on the
+# box, so the rest of the filesystem is read-only.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/srv/niko/uploads
+ReadWritePaths=/srv/niko/uploads /srv/niko/.cache
 ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true

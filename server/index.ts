@@ -37,6 +37,7 @@ import { reportsRouter } from "./routes/reports";
 import { ownerBillingRouter } from "./routes/owner-billing";
 import { startIotPolling } from "./services/iot/scheduler";
 import { startFacePrune } from "./services/face-prune";
+import { startPriceForecast } from "./services/egg-price-forecast";
 import { iotRouter } from "./routes/iot";
 import { controlsRouter } from "./routes/controls";
 import { farmStoreRouter } from "./routes/farm-store";
@@ -220,4 +221,6 @@ app.listen(port, () => {
   startIotPolling();
   // The gate's taught faces — clears the vectors the roster has stopped serving.
   startFacePrune();
+  // The egg benchmark a month ahead, redrawn whenever a new rate lands.
+  startPriceForecast();
 });

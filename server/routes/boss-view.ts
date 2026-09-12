@@ -33,6 +33,7 @@ import {
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { eggPrefs } from "../services/egg-sales";
+import { latestForecast } from "../services/egg-price-forecast";
 
 export const bossViewRouter = Router();
 
@@ -262,7 +263,10 @@ bossViewRouter.get("/", requirePermission("reports", "view"), async (req, res) =
     invoiceCount: salesRows.reduce((a, r) => a + r.count, 0),
     avgBenchmarkRate: avgBenchmark,
     salesList: salesRows.map((r) => ({ customer: r.customer, value: n(r.value), invoices: r.count, eggs: eggsByCustomer.get(r.customer) ?? 0 })),
-    priceHistory: benchmarks.slice(-30).map((b) => ({ date: b.on, price: n(b.rate) })),
+    // 56 rather than 30: the tile's 28-day view wants 28 days of history
+    // behind 28 of forecast, and the shorter views slice this down.
+    priceHistory: benchmarks.slice(-56).map((b) => ({ date: b.on, price: n(b.rate) })),
+    priceForecast: await latestForecast(db),
   };
 
   /* ── Finance: what the market owes and is owed ─────────────────────── */

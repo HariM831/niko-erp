@@ -275,3 +275,32 @@ export const eggSizeItems = pgTable("egg_size_items", {
     .unique()
     .references(() => items.id),
 });
+
+/**
+ * What TimesFM thinks the benchmark will do next.
+ *
+ * Read by the home page and by nothing that prices anything: an invoice takes
+ * its rate from `egg_benchmark_prices`, and a forecast is an opinion about
+ * that number rather than the number. Anchored to the last actual rate behind
+ * it, so a run is superseded when a new rate arrives and not before.
+ */
+export const eggPriceForecasts = pgTable(
+  "egg_price_forecasts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** The last actual benchmark date the forecast was made from. */
+    anchorDate: date("anchor_date").notNull(),
+    forDate: date("for_date").notNull(),
+    /** Per egg, as the benchmark is. p50 is the line; p10–p90 is the band. */
+    p10: numeric("p10", { precision: 10, scale: 4 }).notNull(),
+    p50: numeric("p50", { precision: 10, scale: 4 }).notNull(),
+    p90: numeric("p90", { precision: 10, scale: 4 }).notNull(),
+    model: text("model").notNull(),
+    contextDays: integer("context_days").notNull(),
+    generatedAt: timestamp("generated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("uq_egg_price_forecast").on(t.anchorDate, t.forDate),
+    index("ix_egg_price_forecast_anchor").on(t.anchorDate, t.forDate),
+  ],
+);

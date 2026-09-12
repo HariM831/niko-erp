@@ -61,6 +61,13 @@ interface BossView {
     avgBenchmarkRate: number;
     salesList: { customer: string; value: number; invoices: number; eggs: number }[];
     priceHistory: { date: string; price: number }[];
+    /** TimesFM's month ahead, or null before the model has ever run. */
+    priceForecast: {
+      anchorDate: string;
+      generatedAt: string;
+      model: string;
+      points: { date: string; p10: number; p50: number; p90: number }[];
+    } | null;
   };
   finance: {
     totalRevenue: number;
@@ -315,34 +322,128 @@ function DTable<T>({
   );
 }
 
-/** Benchmark price over the last thirty settings — recoloured to yolk. */
-function Sparkline({ points }: { points: { date: string; price: number }[] }) {
+const HORIZONS = [7, 14, 28] as const;
+
+/**
+ * The benchmark behind, and TimesFM's month ahead.
+ *
+ * One line, not two charts: solid where the rate is known, dashed where it is
+ * forecast, with the p10–p90 band shaded behind the dashed half. History shown
+ * scales with the horizon chosen so the picture stays balanced — a week ahead
+ * against a fortnight behind, a month ahead against two.
+ *
+ * Where there is no forecast — the model has never run, or the box it runs on
+ * is not configured for it — this is exactly the sparkline it has always been.
+ */
+function Sparkline({
+  points,
+  forecast,
+}: {
+  points: { date: string; price: number }[];
+  forecast: BossView["sales"]["priceForecast"];
+}) {
+  const [horizon, setHorizon] = useState<(typeof HORIZONS)[number]>(7);
   if (points.length < 2) return <div className="text-xs text-soil-400">Not enough benchmark history for a line.</div>;
+
   const w = 320;
   const h = 60;
-  const ys = points.map((p) => p.price);
-  const min = Math.min(...ys);
-  const max = Math.max(...ys);
+  // With a forecast, history scales with the horizon chosen. Without one,
+  // the tile stays the thirty-day sparkline it has always been rather than
+  // silently shrinking to a fortnight.
+  const hist = forecast ? points.slice(-horizon * 2) : points.slice(-30);
+  const lastActual = hist[hist.length - 1]!;
+  // A rate set for tomorrow is already history here; the forecast only starts
+  // where the known rates stop.
+  const ahead = (forecast?.points ?? []).filter((p) => p.date > lastActual.date).slice(0, horizon);
+
+  const values = [...hist.map((p) => p.price), ...ahead.flatMap((p) => [p.p10, p.p90])];
+  const min = Math.min(...values);
+  const max = Math.max(...values);
   const span = max - min || 1;
-  const x = (i: number) => (i / (points.length - 1)) * w;
+  const total = hist.length + ahead.length;
+  const x = (i: number) => (i / (total - 1)) * w;
   const y = (v: number) => h - 6 - ((v - min) / span) * (h - 12);
-  const d = points.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.price).toFixed(1)}`).join(" ");
-  const last = points[points.length - 1]!;
+
+  const histPath = hist.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.price).toFixed(1)}`).join(" ");
+  const joinX = x(hist.length - 1);
+  // The dashed half starts at the last actual point, so the line is continuous.
+  const fcPath = ahead.length
+    ? `M${joinX.toFixed(1)},${y(lastActual.price).toFixed(1)} ` +
+      ahead.map((p, i) => `L${x(hist.length + i).toFixed(1)},${y(p.p50).toFixed(1)}`).join(" ")
+    : "";
+  const band = ahead.length
+    ? `M${joinX.toFixed(1)},${y(lastActual.price).toFixed(1)} ` +
+      ahead.map((p, i) => `L${x(hist.length + i).toFixed(1)},${y(p.p90).toFixed(1)}`).join(" ") +
+      " " +
+      [...ahead].reverse().map((p, i) => `L${x(total - 1 - i).toFixed(1)},${y(p.p10).toFixed(1)}`).join(" ") +
+      " Z"
+    : "";
+
+  const avg = ahead.length ? ahead.reduce((a, p) => a + p.p50, 0) / ahead.length : null;
+  const move = avg == null ? null : ((avg - lastActual.price) / lastActual.price) * 100;
+  const istToday_ = istToday();
+  const stale = forecast ? forecast.anchorDate < shift(istToday_, -1) : false;
+
   return (
     <div>
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-[11px] text-soil-400">Benchmark</span>
+        {forecast && (
+          <div className="flex gap-0.5">
+            {HORIZONS.map((d) => (
+              <button
+                key={d}
+                onClick={() => setHorizon(d)}
+                className={`rounded px-1.5 py-0.5 text-[10px] font-medium tabular-nums transition ${
+                  d === horizon ? "bg-yolk-100 text-yolk-700" : "text-soil-400 hover:bg-soil-50"
+                }`}
+              >
+                {d}d
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <svg viewBox={`0 0 ${w} ${h}`} className="h-14 w-full" preserveAspectRatio="none">
-        <path d={`${d} L${w},${h} L0,${h} Z`} fill="var(--color-yolk-50)" />
-        <path d={d} fill="none" stroke="var(--color-yolk-500)" strokeWidth={1.75} vectorEffect="non-scaling-stroke" />
-        <circle cx={x(points.length - 1)} cy={y(last.price)} r={3} fill="var(--color-yolk-600)" />
+        <path d={`${histPath} L${joinX},${h} L0,${h} Z`} fill="var(--color-yolk-50)" />
+        {band && <path d={band} fill="var(--color-yolk-100)" opacity={0.7} />}
+        <path d={histPath} fill="none" stroke="var(--color-yolk-500)" strokeWidth={1.75} vectorEffect="non-scaling-stroke" />
+        {fcPath && (
+          <path
+            d={fcPath}
+            fill="none"
+            stroke="var(--color-yolk-600)"
+            strokeWidth={1.5}
+            strokeDasharray="3 2.5"
+            vectorEffect="non-scaling-stroke"
+          />
+        )}
+        {ahead.length > 0 && (
+          <line x1={joinX} y1={2} x2={joinX} y2={h - 2} stroke="var(--color-soil-200)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+        )}
+        <circle cx={joinX} cy={y(lastActual.price)} r={3} fill="var(--color-yolk-600)" />
       </svg>
       <div className="mt-1 flex justify-between text-[11px] text-soil-400">
         <span>
-          {dmy(points[0]!.date)} · ₹{num(points[0]!.price, 2)}
+          {dmy(hist[0]!.date)} · ₹{num(hist[0]!.price, 2)}
         </span>
         <span>
-          {dmy(last.date)} · <strong className="text-soil-800">₹{num(last.price, 2)}</strong>
+          {dmy(lastActual.date)} · <strong className="text-soil-800">₹{num(lastActual.price, 2)}</strong>
         </span>
       </div>
+      {avg != null && move != null && (
+        <div className="mt-1.5 border-t border-soil-100 pt-1.5 text-[11px]">
+          <span className="text-soil-600">
+            Next {horizon} days <strong className="text-soil-800">₹{num(avg, 2)}</strong> avg
+          </span>
+          <span className={`ml-1.5 font-medium ${move >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+            {move >= 0 ? "+" : ""}
+            {num(move, 1)}%
+          </span>
+          <span className="text-soil-400"> vs today</span>
+          {stale && <span className="ml-1 text-soil-400">· anchored to {dmy(forecast!.anchorDate)}</span>}
+        </div>
+      )}
     </div>
   );
 }
@@ -494,7 +595,7 @@ export function HomePage() {
                 <Metric label="Benchmark" value={`₹${num(data.sales.avgBenchmarkRate, 2)}`} sub="per egg, avg" />
               </div>
               <div className="mt-2 border-t border-soil-100 pt-2.5">
-                <Sparkline points={data.sales.priceHistory} />
+                <Sparkline points={data.sales.priceHistory} forecast={data.sales.priceForecast} />
               </div>
             </Tile>
 

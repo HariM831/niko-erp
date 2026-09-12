@@ -22,3 +22,9 @@ farm-export.tgz
 
 # Amino people export — Aadhar numbers, bank details, faces. Never in git.
 people-export/
+
+# TimesFM venv for the egg price forecast — weights and torch, never committed.
+.venv-timesfm/
+
+# Python bytecode from the forecast scripts.
+__pycache__/

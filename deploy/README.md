@@ -93,6 +93,42 @@ systemctl daemon-reload
 systemctl enable --now niko niko-staging
 ```
 
+## 5b. The price forecast (production only)
+
+The home page's egg-price line is TimesFM 2.5 run as a short-lived child of
+the web process. It needs a Python of its own:
+
+```bash
+sudo -u niko python3 -m venv /srv/niko/.venv-timesfm
+sudo -u niko /srv/niko/.venv-timesfm/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
+sudo -u niko /srv/niko/.venv-timesfm/bin/pip install -r /srv/niko/scripts/forecast/requirements.txt
+```
+
+About 2.5 GB on disk with the weights, which download on the first run into
+`/srv/niko/.cache/huggingface` (the unit grants exactly that path and
+`HF_HOME`). Then in **`/etc/niko/prod.env` only**:
+
+```
+FORECAST_ENABLED=1
+FORECAST_PYTHON=/srv/niko/.venv-timesfm/bin/python
+```
+
+`FORECAST_CALENDAR` stays unset — see the plan doc for what it is worth
+(0.7%) and when to revisit it.
+
+Not in staging. The model holds ~1.5 GB while it runs and this box has 4 GB
+shared with production — the same reason the IoT poller must not run twice.
+It is transient (about 15 seconds, once a day when the new rate lands), but a
+1 GB swapfile is cheap insurance:
+
+```bash
+fallocate -l 1G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+echo '/swapfile none swap sw 0 0' >> /etc/fstab
+```
+
+Leave all of it out and nothing breaks: the tile is the benchmark history it
+was before, and the log says `[price] forecast off` once at boot.
+
 ## 6. nginx and TLS
 
 ```bash

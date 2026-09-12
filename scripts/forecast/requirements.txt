@@ -1,0 +1,12 @@
+# The forecast venv. Install torch from the CPU index first, or pip pulls
+# the CUDA build and ~2 GB of wheels the droplet has no card for:
+#
+#   python3 -m venv .venv-timesfm
+#   .venv-timesfm/bin/pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   .venv-timesfm/bin/pip install -r scripts/forecast/requirements.txt
+#
+timesfm[torch]
+
+# Only for rebuilding fixtures/india-holidays.csv, which is committed.
+# Production never imports this.
+holidays
