@@ -32,6 +32,8 @@ export interface WriteRecord {
   registers: RegisterOutcome[];
   /** Every register reads back as sent. */
   confirmed: boolean;
+  /** Registers that did not take on the first pass and were sent once more. */
+  resent?: string[];
 }
 
 export class ControllerOffline extends Error {
@@ -99,6 +101,31 @@ export async function writeAndConfirm(
     const again = valueOf(await readRegisters(names));
     for (const c of changes) if (again.has(c.key)) after.set(c.key, again.get(c.key)!);
   }
+  /*
+   * One re-send of whatever did not take. On 2026-09-12 a batch of 23 lost
+   * its first eight at the controller while the other fifteen took; sent
+   * again on their own, all eight took. That is the link dropping the head
+   * of a batch, not the controller declining a value, and a person should
+   * not have to notice it. A value that fails twice is left for a person.
+   */
+  let resent: string[] = [];
+  const missed = changes.filter((c) => !took(after.get(c.key), c.value));
+  if (missed.length && missed.length < changes.length) {
+    resent = missed.map((c) => c.key);
+    await writeRegisters(missed);
+    const started2 = Date.now();
+    for (;;) {
+      await sleep(5000);
+      const r = valueOf(await readRegisters(resent));
+      for (const k of resent) if (r.has(k)) after.set(k, r.get(k)!);
+      if (missed.every((c) => took(after.get(c.key), c.value)) || Date.now() - started2 > patience) break;
+    }
+    if (missed.every((c) => took(after.get(c.key), c.value))) {
+      await sleep(opts.holdMs ?? 45_000);
+      const r = valueOf(await readRegisters(resent));
+      for (const k of resent) if (r.has(k)) after.set(k, r.get(k)!);
+    }
+  }
 
   const registers = changes.map((c) => {
     const a = after.get(c.key) ?? null;
@@ -118,5 +145,6 @@ export async function writeAndConfirm(
     refused,
     registers,
     confirmed: !refused && registers.every((r) => r.took),
+    resent: resent.length ? resent : undefined,
   };
 }
