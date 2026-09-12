@@ -8,6 +8,7 @@ import {
 } from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
+import { requireReferenceRead } from "../lib/reference-access";
 import { nonBlank, validateBody } from "../lib/validate";
 
 export const reportingTagsRouter = Router();
@@ -25,7 +26,7 @@ const optionSchema = z.object({
 });
 
 /** Every tag with its options, and how many journal lines carry each option. */
-reportingTagsRouter.get("/", requirePermission("settings", "view"), async (_req, res) => {
+reportingTagsRouter.get("/", requireReferenceRead, async (_req, res) => {
   const [tags, options] = await Promise.all([
     db.select().from(reportingTags).orderBy(asc(reportingTags.name)),
     db

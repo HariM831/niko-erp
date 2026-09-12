@@ -11,6 +11,7 @@ import {
 import { NUMBERED_ENTITIES } from "@shared/entities";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
+import { requireReferenceRead } from "../lib/reference-access";
 import { gstStateCode, nonBlank, validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
 import { getOpeningBalances, saveOpeningBalances } from "../services/opening-balances";
@@ -35,7 +36,9 @@ const orgSchema = z.object({
   fiscalYearStart: z.string().regex(/^\d{2}-\d{2}$/).optional(),
 });
 
-settingsRouter.get("/org", requirePermission("settings", "view"), async (_req, res) => {
+// Every document header and PDF carries the org's name and GSTIN, so reading
+// the profile cannot need Settings. Editing it still does.
+settingsRouter.get("/org", requireReferenceRead, async (_req, res) => {
   const [row] = await db.select().from(orgProfile).limit(1);
   res.json(row ?? null);
 });
@@ -57,7 +60,7 @@ settingsRouter.patch(
 // ---------- Document series ----------
 
 /** Every named series with its per-module numbering, shaped for Zoho's grid. */
-settingsRouter.get("/series", requirePermission("settings", "view"), async (_req, res) => {
+settingsRouter.get("/series", requireReferenceRead, async (_req, res) => {
   const [series, rows] = await Promise.all([
     db.select().from(numberSeries).orderBy(desc(numberSeries.isDefault), asc(numberSeries.name)),
     db.select().from(documentSeries).orderBy(asc(documentSeries.entity)),
@@ -287,7 +290,7 @@ settingsRouter.put(
 
 // ---------- Preferences ----------
 
-settingsRouter.get("/preferences", requirePermission("settings", "view"), async (_req, res) => {
+settingsRouter.get("/preferences", requireReferenceRead, async (_req, res) => {
   res.json(await getPreferences(db));
 });
 

@@ -15,6 +15,7 @@ import {
 } from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
+import { requireReferenceRead } from "../lib/reference-access";
 import { nonBlank, validateBody } from "../lib/validate";
 import { PostingError, postJournal, reverseJournal } from "../services/posting";
 import { advancedSearch, listLimit, quickSearch } from "../services/document-search";
@@ -24,9 +25,11 @@ export const accountingRouter = Router();
 
 // ---------- Chart of Accounts ----------
 
+// The account column on a bill, PO or expense line picks from this, so it is
+// reference data — the Chart of Accounts *page* is still accounting.view.
 accountingRouter.get(
   "/accounts",
-  requirePermission("accounting", "view"),
+  requireReferenceRead,
   async (_req, res) => {
     const rows = await db.select().from(accounts).orderBy(asc(accounts.code));
     res.json(rows);

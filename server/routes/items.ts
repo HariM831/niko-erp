@@ -19,6 +19,7 @@ import {
 import { db } from "../db";
 import { stockOnHand } from "../services/inventory";
 import { requirePermission } from "../lib/rbac";
+import { requireReferenceRead } from "../lib/reference-access";
 import { contains } from "../services/document-search";
 import { nonBlank, validateBody } from "../lib/validate";
 import { getPreferences } from "../services/preferences";
@@ -89,7 +90,9 @@ itemsRouter.get("/summary", requirePermission("items", "view"), async (_req, res
   });
 });
 
-itemsRouter.get("/", requirePermission("items", "view"), async (req, res) => {
+// The item picker on every document form, so it rides the reference floor
+// rather than the Items module — see lib/reference-access.
+itemsRouter.get("/", requireReferenceRead, async (req, res) => {
   const { search, isActive, category } = req.query as Record<string, string | undefined>;
   const conditions = [];
   if (isActive !== undefined) conditions.push(eq(items.isActive, isActive === "true"));
@@ -309,7 +312,8 @@ const taxSchema = z.object({
   isGstGroup: z.boolean().optional(),
 });
 
-taxesRouter.get("/", requirePermission("items", "view"), async (_req, res) => {
+/** The tax dropdown on every line of every document. Reference data. */
+taxesRouter.get("/", requireReferenceRead, async (_req, res) => {
   const rows = await db.select().from(taxes).orderBy(asc(taxes.rate));
   res.json(rows);
 });
