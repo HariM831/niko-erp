@@ -280,6 +280,28 @@ export const eggHouseClosing = pgTable(
   ],
 );
 
+/**
+ * A rate per box for the grades sold that way — Niko, today. Nothing to do
+ * with the benchmark, the differentials or a spread; effective-dated like
+ * them, so a new rate never reaches back over an invoice already raised.
+ */
+export const eggBoxRates = pgTable(
+  "egg_box_rates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    size: varchar("size", { length: 10 }).notNull(),
+    effectiveFrom: date("effective_from").notNull(),
+    ratePerBox: numeric("rate_per_box", { precision: 12, scale: 2 }).notNull(),
+    note: text("note"),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("uq_egg_box_rates_size_day").on(t.size, t.effectiveFrom),
+    index("ix_egg_box_rates_size").on(t.size, t.effectiveFrom),
+  ],
+);
+
 /** The stock item behind each size — data the service iterates, not code. */
 export const eggSizeItems = pgTable("egg_size_items", {
   size: varchar("size", { length: 10 }).primaryKey(),

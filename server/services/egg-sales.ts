@@ -20,6 +20,7 @@ import {
   eggAgreementExceptions,
   eggAgreements,
   eggBenchmarkPrices,
+  eggBoxRates,
   eggDispatches,
   eggGrading,
   eggHouseClosing,
@@ -37,6 +38,7 @@ import {
   placementDays,
   users,
 } from "@shared/schema";
+import { DIRECT_RATE_SIZES, EGG_SIZES, EGG_SIZE_LABEL, type EggSize } from "@shared/egg-sizes";
 import type { db as Db } from "../db";
 import { PostingError, postJournal } from "./posting";
 import { applyDefaultSalesAccounts, computeDocumentTotals, fromPaise, toPaise, type DocLineInput } from "./documents";
@@ -47,12 +49,8 @@ import { mainStore, moveStock } from "./inventory";
 type Tx = Parameters<Parameters<typeof Db.transaction>[0]>[0];
 type Conn = Tx | typeof Db;
 
-/**
- * The weight grades first, then the two that are not weighed: brown is sorted
- * by colour, and niko is a pack of its own. Dirty went in 0094 — the sheet
- * never had a column for it.
- */
-export const EGG_SIZES = ["small", "medium", "large", "xl", "jumbo", "brown", "niko"] as const;
+/** One list, shared with every screen — see shared/egg-sizes.ts. */
+export { EGG_SIZES, type EggSize };
 
 /**
  * How many eggs are in one box of a given size.
@@ -74,17 +72,7 @@ export function eggsInBox(
   if (size === "niko") return prefs.nikoEggsPerBox;
   return prefs.eggsPerBox;
 }
-export type EggSize = (typeof EGG_SIZES)[number];
-
-const SIZE_LABEL: Record<EggSize, string> = {
-  small: "Small",
-  medium: "Medium",
-  large: "Large",
-  xl: "XL",
-  jumbo: "Jumbo",
-  brown: "Brown",
-  niko: "Niko",
-};
+const SIZE_LABEL = EGG_SIZE_LABEL;
 
 export async function eggPrefs(tx: Conn) {
   const [row] = await tx.select().from(eggSalesPreferences);
@@ -124,6 +112,34 @@ export async function eggStockRatePerBoxP(tx: Conn, on: string): Promise<number>
   const prefs = await eggPrefs(tx);
   const perEgg = Number(bm.ratePerEgg) + STOCK_VALUATION_MARKUP_PER_EGG;
   return Math.round(perEgg * prefs.eggsPerBox * 100);
+}
+
+/** The rate per box in force for a direct-rate size on a date, or null. */
+export async function boxRateOn(tx: Conn, size: EggSize, on: string) {
+  const [row] = await tx
+    .select()
+    .from(eggBoxRates)
+    .where(and(eq(eggBoxRates.size, size), lte(eggBoxRates.effectiveFrom, on)))
+    .orderBy(desc(eggBoxRates.effectiveFrom))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function boxRateHistory(tx: Conn, size: EggSize, limit = 60) {
+  return tx
+    .select({
+      id: eggBoxRates.id,
+      effectiveFrom: eggBoxRates.effectiveFrom,
+      ratePerBox: eggBoxRates.ratePerBox,
+      note: eggBoxRates.note,
+      setBy: users.name,
+      createdAt: eggBoxRates.createdAt,
+    })
+    .from(eggBoxRates)
+    .leftJoin(users, eq(users.id, eggBoxRates.createdBy))
+    .where(eq(eggBoxRates.size, size))
+    .orderBy(desc(eggBoxRates.effectiveFrom))
+    .limit(limit);
 }
 
 /** The size differentials in force on a date. */
@@ -724,18 +740,36 @@ export interface LoadInput {
  */
 export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
   const prefs = await eggPrefs(tx);
+  const qty = (s: EggSize) => Math.max(0, Math.trunc(input.loaded[s] ?? 0));
+
+  /**
+   * Two ways a box is priced. The weight grades, jumbo and brown take the
+   * benchmark plus the size differential plus the customer's spread, per egg.
+   * Niko is sold at a rate per box set on the Benchmark page and has nothing
+   * to do with the benchmark — so a truck carrying only Niko needs no
+   * benchmark for the day, and a Niko box takes no differential and no spread.
+   * Either rate missing refuses the load rather than guessing.
+   */
+  const needsBenchmark = EGG_SIZES.some((s) => !DIRECT_RATE_SIZES.includes(s) && qty(s) > 0);
   const bm = await benchmarkOn(tx, input.dispatchDate);
-  if (!bm) {
+  if (needsBenchmark && !bm) {
     throw new PostingError(
       `No benchmark rate is set for ${input.dispatchDate} — set it on the Benchmark page before loading`,
     );
   }
-  if (bm.effectiveFrom !== input.dispatchDate) {
-    // In force but stale — allowed, said out loud on the invoice note below.
+  const boxRate: Partial<Record<EggSize, number>> = {};
+  for (const s of DIRECT_RATE_SIZES) {
+    if (qty(s) <= 0) continue;
+    const r = await boxRateOn(tx, s, input.dispatchDate);
+    if (!r) {
+      throw new PostingError(
+        `No ${SIZE_LABEL[s]} box rate is set for ${input.dispatchDate} — set it on the Benchmark page before loading`,
+      );
+    }
+    boxRate[s] = Number(r.ratePerBox);
   }
   const offsets = await sizeOffsetsOn(tx, input.dispatchDate);
 
-  const qty = (s: EggSize) => Math.max(0, Math.trunc(input.loaded[s] ?? 0));
   const totalBoxes = EGG_SIZES.reduce((a, s) => a + qty(s), 0);
   if (totalBoxes <= 0) throw new PostingError("Nothing was loaded — at least one size must be above zero");
   if (!input.driverName.trim()) throw new PostingError("Who is driving?");
@@ -821,8 +855,8 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
     spread = Number((await standingSpread(tx, input.customerId, input.dispatchDate)) ?? 0);
   }
 
-  /** Rupees per egg for a size — the whole pricing rule, in one line each. */
-  const perEgg = (s: EggSize) => Number(bm.ratePerEgg) + Number(offsets?.[s] ?? 0) + spread;
+  /** Rupees per egg for a benchmark-priced size — the whole rule, in one line. */
+  const perEgg = (s: EggSize) => Number(bm?.ratePerEgg ?? 0) + Number(offsets?.[s] ?? 0) + spread;
 
   const customer = await loadCustomer(tx, input.customerId);
   const map = await sizeItems(tx);
@@ -842,13 +876,24 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
 
   // Invoiced in boxes, like the items and the stock and every Zoho invoice
   // before it — so a report can sum the lines. The per-egg rate is named.
-  const docLines: DocLineInput[] = EGG_SIZES.filter((s) => qty(s) > 0).map((s) => ({
-    itemId: map.get(s),
-    name: `Eggs — ${SIZE_LABEL[s]} (${eggsInBox(s, prefs)}/box @ ₹${perEgg(s).toFixed(2)}/egg)`,
-    quantity: String(qty(s)),
-    unit: "boxes",
-    rate: (perEgg(s) * eggsInBox(s, prefs)).toFixed(4),
-  }));
+  const docLines: DocLineInput[] = EGG_SIZES.filter((s) => qty(s) > 0).map((s) => {
+    const direct = boxRate[s];
+    return direct != null
+      ? {
+          itemId: map.get(s),
+          name: `Eggs — ${SIZE_LABEL[s]} (${eggsInBox(s, prefs)}/box @ ₹${direct.toFixed(2)}/box)`,
+          quantity: String(qty(s)),
+          unit: "boxes",
+          rate: direct.toFixed(4),
+        }
+      : {
+          itemId: map.get(s),
+          name: `Eggs — ${SIZE_LABEL[s]} (${eggsInBox(s, prefs)}/box @ ₹${perEgg(s).toFixed(2)}/egg)`,
+          quantity: String(qty(s)),
+          unit: "boxes",
+          rate: (perEgg(s) * eggsInBox(s, prefs)).toFixed(4),
+        };
+  });
 
   const totals = await computeDocumentTotals(tx, docLines, customer.placeOfSupplyState);
 
@@ -867,10 +912,14 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
   }
 
   const number = await nextDocumentNumber(tx, "invoice");
-  const benchNote =
-    bm.effectiveFrom === input.dispatchDate
+  const benchNote = !bm
+    ? "Priced by the box"
+    : bm.effectiveFrom === input.dispatchDate
       ? `Benchmark ₹${Number(bm.ratePerEgg).toFixed(2)}/egg`
       : `Benchmark ₹${Number(bm.ratePerEgg).toFixed(2)}/egg (set ${bm.effectiveFrom} — no fresher rate)`;
+  const directNote = DIRECT_RATE_SIZES.filter((s) => boxRate[s] != null)
+    .map((s) => `${SIZE_LABEL[s]} ₹${boxRate[s]!.toFixed(2)}/box`)
+    .join(", ");
   const [inv] = await tx
     .insert(invoices)
     .values({
@@ -890,7 +939,7 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
       total: totals.total,
       balanceDue: totals.total,
       customerNotes:
-        `${benchNote}${spread ? `, spread ₹${spread.toFixed(2)}/egg` : ""}. ` +
+        `${benchNote}${spread && bm ? `, spread ₹${spread.toFixed(2)}/egg` : ""}${directNote ? `, ${directNote}` : ""}. ` +
         `Driver ${input.driverName.trim()}, vehicle ${input.vehicleNumber.trim()}.`,
       createdBy: userId,
     })

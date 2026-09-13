@@ -10,37 +10,13 @@ import { useEffect, useRef, useState } from "react";
 import { Camera, Egg, Loader2 } from "lucide-react";
 import { api } from "../api";
 import { asDataUrl, shrink } from "../lib/image";
+import { EGG_SIZE_LABEL, EGG_SIZE_SHORT, VISIBLE_EGG_SIZES, type EggSize } from "@shared/egg-sizes";
 
-/** The weight grades, then the two that are not weighed: brown by colour, niko a pack of 360. */
-const SIZES = ["small", "medium", "large", "xl", "jumbo", "brown", "niko"] as const;
-type Size = (typeof SIZES)[number];
-const LABEL: Record<Size, string> = {
-  small: "Small",
-  medium: "Medium",
-  large: "Large",
-  xl: "Extra Large",
-  jumbo: "Jumbo",
-  brown: "Brown",
-  niko: "Niko",
-};
-
-/**
- * The same seven, as the grading room writes them.
- *
- * Nine columns on a phone leaves about forty pixels a heading, and "Extra
- * Large" in forty pixels is "EX… LA…". These are not an abbreviation invented
- * for the layout — S, M, L, XL is how eggs are graded and marked on the box, so
- * the short form is the one the people using this already read.
- */
-const SHORT: Record<Size, string> = {
-  small: "S",
-  medium: "M",
-  large: "L",
-  xl: "XL",
-  jumbo: "J",
-  brown: "Br",
-  niko: "N",
-};
+/** The grades this screen shows — the shared list less the hidden ones. */
+const SIZES = VISIBLE_EGG_SIZES;
+type Size = EggSize;
+const LABEL = EGG_SIZE_LABEL;
+const SHORT = EGG_SIZE_SHORT;
 
 /** What the photo reader sends back — suggestions and its own checks, nothing saved. */
 interface SheetReading {

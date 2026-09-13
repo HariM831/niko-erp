@@ -10,6 +10,7 @@
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { api, formatDate } from "../api";
+import { DIRECT_RATE_SIZES, EGG_SIZE_LABEL, VISIBLE_EGG_SIZES, isDirectRate, type EggSize } from "@shared/egg-sizes";
 
 interface BenchmarkRow {
   id: string;
@@ -19,27 +20,19 @@ interface BenchmarkRow {
   setBy: string | null;
 }
 
-interface OffsetRow {
+type OffsetRow = { effectiveFrom: string } & Partial<Record<EggSize, string>>;
+
+interface BoxRateRow {
+  id: string;
   effectiveFrom: string;
-  small: string;
-  medium: string;
-  large: string;
-  xl: string;
-  jumbo: string;
-  brown: string;
-  niko: string;
+  ratePerBox: string;
+  note: string | null;
+  setBy: string | null;
 }
 
-const SIZES = ["small", "medium", "large", "xl", "jumbo", "brown", "niko"] as const;
-const SIZE_LABEL: Record<string, string> = {
-  small: "Small",
-  medium: "Medium",
-  large: "Large",
-  xl: "XL",
-  jumbo: "Jumbo",
-  brown: "Brown",
-  niko: "Niko",
-};
+/** Differentials apply to the grades priced off the benchmark and shown on screen. */
+const SIZES = VISIBLE_EGG_SIZES.filter((s) => !isDirectRate(s));
+const SIZE_LABEL: Record<string, string> = EGG_SIZE_LABEL;
 
 const tomorrow = () => {
   const d = new Date();
@@ -64,18 +57,52 @@ export function EggBenchmarkPage() {
   const [offsetForm, setOffsetForm] = useState<Record<string, string>>({});
   const [savingOffsets, setSavingOffsets] = useState(false);
 
+  /** The box-priced grades — Niko — with a rate of their own. */
+  const [boxRates, setBoxRates] = useState<Record<string, BoxRateRow[]>>({});
+  const [boxSizes, setBoxSizes] = useState<Record<string, number>>({});
+  const [boxDate, setBoxDate] = useState(tomorrow());
+  const [boxRate, setBoxRate] = useState("");
+  const [boxNote, setBoxNote] = useState("");
+  const [savingBox, setSavingBox] = useState<string | null>(null);
+
   const load = () =>
-    api<{ history: BenchmarkRow[]; offsets: OffsetRow[]; eggsPerBox: number }>("/api/sales/eggs/benchmark")
+    api<{
+      history: BenchmarkRow[];
+      offsets: OffsetRow[];
+      eggsPerBox: number;
+      boxSizes: Record<string, number>;
+      boxRates: Record<string, BoxRateRow[]>;
+    }>("/api/sales/eggs/benchmark")
       .then((d) => {
         setHistory(d.history);
         setOffsets(d.offsets);
         setEggsPerBox(d.eggsPerBox);
+        setBoxSizes(d.boxSizes ?? {});
+        setBoxRates(d.boxRates ?? {});
         const current = d.offsets[0];
         if (current) {
-          setOffsetForm(Object.fromEntries(SIZES.map((s) => [s, Number(current[s]).toFixed(2)])));
+          setOffsetForm(Object.fromEntries(SIZES.map((s) => [s, Number(current[s] ?? 0).toFixed(2)])));
         }
       })
       .finally(() => setLoading(false));
+
+  const setBoxRateFor = async (size: string) => {
+    setError(null);
+    setSavingBox(size);
+    try {
+      await api("/api/sales/eggs/box-rate", {
+        method: "POST",
+        body: { size, effectiveFrom: boxDate, ratePerBox: Number(boxRate), note: boxNote || undefined },
+      });
+      setBoxRate("");
+      setBoxNote("");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setSavingBox(null);
+    }
+  };
 
   useEffect(() => {
     load();
@@ -186,6 +213,59 @@ export function EggBenchmarkPage() {
                 </p>
               )}
             </div>
+
+            {/* ── Box rates: the grades sold by the box, not off the benchmark ── */}
+            {DIRECT_RATE_SIZES.map((size) => {
+              const rows = boxRates[size] ?? [];
+              const inForce = rows[0];
+              return (
+                <div key={size} className="table-surface p-4">
+                  <div className="mb-1 text-sm font-medium">{EGG_SIZE_LABEL[size]} box rate</div>
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    Sold at a rate per box of {boxSizes[size] ?? "—"}, with nothing to do with the benchmark,
+                    the differentials or a customer's spread.
+                    {inForce
+                      ? ` In force now: ₹${Number(inForce.ratePerBox).toFixed(2)}/box, set for ${formatDate(inForce.effectiveFrom)}.`
+                      : ` No rate set yet — a ${EGG_SIZE_LABEL[size]} box cannot be invoiced until one is.`}
+                  </p>
+                  <div className="flex items-end gap-2">
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">For</label>
+                      <input type="date" value={boxDate} onChange={(e) => setBoxDate(e.target.value)} className={inputCls} />
+                    </div>
+                    <div className="w-28">
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">₹ / box</label>
+                      <input type="number" step="0.01" min="0" value={boxRate} onChange={(e) => setBoxRate(e.target.value)} className={inputCls} />
+                    </div>
+                    <div className="flex-1">
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">Note</label>
+                      <input value={boxNote} onChange={(e) => setBoxNote(e.target.value)} className={inputCls} />
+                    </div>
+                    <button
+                      onClick={() => setBoxRateFor(size)}
+                      disabled={savingBox === size || !boxRate}
+                      className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                    >
+                      {savingBox === size ? <Loader2 className="h-4 w-4 animate-spin" /> : "Set"}
+                    </button>
+                  </div>
+                  {rows.length > 0 && (
+                    <table className="mt-3 w-full text-xs">
+                      <tbody>
+                        {rows.slice(0, 8).map((r) => (
+                          <tr key={r.id} className="border-t border-border/60">
+                            <td className="py-1">{formatDate(r.effectiveFrom)}</td>
+                            <td className="py-1 text-right tabular-nums">₹{Number(r.ratePerBox).toFixed(2)}</td>
+                            <td className="py-1 pl-3 text-muted-foreground">{r.note ?? ""}</td>
+                            <td className="py-1 pl-3 text-muted-foreground">{r.setBy ?? ""}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              );
+            })}
 
             {/* ── Size differentials ── */}
             <div className="table-surface p-4">

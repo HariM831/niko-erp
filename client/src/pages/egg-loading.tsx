@@ -13,6 +13,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Loader2, Truck, X } from "lucide-react";
 import { api, formatMoney } from "../api";
 import { EggOrdersTable, isStruck, type OrderLine } from "../components/egg-orders-table";
+import { EGG_SIZE_LABEL, VISIBLE_EGG_SIZES, isDirectRate } from "@shared/egg-sizes";
 
 type DayLine = OrderLine;
 
@@ -25,6 +26,26 @@ interface DayData {
   benchmark: { ratePerEgg: string; setFor: string } | null;
   offsets: Record<string, string> | null;
   eggsPerBox: number;
+  /** Eggs to the box, per size: 210, jumbo 180, niko 360. */
+  boxSizes: Record<string, number>;
+  /** The box-priced grades' rate per box for the day, or null when none is set. */
+  boxRates: Record<string, string | null>;
+}
+
+/**
+ * What one size will invoice at, per box, the way the server prices it: a
+ * box-priced grade at its own rate, everything else at benchmark +
+ * differential + spread per egg times the eggs in that size's box. Null when
+ * the rate it needs is not set for the day.
+ */
+function boxPrice(data: DayData, size: string, spreadPerEgg: number): number | null {
+  if (isDirectRate(size as never)) {
+    const r = data.boxRates?.[size];
+    return r == null ? null : Number(r);
+  }
+  if (!data.benchmark) return null;
+  const perEgg = Number(data.benchmark.ratePerEgg) + Number(data.offsets?.[size] ?? 0) + spreadPerEgg;
+  return perEgg * (data.boxSizes?.[size] ?? data.eggsPerBox);
 }
 
 interface Dispatch {
@@ -49,16 +70,8 @@ interface Customer {
   name: string;
 }
 
-const SIZES = ["small", "medium", "large", "xl", "jumbo", "brown", "niko"] as const;
-const SIZE_LABEL: Record<string, string> = {
-  small: "Small",
-  medium: "Medium",
-  large: "Large",
-  xl: "XL",
-  jumbo: "Jumbo",
-  brown: "Brown",
-  niko: "Niko",
-};
+const SIZES = VISIBLE_EGG_SIZES;
+const SIZE_LABEL: Record<string, string> = EGG_SIZE_LABEL;
 
 const inputCls = "h-9 w-full rounded-md border border-border bg-background px-2 text-sm";
 
@@ -164,10 +177,14 @@ export function EggLoadingPage() {
                * order booked by count is estimated as Large, the grade nearly
                * every box on the farm is — the dialog corrects to the truck.
                */
-              const bm = data?.benchmark ? Number(data.benchmark.ratePerEgg) : null;
-              const perEgg = (s: string) => (bm ?? 0) + Number(data?.offsets?.[s] ?? 0) + Number(l.spreadPerEgg);
               const split = l.sizes && Object.keys(l.sizes).length ? l.sizes : { large: l.boxes };
-              const estimate = bm == null ? null : Object.entries(split).reduce((a, [s, q]) => a + (q ?? 0) * (data?.eggsPerBox ?? 210) * perEgg(s), 0);
+              // Null once any size on the order has no rate for the day.
+              let estimate: number | null = 0;
+              for (const [s, q] of Object.entries(split)) {
+                const price = data ? boxPrice(data, s, Number(l.spreadPerEgg)) : null;
+                if (price == null) { estimate = null; break; }
+                estimate += (q ?? 0) * price;
+              }
               const available = data?.ledger?.[l.customerId];
               const short = estimate != null && available != null ? estimate - available : null;
               const funded = short != null && short <= 0;
@@ -175,10 +192,10 @@ export function EggLoadingPage() {
                 <div className="flex flex-col items-end gap-0.5">
                   <button
                     onClick={() => setLoadingLine(l)}
-                    disabled={!data?.benchmark || !funded}
+                    disabled={estimate == null || !funded}
                     title={
-                      !data?.benchmark
-                        ? "No benchmark set for the day"
+                      estimate == null
+                        ? "A rate this order needs is not set for the day"
                         : funded
                           ? `Ledger covers ~${formatMoney(estimate ?? 0)}`
                           : `Ledger short by ${formatMoney(short ?? 0)}`
@@ -313,16 +330,13 @@ function LoadDialog({
 
   /** What this loading will come to, computed the same way the server will. */
   const estimate = useMemo(() => {
-    if (!data.benchmark) return null;
     let sum = 0;
     for (const s of SIZES) {
       const boxes = Number(qty[s]) || 0;
       if (!boxes) continue;
-      const perEgg =
-        Number(data.benchmark.ratePerEgg) +
-        Number(data.offsets?.[s] ?? 0) +
-        Number(line?.spreadPerEgg ?? 0);
-      sum += boxes * data.eggsPerBox * perEgg;
+      const price = boxPrice(data, s, Number(line?.spreadPerEgg ?? 0));
+      if (price == null) return null;
+      sum += boxes * price;
     }
     return sum;
   }, [qty, data, line]);

@@ -8,17 +8,11 @@
  */
 import type { ReactNode } from "react";
 
-export const EGG_SIZES = ["small", "medium", "large", "xl", "jumbo", "brown", "niko"] as const;
-export type EggSize = (typeof EGG_SIZES)[number];
-export const EGG_SIZE_LABEL: Record<EggSize, string> = {
-  small: "Small",
-  medium: "Medium",
-  large: "Large",
-  xl: "XL",
-  jumbo: "Jumbo",
-  brown: "Brown",
-  niko: "Niko",
-};
+import { EGG_SIZE_LABEL, VISIBLE_EGG_SIZES, type EggSize } from "@shared/egg-sizes";
+
+/** The grades the screens show — the shared list less the hidden ones. */
+export const EGG_SIZES = VISIBLE_EGG_SIZES;
+export { EGG_SIZE_LABEL, type EggSize };
 
 export interface OrderLine {
   kind: "standing" | "spot";

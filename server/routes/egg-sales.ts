@@ -14,6 +14,7 @@ import {
   inventoryTransactions,
   eggAgreements,
   eggBenchmarkPrices,
+  eggBoxRates,
   eggDispatches,
   eggSizeOffsets,
   eggSpotOrders,
@@ -22,6 +23,7 @@ import {
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { looseNumber, validateBody } from "../lib/validate";
+import { DIRECT_RATE_SIZES, EGG_SIZE_LABEL, HIDDEN_EGG_SIZES, type EggSize } from "@shared/egg-sizes";
 import { PostingError } from "../services/posting";
 import { ALLOWED_MIME, MAX_IMAGE_BYTES, extractEggSheet, withOcrRetry } from "../services/ocr";
 import {
@@ -34,6 +36,9 @@ import {
   supplyCascade,
   benchmarkHistory,
   benchmarkOn,
+  boxRateHistory,
+  boxRateOn,
+  eggsInBox,
   dayOrders,
   eggPrefs,
   loadAndInvoice,
@@ -343,7 +348,43 @@ eggSalesRouter.get("/benchmark", view, async (_req, res) => {
   const history = await benchmarkHistory(db);
   const offsets = await db.select().from(eggSizeOffsets).orderBy(desc(eggSizeOffsets.effectiveFrom)).limit(12);
   const prefs = await eggPrefs(db);
-  res.json({ history, offsets, eggsPerBox: prefs.eggsPerBox });
+  // The grades sold by the box, with their own history — Niko today.
+  const boxRates: Record<string, Awaited<ReturnType<typeof boxRateHistory>>> = {};
+  for (const size of DIRECT_RATE_SIZES) boxRates[size] = await boxRateHistory(db, size);
+  res.json({
+    history,
+    offsets,
+    eggsPerBox: prefs.eggsPerBox,
+    boxSizes: Object.fromEntries(EGG_SIZES.map((z) => [z, eggsInBox(z, prefs)])),
+    boxRates,
+  });
+});
+
+const boxRateBody = z.object({
+  size: z.enum(DIRECT_RATE_SIZES as [EggSize, ...EggSize[]]),
+  effectiveFrom: dateStr,
+  ratePerBox: looseNumber(z.number().positive().max(100_000)),
+  note: z.string().max(300).optional(),
+});
+
+/** A rate per box for a grade sold that way. Setting the same day again is a correction. */
+eggSalesRouter.post("/box-rate", create, validateBody(boxRateBody), async (req, res) => {
+  const b = req.body as z.infer<typeof boxRateBody>;
+  const [row] = await db
+    .insert(eggBoxRates)
+    .values({
+      size: b.size,
+      effectiveFrom: b.effectiveFrom,
+      ratePerBox: b.ratePerBox.toFixed(2),
+      note: b.note || null,
+      createdBy: req.session.user!.id,
+    })
+    .onConflictDoUpdate({
+      target: [eggBoxRates.size, eggBoxRates.effectiveFrom],
+      set: { ratePerBox: b.ratePerBox.toFixed(2), note: b.note || null, createdBy: req.session.user!.id },
+    })
+    .returning();
+  res.status(201).json(row);
 });
 
 const benchmarkBody = z.object({
@@ -372,44 +413,24 @@ eggSalesRouter.post("/benchmark", create, validateBody(benchmarkBody), async (re
   res.status(201).json(row);
 });
 
+/**
+ * Every size optional: the screen sends the grades it shows, and a hidden or
+ * box-priced grade simply keeps a zero differential.
+ */
 const offsetsBody = z.object({
   effectiveFrom: dateStr,
-  small: spread,
-  medium: spread,
-  large: spread,
-  xl: spread,
-  jumbo: spread,
-  brown: spread,
-  niko: spread,
+  ...(Object.fromEntries(EGG_SIZES.map((z) => [z, spread.optional()])) as Record<EggSize, z.ZodOptional<typeof spread>>),
 });
 
 eggSalesRouter.post("/size-offsets", create, validateBody(offsetsBody), async (req, res) => {
   const b = req.body as z.infer<typeof offsetsBody>;
+  const off = Object.fromEntries(EGG_SIZES.map((z) => [z, Number(b[z] ?? 0).toFixed(4)])) as Record<EggSize, string>;
   const [row] = await db
     .insert(eggSizeOffsets)
-    .values({
-      effectiveFrom: b.effectiveFrom,
-      small: b.small.toFixed(4),
-      medium: b.medium.toFixed(4),
-      large: b.large.toFixed(4),
-      xl: b.xl.toFixed(4),
-      jumbo: b.jumbo.toFixed(4),
-      brown: b.brown.toFixed(4),
-      niko: b.niko.toFixed(4),
-      createdBy: req.session.user!.id,
-    })
+    .values({ effectiveFrom: b.effectiveFrom, ...off, createdBy: req.session.user!.id })
     .onConflictDoUpdate({
       target: [eggSizeOffsets.effectiveFrom],
-      set: {
-        small: b.small.toFixed(4),
-        medium: b.medium.toFixed(4),
-        large: b.large.toFixed(4),
-        xl: b.xl.toFixed(4),
-        jumbo: b.jumbo.toFixed(4),
-        brown: b.brown.toFixed(4),
-        niko: b.niko.toFixed(4),
-        createdBy: req.session.user!.id,
-      },
+      set: { ...off, createdBy: req.session.user!.id },
     })
     .returning();
   res.status(201).json(row);
@@ -471,6 +492,10 @@ eggSalesRouter.get("/day/:date", view, async (req, res) => {
     ledger[customerId] = await ledgerAvailable(db, customerId);
   }
 
+  /** The box-priced grades' rates for the day, so the bay estimates as the server will invoice. */
+  const boxRates: Record<string, string | null> = {};
+  for (const size of DIRECT_RATE_SIZES) boxRates[size] = (await boxRateOn(db, size, on))?.ratePerBox ?? null;
+
   res.json({
     stockBySize: held,
     stockBoxes: EGG_SIZES.reduce((a, s) => a + held[s], 0),
@@ -483,6 +508,8 @@ eggSalesRouter.get("/day/:date", view, async (req, res) => {
       ? Object.fromEntries(EGG_SIZES.map((s) => [s, offsets[s]]))
       : null,
     eggsPerBox: prefs.eggsPerBox,
+    boxSizes: Object.fromEntries(EGG_SIZES.map((s) => [s, eggsInBox(s, prefs)])),
+    boxRates,
   });
 });
 
@@ -770,6 +797,15 @@ eggSalesRouter.post(
       return { ...r, houseId: house?.id ?? null, code: house?.code ?? null };
     });
     const unmatchedSheds = rows.filter((r) => !r.houseId).map((r) => r.shed);
+    // A hidden grade's figure is reported and left out, never keyed unseen.
+    for (const r of rows) {
+      for (const h of HIDDEN_EGG_SIZES) {
+        const n = r.boxes[h];
+        if (!n) continue;
+        delete r.boxes[h];
+        sheet.warnings.push(`${EGG_SIZE_LABEL[h]} is hidden on this screen — ${r.shed}'s ${n} box(es) were not entered`);
+      }
+    }
     // A grade the sheet names that the sizes here do not: said, not silently dropped.
     const known = new Set<string>(EGG_SIZES);
     const warnings = [...sheet.warnings];

@@ -666,6 +666,13 @@
       "when": 1789304799269,
       "tag": "0094_egg_grades_brown_niko",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1789305745982,
+      "tag": "0095_egg_box_rates",
+      "breakpoints": true
     }
   ]
 }
