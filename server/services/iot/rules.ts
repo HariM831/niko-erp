@@ -15,6 +15,7 @@
  */
 import type { Catalog, CatalogPage, CatalogRow } from "./controls";
 import { FAN_KW, fansInGroup } from "./feels-like";
+import { wallCoverage } from "./fan-wall";
 import type { WeekStats } from "./house-stats";
 
 export interface ProposedChange {
@@ -388,7 +389,7 @@ const ladderReach: Rule = (ctx, p) => {
   const hasCurtains = rows.every((r) => r.cells.mlRate && r.cells.mL2Rate);
 
   const changes: ProposedChange[] = [];
-  const ladder: Array<{ step: number; offsetWas: number | null; offset: number; fansWas: number; fans: number; c1Was?: number | null; c1?: number; c2Was?: number | null; c2?: number }> = [];
+  const ladder: Array<{ step: number; offsetWas: number | null; offset: number; fansWas: number; fans: number; c1Was?: number | null; c1?: number; c2Was?: number | null; c2?: number; evenWas?: number; even?: number }> = [];
   let prevC1 = 0;
   let prevC2 = 0;
   // Fans climb evenly from the first tunnel step to the cap at the top, each
@@ -425,11 +426,15 @@ const ladderReach: Rule = (ctx, p) => {
     if (oc) changes.push(oc);
     let fansWas = 0;
     let fans = 0;
+    const groupsWas: number[] = [];
+    const groupsWill: number[] = [];
     for (const g of used) {
       const was = mode(r, g);
       const want = on.has(g) ? (was > 0 ? was : 2) : 0;
       fansWas += fansOf(was, g);
       fans += fansOf(want, g);
+      if (was > 0) groupsWas.push(groupNo(g));
+      if (want > 0) groupsWill.push(groupNo(g));
       if (want !== was) {
         changes.push({
           register: r.cells[g]!,
@@ -441,7 +446,7 @@ const ladderReach: Rule = (ctx, p) => {
         });
       }
     }
-    const entry: (typeof ladder)[number] = { step: r.id, offsetWas: num(ctx.settings[r.cells.tempOffset!]), offset, fansWas, fans };
+    const entry: (typeof ladder)[number] = { step: r.id, offsetWas: num(ctx.settings[r.cells.tempOffset!]), offset, fansWas, fans, evenWas: wallCoverage(groupsWas).even, even: wallCoverage(groupsWill).even };
     if (fit && hasCurtains) {
       const need = p.pressurePa! / (fans * fans) - fit.a;
       const area = need > 0 ? Math.sqrt(fit.b / need) : Infinity;
@@ -475,6 +480,11 @@ const ladderReach: Rule = (ctx, p) => {
     ? ` At the week's mean the ladder sits at step ${mean.was.step} with ${mean.was.fansWas} fans today (${Math.round(mean.was.fansWas * FAN_KW)} kW) and would sit at step ${mean.will.step} with ${mean.will.fans} fans (${Math.round(mean.will.fans * FAN_KW)} kW): that is the price of the air.`
     : "";
   const allOpen = fit ? Math.round(topFans * topFans * (fit.a + fit.b / ((A1 + A2) * (A1 + A2)))) : null;
+  // How evenly the running fans cover the wall's width at the steps the shed lives at: the middle third of the tunnel ladder.
+  const mid = ladder.slice(Math.floor(ladder.length / 3), Math.ceil((2 * ladder.length) / 3));
+  const evenWas = Math.round(mid.reduce((s, l) => s + (l.evenWas ?? 0), 0) / Math.max(1, mid.length));
+  const evenWill = Math.round(mid.reduce((s, l) => s + (l.even ?? 0), 0) / Math.max(1, mid.length));
+  const evenness = ` Evenness across the fan wall at steps ${mid[0]?.step} to ${mid[mid.length - 1]?.step}: ${evenWas}% today, ${evenWill}% after (100 is a full wall's spread).`;
   const curtains = fit
     ? ` Curtain 1 on the gable wall (${A1} m²) opens first and fully before curtain 2 on the side walls (${A2} m²) starts; each step's opening is sized to hold ${fmt(p.pressurePa!)} Pa, from this week's pressure at ${points.length} steps (${points.map((q) => `step ${q.step}: ${q.pa} Pa at ${q.fans} fans`).join(", ")}). With every curtain open, ${topFans} fans would read about ${allOpen} Pa: the pads set that floor.`
     : ` The curtains are left as they are: too few readings yet on this ladder to size them (${points.length} usable step(s)${ctx.ladderChangedAt ? `, counted since the ladder changed on ${ctx.ladderChangedAt.toISOString().slice(0, 10)}` : ""}).`;
@@ -488,8 +498,8 @@ const ladderReach: Rule = (ctx, p) => {
     reason:
       `In tunnel the steps are measured from the tunnel temperature, ${fmt(tunnelTemp)}°C. Today step ${top.step} starts ${fmt(top.offsetWas ?? 0)}° above it, at ${fmt(tunnelTemp + (top.offsetWas ?? 0))}°C house average, and runs ${top.fansWas} of ${topFans} fans; the week's mean was ${st.tempMean ?? "?"}°C.${comfort} ` +
       `Spread over ${fmt(topOffset)}°${lowSteps > 0 ? `: ${fmt(lowSpacing)}° a step for the first ${lowSteps} steps, to +${fmt(lowTop)} at step ${rows[0]!.id + lowSteps}, then ${fmt(upperSpacing)}° a step` : `, ${fmt(topOffset / span)}° a step`}, the top step arrives at ${fmt(tunnelTemp + topOffset)}°C average, about ${fmt(tunnelTemp + topOffset + 1.3)}°C at the exhaust end, and runs ${topFans} of the ${fansIn(order.length)} fans, the cap; each step adds fan groups ${p.spreadGroups ? "spread across the wall in L3's order, one in each gap," : "in the order the ladder already brings them in,"} so no step has fewer fans than the one below. ` +
-      `${changes.length} registers on the ladder page, steps ${rows[0]!.id} to ${top.step}. At the top ${Math.round(topFans * FAN_KW)} kW runs.${cost}${curtains}`,
-    evidence: { tunnelTemp, start, floorStep, maxStep, spread: p.spread, maxFans: p.maxFans, pressurePa: p.pressurePa, topOffset, fit, points, allOpenPa: allOpen, order: order.map(groupNo), ladder, tempMean: st.tempMean, atMean: mean ? { stepWas: mean.was.step, fansWas: mean.was.fansWas, step: mean.will.step, fans: mean.will.fans } : null, feelsLikeHoursSevere: st.feelsLikeHoursSevere, feelsLikeHoursCritical: st.feelsLikeHoursCritical },
+      `${changes.length} registers on the ladder page, steps ${rows[0]!.id} to ${top.step}. At the top ${Math.round(topFans * FAN_KW)} kW runs.${cost}${curtains}${evenness}`,
+    evidence: { tunnelTemp, start, floorStep, maxStep, spread: p.spread, evenWas, evenWill, maxFans: p.maxFans, pressurePa: p.pressurePa, topOffset, fit, points, allOpenPa: allOpen, order: order.map(groupNo), ladder, tempMean: st.tempMean, atMean: mean ? { stepWas: mean.was.step, fansWas: mean.was.fansWas, step: mean.will.step, fans: mean.will.fans } : null, feelsLikeHoursSevere: st.feelsLikeHoursSevere, feelsLikeHoursCritical: st.feelsLikeHoursCritical },
     changes,
   };
 };

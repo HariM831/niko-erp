@@ -1015,11 +1015,14 @@ interface LadderRow {
   c1?: number;
   c2Was?: number | null;
   c2?: number;
+  evenWas?: number;
+  even?: number;
 }
 
 /** A rebuilt ladder, step by step: where each step starts and how many fans it runs, was and will be. */
 function LadderGrid({ ladder, registers }: { ladder: LadderRow[]; registers: number }) {
   const curtains = ladder.some((r) => r.c1 != null);
+  const evenness = ladder.some((r) => r.even != null);
   const cell = (was: number | null, will: number, unit = "") => (
     <>
       <td className="py-0.5 pr-3 text-right tabular-nums text-muted-foreground">{was == null ? "—" : `${was}${unit}`}</td>
@@ -1039,6 +1042,12 @@ function LadderGrid({ ladder, registers }: { ladder: LadderRow[]; registers: num
             <th className="py-1 pr-5 text-right font-semibold">Will be</th>
             <th className="py-1 pr-3 text-right font-semibold">Fans, was</th>
             <th className="py-1 pr-5 text-right font-semibold">Will be</th>
+            {evenness && (
+              <>
+                <th className="py-1 pr-3 text-right font-semibold">Wall even, was</th>
+                <th className="py-1 pr-5 text-right font-semibold">Will be</th>
+              </>
+            )}
             {curtains && (
               <>
                 <th className="py-1 pr-3 text-right font-semibold">Gable curtain, was</th>
@@ -1055,6 +1064,7 @@ function LadderGrid({ ladder, registers }: { ladder: LadderRow[]; registers: num
               <td className="py-0.5 pr-4 tabular-nums">{r.step}</td>
               {cell(r.offsetWas, r.offset, "°")}
               {cell(r.fansWas, r.fans)}
+              {evenness && cell(r.evenWas ?? null, r.even ?? 0, "%")}
               {curtains && cell(r.c1Was ?? null, r.c1 ?? 0, "%")}
               {curtains && cell(r.c2Was ?? null, r.c2 ?? 0, "%")}
             </tr>
@@ -1062,7 +1072,7 @@ function LadderGrid({ ladder, registers }: { ladder: LadderRow[]; registers: num
         </tbody>
       </table>
       <div className="mt-1 text-[11px] text-muted-foreground">
-        "Starts" is degrees above the tunnel temperature. {registers} registers on the ladder page change; fans are added in the order the ladder already uses
+        "Starts" is degrees above the tunnel temperature. "Wall even" is how evenly the running fans cover the wall's width, 100 being a full wall's spread. {registers} registers on the ladder page change
         {curtains ? "; the gable curtain opens fully before the side curtains start" : ""}.
       </div>
     </div>

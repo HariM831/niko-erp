@@ -272,9 +272,23 @@ const PULLET_FAN_ROWS: (string | null)[][] = [
   ["19", "20", "21", "22", null, null],
 ];
 
+/** How evenly the running fans cover the wall's width: 100 is a full wall's spread across the six column-pairs, 0 is all in one. */
+function wallEvenness(rows: (string | null)[][], fanStatus: Record<string, boolean>): number | null {
+  const width = rows[0]?.length ?? 0;
+  if (width < 12) return null;
+  const cols = new Array<number>(width).fill(0);
+  let fans = 0;
+  rows.forEach((row) => row.forEach((g, c) => { if (g && fanStatus[g]) { cols[c]!++; fans++; } }));
+  if (!fans) return 0;
+  const pairs = [0, 1, 2, 3, 4, 5].map((i) => cols[i]! + cols[width - 1 - i]!);
+  const dev = Math.sqrt(pairs.reduce((s, x) => s + (x / fans - 1 / 6) ** 2, 0) / 6);
+  return Math.max(0, Math.round((1 - dev / (1 / 6)) * 100));
+}
+
 export function FanWall({ live, purpose }: { live: LiveShed; purpose: string }) {
   const fanStatus = live.fanStatus;
   const active = Object.values(fanStatus).filter(Boolean).length;
+  const even = wallEvenness(purpose.toLowerCase() === "layer" ? LAYER_FAN_ROWS : PULLET_FAN_ROWS, fanStatus);
   const rows = purpose.toLowerCase() === "layer" ? LAYER_FAN_ROWS : PULLET_FAN_ROWS;
   const wide = (rows[0]?.length ?? 0) >= 12;
   const cellCls = wide ? "w-8 h-8" : "w-10 h-10";
@@ -302,6 +316,11 @@ export function FanWall({ live, purpose }: { live: LiveShed; purpose: string }) 
           <span>
             <strong className="text-primary">{active}</strong> / 22 groups on
           </span>
+          {even != null && active > 0 && (
+            <span title="How evenly the running fans cover the wall's width: 100 is a full wall's spread across the six column-pairs, edge to centre">
+              even <strong className={even >= 70 ? "text-primary" : "text-warning"}>{even}%</strong>
+            </span>
+          )}
         </div>
       </div>
 
