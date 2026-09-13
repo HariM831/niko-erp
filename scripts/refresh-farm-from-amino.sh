@@ -19,12 +19,17 @@
 #      handed over by mistake is caught by eye before anything is read.
 #   2. check-amino-export.ts reconciles the numbers. If the birds do not add up
 #      the import would refuse half-way anyway; better to know first.
-#   3. The import runs dry, then for real with --reset. Amino is still the
-#      system of record for the farm, so niko's copy is REPLACED, not merged:
-#      the imported flocks and everything hanging off them are removed and
-#      written again from the new file. Anything recorded in niko's own farm
-#      screens against those flocks would go with them — which is why this
-#      script refuses to run once such records exist (see the guard below).
+#   3. The import runs dry, then for real with --reset. niko's copy is
+#      REPLACED, not merged: the imported flocks and everything hanging off
+#      them are removed and written again from the new file. Anything recorded
+#      in niko's own farm screens against those flocks would go with them —
+#      which is why this script refuses to run once such records exist (the
+#      two guards below).
+#
+# niko has been the system of record for the farm since 13 Sep 2026. This
+# script exists for the export of that day and for a re-run of it; a later
+# export can only get past the guards if nobody has entered a day in niko
+# since, which is not how the farm is meant to run any more.
 #   4. The Dr niko observations and their photographs follow; that import is
 #      idempotent on Amino's id and adds only what is new.
 #
@@ -90,6 +95,29 @@ tar xzf "$TGZ"
 NEXT="$(node -e 'console.log(JSON.parse(require("fs").readFileSync("farm-export/farm-export.json","utf8")).exportedAt)')"
 echo "==> export on disk was $PREV"
 echo "==> export now is     $NEXT"
+
+# ── Guard: niko must not hold a day newer than the export ─────────────────
+# niko is the system of record since 13 Sep 2026. A day sheet or a weighing in
+# niko dated after the last one in the export can only have been entered here,
+# and --reset would delete it and write Amino's older record in its place.
+# Refused before anything is read, so the export on disk is the only change.
+EXPORT_TO="$(node -e '
+  const m = JSON.parse(require("fs").readFileSync("farm-export/farm-export.json","utf8")).manifest;
+  const t = (n) => (m.find((x) => x.table === n)?.to ?? "").slice(0, 10);
+  console.log(t("daily_bird_records") + " " + t("weekly_bird_weights"));
+')"
+EXPORT_DAYS_TO="${EXPORT_TO% *}"
+EXPORT_WEIGHTS_TO="${EXPORT_TO#* }"
+NIKO_DAYS_TO="$(psql "$DATABASE_URL" -tAc "SELECT coalesce(max(day)::text, '') FROM placement_days" | tr -d '[:space:]')"
+NIKO_WEIGHTS_TO="$(psql "$DATABASE_URL" -tAc "SELECT coalesce(max(weighed_on)::text, '') FROM bird_weighings" | tr -d '[:space:]')"
+echo "==> daily sheet: export to ${EXPORT_DAYS_TO:-none}, niko to ${NIKO_DAYS_TO:-none}"
+echo "==> weighings:   export to ${EXPORT_WEIGHTS_TO:-none}, niko to ${NIKO_WEIGHTS_TO:-none}"
+if [ -n "$NIKO_DAYS_TO" ] && [[ "$NIKO_DAYS_TO" > "$EXPORT_DAYS_TO" ]]; then
+  die "niko holds a day sheet dated $NIKO_DAYS_TO, newer than the export's $EXPORT_DAYS_TO — entered in niko, and a reset would destroy it; stop"
+fi
+if [ -n "$NIKO_WEIGHTS_TO" ] && [[ "$NIKO_WEIGHTS_TO" > "$EXPORT_WEIGHTS_TO" ]]; then
+  die "niko holds a weighing dated $NIKO_WEIGHTS_TO, newer than the export's $EXPORT_WEIGHTS_TO — entered in niko, and a reset would destroy it; stop"
+fi
 node -e '
   const m = JSON.parse(require("fs").readFileSync("farm-export/farm-export.json","utf8")).manifest;
   for (const t of m) console.log("    " + t.table.padEnd(22) + String(t.rows).padStart(7) + (t.from ? "   " + t.from.slice(0,10) + " … " + (t.to||"").slice(0,10) : ""));

@@ -181,9 +181,11 @@ payment file built from them fails harmlessly at the bank.
 
 **Refresh the farm from Amino:** `./scripts/refresh-farm-from-amino.sh /tmp/farm-export.tgz`
 
-Amino is still the system of record for the farm, so niko's copy of the sheds,
-flocks, daily sheet, weighings and feed transfers is replaced from a fresh
-export rather than merged. Produce the export on Replit, where Amino's database
+niko has been the system of record for the farm since 13 Sep 2026; until then
+it was Amino, and this script brought Amino's sheds, flocks, daily sheet,
+weighings and feed transfers across by replacing niko's copy rather than
+merging. It refuses to run once niko holds a day sheet or a weighing newer than
+the export, so from now on it can only re-run the export it was last given. Produce the export on Replit, where Amino's database
 lives — `npx tsx scripts/export-farm-for-eggsy.ts && tar czf farm-export.tgz
 farm-export` in the Amino repo — copy the tarball to the Droplet and run the
 script against staging first (`APP_DIR=/srv/niko-staging SERVICE=niko-staging`),
