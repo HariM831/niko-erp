@@ -42,8 +42,11 @@ die() { echo "refresh-staging: $*" >&2; exit 1; }
 [ -n "$STAGING_URL" ] || die "STAGING_DATABASE_URL is not set"
 [ "$PROD_URL" != "$STAGING_URL" ] || die "staging and production are the same URL — refusing"
 
-# Database name is the last path segment, minus any ?sslmode=... query.
-db_name() { local p="${1##*/}"; echo "${p%%\?*}"; }
+# Database name is the last path segment, minus any ?sslmode=... query. The
+# query is cut FIRST: it carries `sslrootcert=/etc/niko/do-ca.crt`, whose own
+# slashes made "the last path segment" the certificate's filename, and both
+# URLs then "named" the same database and the script refused itself.
+db_name() { local p="${1%%\?*}"; echo "${p##*/}"; }
 PROD_DB="$(db_name "$PROD_URL")"
 STAGING_DB="$(db_name "$STAGING_URL")"
 

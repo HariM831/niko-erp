@@ -504,8 +504,12 @@ try {
             day: on,
             feedConsumedKg: r.feed_intake_kg == null ? null : n(r.feed_intake_kg).toFixed(2),
             feedClosingKg: r.feed_stock_kg == null ? null : n(r.feed_stock_kg).toFixed(2),
-            waterUpperKl: r.water_upper_kl == null ? null : n(r.water_upper_kl).toFixed(2),
-            waterLowerKl: r.water_lower_kl == null ? null : n(r.water_lower_kl).toFixed(2),
+            // Amino still reads two tank meters; niko keeps one number, the sum,
+            // exactly as migration 0085 backfilled it.
+            waterKl:
+              r.water_upper_kl == null && r.water_lower_kl == null
+                ? null
+                : (n(r.water_upper_kl) + n(r.water_lower_kl)).toFixed(2),
             eggsTotal: n(r.eggs_produced) || null,
             losses,
           },
@@ -587,12 +591,40 @@ try {
     // Amino recorded a cost per kg with each. That is the one feed cost, and it
     // is what the owner invoices and the cost per egg are both built from — so it
     // comes across as the transfer's rate rather than being recomputed.
+    //
+    // Numbered AMN-FT-00001… in date order. The export is a bare SELECT with no
+    // ORDER BY, so the same rows can arrive in a different order next time; the
+    // sort here is what keeps a number meaning the same lorry across exports.
+    // On --reset the previously imported transfers are removed first — but only
+    // the ones nothing has posted against. A transfer that has reached the
+    // ledger is a document, and stays.
     step("7. Feed sent to the sheds");
     const [mill] = await tx.select().from(locations).limit(1);
     const feedItems = await tx.select().from(items).where(eq(items.category, "poultry_feed"));
     const anyItem = feedItems[0] ?? (await tx.select().from(items).limit(1))[0];
+    if (RESET && APPLY) {
+      const gone = await tx
+        .delete(feedTransfers)
+        .where(and(sql`${feedTransfers.number} LIKE 'AMN-FT-%'`, sql`${feedTransfers.journalEntryId} IS NULL`))
+        .returning({ id: feedTransfers.id });
+      const kept = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(feedTransfers)
+        .where(sql`${feedTransfers.number} LIKE 'AMN-FT-%'`);
+      note(`reset: removed ${gone.length} previously imported transfer(s)`);
+      if (kept[0]!.n) {
+        problem(`${kept[0]!.n} imported transfer(s) have been posted to the ledger and were kept — their numbers may now collide`);
+      }
+    }
+    const feedSorted = [...feed].sort(
+      (a, b) =>
+        day(a.date).localeCompare(day(b.date)) ||
+        s(houseOf.get(s(a.shed_id))?.code).localeCompare(s(houseOf.get(s(b.shed_id))?.code)) ||
+        s(a.formula_name).localeCompare(s(b.formula_name)) ||
+        n(a.quantity_kg) - n(b.quantity_kg),
+    );
     let sent = 0;
-    for (const [i, f] of feed.entries()) {
+    for (const [i, f] of feedSorted.entries()) {
       const house = houseOf.get(s(f.shed_id));
       if (!house || !anyItem || !mill) continue;
       if (!APPLY) {

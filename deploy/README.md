@@ -179,6 +179,19 @@ password hash stripped, and verifies the scrub before bringing staging back
 up. Fake account numbers on staging are the point, not a limitation: a
 payment file built from them fails harmlessly at the bank.
 
+**Refresh the farm from Amino:** `./scripts/refresh-farm-from-amino.sh /tmp/farm-export.tgz`
+
+Amino is still the system of record for the farm, so niko's copy of the sheds,
+flocks, daily sheet, weighings and feed transfers is replaced from a fresh
+export rather than merged. Produce the export on Replit, where Amino's database
+lives — `npx tsx scripts/export-farm-for-eggsy.ts && tar czf farm-export.tgz
+farm-export` in the Amino repo — copy the tarball to the Droplet and run the
+script against staging first (`APP_DIR=/srv/niko-staging SERVICE=niko-staging`),
+then production. It reconciles the export, runs the import dry, applies it with
+`--reset`, and brings the Dr niko observations across. It refuses to run once
+anything recorded in niko itself hangs off the imported flocks, because a reset
+would take that with it.
+
 **Logs:** `journalctl -u niko -f`
 
 **Roll back:** deploys are plain git checkouts, so
