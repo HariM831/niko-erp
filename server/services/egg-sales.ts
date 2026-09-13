@@ -47,24 +47,32 @@ import { mainStore, moveStock } from "./inventory";
 type Tx = Parameters<Parameters<typeof Db.transaction>[0]>[0];
 type Conn = Tx | typeof Db;
 
-export const EGG_SIZES = ["small", "medium", "large", "xl", "jumbo", "dirty"] as const;
+/**
+ * The weight grades first, then the two that are not weighed: brown is sorted
+ * by colour, and niko is a pack of its own. Dirty went in 0094 — the sheet
+ * never had a column for it.
+ */
+export const EGG_SIZES = ["small", "medium", "large", "xl", "jumbo", "brown", "niko"] as const;
 
 /**
  * How many eggs are in one box of a given size.
  *
- * Jumbo boxes hold 180 where every other size holds 210, because the egg is
- * bigger and the box is not.
+ * Jumbo boxes hold 180 where the weight grades hold 210, because the egg is
+ * bigger and the box is not; a Niko box holds 360. The sheet prints each
+ * beside its column.
  *
- * Used for PRODUCTION — turning a grading sheet's boxes into the eggs a house
- * laid. The sales path still prices every size at `eggsPerBox`, which for
- * jumbo is 210: left alone deliberately, and worth settling before the first
- * jumbo box is invoiced.
+ * Used for production (a grading sheet's boxes into eggs laid) AND for the
+ * invoice line, since 0094: pricing a 360-egg box as 210 eggs would bill 150
+ * eggs short on every Niko box. Nothing had been invoiced at the old single
+ * figure when this changed.
  */
 export function eggsInBox(
   size: (typeof EGG_SIZES)[number],
-  prefs: { eggsPerBox: number; jumboEggsPerBox: number },
+  prefs: { eggsPerBox: number; jumboEggsPerBox: number; nikoEggsPerBox: number },
 ): number {
-  return size === "jumbo" ? prefs.jumboEggsPerBox : prefs.eggsPerBox;
+  if (size === "jumbo") return prefs.jumboEggsPerBox;
+  if (size === "niko") return prefs.nikoEggsPerBox;
+  return prefs.eggsPerBox;
 }
 export type EggSize = (typeof EGG_SIZES)[number];
 
@@ -74,7 +82,8 @@ const SIZE_LABEL: Record<EggSize, string> = {
   large: "Large",
   xl: "XL",
   jumbo: "Jumbo",
-  dirty: "Dirty",
+  brown: "Brown",
+  niko: "Niko",
 };
 
 export async function eggPrefs(tx: Conn) {
@@ -231,7 +240,8 @@ export async function dayOrders(tx: Conn, on: string): Promise<DayOrderLine[]> {
       large: eggSpotOrders.large,
       xl: eggSpotOrders.xl,
       jumbo: eggSpotOrders.jumbo,
-      dirty: eggSpotOrders.dirty,
+      brown: eggSpotOrders.brown,
+      niko: eggSpotOrders.niko,
       spreadPerEgg: eggSpotOrders.spreadPerEgg,
       notes: eggSpotOrders.notes,
       status: eggSpotOrders.status,
@@ -249,7 +259,7 @@ export async function dayOrders(tx: Conn, on: string): Promise<DayOrderLine[]> {
       invoiceId: eggDispatches.invoiceId,
       invoiceNumber: invoices.number,
       status: eggDispatches.status,
-      loadedBoxes: sql<number>`${eggDispatches.loadedSmall} + ${eggDispatches.loadedMedium} + ${eggDispatches.loadedLarge} + ${eggDispatches.loadedXl} + ${eggDispatches.loadedJumbo} + ${eggDispatches.loadedDirty}`,
+      loadedBoxes: sql<number>`${eggDispatches.loadedSmall} + ${eggDispatches.loadedMedium} + ${eggDispatches.loadedLarge} + ${eggDispatches.loadedXl} + ${eggDispatches.loadedJumbo} + ${eggDispatches.loadedBrown} + ${eggDispatches.loadedNiko}`,
     })
     .from(eggDispatches)
     .innerJoin(invoices, eq(invoices.id, eggDispatches.invoiceId))
@@ -502,7 +512,8 @@ export async function saveGrading(tx: Tx, input: GradingInput, userId: string) {
       large: qty("large"),
       xl: qty("xl"),
       jumbo: qty("jumbo"),
-      dirty: qty("dirty"),
+      brown: qty("brown"),
+      niko: qty("niko"),
       recordedBy: userId,
     })
     .onConflictDoUpdate({
@@ -513,7 +524,8 @@ export async function saveGrading(tx: Tx, input: GradingInput, userId: string) {
         large: qty("large"),
         xl: qty("xl"),
         jumbo: qty("jumbo"),
-        dirty: qty("dirty"),
+        brown: qty("brown"),
+        niko: qty("niko"),
         recordedBy: userId,
         updatedAt: new Date(),
       },
@@ -554,7 +566,7 @@ export async function gradedBoxesByDay(tx: Conn, from: string, to: string) {
   const rows = await tx
     .select({
       day: eggGrading.gradedOn,
-      boxes: sql<string>`sum(${eggGrading.small} + ${eggGrading.medium} + ${eggGrading.large} + ${eggGrading.xl} + ${eggGrading.jumbo} + ${eggGrading.dirty})`,
+      boxes: sql<string>`sum(${eggGrading.small} + ${eggGrading.medium} + ${eggGrading.large} + ${eggGrading.xl} + ${eggGrading.jumbo} + ${eggGrading.brown} + ${eggGrading.niko})`,
     })
     .from(eggGrading)
     .where(and(gte(eggGrading.gradedOn, from), lte(eggGrading.gradedOn, to)))
@@ -571,7 +583,7 @@ export async function expectedGradedBoxesPerDay(tx: Conn): Promise<number | null
   const rows = await tx
     .select({
       day: eggGrading.gradedOn,
-      boxes: sql<string>`sum(${eggGrading.small} + ${eggGrading.medium} + ${eggGrading.large} + ${eggGrading.xl} + ${eggGrading.jumbo} + ${eggGrading.dirty})`,
+      boxes: sql<string>`sum(${eggGrading.small} + ${eggGrading.medium} + ${eggGrading.large} + ${eggGrading.xl} + ${eggGrading.jumbo} + ${eggGrading.brown} + ${eggGrading.niko})`,
     })
     .from(eggGrading)
     .groupBy(eggGrading.gradedOn)
@@ -799,7 +811,8 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
         large: qty("large"),
         xl: qty("xl"),
         jumbo: qty("jumbo"),
-        dirty: qty("dirty"),
+        brown: qty("brown"),
+        niko: qty("niko"),
         notes: "Walk-in, booked at the bay",
         createdBy: userId,
       })
@@ -831,10 +844,10 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
   // before it — so a report can sum the lines. The per-egg rate is named.
   const docLines: DocLineInput[] = EGG_SIZES.filter((s) => qty(s) > 0).map((s) => ({
     itemId: map.get(s),
-    name: `Eggs — ${SIZE_LABEL[s]} (${prefs.eggsPerBox}/box @ ₹${perEgg(s).toFixed(2)}/egg)`,
+    name: `Eggs — ${SIZE_LABEL[s]} (${eggsInBox(s, prefs)}/box @ ₹${perEgg(s).toFixed(2)}/egg)`,
     quantity: String(qty(s)),
     unit: "boxes",
-    rate: (perEgg(s) * prefs.eggsPerBox).toFixed(4),
+    rate: (perEgg(s) * eggsInBox(s, prefs)).toFixed(4),
   }));
 
   const totals = await computeDocumentTotals(tx, docLines, customer.placeOfSupplyState);
@@ -905,7 +918,8 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
       loadedLarge: qty("large"),
       loadedXl: qty("xl"),
       loadedJumbo: qty("jumbo"),
-      loadedDirty: qty("dirty"),
+      loadedBrown: qty("brown"),
+      loadedNiko: qty("niko"),
       driverName: input.driverName.trim(),
       vehicleNumber: input.vehicleNumber.trim(),
       notes: input.notes?.trim() || null,

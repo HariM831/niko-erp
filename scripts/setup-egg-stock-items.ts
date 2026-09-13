@@ -11,8 +11,8 @@
  *
  * The mapping is to the item master that came from Zoho rather than to a
  * second set of egg items created here, so an egg is one item whether it is
- * being sold or counted. Dirty eggs are the exception: nobody invoices them,
- * so Zoho never had the item and it is created here.
+ * being sold or counted. Brown and Niko are the exceptions: Zoho never had
+ * them, so they are created here.
  *
  * Sizes are matched to items by name, and every name is spelled out rather
  * than guessed at from a similarity score — "Egg's Large" and "Eggs — Large"
@@ -33,11 +33,12 @@ const MAP: Array<[size: string, itemName: string]> = [
   ["large", "Egg's Large"],
   ["xl", "Eggs — Extra Large"],
   ["jumbo", "Egg's Jumbo"],
-  ["dirty", "Eggs — Dirty"],
+  ["brown", "Eggs — Brown"],
+  ["niko", "Eggs — Niko"],
 ];
 
-/** Never invoiced, so Zoho has no such item; niko still has to count them. */
-const CREATE = "Eggs — Dirty";
+/** Zoho never had these; niko still has to count them (migration 0094). */
+const CREATE = new Set(["Eggs — Brown", "Eggs — Niko"]);
 
 const SALES_ACCOUNT = "4009"; // Eggs (Sales)
 
@@ -50,7 +51,7 @@ async function main() {
   const all = await db.select().from(items);
   const byName = new Map(all.map((i) => [i.name, i]));
 
-  const missing = MAP.filter(([, n]) => n !== CREATE && !byName.has(n)).map(([s, n]) => `${s} → ${n}`);
+  const missing = MAP.filter(([, n]) => !CREATE.has(n) && !byName.has(n)).map(([s, n]) => `${s} → ${n}`);
   if (missing.length) {
     console.log("No item by these names — fix the mapping rather than let it guess:");
     missing.forEach((m) => console.log(`  ${m}`));

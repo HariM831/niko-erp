@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { ApiError, api } from "../api";
+import { shrink } from "../lib/image";
 import type { LineMatch } from "@shared/po-match-types";
 
 interface Context {
@@ -69,18 +70,6 @@ const CLIENT_EDGE: Record<PhotoKind, number> = {
   gate_in_vehicle: 1100,
 };
 
-async function shrink(file: File, maxEdge: number): Promise<Blob> {
-  const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.round(bitmap.width * scale);
-  canvas.height = Math.round(bitmap.height * scale);
-  canvas.getContext("2d")!.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-  bitmap.close();
-  return new Promise((resolve) =>
-    canvas.toBlob((b) => resolve(b ?? file), "image/jpeg", 0.72),
-  );
-}
 
 /**
  * One photo slot.

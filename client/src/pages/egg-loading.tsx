@@ -40,7 +40,8 @@ interface Dispatch {
   loadedLarge: number;
   loadedXl: number;
   loadedJumbo: number;
-  loadedDirty: number;
+  loadedBrown: number;
+  loadedNiko: number;
 }
 
 interface Customer {
@@ -48,14 +49,15 @@ interface Customer {
   name: string;
 }
 
-const SIZES = ["small", "medium", "large", "xl", "jumbo", "dirty"] as const;
+const SIZES = ["small", "medium", "large", "xl", "jumbo", "brown", "niko"] as const;
 const SIZE_LABEL: Record<string, string> = {
   small: "Small",
   medium: "Medium",
   large: "Large",
   xl: "XL",
   jumbo: "Jumbo",
-  dirty: "Dirty",
+  brown: "Brown",
+  niko: "Niko",
 };
 
 const inputCls = "h-9 w-full rounded-md border border-border bg-background px-2 text-sm";
@@ -215,7 +217,8 @@ export function EggLoadingPage() {
                   <th className="table-th text-right">L</th>
                   <th className="table-th text-right">XL</th>
                   <th className="table-th text-right">J</th>
-                  <th className="table-th text-right">D</th>
+                  <th className="table-th text-right">Br</th>
+                  <th className="table-th text-right">N</th>
                   <th className="table-th text-left">Vehicle</th>
                   <th className="table-th text-left">Invoice</th>
                   <th className="table-th text-right">Amount</th>
@@ -230,7 +233,8 @@ export function EggLoadingPage() {
                     <td className="px-3 py-2 text-right tabular-nums">{d.loadedLarge || ""}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{d.loadedXl || ""}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{d.loadedJumbo || ""}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{d.loadedDirty || ""}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{d.loadedBrown || ""}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{d.loadedNiko || ""}</td>
                     <td className="px-3 py-2 text-muted-foreground">
                       {d.vehicleNumber} · {d.driverName}
                     </td>

@@ -44,6 +44,7 @@ import {
   crossCheckGateDocs,
   extractBill,
   extractGateDocs,
+  withOcrRetry,
 } from "../services/ocr";
 import { type CaptureKind, encodeForCapture } from "../services/capture";
 import { resolvePlace } from "../services/geo";
@@ -152,28 +153,6 @@ const extractBillSchema = z.object({
 const ocrCalls = new Map<string, number[]>();
 const OCR_WINDOW_MS = 60_000;
 const OCR_MAX_PER_WINDOW = 12;
-
-/**
- * Retry a vision call through a quota bounce.
- *
- * Free-tier quota is per minute. Two trucks arriving a minute apart should not
- * show a guard "could not read the bill" when the model was never asked — that
- * teaches people to stop trusting the camera and start typing everything.
- */
-async function withOcrRetry<T>(fn: () => Promise<T>): Promise<T> {
-  let lastErr: unknown;
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      return await fn();
-    } catch (err) {
-      lastErr = err;
-      const msg = String((err as Error)?.message ?? "");
-      if (!/429|503|500|quota|rate|overloaded|unavailable/i.test(msg) || attempt === 3) break;
-      await new Promise((r) => setTimeout(r, 1500 * attempt));
-    }
-  }
-  throw lastErr;
-}
 
 function overOcrLimit(userId: string): boolean {
   const now = Date.now();

@@ -109,7 +109,10 @@ export const eggSpotOrders = pgTable(
     large: integer("large").notNull().default(0),
     xl: integer("xl").notNull().default(0),
     jumbo: integer("jumbo").notNull().default(0),
-    dirty: integer("dirty").notNull().default(0),
+    /** Sorted by colour, not weight — outside the kg bands. A box holds 210. */
+    brown: integer("brown").notNull().default(0),
+    /** The Niko pack: 360 to the box. */
+    niko: integer("niko").notNull().default(0),
     /** Null means: the customer's standing spread if they have one, else zero. */
     spreadPerEgg: numeric("spread_per_egg", { precision: 10, scale: 4 }),
     notes: text("notes"),
@@ -138,7 +141,8 @@ export const eggSizeOffsets = pgTable("egg_size_offsets", {
   large: numeric("large", { precision: 10, scale: 4 }).notNull().default("0"),
   xl: numeric("xl", { precision: 10, scale: 4 }).notNull().default("0"),
   jumbo: numeric("jumbo", { precision: 10, scale: 4 }).notNull().default("0"),
-  dirty: numeric("dirty", { precision: 10, scale: 4 }).notNull().default("0"),
+  brown: numeric("brown", { precision: 10, scale: 4 }).notNull().default("0"),
+  niko: numeric("niko", { precision: 10, scale: 4 }).notNull().default("0"),
   createdBy: uuid("created_by").references(() => users.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -165,7 +169,8 @@ export const eggDispatches = pgTable(
     loadedLarge: integer("loaded_large").notNull().default(0),
     loadedXl: integer("loaded_xl").notNull().default(0),
     loadedJumbo: integer("loaded_jumbo").notNull().default(0),
-    loadedDirty: integer("loaded_dirty").notNull().default(0),
+    loadedBrown: integer("loaded_brown").notNull().default(0),
+    loadedNiko: integer("loaded_niko").notNull().default(0),
     driverName: text("driver_name").notNull(),
     vehicleNumber: text("vehicle_number").notNull(),
     notes: text("notes"),
@@ -195,6 +200,8 @@ export const eggSalesPreferences = pgTable("egg_sales_preferences", {
    * fact about a box the farm buys, not an adjustment to another number.
    */
   jumboEggsPerBox: integer("jumbo_eggs_per_box").notNull().default(180),
+  /** The Niko pack holds 360 — the sheet prints it beside the column. */
+  nikoEggsPerBox: integer("niko_eggs_per_box").notNull().default(360),
   /** Retired placeholder (the ungraded item). Kept nullable for history. */
   eggItemId: uuid("egg_item_id").references(() => items.id),
   /** Grading on/after this date writes egg stock; before it is history. */
@@ -223,7 +230,10 @@ export const eggGrading = pgTable(
     large: integer("large").notNull().default(0),
     xl: integer("xl").notNull().default(0),
     jumbo: integer("jumbo").notNull().default(0),
-    dirty: integer("dirty").notNull().default(0),
+    /** Sorted by colour, not weight — outside the kg bands. A box holds 210. */
+    brown: integer("brown").notNull().default(0),
+    /** The Niko pack: 360 to the box. */
+    niko: integer("niko").notNull().default(0),
     recordedBy: uuid("recorded_by")
       .notNull()
       .references(() => users.id),
@@ -254,7 +264,10 @@ export const eggHouseClosing = pgTable(
     large: integer("large").notNull().default(0),
     xl: integer("xl").notNull().default(0),
     jumbo: integer("jumbo").notNull().default(0),
-    dirty: integer("dirty").notNull().default(0),
+    /** Sorted by colour, not weight — outside the kg bands. A box holds 210. */
+    brown: integer("brown").notNull().default(0),
+    /** The Niko pack: 360 to the box. */
+    niko: integer("niko").notNull().default(0),
     recordedBy: uuid("recorded_by")
       .notNull()
       .references(() => users.id),

@@ -26,17 +26,19 @@ interface OffsetRow {
   large: string;
   xl: string;
   jumbo: string;
-  dirty: string;
+  brown: string;
+  niko: string;
 }
 
-const SIZES = ["small", "medium", "large", "xl", "jumbo", "dirty"] as const;
+const SIZES = ["small", "medium", "large", "xl", "jumbo", "brown", "niko"] as const;
 const SIZE_LABEL: Record<string, string> = {
   small: "Small",
   medium: "Medium",
   large: "Large",
   xl: "XL",
   jumbo: "Jumbo",
-  dirty: "Dirty",
+  brown: "Brown",
+  niko: "Niko",
 };
 
 const tomorrow = () => {

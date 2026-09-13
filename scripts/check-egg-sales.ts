@@ -150,7 +150,7 @@ try {
 
     const stock = async () => {
       const h = await stockBySize(tx);
-      return h.small + h.medium + h.large + h.xl + h.jumbo + h.dirty;
+      return h.small + h.medium + h.large + h.xl + h.jumbo + h.brown + h.niko;
     };
     const stockAtStart = await stock();
     const stockBefore = { ...held };

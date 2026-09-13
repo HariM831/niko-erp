@@ -8,7 +8,7 @@
  */
 import type { ReactNode } from "react";
 
-export const EGG_SIZES = ["small", "medium", "large", "xl", "jumbo", "dirty"] as const;
+export const EGG_SIZES = ["small", "medium", "large", "xl", "jumbo", "brown", "niko"] as const;
 export type EggSize = (typeof EGG_SIZES)[number];
 export const EGG_SIZE_LABEL: Record<EggSize, string> = {
   small: "Small",
@@ -16,7 +16,8 @@ export const EGG_SIZE_LABEL: Record<EggSize, string> = {
   large: "Large",
   xl: "XL",
   jumbo: "Jumbo",
-  dirty: "Dirty",
+  brown: "Brown",
+  niko: "Niko",
 };
 
 export interface OrderLine {

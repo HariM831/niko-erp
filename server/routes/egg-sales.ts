@@ -23,6 +23,7 @@ import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { looseNumber, validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
+import { ALLOWED_MIME, MAX_IMAGE_BYTES, extractEggSheet, withOcrRetry } from "../services/ocr";
 import {
   EGG_SIZES,
   ledgerAvailable,
@@ -378,7 +379,8 @@ const offsetsBody = z.object({
   large: spread,
   xl: spread,
   jumbo: spread,
-  dirty: spread,
+  brown: spread,
+  niko: spread,
 });
 
 eggSalesRouter.post("/size-offsets", create, validateBody(offsetsBody), async (req, res) => {
@@ -392,7 +394,8 @@ eggSalesRouter.post("/size-offsets", create, validateBody(offsetsBody), async (r
       large: b.large.toFixed(4),
       xl: b.xl.toFixed(4),
       jumbo: b.jumbo.toFixed(4),
-      dirty: b.dirty.toFixed(4),
+      brown: b.brown.toFixed(4),
+      niko: b.niko.toFixed(4),
       createdBy: req.session.user!.id,
     })
     .onConflictDoUpdate({
@@ -403,7 +406,8 @@ eggSalesRouter.post("/size-offsets", create, validateBody(offsetsBody), async (r
         large: b.large.toFixed(4),
         xl: b.xl.toFixed(4),
         jumbo: b.jumbo.toFixed(4),
-        dirty: b.dirty.toFixed(4),
+        brown: b.brown.toFixed(4),
+        niko: b.niko.toFixed(4),
         createdBy: req.session.user!.id,
       },
     })
@@ -697,6 +701,87 @@ eggSalesRouter.post("/grading", requirePermission("farms", "create"), validateBo
   }
 });
 
+/* ── Reading the paper sheet ─────────────────────────────────────────────── */
+
+const readSheetBody = z.object({
+  /** One photograph of the day sheet, base64 with or without a data: prefix. */
+  image: z.string().min(1),
+});
+
+/** Per-user ceiling on the vision endpoint — the key is metered. */
+const sheetReads = new Map<string, number[]>();
+const overSheetReadLimit = (userId: string) => {
+  const now = Date.now();
+  const recent = (sheetReads.get(userId) ?? []).filter((t) => now - t < 60_000);
+  recent.push(now);
+  sheetReads.set(userId, recent);
+  return recent.length > 12;
+};
+
+/**
+ * Read a photograph of the handwritten day sheet into the grading grid.
+ *
+ * Suggestions only: nothing is saved here. The route resolves the sheet's
+ * shed labels to houses and returns every check the reader made — the paper's
+ * own totals against the shed rows, headings niko has no grade for, sheds it
+ * has no house for — so the person saving sees what the photo did and did
+ * not establish. The photograph is not kept; the paper is.
+ */
+eggSalesRouter.post(
+  "/grading/read",
+  requirePermission("farms", "create"),
+  validateBody(readSheetBody),
+  async (req, res) => {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(503).json({ error: "Reading sheets needs GEMINI_API_KEY — type the figures for now" });
+    }
+    if (overSheetReadLimit(req.session.user!.id)) {
+      return res.status(429).json({ error: "Too many reads — wait a moment and try again" });
+    }
+    const img = (req.body as z.infer<typeof readSheetBody>).image;
+    const m = img.match(/^data:([a-z/+.-]+);base64,(.*)$/i);
+    const mimeType = (m?.[1] ?? "image/jpeg").toLowerCase();
+    const data = m?.[2] ?? img;
+    if (!(ALLOWED_MIME as readonly string[]).includes(mimeType)) {
+      return res.status(415).json({ error: `Unsupported image type: ${mimeType}` });
+    }
+    if (Math.floor((data.length * 3) / 4) > MAX_IMAGE_BYTES) {
+      return res.status(413).json({ error: "The photo must be under 2 MB" });
+    }
+
+    let sheet;
+    try {
+      sheet = await withOcrRetry(() => extractEggSheet([{ data, mimeType }], apiKey));
+    } catch (err) {
+      console.error("[ocr] grading/read failed:", err);
+      return res.status(502).json({ error: "Could not read the sheet — enter the figures by hand" });
+    }
+
+    // The paper says L2; the grid wants a house. Matched on code, and a shed
+    // the farm has no house for is reported rather than dropped.
+    const houseRows = await db
+      .select({ id: houses.id, code: houses.code })
+      .from(houses)
+      .where(sql`${houses.isActive}`);
+    const byCode = new Map(houseRows.map((h) => [h.code.toUpperCase().replace(/\s+/g, ""), h]));
+    const rows = sheet.rows.map((r) => {
+      const house = byCode.get(r.shed);
+      return { ...r, houseId: house?.id ?? null, code: house?.code ?? null };
+    });
+    const unmatchedSheds = rows.filter((r) => !r.houseId).map((r) => r.shed);
+    // A grade the sheet names that the sizes here do not: said, not silently dropped.
+    const known = new Set<string>(EGG_SIZES);
+    const warnings = [...sheet.warnings];
+    for (const c of sheet.columns) {
+      if (c.grade && !known.has(c.grade)) warnings.push(`"${c.header}" reads as ${c.grade}, which is not a size here`);
+    }
+    for (const shed of unmatchedSheds) warnings.push(`${shed} on the paper has no house here — its row was not entered`);
+
+    res.json({ ...sheet, rows, unmatchedSheds, warnings });
+  },
+);
+
 /* ── The loading bay ─────────────────────────────────────────────────────── */
 
 const loadBody = z.object({
@@ -744,7 +829,8 @@ eggSalesRouter.get("/dispatches/:date", view, async (req, res) => {
       loadedLarge: eggDispatches.loadedLarge,
       loadedXl: eggDispatches.loadedXl,
       loadedJumbo: eggDispatches.loadedJumbo,
-      loadedDirty: eggDispatches.loadedDirty,
+      loadedBrown: eggDispatches.loadedBrown,
+      loadedNiko: eggDispatches.loadedNiko,
       createdAt: eggDispatches.createdAt,
     })
     .from(eggDispatches)

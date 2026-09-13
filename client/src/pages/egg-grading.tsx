@@ -6,11 +6,13 @@
  * from the stock ledger and never keyed, so it cannot disagree with the bay.
  * A correction to a shed's row corrects its stock movement in place.
  */
-import { useEffect, useState } from "react";
-import { Egg, Loader2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Camera, Egg, Loader2 } from "lucide-react";
 import { api } from "../api";
+import { asDataUrl, shrink } from "../lib/image";
 
-const SIZES = ["small", "medium", "large", "xl", "jumbo", "dirty"] as const;
+/** The weight grades, then the two that are not weighed: brown by colour, niko a pack of 360. */
+const SIZES = ["small", "medium", "large", "xl", "jumbo", "brown", "niko"] as const;
 type Size = (typeof SIZES)[number];
 const LABEL: Record<Size, string> = {
   small: "Small",
@@ -18,13 +20,14 @@ const LABEL: Record<Size, string> = {
   large: "Large",
   xl: "Extra Large",
   jumbo: "Jumbo",
-  dirty: "Dirty",
+  brown: "Brown",
+  niko: "Niko",
 };
 
 /**
- * The same six, as the grading room writes them.
+ * The same seven, as the grading room writes them.
  *
- * Eight columns on a phone leaves about forty pixels a heading, and "Extra
+ * Nine columns on a phone leaves about forty pixels a heading, and "Extra
  * Large" in forty pixels is "EX… LA…". These are not an abbreviation invented
  * for the layout — S, M, L, XL is how eggs are graded and marked on the box, so
  * the short form is the one the people using this already read.
@@ -35,8 +38,46 @@ const SHORT: Record<Size, string> = {
   large: "L",
   xl: "XL",
   jumbo: "J",
-  dirty: "D",
+  brown: "Br",
+  niko: "N",
 };
+
+/** What the photo reader sends back — suggestions and its own checks, nothing saved. */
+interface SheetReading {
+  dateRaw: string | null;
+  date: string | null;
+  rows: Array<{
+    shed: string;
+    houseId: string | null;
+    boxes: Partial<Record<Size, number>>;
+    unmapped: Record<string, number>;
+  }>;
+  totals: Partial<Record<Size, { sum: number; paper: number | null; ok: boolean }>>;
+  stock: Partial<
+    Record<Size, { opening: number | null; production: number | null; sales: number | null; closing: number | null }>
+  > | null;
+  unmappedColumns: Array<{ header: string; production: number; closing: number | null }>;
+  unmatchedSheds: string[];
+  warnings: string[];
+}
+
+type Draft = Record<string, Record<Size, string>>;
+
+/** The draft with the photo's figures laid over it, and which cells they touched. */
+function withReading(base: Draft, r: SheetReading): { draft: Draft; marks: Set<string> } {
+  const draft: Draft = Object.fromEntries(Object.entries(base).map(([k, v]) => [k, { ...v }]));
+  const marks = new Set<string>();
+  for (const row of r.rows) {
+    if (!row.houseId || !draft[row.houseId]) continue;
+    for (const z of SIZES) {
+      const n = row.boxes[z];
+      if (n == null) continue;
+      draft[row.houseId]![z] = n ? String(n) : "";
+      marks.add(`${row.houseId}:${z}`);
+    }
+  }
+  return { draft, marks };
+}
 
 interface Row {
   houseId: string;
@@ -88,20 +129,37 @@ export function EggGradingPage() {
   const [closingDraft, setClosingDraft] = useState<Record<string, Record<Size, string>>>({});
   const [savingClosing, setSavingClosing] = useState(false);
   const [closingSaved, setClosingSaved] = useState<string | null>(null);
+  const [reading, setReading] = useState(false);
+  const [readError, setReadError] = useState<string | null>(null);
+  const [read, setRead] = useState<SheetReading | null>(null);
+  /** Cells the photo filled that nobody has touched since. */
+  const [fromPhoto, setFromPhoto] = useState<Set<string>>(new Set());
+  /** A reading dated differently from the page, waiting for that day's sheet. */
+  const [pending, setPending] = useState<SheetReading | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   const load = () => {
     setLoading(true);
     api<Sheet>(`/api/sales/eggs/grading/${date}`)
       .then((s) => {
         setSheet(s);
-        setDraft(
-          Object.fromEntries(
-            s.rows.map((r) => [
-              r.houseId,
-              Object.fromEntries(SIZES.map((z) => [z, r.boxes[z] ? String(r.boxes[z]) : ""])) as Record<Size, string>,
-            ]),
-          ),
+        const base: Draft = Object.fromEntries(
+          s.rows.map((r) => [
+            r.houseId,
+            Object.fromEntries(SIZES.map((z) => [z, r.boxes[z] ? String(r.boxes[z]) : ""])) as Record<Size, string>,
+          ]),
         );
+        // A photo dated for this day lands once the day's own sheet is here,
+        // so it lays over what was already saved rather than replacing it.
+        if (pending && pending.date === s.date) {
+          const out = withReading(base, pending);
+          setDraft(out.draft);
+          setFromPhoto(out.marks);
+          setPending(null);
+        } else {
+          setDraft(base);
+          setFromPhoto(new Set());
+        }
         setClosingDraft(
           Object.fromEntries(
             s.rows.map((r) => [
@@ -118,6 +176,43 @@ export function EggGradingPage() {
   const set = (houseId: string, size: Size, v: string) => {
     setSaved(false);
     setDraft({ ...draft, [houseId]: { ...draft[houseId]!, [size]: v } });
+    // Typing in a box takes it off the photo for good.
+    if (fromPhoto.has(`${houseId}:${size}`)) {
+      const next = new Set(fromPhoto);
+      next.delete(`${houseId}:${size}`);
+      setFromPhoto(next);
+    }
+  };
+
+  /**
+   * Read the paper sheet from a photograph. Suggestions only: the grid is
+   * filled, every cell the photo touched is marked, and nothing is saved until
+   * the person presses save. A sheet dated for another day moves the page to
+   * that day first.
+   */
+  const readPhoto = async (file: File) => {
+    setReading(true);
+    setReadError(null);
+    setRead(null);
+    try {
+      const image = await asDataUrl(await shrink(file, 1600));
+      const r = await api<SheetReading>("/api/sales/eggs/grading/read", { method: "POST", body: { image } });
+      setRead(r);
+      setSaved(false);
+      if (r.date && r.date !== date) {
+        setPending(r);
+        setDate(r.date);
+      } else {
+        const out = withReading(draft, r);
+        setDraft(out.draft);
+        setFromPhoto(out.marks);
+      }
+    } catch (e) {
+      setReadError(e instanceof Error ? e.message : "Could not read the photo");
+    } finally {
+      setReading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
   };
 
   const setClosing = (houseId: string, size: Size, v: string) => {
@@ -189,12 +284,34 @@ export function EggGradingPage() {
             <h1 className="text-2xl font-semibold text-soil-900">Egg stock</h1>
             </div>
         </div>
-        <input
-          type="date"
-          value={date}
-          onChange={(e) => setDate(e.target.value)}
-          className="h-9 rounded-md border border-border bg-background px-2 text-sm"
-        />
+        <div className="flex items-center gap-2">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void readPhoto(f);
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={reading}
+            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-soil-50 disabled:opacity-50"
+          >
+            {reading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+            Read a photo
+          </button>
+          <input
+            type="date"
+            value={date}
+            onChange={(e) => setDate(e.target.value)}
+            className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+          />
+        </div>
       </div>
 
       {loading || !sheet ? (
@@ -206,6 +323,53 @@ export function EggGradingPage() {
               Stock counting began {sheet.stockFrom}. A sheet before that is kept as a record but
               moves no stock.
             </p>
+          )}
+
+          {readError && (
+            <p className="mb-3 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{readError}</p>
+          )}
+          {read && (
+            <div className="mb-3 rounded-2xl bg-white p-3 text-xs shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <div className="font-semibold text-soil-900">
+                  Read from the photo{read.dateRaw ? ` dated ${read.dateRaw}` : ""}
+                  {read.date && read.date !== sheet.date ? ` — showing ${sheet.date}` : ""}
+                </div>
+                <div className="text-muted-foreground">
+                  Marked cells came from the photo. Check them against the paper, then save.
+                </div>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+                {SIZES.filter((z) => read.totals[z]).map((z) => {
+                  const t = read.totals[z]!;
+                  return (
+                    <span key={z} className={t.ok ? "text-success" : "text-destructive"}>
+                      {LABEL[z]} {num(t.sum)}
+                      {t.paper == null ? " · no total on paper" : t.ok ? " · matches total" : ` · paper says ${num(t.paper)}`}
+                    </span>
+                  );
+                })}
+              </div>
+              {read.stock && (
+                <div className="mt-2 text-muted-foreground">
+                  Paper closing stock:{" "}
+                  {SIZES.filter((z) => read.stock![z]?.closing != null)
+                    .map((z) => {
+                      const paper = read.stock![z]!.closing!;
+                      const ledger = sheet.summary[z]?.closing ?? 0;
+                      return `${LABEL[z]} ${num(paper)}${paper === ledger ? "" : ` (ledger ${num(ledger)})`}`;
+                    })
+                    .join(" · ")}
+                </div>
+              )}
+              {read.warnings.length > 0 && (
+                <ul className="mt-2 space-y-0.5 text-warning">
+                  {read.warnings.map((w) => (
+                    <li key={w}>{w}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
 
           <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-soil-400">
@@ -235,7 +399,7 @@ export function EggGradingPage() {
                           min="0"
                           value={draft[r.houseId]?.[z] ?? ""}
                           onChange={(e) => set(r.houseId, z, e.target.value)}
-                          className={inputCls}
+                          className={`${inputCls} ${fromPhoto.has(`${r.houseId}:${z}`) ? "border-yolk-400 bg-yolk-50" : ""}`}
                           placeholder="—"
                         />
                       </td>
@@ -262,9 +426,9 @@ export function EggGradingPage() {
 
           <div className="mt-3 flex items-center justify-between">
             <p className="text-[11px] text-muted-foreground">
-              Boxes of 210. Small under {Number(sheet.bands.smallMaxKg)} kg · Medium to{" "}
-              {Number(sheet.bands.mediumMaxKg)} kg · Large to {Number(sheet.bands.largeMaxKg)} kg · XL
-              above · Jumbo picked, not weighed.
+              Boxes of 210; a jumbo box holds 180, a niko box 360. Small under {Number(sheet.bands.smallMaxKg)} kg
+              · Medium to {Number(sheet.bands.mediumMaxKg)} kg · Large to {Number(sheet.bands.largeMaxKg)} kg · XL
+              above · Jumbo picked, not weighed · Brown sorted by colour.
             </p>
             <div className="flex items-center gap-3">
               {saved && <span className="text-xs text-success">saved</span>}

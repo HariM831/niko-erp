@@ -853,12 +853,11 @@ farmsFlockRouter.get("/daily/sensor", view, async (req, res) => {
   /**
    * Eggs produced, from the grading sheet this house filled for the day.
    *
-   * Boxes, converted at the size's own capacity: a jumbo box holds 180 where
-   * the rest hold 210. Dirty eggs are counted — they were laid, and this
-   * figure is production, not saleable stock.
+   * Boxes, converted at the size's own capacity: a jumbo box holds 180 and a
+   * Niko box 360 where the rest hold 210.
    */
   const graded = await db.execute(sql`
-    SELECT small, medium, large, xl, jumbo, dirty
+    SELECT small, medium, large, xl, jumbo, brown, niko
       FROM egg_grading WHERE house_id = ${houseId}::uuid AND graded_on = ${day}
   `);
   const g = graded.rows[0] as Record<string, number> | undefined;

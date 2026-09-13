@@ -217,25 +217,28 @@ function firstNumber(raw: string | null): number | null {
 }
 
 /** DD/MM/YY or DD-MM-YYYY → ISO. Indian order; never MM/DD. */
-export function parseIndianDate(raw: string | null): { date: string | null; warning?: string } {
+export function parseIndianDate(
+  raw: string | null,
+  what = "Bill date",
+): { date: string | null; warning?: string } {
   if (!raw) return { date: null };
   const m = raw.replace(/\s/g, "").match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
-  if (!m) return { date: null, warning: `Could not read the bill date "${raw}"` };
+  if (!m) return { date: null, warning: `Could not read the ${what.toLowerCase()} "${raw}"` };
   const day = Number(m[1]);
   const month = Number(m[2]);
   let year = Number(m[3]);
   if (year < 100) year += 2000;
   if (month < 1 || month > 12 || day < 1 || day > 31) {
-    return { date: null, warning: `Bill date "${raw}" is not a real date` };
+    return { date: null, warning: `${what} "${raw}" is not a real date` };
   }
   const iso = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   const parsed = new Date(`${iso}T00:00:00Z`);
   const now = Date.now();
   if (parsed.getTime() > now + 86_400_000) {
-    return { date: iso, warning: `Bill date ${iso} is in the future` };
+    return { date: iso, warning: `${what} ${iso} is in the future` };
   }
   if (now - parsed.getTime() > 18 * 30 * 86_400_000) {
-    return { date: iso, warning: `Bill date ${iso} is over 18 months old` };
+    return { date: iso, warning: `${what} ${iso} is over 18 months old` };
   }
   return { date: iso };
 }
@@ -734,7 +737,7 @@ export function resolveItem(
 }
 
 /** Strip a ```json fence if the model added one despite being told not to. */
-function parseModelJson(text: string): RawBill {
+function parseModelJson<T = RawBill>(text: string): T {
   const cleaned = text
     .trim()
     .replace(/^```(?:json)?\s*/i, "")
@@ -743,7 +746,7 @@ function parseModelJson(text: string): RawBill {
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
   if (start < 0 || end < 0) throw new Error("The model did not return JSON");
-  return JSON.parse(cleaned.slice(start, end + 1)) as RawBill;
+  return JSON.parse(cleaned.slice(start, end + 1)) as T;
 }
 
 export interface ImageInput {
@@ -862,4 +865,267 @@ export async function extractBillWith(
       totalTokens: meta?.totalTokenCount ?? 0,
     },
   };
+}
+
+/* ── Retrying the model ──────────────────────────────────────────────────── */
+
+/**
+ * Retry a vision call through a quota bounce.
+ *
+ * Free-tier quota is per minute. Two trucks arriving a minute apart should not
+ * show a guard "could not read the bill" when the model was never asked — that
+ * teaches people to stop trusting the camera and start typing everything.
+ */
+export async function withOcrRetry<T>(fn: () => Promise<T>): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const msg = String((err as Error)?.message ?? "");
+      if (!/429|503|500|quota|rate|overloaded|unavailable/i.test(msg) || attempt === 3) break;
+      await new Promise((r) => setTimeout(r, 1500 * attempt));
+    }
+  }
+  throw lastErr;
+}
+
+/* ── The egg packing room's day sheet ────────────────────────────────────── */
+//
+// The same division of labour as the bill: the model transcribes cells, and
+// every judgement — which column is which grade, whether the sheds add up to
+// the TOTAL row, which shed is which house — is made here.
+//
+// The sheet is two tables over one set of grade columns. A printed heading is
+// sometimes struck through with another grade handwritten over it (SMALL
+// became BROWN on 12 Sep 2026), so both names are asked for and the written
+// one wins. A column niko has no grade for is reported by name with its
+// figures, never dropped and never guessed into a neighbour.
+
+export interface RawEggSheetColumn {
+  index: number;
+  printedHeader: string | null;
+  writtenHeader: string | null;
+  /** The printed note under the name, e.g. "210/BOX". */
+  perBoxRaw: string | null;
+}
+
+export interface RawEggSheet {
+  dateRaw: string | null;
+  columns: RawEggSheetColumn[];
+  production: Array<{ shed: string | null; cells: Array<string | null> }>;
+  productionTotal: Array<string | null> | null;
+  stock: {
+    opening: Array<string | null> | null;
+    production: Array<string | null> | null;
+    sales: Array<string | null> | null;
+    closing: Array<string | null> | null;
+  } | null;
+}
+
+/** The grades the sheet can name. Kept in step with EGG_SIZES by the route. */
+export type SheetGrade = "small" | "medium" | "large" | "xl" | "jumbo" | "brown" | "niko";
+export const SHEET_GRADES: SheetGrade[] = ["small", "medium", "large", "xl", "jumbo", "brown", "niko"];
+
+export interface ExtractedEggSheet {
+  dateRaw: string | null;
+  date: string | null;
+  columns: Array<{ header: string; grade: SheetGrade | null; perBox: number | null }>;
+  rows: Array<{
+    shed: string;
+    boxes: Partial<Record<SheetGrade, number>>;
+    /** Figures under a heading niko has no grade for, by that heading. */
+    unmapped: Record<string, number>;
+  }>;
+  /** Per grade: the shed rows summed, against what the paper's TOTAL row says. */
+  totals: Partial<Record<SheetGrade, { sum: number; paper: number | null; ok: boolean }>>;
+  /** The paper's own stock summary, for comparing with the ledger — never keyed. */
+  stock: Partial<
+    Record<SheetGrade, { opening: number | null; production: number | null; sales: number | null; closing: number | null }>
+  > | null;
+  unmappedColumns: Array<{ header: string; production: number; closing: number | null }>;
+  warnings: string[];
+  model: string;
+}
+
+const buildEggSheetPrompt = () => `You are reading a photograph of a handwritten egg packing-room
+day sheet from an Indian layer farm. Transcribe what is on the paper. Do NOT
+calculate, correct or reconcile anything — arithmetic is done elsewhere.
+
+The sheet has a Date box at the top, a PRODUCTION REPORT table and a STOCK
+SUMMARY table. Both tables share one set of columns: one per grade of egg (for
+example SMALL, MEDIUM, LARGE, EXTRA LARGE, JUMBO, NIKO), each with a printed
+note like "210/BOX" under the name. A printed column heading may be struck
+through with another grade handwritten over or beside it — report both,
+exactly as written.
+
+The PRODUCTION REPORT has one row per shed (L2, L3, L4, L5 …) and a TOTAL row.
+The STOCK SUMMARY has rows OPENING STOCK, PRODUCTION, SALES and CLOSING STOCK.
+
+Return ONLY a JSON object, no markdown fence, matching exactly:
+
+{
+  "dateRaw": string|null,
+  "columns": [{ "index": number, "printedHeader": string|null, "writtenHeader": string|null, "perBoxRaw": string|null }],
+  "production": [{ "shed": string|null, "cells": [string|null] }],
+  "productionTotal": [string|null] | null,
+  "stock": {
+    "opening": [string|null] | null,
+    "production": [string|null] | null,
+    "sales": [string|null] | null,
+    "closing": [string|null] | null
+  } | null
+}
+
+Rules:
+1. "columns" lists every grade column left to right, index from 0. Leave out
+   the SHED label column. "printedHeader" is the printed name; "writtenHeader"
+   is any handwritten name over or beside it, else null. "perBoxRaw" is the
+   printed note under the name, e.g. "210/BOX".
+2. Every "cells" array has exactly one entry per column, in column order, so a
+   value is never shifted into the wrong grade. Copy each cell verbatim and
+   keep leading zeros: "03" stays "03". An empty cell or a dash is null.
+3. ONE ROW of the table is ONE entry. The TOTAL row goes in "productionTotal",
+   never in "production".
+4. "dateRaw": copy the Date box verbatim, e.g. "12/09/26". Do not reformat.
+5. Use null for anything absent or illegible. Never guess a value that is not
+   on the paper.`;
+
+/** "EXTRA LARGE" → xl, "Brown" → brown … or null for a heading niko has no grade for. */
+export function gradeOfHeader(header: string | null): SheetGrade | null {
+  const h = (header ?? "").toLowerCase().replace(/[^a-z]/g, "");
+  if (!h) return null;
+  if (h.includes("brown")) return "brown";
+  if (h.includes("niko")) return "niko";
+  if (h.includes("jumbo")) return "jumbo";
+  if (h.includes("extra") || h === "xl" || h.endsWith("xl")) return "xl";
+  if (h.includes("large")) return "large";
+  if (h.includes("medium")) return "medium";
+  if (h.includes("small")) return "small";
+  return null;
+}
+
+/** "03" → 3, "1,551" → 1551, "-" or blank → null. */
+function cellNumber(raw: string | null | undefined): number | null {
+  if (raw == null) return null;
+  const t = String(raw).replace(/,/g, "").trim();
+  if (!t || /^[-–—.·nil]+$/i.test(t)) return null;
+  const m = t.match(/\d+/);
+  return m ? Number(m[0]) : null;
+}
+
+/**
+ * Read the day sheet. The model returns cells; the grades, the footing and the
+ * date are decided in `reconcileEggSheet`, which is checked without an API
+ * call by scripts/check-egg-sheet-read.ts.
+ */
+export async function extractEggSheet(
+  images: ImageInput[],
+  apiKey: string,
+  modelName: string = OCR_MODEL,
+): Promise<ExtractedEggSheet> {
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({
+    model: modelName,
+    generationConfig: { temperature: 0, responseMimeType: "application/json" },
+  });
+  const result = await model.generateContent([
+    buildEggSheetPrompt(),
+    ...images.map((i) => ({ inlineData: { data: i.data, mimeType: i.mimeType } })),
+  ]);
+  return reconcileEggSheet(parseModelJson<RawEggSheet>(result.response.text()), modelName);
+}
+
+/** Everything decided about a transcribed sheet, with the model out of the loop. */
+export function reconcileEggSheet(raw: RawEggSheet, modelName: string): ExtractedEggSheet {
+  const warnings: string[] = [];
+  const { date, warning: dateWarning } = parseIndianDate(raw.dateRaw ?? null, "Sheet date");
+  if (dateWarning) warnings.push(dateWarning);
+  if (!raw.dateRaw) warnings.push("No date read from the sheet");
+
+  const rawColumns = [...(raw.columns ?? [])].sort((a, b) => a.index - b.index);
+  const columns = rawColumns.map((c) => {
+    // The handwritten heading is the one in force; the printed one under a
+    // strike-through is what the column used to be.
+    const header = (c.writtenHeader?.trim() || c.printedHeader?.trim() || `column ${c.index + 1}`).replace(/\s+/g, " ");
+    return { header, grade: gradeOfHeader(header), perBox: cellNumber(c.perBoxRaw) };
+  });
+  const seen = new Map<SheetGrade, string>();
+  for (const c of columns) {
+    if (!c.grade) continue;
+    const other = seen.get(c.grade);
+    if (other) {
+      warnings.push(`"${c.header}" and "${other}" both read as ${c.grade}; the first is used and the second is left unmapped`);
+      c.grade = null;
+    } else {
+      seen.set(c.grade, c.header);
+    }
+  }
+  if (!columns.length) warnings.push("No grade columns were read");
+
+  // The TOTAL row sometimes comes back as a production row despite the prompt.
+  const productionRows: Array<{ shed: string; cells: Array<string | null> }> = [];
+  let totalCells: Array<string | null> | null = raw.productionTotal ?? null;
+  for (const r of raw.production ?? []) {
+    const shed = (r.shed ?? "").toUpperCase().replace(/\s+/g, "");
+    if (!shed) continue;
+    if (/^TOTAL/.test(shed)) {
+      totalCells = totalCells ?? r.cells;
+      continue;
+    }
+    productionRows.push({ shed, cells: r.cells ?? [] });
+  }
+
+  const rows = productionRows.map((r) => {
+    const boxes: Partial<Record<SheetGrade, number>> = {};
+    const unmapped: Record<string, number> = {};
+    columns.forEach((c, i) => {
+      const n = cellNumber(r.cells[i]);
+      if (n == null) return;
+      if (c.grade) boxes[c.grade] = n;
+      else unmapped[c.header] = n;
+    });
+    return { shed: r.shed, boxes, unmapped };
+  });
+  if (!rows.length) warnings.push("No shed rows were read");
+
+  const totals: ExtractedEggSheet["totals"] = {};
+  columns.forEach((c, i) => {
+    if (!c.grade) return;
+    const sum = rows.reduce((a, r) => a + (r.boxes[c.grade!] ?? 0), 0);
+    const paper = totalCells ? cellNumber(totalCells[i]) : null;
+    const ok = paper == null ? sum === 0 : sum === paper;
+    totals[c.grade] = { sum, paper, ok };
+    if (!ok) {
+      warnings.push(
+        paper == null
+          ? `${c.header}: the sheds add to ${sum} but no total is written`
+          : `${c.header}: the sheds add to ${sum}, the TOTAL row says ${paper}`,
+      );
+    }
+  });
+
+  const pick = (line: Array<string | null> | null | undefined, i: number) => (line ? cellNumber(line[i]) : null);
+  const stock: ExtractedEggSheet["stock"] = raw.stock ? {} : null;
+  const unmappedColumns: ExtractedEggSheet["unmappedColumns"] = [];
+  columns.forEach((c, i) => {
+    const entry = raw.stock
+      ? {
+          opening: pick(raw.stock.opening, i),
+          production: pick(raw.stock.production, i),
+          sales: pick(raw.stock.sales, i),
+          closing: pick(raw.stock.closing, i),
+        }
+      : null;
+    if (c.grade) {
+      if (stock && entry) stock[c.grade] = entry;
+      return;
+    }
+    const production = rows.reduce((a, r) => a + (r.unmapped[c.header] ?? 0), 0);
+    unmappedColumns.push({ header: c.header, production, closing: entry?.closing ?? null });
+    warnings.push(`"${c.header}" is not a grade niko knows — its figures were not entered`);
+  });
+
+  return { dateRaw: raw.dateRaw ?? null, date, columns, rows, totals, stock, unmappedColumns, warnings, model: modelName };
 }
