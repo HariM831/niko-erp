@@ -93,8 +93,8 @@ interface DailyRecord {
   birdsCulled: number;
   /** Signed: a shortage is negative, birds found are positive. */
   adjustment: number;
-  waterUpperKl: number;
-  waterLowerKl: number;
+  /** One figure since 0085; the board sums the two old meters for older rows. */
+  waterKl: number;
   feedIntakeKg: number;
   eggsProduced: number;
 }
@@ -286,8 +286,7 @@ function mergeShedDays(records: DailyRecord[]): DailyRecord[] {
     acc.birdsTransferredIn += r.birdsTransferredIn || 0;
     acc.birdsTransferredOut += r.birdsTransferredOut || 0;
     acc.adjustment += r.adjustment || 0;
-    acc.waterUpperKl += r.waterUpperKl || 0;
-    acc.waterLowerKl += r.waterLowerKl || 0;
+    acc.waterKl += r.waterKl || 0;
     acc.feedIntakeKg += r.feedIntakeKg || 0;
     acc.eggsProduced += r.eggsProduced || 0;
     acc.birdsCulled += r.birdsCulled || 0;
@@ -417,9 +416,7 @@ function buildShedMetrics(
     .reduce((sum, r) => sum + (r.feedIntakeKg || 0), 0);
   const feedStockKg = Math.max(0, totalDeliveredKg - allTimeConsumedKg);
 
-  const waterUpper = dateRecord?.waterUpperKl || 0;
-  const waterLower = dateRecord?.waterLowerKl || 0;
-  const totalWaterL = (waterUpper + waterLower) * 1000;
+  const totalWaterL = (dateRecord?.waterKl || 0) * 1000;
   const waterPerBirdMl =
     closingStock > 0 ? (totalWaterL / closingStock) * 1000 : 0;
   const stdWaterMlPerBird = weekStandard?.waterMlPerBird || 0;
