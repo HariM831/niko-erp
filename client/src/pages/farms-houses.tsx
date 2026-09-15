@@ -1083,7 +1083,7 @@ export function FarmsHousesPage() {
               <span className="text-[13px] font-bold text-soil-900">Shed conditions</span>
               {(() => {
                 // Outside air: the average of every shed's outside probe. A probe in the sun reads the sun, so the hover lists each shed's own.
-                const outs = iot.board.filter((r) => r.outsideTempC != null && r.birdCount != null);
+                const outs = iot.board.filter((r) => r.outsideTempC != null);
                 if (!outs.length) return null;
                 const avg = outs.reduce((a, r) => a + (r.outsideTempC ?? 0), 0) / outs.length;
                 const lo = Math.min(...outs.map((r) => r.outsideTempC ?? 0));
