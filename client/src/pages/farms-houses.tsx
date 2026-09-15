@@ -1082,8 +1082,11 @@ export function FarmsHousesPage() {
               </span>
               <span className="text-[13px] font-bold text-soil-900">Shed conditions</span>
               {(() => {
-                // Outside air: the average of every shed's outside probe. A probe in the sun reads the sun, so the hover lists each shed's own.
-                const outs = iot.board.filter((r) => r.outsideTempC != null);
+                // Outside air: the average of the outside probes of the houses that hold birds and have reported in the
+                // last half hour. An empty house's controller may be switched off, and then its last reading is
+                // whatever the day was when it stopped. A probe in the sun reads the sun, so the hover lists each shed's own.
+                const fresh = (r: BoardRow) => r.fetchedAt != null && Date.now() - new Date(r.fetchedAt).getTime() < 30 * 60_000;
+                const outs = iot.board.filter((r) => r.outsideTempC != null && (r.birdCount ?? 0) > 0 && fresh(r));
                 if (!outs.length) return null;
                 const avg = outs.reduce((a, r) => a + (r.outsideTempC ?? 0), 0) / outs.length;
                 const lo = Math.min(...outs.map((r) => r.outsideTempC ?? 0));
