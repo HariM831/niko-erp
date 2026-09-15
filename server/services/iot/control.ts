@@ -110,8 +110,11 @@ export async function writeAndConfirm(
    */
   let resent: string[] = [];
   const missed = changes.filter((c) => !took(after.get(c.key), c.value));
-  if (missed.length && missed.length < changes.length) {
+  // On 2026-09-15 L4 refused all 14 registers of a batch and took all 14 when sent again
+  // minutes later, so a whole batch refused is re-sent too, after a pause.
+  if (missed.length) {
     resent = missed.map((c) => c.key);
+    if (missed.length === changes.length) await sleep(30_000);
     await writeRegisters(missed);
     const started2 = Date.now();
     for (;;) {
