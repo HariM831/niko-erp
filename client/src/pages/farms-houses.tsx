@@ -146,6 +146,7 @@ interface IotRow {
   /** Fan power now and since midnight, estimated from the ladder; null until the controls module has kept the settings once. */
   fanKwNow: number | null;
   fanKwhToday: number | null;
+  outsideTempC: number | null;
   padsOn: boolean | null;
   padsMinutesToday: number | null;
   outsideChanges24h: number;
@@ -1080,6 +1081,23 @@ export function FarmsHousesPage() {
                 <Droplets className="h-3 w-3" />
               </span>
               <span className="text-[13px] font-bold text-soil-900">Shed conditions</span>
+              {(() => {
+                // Outside air: the average of every shed's outside probe. A probe in the sun reads the sun, so the hover lists each shed's own.
+                const outs = iot.board.filter((r) => r.outsideTempC != null && r.birdCount != null);
+                if (!outs.length) return null;
+                const avg = outs.reduce((a, r) => a + (r.outsideTempC ?? 0), 0) / outs.length;
+                const lo = Math.min(...outs.map((r) => r.outsideTempC ?? 0));
+                const hi = Math.max(...outs.map((r) => r.outsideTempC ?? 0));
+                return (
+                  <span
+                    className="ml-2 rounded-full border border-soil-200 bg-soil-50 px-2 py-0.5 text-[11px] font-medium text-soil-900"
+                    title={`Outside probe, each shed: ${outs.map((r) => `${r.code} ${r.outsideTempC!.toFixed(1)}°`).join(" · ")}. A probe in the sun reads the sun; the lowest is the truest air temperature.`}
+                  >
+                    Outside <strong>{avg.toFixed(1)}°</strong>
+                    {hi - lo >= 2 && <span className="ml-1 font-normal text-muted-foreground">{lo.toFixed(0)} to {hi.toFixed(0)}</span>}
+                  </span>
+                );
+              })()}
             </div>
             <div className="text-[11px] text-muted-foreground">
               {iot.poll?.at

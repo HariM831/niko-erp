@@ -87,6 +87,8 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
     device: string | null;
     fetchedAt: Date | null;
     tempC: number | null;
+    /** Probe 06, the one outside the wall. In the sun it reads the sun, so the board shows the average across sheds with each shed's own on hover. */
+    outsideTempC: number | null;
     targetTempC: number | null;
     humidityPct: number | null;
     co2Ppm: number | null;
@@ -139,6 +141,7 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
         device: r.device,
         fetchedAt: null,
         tempC: null,
+        outsideTempC: null,
         targetTempC: null,
         humidityPct: null,
         co2Ppm: null,
@@ -218,6 +221,7 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
     const m = new Map([...named.get(houseId)!].map(([k, x]) => [k, x.v]));
     const today = await todayCounters(houseId);
     b.tempC = m.get(SINGLE_TAGS.tempC) ?? null;
+    b.outsideTempC = m.get("温度06") ?? null;
     b.targetTempC = m.get(SINGLE_TAGS.targetTempC) ?? null;
     b.humidityPct = m.get(SINGLE_TAGS.humidityPct) ?? null;
     b.co2Ppm = m.get(SINGLE_TAGS.co2Ppm) ?? null;
