@@ -147,6 +147,7 @@ interface IotRow {
   fanKwNow: number | null;
   fanKwhToday: number | null;
   outsideTempC: number | null;
+  controllerLive: boolean | null;
   padsOn: boolean | null;
   padsMinutesToday: number | null;
   outsideChanges24h: number;
@@ -1082,12 +1083,11 @@ export function FarmsHousesPage() {
               </span>
               <span className="text-[13px] font-bold text-soil-900">Shed conditions</span>
               {(() => {
-                // Outside air: the average of the outside probes of the houses niko knows to hold birds. An empty
-                // house's controller may be switched off, and the platform then keeps answering with the last values
-                // it holds, stamped fresh, with a bird count that is not zero either — so neither the fetch time nor
-                // the controller's own count can tell; niko's stock can. A probe in the sun reads the sun, so the
-                // hover lists each shed's own.
-                const outs = iot.board.filter((r) => r.outsideTempC != null && (stockByCode.get(r.code) ?? 0) > 0);
+                // Outside air: the average of the outside probes of the controllers the platform says are alive.
+                // A switched-off controller still answers through the platform with its last values, stamped fresh,
+                // bird count and all, and niko's own stock can lag a flock's departure; the platform's device status
+                // is the one thing that says off. A probe in the sun reads the sun, so the hover lists each shed's own.
+                const outs = iot.board.filter((r) => r.outsideTempC != null && r.controllerLive === true);
                 if (!outs.length) return null;
                 const avg = outs.reduce((a, r) => a + (r.outsideTempC ?? 0), 0) / outs.length;
                 const lo = Math.min(...outs.map((r) => r.outsideTempC ?? 0));

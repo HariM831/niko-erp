@@ -11,7 +11,27 @@ import { and, desc, eq, gte, sql } from "drizzle-orm";
 import { houses, iotHouseDay, iotReadings } from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
-import { SINGLE_TAGS, METRIC_TAGS, nameOf, resolveMetric, resolvePerBird, tokenExpiry } from "../services/iot/bhfarm";
+import { SINGLE_TAGS, METRIC_TAGS, fetchDeviceStatus, nameOf, resolveMetric, resolvePerBird, tokenExpiry } from "../services/iot/bhfarm";
+
+/**
+ * Whether each controller is actually alive, from the platform, kept for a
+ * few minutes. A switched-off controller still answers through the platform
+ * with its last values, stamped with the poll time and a bird count that is
+ * not zero, so nothing in the readings says it is off; only the platform's
+ * device status does. P1 and P2, 15 September 2026.
+ */
+const liveCache = new Map<string, { live: boolean; at: number }>();
+async function controllerLive(device: string): Promise<boolean | null> {
+  const held = liveCache.get(device);
+  if (held && Date.now() - held.at < 5 * 60_000) return held.live;
+  try {
+    const st = await fetchDeviceStatus(device);
+    liveCache.set(device, { live: st.isLiving, at: Date.now() });
+    return st.isLiving;
+  } catch {
+    return held?.live ?? null;
+  }
+}
 import { houseSamples, pollOnce, recentPolls, todayCounters } from "../services/iot/store";
 import { fanEnergyToday, ladderPower, pumpMinutesToday } from "../services/iot/controls";
 import { outsideChangesSince } from "../services/iot/watch";
@@ -89,6 +109,8 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
     tempC: number | null;
     /** Probe 06, the one outside the wall. In the sun it reads the sun, so the board shows the average across sheds with each shed's own on hover. */
     outsideTempC: number | null;
+    /** The platform's word on whether the controller is alive; null when it could not be asked. */
+    controllerLive: boolean | null;
     targetTempC: number | null;
     humidityPct: number | null;
     co2Ppm: number | null;
@@ -142,6 +164,7 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
         fetchedAt: null,
         tempC: null,
         outsideTempC: null,
+        controllerLive: null,
         targetTempC: null,
         humidityPct: null,
         co2Ppm: null,
@@ -222,6 +245,7 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
     const today = await todayCounters(houseId);
     b.tempC = m.get(SINGLE_TAGS.tempC) ?? null;
     b.outsideTempC = m.get("温度06") ?? null;
+    b.controllerLive = b.device ? await controllerLive(b.device) : null;
     b.targetTempC = m.get(SINGLE_TAGS.targetTempC) ?? null;
     b.humidityPct = m.get(SINGLE_TAGS.humidityPct) ?? null;
     b.co2Ppm = m.get(SINGLE_TAGS.co2Ppm) ?? null;
