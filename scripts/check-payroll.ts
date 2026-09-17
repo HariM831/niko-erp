@@ -20,6 +20,10 @@
  *              forgotten exit is not carried; never past sixteen hours, never
  *              an entry HR has ruled on; a night in progress reads present, not
  *              a half day; a stray morning exit is filed back under its night
+ *   edits:     a pending input can be corrected and an approved one cannot, the
+ *              test being made as the row is written; a field sent as null is
+ *              left alone; a claim's days are never backwards, one date is a
+ *              one-day claim, and only a claim carries dates
  *   catch-up:  (August, its own people) a leaver switched off mid-month still
  *              gets his final slip, and nothing after his last day is paid
  *              whoever wrote the row; nobody gets an empty slip; money waiting
@@ -54,6 +58,7 @@ import {
   addDays, carryOverIn, emptyTotals, istDate, loadContext, monthTotals, recomputeEmployeeDay, recomputeRange, rehomeStrayOuts, resolveDay,
 } from "../server/services/day-resolution";
 import { applyLeave, approveLeave, leaveBalance } from "../server/services/leave";
+import { editPendingInput } from "../server/routes/payroll";
 import { advanceOutstanding, confirmRun, deleteDraftRun, earnedFor, processRun, runExceptions } from "../server/services/payroll";
 
 let failures = 0;
@@ -497,6 +502,34 @@ try {
       .where(eq(journalEntryLines.entryId, augConfirmed.journalEntryId));
     // 8000 leaver + 4000 Wednesday + 5000 joiner + 3000 arrear.
     ok("the arrear is in the salary expense", approx(Number(augLines.find((l) => l.systemKey === "salary_expense")?.debit), 20000), augLines.find((l) => l.systemKey === "salary_expense")?.debit);
+
+    /* ── Correcting a pending input ─────────────────────────────────────── */
+    console.log("\n  editing pay inputs\n");
+    const pending = async (kind: "reimbursement" | "overtime" | "bonus", extra: Partial<typeof payInputs.$inferInsert>) => {
+      const [row] = await tx.insert(payInputs).values({ employeeId: wed.id, kind, month: 10, year: 2026, amount: "500.00", createdBy: uid, ...extra }).returning();
+      return row!;
+    };
+    const claim = await pending("reimbursement", { dateFrom: "2026-09-03", dateTo: "2026-09-05" });
+    await refuses("a claim that ends before it starts → refused", () => editPendingInput(tx, claim.id, { dateFrom: "2026-09-05", dateTo: "2026-09-03" }));
+    let edited = await editPendingInput(tx, claim.id, { dateFrom: "2026-09-08" });
+    ok("one date is a one-day claim", edited.dateFrom === "2026-09-08" && edited.dateTo === "2026-09-08", `${edited.dateFrom} – ${edited.dateTo}`);
+    edited = await editPendingInput(tx, claim.id, { amount: 650, description: "  taxi to Tezpur  " });
+    ok("the amount and the wording change; the days stay", Number(edited.amount) === 650 && edited.description === "taxi to Tezpur" && edited.dateFrom === "2026-09-08");
+
+    const ot = await pending("overtime", { hours: 5, ratePerHour: "100.00" });
+    edited = await editPendingInput(tx, ot.id, { hours: null, ratePerHour: null, amount: null, description: "night loading" });
+    ok("a field sent as null is left alone", edited.hours === 5 && Number(edited.amount) === 500, `${edited.hours} h, ${edited.amount}`);
+    edited = await editPendingInput(tx, ot.id, { hours: 6 });
+    ok("overtime is still hours × rate after an edit", Number(edited.amount) === 600, edited.amount);
+
+    const gift = await pending("bonus", {});
+    edited = await editPendingInput(tx, gift.id, { dateFrom: "2026-09-01", dateTo: "2026-09-02" });
+    ok("only a claim carries dates", edited.dateFrom === null && edited.dateTo === null);
+
+    await tx.update(payInputs).set({ status: "approved", approvedAmount: "650.00" }).where(eq(payInputs.id, claim.id));
+    await refuses("an approved input → refused", () => editPendingInput(tx, claim.id, { amount: 9999 }));
+    const [after] = await tx.select().from(payInputs).where(eq(payInputs.id, claim.id));
+    ok("and its amount has not moved", Number(after?.amount) === 650);
 
     /* ── Night shifts: September, and people of its own ────────────────── */
     console.log("\n  night shifts\n");

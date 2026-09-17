@@ -342,6 +342,12 @@ export const payInputs = pgTable(
     earnedMonth: integer("earned_month"),
     earnedYear: integer("earned_year"),
     days: real("days"),
+    /**
+     * Reimbursement only: the days the claim covers — one trip, one row, one
+     * amount. They describe the claim; the month that pays it is `month`.
+     */
+    dateFrom: date("date_from"),
+    dateTo: date("date_to"),
     /** Overtime only: amount = hours × rate, computed on the server. */
     hours: real("hours"),
     ratePerHour: money("rate_per_hour"),

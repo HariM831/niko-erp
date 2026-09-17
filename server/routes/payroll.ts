@@ -1491,6 +1491,8 @@ payrollRouter.get("/pay-inputs", view, async (req, res) => {
       earnedMonth: payInputs.earnedMonth,
       earnedYear: payInputs.earnedYear,
       days: payInputs.days,
+      dateFrom: payInputs.dateFrom,
+      dateTo: payInputs.dateTo,
       category: payInputs.category,
       description: payInputs.description,
       receiptUrl: payInputs.receiptUrl,
@@ -1515,6 +1517,9 @@ const payInputBody = z.object({
   earnedMonth: monthNum.optional(),
   earnedYear: yearNum.optional(),
   days: looseNumber(z.number().min(0).max(31)).optional(),
+  /** Reimbursement only: the days the claim covers. One date is a one-day claim. */
+  dateFrom: dateStr.nullish(),
+  dateTo: dateStr.nullish(),
   hours: looseNumber(z.number().positive().max(400)).optional(),
   ratePerHour: moneyNum.optional(),
   category: z.string().max(120).nullish(),
@@ -1630,11 +1635,25 @@ payrollRouter.get("/arrears/suggest", payInputsPerm, async (req, res) => {
   });
 });
 
+/** The days a claim covers, or nulls for every kind that is not a claim. */
+function claimDates(b: { kind: string; dateFrom?: string | null; dateTo?: string | null }, required: boolean) {
+  if (b.kind !== "reimbursement") return { dateFrom: null, dateTo: null };
+  const from = b.dateFrom ?? b.dateTo ?? null;
+  const to = b.dateTo ?? from;
+  if (!from) {
+    if (required) throw new PostingError("Say which day, or days, the expense was for");
+    return { dateFrom: null, dateTo: null };
+  }
+  if (to! < from) throw new PostingError("End date cannot be before the start date");
+  return { dateFrom: from, dateTo: to };
+}
+
 payrollRouter.post("/pay-inputs", payInputsPerm, validateBody(payInputBody), async (req, res) => {
   const b = req.body as z.infer<typeof payInputBody>;
   try {
     const amount = payInputAmount(b);
     if (b.kind === "arrears") await checkArrears(b);
+    const dates = claimDates(b, true);
     const [row] = await db
       .insert(payInputs)
       .values({
@@ -1648,6 +1667,7 @@ payrollRouter.post("/pay-inputs", payInputsPerm, validateBody(payInputBody), asy
         earnedMonth: b.kind === "arrears" ? b.earnedMonth : null,
         earnedYear: b.kind === "arrears" ? b.earnedYear : null,
         days: b.kind === "arrears" ? (b.days ?? null) : null,
+        ...dates,
         category: b.category ?? null,
         description: b.description ?? null,
         receiptUrl: b.receiptUrl ?? null,
@@ -1660,46 +1680,79 @@ payrollRouter.post("/pay-inputs", payInputsPerm, validateBody(payInputBody), asy
   }
 });
 
-payrollRouter.patch("/pay-inputs/:id", payInputsPerm, validateBody(payInputBody.partial().omit({ employeeId: true })), async (req, res) => {
-  const [existing] = await db.select().from(payInputs).where(eq(payInputs.id, req.params.id!));
-  if (!existing) return res.status(404).json({ error: "No such pay input" });
-  if (existing.status !== "pending") return res.status(422).json({ error: "Only a pending input can be edited" });
-  const b = req.body as Partial<z.infer<typeof payInputBody>>;
+/**
+ * An edit says what changes; anything absent OR null stays as it is. The form
+ * sends null for a field it is not showing, and read as "set it to nothing"
+ * that zeroed the hours of an overtime row whose note was being corrected.
+ */
+const payInputEdit = z.object({
+  month: monthNum.nullish(),
+  year: yearNum.nullish(),
+  amount: moneyNum.nullish(),
+  hours: looseNumber(z.number().positive().max(400)).nullish(),
+  ratePerHour: moneyNum.nullish(),
+  earnedMonth: monthNum.nullish(),
+  earnedYear: yearNum.nullish(),
+  days: looseNumber(z.number().min(0).max(31)).nullish(),
+  dateFrom: dateStr.nullish(),
+  dateTo: dateStr.nullish(),
+  category: z.string().max(120).nullish(),
+  description: z.string().max(500).nullish(),
+  receiptUrl: z.string().nullish(),
+});
+
+/** Exported for the check script: the edit, against any connection. */
+export async function editPendingInput(conn: typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0], id: string, b: z.infer<typeof payInputEdit>) {
+  const [existing] = await conn.select().from(payInputs).where(eq(payInputs.id, id));
+  if (!existing) throw new PostingError("No such pay input");
+  if (existing.status !== "pending") throw new PostingError("Only a pending input can be edited");
+  const merged = {
+    // The kind and the person are what the row is; an edit changes neither.
+    employeeId: existing.employeeId,
+    kind: existing.kind,
+    month: b.month ?? existing.month,
+    year: b.year ?? existing.year,
+    amount: b.amount ?? Number(existing.amount),
+    hours: b.hours ?? existing.hours ?? undefined,
+    ratePerHour: b.ratePerHour ?? (existing.ratePerHour == null ? undefined : Number(existing.ratePerHour)),
+    earnedMonth: b.earnedMonth ?? existing.earnedMonth ?? undefined,
+    earnedYear: b.earnedYear ?? existing.earnedYear ?? undefined,
+    days: b.days ?? existing.days ?? undefined,
+    dateFrom: b.dateFrom ?? existing.dateFrom,
+    dateTo: b.dateTo ?? (b.dateFrom ? null : existing.dateTo),
+  };
+  const amount = payInputAmount(merged as z.infer<typeof payInputBody>);
+  if (merged.kind === "arrears") await checkArrears(merged, existing.id);
+  // Old claims have no dates and may be edited without being given any.
+  const dates = claimDates(merged, false);
+  const [row] = await conn
+    .update(payInputs)
+    .set({
+      month: merged.month,
+      year: merged.year,
+      amount: amount.toFixed(2),
+      hours: merged.kind === "overtime" ? merged.hours : null,
+      ratePerHour: merged.kind === "overtime" ? merged.ratePerHour!.toFixed(2) : null,
+      earnedMonth: merged.kind === "arrears" ? merged.earnedMonth : null,
+      earnedYear: merged.kind === "arrears" ? merged.earnedYear : null,
+      days: merged.kind === "arrears" ? (merged.days ?? null) : null,
+      ...dates,
+      ...(b.category != null && { category: b.category }),
+      // Null leaves it alone; an empty box clears it.
+      ...(b.description != null && { description: b.description.trim() || null }),
+      ...(b.receiptUrl != null && { receiptUrl: b.receiptUrl }),
+    })
+    // Still pending at the moment of writing, not at the moment of reading: an
+    // approval landing in between must not have its amount moved under it.
+    .where(and(eq(payInputs.id, id), eq(payInputs.status, "pending")))
+    .returning();
+  if (!row) throw new PostingError("Only a pending input can be edited");
+  return row;
+}
+
+payrollRouter.patch("/pay-inputs/:id", payInputsPerm, validateBody(payInputEdit), async (req, res) => {
   try {
-    const merged = {
-      month: existing.month,
-      year: existing.year,
-      amount: Number(existing.amount),
-      hours: existing.hours ?? undefined,
-      ratePerHour: existing.ratePerHour == null ? undefined : Number(existing.ratePerHour),
-      earnedMonth: existing.earnedMonth ?? undefined,
-      earnedYear: existing.earnedYear ?? undefined,
-      days: existing.days ?? undefined,
-      ...b,
-      // The kind and the person are what the row is; an edit changes neither.
-      kind: existing.kind,
-      employeeId: existing.employeeId,
-    } as z.infer<typeof payInputBody>;
-    const amount = payInputAmount(merged);
-    if (merged.kind === "arrears") await checkArrears(merged, existing.id);
-    const [row] = await db
-      .update(payInputs)
-      .set({
-        month: merged.month,
-        year: merged.year,
-        amount: amount.toFixed(2),
-        hours: merged.kind === "overtime" ? merged.hours : null,
-        ratePerHour: merged.kind === "overtime" ? merged.ratePerHour!.toFixed(2) : null,
-        earnedMonth: merged.kind === "arrears" ? merged.earnedMonth : null,
-        earnedYear: merged.kind === "arrears" ? merged.earnedYear : null,
-        days: merged.kind === "arrears" ? (merged.days ?? null) : null,
-        ...(b.category !== undefined && { category: b.category }),
-        ...(b.description !== undefined && { description: b.description }),
-        ...(b.receiptUrl !== undefined && { receiptUrl: b.receiptUrl }),
-      })
-      .where(eq(payInputs.id, req.params.id!))
-      .returning();
-    res.json(row);
+    res.json(await editPendingInput(db, req.params.id!, req.body as z.infer<typeof payInputEdit>));
   } catch (err) {
     if (!fail(err, res)) throw err;
   }

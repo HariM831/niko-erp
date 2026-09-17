@@ -43,6 +43,8 @@ interface PayInput {
   earnedMonth: number | null;
   earnedYear: number | null;
   days: number | null;
+  dateFrom: string | null;
+  dateTo: string | null;
   category: string | null;
   description: string | null;
   status: "pending" | "approved" | "rejected" | "paid";
@@ -83,6 +85,7 @@ export function PayrollPayInputsPage() {
   const [kind, setKind] = useState("");
   const [status, setStatus] = useState("");
   const [addOpen, setAddOpen] = useState(false);
+  const [editing, setEditing] = useState<PayInput | null>(null);
   const [approveFor, setApproveFor] = useState<PayInput | null>(null);
   const [approvedAmount, setApprovedAmount] = useState("");
 
@@ -157,6 +160,9 @@ export function PayrollPayInputsPage() {
                     {r.kind === "arrears" && r.earnedMonth && r.earnedYear && (
                       <span className="tabular-nums">earned {monthName(r.earnedMonth, r.earnedYear)}{r.days != null ? ` · ${num(r.days, 1)} day(s)` : ""}{r.description ? " · " : ""}</span>
                     )}
+                    {r.dateFrom && (
+                      <span className="tabular-nums">{dmy(r.dateFrom)}{r.dateTo && r.dateTo !== r.dateFrom ? ` – ${dmy(r.dateTo)}` : ""} · </span>
+                    )}
                     {r.category && <span className="capitalize">{r.category} · </span>}
                     {r.description ?? ""}
                   </Td>
@@ -166,6 +172,7 @@ export function PayrollPayInputsPage() {
                   <Td right>
                     {r.status === "pending" && (
                       <span className="flex justify-end gap-1">
+                        <button className="btn-ghost" onClick={() => setEditing(r)}>Edit</button>
                         <button className="btn-ghost text-emerald-700" onClick={() => { setApproveFor(r); setApprovedAmount(String(Number(r.amount))); }}>Approve</button>
                         <button className="btn-ghost text-red-600" onClick={() => decide.mutate({ id: r.id, action: "reject" })}>Reject</button>
                       </span>
@@ -185,7 +192,8 @@ export function PayrollPayInputsPage() {
 
       <AdvancesSection />
 
-      {addOpen && <AddInputDialog year={year} month={month} onClose={() => setAddOpen(false)} onSaved={invalidate} />}
+      {addOpen && <InputDialog year={year} month={month} onClose={() => setAddOpen(false)} onSaved={invalidate} />}
+      {editing && <InputDialog year={editing.year} month={editing.month} existing={editing} onClose={() => setEditing(null)} onSaved={invalidate} />}
 
       {approveFor && (
         <Dialog open onOpenChange={(v) => !v && setApproveFor(null)}>
@@ -211,11 +219,26 @@ export function PayrollPayInputsPage() {
   );
 }
 
-function AddInputDialog({ year, month, onClose, onSaved }: { year: number; month: number; onClose: () => void; onSaved: () => void }) {
+/**
+ * Add a pay input, or correct one that is still pending. Editing changes the
+ * figures and the wording, never who it is for or what kind it is — those are
+ * what the row is, and the server holds them fixed too.
+ */
+function InputDialog({ year, month, existing, onClose, onSaved }: { year: number; month: number; existing?: PayInput; onClose: () => void; onSaved: () => void }) {
   const { err, setErr, fail } = useErr();
+  const str = (v: number | string | null | undefined) => (v == null ? "" : String(Number(v)));
   const [form, setForm] = useState({
-    employeeId: "", kind: "bonus" as Kind, amount: "", hours: "", ratePerHour: "", category: "", description: "",
-    earned: "", days: "",
+    employeeId: existing?.employeeId ?? "",
+    kind: (existing?.kind ?? "bonus") as Kind,
+    amount: str(existing?.amount),
+    hours: str(existing?.hours),
+    ratePerHour: str(existing?.ratePerHour),
+    category: existing?.category ?? "",
+    description: existing?.description ?? "",
+    earned: existing?.earnedYear && existing.earnedMonth ? `${existing.earnedYear}-${String(existing.earnedMonth).padStart(2, "0")}` : "",
+    days: str(existing?.days),
+    dateFrom: existing?.dateFrom ?? "",
+    dateTo: existing?.dateTo ?? "",
   });
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -252,8 +275,9 @@ function AddInputDialog({ year, month, onClose, onSaved }: { year: number; month
   // What attendance says fills the form; after that the figures are HR's to
   // change, because a closed month's attendance can still be corrected.
   useEffect(() => {
-    if (suggestion) setForm((f) => ({ ...f, days: String(suggestion.days), amount: String(suggestion.amount) }));
-  }, [suggestion]);
+    // Not over a row being edited: what is on it is what HR last decided.
+    if (suggestion && !existing) setForm((f) => ({ ...f, days: String(suggestion.days), amount: String(suggestion.amount) }));
+  }, [suggestion, existing]);
   const setDays = (v: string) => {
     setForm((f) => {
       const next = { ...f, days: v };
@@ -265,12 +289,15 @@ function AddInputDialog({ year, month, onClose, onSaved }: { year: number; month
   const otAmount = (Number(form.hours) || 0) * (Number(form.ratePerHour) || 0);
   const amount = form.kind === "overtime" ? otAmount : Number(form.amount) || 0;
 
+  const isClaim = form.kind === "reimbursement";
+  const claimDays = form.dateFrom && form.dateTo ? Math.round((Date.parse(form.dateTo) - Date.parse(form.dateFrom)) / 86_400_000) + 1 : 0;
+  // A new claim says which days; one entered before claims had dates need not.
+  const claimDatesMissing = isClaim && !form.dateFrom && !(existing && !existing.dateFrom);
   const save = useMutation({
-    mutationFn: () => api("/api/payroll/pay-inputs", {
-      method: "POST",
+    mutationFn: () => api(existing ? `/api/payroll/pay-inputs/${existing.id}` : "/api/payroll/pay-inputs", {
+      method: existing ? "PATCH" : "POST",
       body: {
-        employeeId: form.employeeId,
-        kind: form.kind,
+        ...(!existing && { employeeId: form.employeeId, kind: form.kind }),
         year,
         month,
         amount,
@@ -279,7 +306,8 @@ function AddInputDialog({ year, month, onClose, onSaved }: { year: number; month
         hours: form.kind === "overtime" ? Number(form.hours) || 0 : undefined,
         ratePerHour: form.kind === "overtime" ? Number(form.ratePerHour) || 0 : undefined,
         category: form.kind === "bonus" || form.kind === "reimbursement" ? form.category || null : null,
-        description: form.description.trim() || null,
+        description: existing ? form.description : form.description.trim() || null,
+        ...(isClaim && form.dateFrom && { dateFrom: form.dateFrom, dateTo: form.dateTo || form.dateFrom }),
         ...(isArrears && { earnedMonth, earnedYear, days: form.days === "" ? undefined : Number(form.days) }),
       },
     }),
@@ -290,21 +318,41 @@ function AddInputDialog({ year, month, onClose, onSaved }: { year: number; month
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-md">
-        <DialogHeader><DialogTitle>Add pay input · {month}/{year}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{existing ? `Edit ${KIND_LABEL[existing.kind].toLowerCase()} · ${who(existing)}` : `Add pay input · ${month}/${year}`}</DialogTitle></DialogHeader>
         <ErrorBanner message={err} onClose={() => setErr(null)} />
         <div className="space-y-2">
-          <Field label="Employee" required>
-            <EmployeeSelect value={form.employeeId} onChange={(v) => set("employeeId", v)} pinned={isArrears ? recentJoiners : undefined} />
-          </Field>
-          <Field label="Kind" required>
-            <div className="flex rounded-md bg-gray-100 p-0.5 text-[13px]">
-              {KINDS.map((k) => (
-                <button key={k} type="button" onClick={() => set("kind", k)} className={`flex-1 rounded px-1 py-1 ${form.kind === k ? "bg-white font-medium shadow-sm" : "text-gray-500"}`}>
-                  {KIND_LABEL[k]}
-                </button>
-              ))}
+          {!existing && (
+            <>
+              <Field label="Employee" required>
+                <EmployeeSelect value={form.employeeId} onChange={(v) => set("employeeId", v)} pinned={isArrears ? recentJoiners : undefined} />
+              </Field>
+              <Field label="Kind" required>
+                <div className="flex rounded-md bg-gray-100 p-0.5 text-[13px]">
+                  {KINDS.map((k) => (
+                    <button key={k} type="button" onClick={() => set("kind", k)} className={`flex-1 rounded px-1 py-1 ${form.kind === k ? "bg-white font-medium shadow-sm" : "text-gray-500"}`}>
+                      {KIND_LABEL[k]}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+            </>
+          )}
+          {isClaim && (
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="From" required={!existing || !!existing.dateFrom}>
+                <input
+                  type="date"
+                  className="input tabular-nums"
+                  value={form.dateFrom}
+                  // The end is dragged along when the start passes it: a range is never left backwards.
+                  onChange={(e) => setForm((f) => ({ ...f, dateFrom: e.target.value, dateTo: !f.dateTo || f.dateTo < e.target.value ? e.target.value : f.dateTo }))}
+                />
+              </Field>
+              <Field label="To" hint={claimDays > 0 ? `${claimDays} day${claimDays === 1 ? "" : "s"}` : undefined}>
+                <input type="date" className="input tabular-nums" min={form.dateFrom || undefined} value={form.dateTo} onChange={(e) => set("dateTo", e.target.value)} />
+              </Field>
             </div>
-          </Field>
+          )}
           {form.kind === "overtime" ? (
             <div className="grid grid-cols-2 gap-2">
               <Field label="Hours" required>
@@ -371,7 +419,7 @@ function AddInputDialog({ year, month, onClose, onSaved }: { year: number; month
         </div>
         <div className="mt-4 flex justify-end gap-2">
           <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" disabled={save.isPending || !form.employeeId || amount <= 0 || (isArrears && !form.earned)} onClick={() => save.mutate()}>Add</button>
+          <button className="btn-primary" disabled={save.isPending || !form.employeeId || amount <= 0 || (isArrears && !form.earned) || claimDatesMissing} onClick={() => save.mutate()}>{existing ? "Save" : "Add"}</button>
         </div>
       </DialogContent>
     </Dialog>
