@@ -7,7 +7,7 @@
  * POST /api/payroll/punches. Manual selection appears only after a failed
  * scan so face recognition stays the primary flow.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle, ArrowLeft, Camera, CameraOff, CheckCircle2, Loader2, LogIn, LogOut,
@@ -48,6 +48,9 @@ interface PunchRow {
   carryover?: boolean;
 }
 interface Position { latitude: number; longitude: number; accuracy: number }
+/** Everybody active, faces or not — what the name list draws on. */
+interface NameRow { id: string; empCode: string; name: string; payType: string; hasFace: boolean }
+type ManualReason = "no_match" | "engine_failed" | "camera_blocked" | "not_enrolled";
 
 type Stage =
   | { kind: "idle" }
@@ -111,6 +114,12 @@ export function PayrollGatePage() {
   const [manualSelected, setManualSelected] = useState<{ employee: GalleryEmployee; punchType: "in" | "out" } | null>(null);
   const [manualCapture, setManualCapture] = useState<{ photo: string; embedding: number[] | null } | null>(null);
   const [capturing, setCapturing] = useState(false);
+  // Why the name list is open at all, sent with the punch: a refused camera is
+  // not a face failing to match, and the failure report should not count it so.
+  const [manualReason, setManualReason] = useState<ManualReason>("no_match");
+  // The server's refusal of a face that is clearly somebody else's. Stays up,
+  // inside the dialog, until the guard picks again or gives up the capture.
+  const [manualError, setManualError] = useState<string | null>(null);
   const threshold = DEFAULT_MATCH_THRESHOLD;
 
   /**
@@ -289,6 +298,7 @@ export function PayrollGatePage() {
     score: number | null,
     photo: string | null,
     embedding: number[] | null,
+    reason: ManualReason | null = null,
   ) {
     setStage({ kind: "posting" });
     try {
@@ -306,6 +316,7 @@ export function PayrollGatePage() {
           accuracyM: pos?.accuracy ?? null,
           photoUrl: photo,
           faceEmbedding: embedding,
+          manualReason: method === "manual" ? reason : null,
         },
       });
       qc.invalidateQueries({ queryKey: ["payroll", "punches-today"] });
@@ -317,6 +328,16 @@ export function PayrollGatePage() {
       setStage({ kind: "idle" });
       // 409 + repeatPunch: the server refused a scan that repeats one already
       // recorded. Refresh the board so the guard sees the punch that stands.
+      // 409 + faceConflict: the face beside the picked name is clearly somebody
+      // else's. Nothing was saved. Back to the photo step with everything as it
+      // was, so the guard can pick the right person or punch without teaching.
+      if (e instanceof ApiError && e.status === 409 && e.data?.faceConflict === true && method === "manual") {
+        setManualSelected({ employee, punchType });
+        setManualCapture(photo ? { photo, embedding } : null);
+        setManualError(e.message);
+        setManualOpen(true);
+        return;
+      }
       // Also 409 + expected: he is still inside from last night, so the punch
       // has to be an OUT. Said calmly — nothing went wrong, the board was stale.
       if (e instanceof ApiError && e.status === 409 && (e.data?.repeatPunch === true || e.data?.expected === "out")) {
@@ -357,11 +378,28 @@ export function PayrollGatePage() {
     }
   }
 
-  const manualFiltered = useMemo(() => {
+  // Everybody, fetched only when the list is actually opened. The gallery
+  // holds just the people a camera can match; a new joiner not yet enrolled is
+  // not in it, and used to be impossible to punch at the gate at all.
+  const namesQ = useQuery({
+    queryKey: ["payroll", "employee-names"],
+    queryFn: () => api<NameRow[]>("/api/payroll/employees/names"),
+    enabled: manualOpen,
+    staleTime: 5 * 60_000,
+  });
+  const notEnrolled = useMemo<GalleryEmployee[]>(
+    () =>
+      (namesQ.data ?? [])
+        .filter((n) => !empById.has(n.id))
+        .map((n) => ({ id: n.id, empCode: n.empCode, name: n.name, payType: n.payType, descriptors: [], photoUrl: null })),
+    [namesQ.data, empById],
+  );
+  const manualLists = useMemo(() => {
     const q = manualSearch.trim().toLowerCase();
-    const list = q ? gallery.filter((e) => e.name.toLowerCase().includes(q) || e.empCode.toLowerCase().includes(q)) : gallery;
-    return list.slice(0, 30);
-  }, [gallery, manualSearch]);
+    const hit = (e: GalleryEmployee) => !q || e.name.toLowerCase().includes(q) || e.empCode.toLowerCase().includes(q);
+    const known = gallery.filter(hit);
+    return { enrolled: known.slice(0, 30), others: notEnrolled.filter(hit).slice(0, Math.max(0, 30 - known.length)) };
+  }, [gallery, notEnrolled, manualSearch]);
 
   const busy = stage.kind === "matching" || stage.kind === "posting";
 
@@ -372,8 +410,13 @@ export function PayrollGatePage() {
    * never loaded, means there is no scan to fail, and until now that meant
    * nobody could be recorded at all.
    */
-  const scanImpossible = engineState === "failed" || cameraError !== null;
-  const openManual = () => { setStage({ kind: "idle" }); setManualCapture(null); setManualSearch(""); setManualOpen(true); };
+  const nobodyEnrolled = !galleryLoading && enrolled.length === 0;
+  const scanImpossible = engineState === "failed" || cameraError !== null || nobodyEnrolled;
+  const openManual = (reason: ManualReason) => {
+    setStage({ kind: "idle" }); setManualCapture(null); setManualSearch(""); setManualError(null);
+    setManualReason(reason); setManualOpen(true);
+  };
+  const whyNoScan: ManualReason = engineState === "failed" ? "engine_failed" : cameraError !== null ? "camera_blocked" : "not_enrolled";
 
   return (
     <div className="mx-auto max-w-3xl space-y-4 p-4 md:p-6">
@@ -402,7 +445,7 @@ export function PayrollGatePage() {
         <div className="card flex flex-wrap items-center gap-2 p-3 text-sm text-amber-800">
           <AlertTriangle size={15} />
           <span className="flex-1">Faces cannot be scanned right now. Attendance can still be recorded by name.</span>
-          <button className="btn-primary" onClick={openManual} disabled={galleryLoading}>
+          <button className="btn-primary" onClick={() => openManual(whyNoScan)} disabled={galleryLoading}>
             <UserSearch size={14} /> Record by name
           </button>
         </div>
@@ -474,7 +517,7 @@ export function PayrollGatePage() {
                 {/* Manual selection is the fallback after a failed scan only */}
                 <button
                   className="inline-flex items-center gap-1.5 rounded-md border border-white/40 px-3 py-1.5 text-[13px] text-white"
-                  onClick={openManual}
+                  onClick={() => openManual("no_match")}
                 >
                   <UserSearch size={14} /> Select manually
                 </button>
@@ -540,17 +583,22 @@ export function PayrollGatePage() {
       </div>
 
       {/* Manual selection */}
-      <Dialog open={manualOpen} onOpenChange={(o) => { setManualOpen(o); if (!o) { setManualSelected(null); setManualCapture(null); setManualSearch(""); } }}>
+      <Dialog open={manualOpen} onOpenChange={(o) => { setManualOpen(o); if (!o) { setManualSelected(null); setManualCapture(null); setManualSearch(""); setManualError(null); } }}>
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Manual punch</DialogTitle></DialogHeader>
           {!manualSelected ? (
             <>
               <input className="input" placeholder="Search name or code…" value={manualSearch} onChange={(e) => setManualSearch(e.target.value)} autoFocus />
               <div className="max-h-72 space-y-1 overflow-y-auto">
-                {manualFiltered.map((emp) => {
+                {[...manualLists.enrolled, ...manualLists.others].map((emp, i) => {
                   const next = suggestedType(emp.id);
+                  const firstOther = i === manualLists.enrolled.length;
                   return (
-                    <div key={emp.id} className="flex items-center gap-2 rounded p-2 hover:bg-gray-50">
+                    <Fragment key={emp.id}>
+                    {firstOther && (
+                      <div className="px-2 pb-1 pt-3 text-[11px] font-semibold uppercase text-gray-400">Not enrolled — no face on file</div>
+                    )}
+                    <div className="flex items-center gap-2 rounded p-2 hover:bg-gray-50">
                       <Avatar src={emp.photoUrl} name={emp.name} size="sm" />
                       <div className="min-w-0 flex-1 text-sm">
                         <div className="truncate font-medium">{emp.name}</div>
@@ -558,19 +606,44 @@ export function PayrollGatePage() {
                       </div>
                       <button
                         className={`btn-secondary ${next === "in" ? "!text-emerald-700" : "!text-brand-700"}`}
-                        onClick={() => { setManualSelected({ employee: emp, punchType: next }); setManualCapture(null); }}
+                        onClick={() => {
+                          setManualSelected({ employee: emp, punchType: next }); setManualCapture(null); setManualError(null);
+                          // Someone with no face on file could never have matched, whatever brought the list up.
+                          if (firstOther || i > manualLists.enrolled.length) setManualReason("not_enrolled");
+                        }}
                       >
                         {next === "in" ? <><LogIn size={13} /> In</> : <><LogOut size={13} /> Out</>}
                       </button>
                     </div>
+                    </Fragment>
                   );
                 })}
-                {manualFiltered.length === 0 && <p className="p-2 text-sm text-gray-400">No employees found</p>}
+                {manualLists.enrolled.length + manualLists.others.length === 0 && (
+                  <p className="p-2 text-sm text-gray-400">{namesQ.isLoading ? "Loading names…" : "No employees found"}</p>
+                )}
               </div>
             </>
           ) : (
             <div className="space-y-3">
-              <button type="button" className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800" onClick={() => { setManualSelected(null); setManualCapture(null); }}>
+              {manualError && (
+                <div className="rounded-md border border-red-300 bg-red-50 p-2 text-[13px] text-red-800">
+                  {manualError}
+                  <button
+                    type="button"
+                    className="mt-1 block underline"
+                    onClick={() => {
+                      const { employee, punchType } = manualSelected;
+                      const cap = manualCapture;
+                      setManualOpen(false); setManualSelected(null); setManualError(null);
+                      // The photograph stays as the record of who stood there; the face is not learned.
+                      void submitPunch(employee, punchType, "manual", null, cap?.photo ?? null, null, manualReason);
+                    }}
+                  >
+                    Punch {manualSelected.employee.name} without teaching
+                  </button>
+                </div>
+              )}
+              <button type="button" className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800" onClick={() => { setManualSelected(null); setManualCapture(null); setManualError(null); }}>
                 <ArrowLeft size={13} /> Change worker
               </button>
               <div className="flex items-center gap-2">
@@ -617,7 +690,8 @@ export function PayrollGatePage() {
                   const cap = manualCapture;
                   setManualOpen(false);
                   setManualSelected(null);
-                  void submitPunch(employee, punchType, "manual", null, cap?.photo ?? null, cap?.embedding ?? null);
+                  setManualError(null);
+                  void submitPunch(employee, punchType, "manual", null, cap?.photo ?? null, cap?.embedding ?? null, manualReason);
                 }}
               >
                 Confirm {manualSelected.punchType === "in" ? "In" : "Out"}

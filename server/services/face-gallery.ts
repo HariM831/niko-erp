@@ -26,7 +26,7 @@
  * is served and what is stored cannot drift apart and leave the gate matching
  * against vectors that are about to be deleted.
  */
-import { FACE_DIM } from "@shared/face";
+import { FACE_DIM, MATCH_MARGIN, MATCH_THRESHOLD, TEACH_OWN_FLOOR } from "@shared/face";
 import { isNotNull, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db";
 import { punches } from "@shared/schema";
@@ -161,4 +161,62 @@ export async function taughtCaptureCount(conn: Conn): Promise<number> {
     .from(punches)
     .where(isNotNull(punches.faceEmbedding));
   return row?.n ?? 0;
+}
+
+/* ── Whose face is this? ───────────────────────────────────────────────── */
+
+const cosine = (a: number[], b: number[]): number => {
+  if (a.length !== b.length) return 0;
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i]! * b[i]!;
+    na += a[i]! * a[i]!;
+    nb += b[i]! * b[i]!;
+  }
+  return na && nb ? dot / Math.sqrt(na * nb) : 0;
+};
+
+export interface CaptureVerdict {
+  /** Best score against the gallery of the person the capture is filed under. */
+  ownScore: number;
+  /** Somebody else this face clearly is, if there is one. */
+  lookalike: { id: string; name: string; empCode: string; score: number } | null;
+  /** Whether the capture may join that person's gallery. */
+  teach: boolean;
+}
+
+/**
+ * Judge a captured face against everybody's gallery before it is filed under
+ * one person.
+ *
+ * Two ways a capture is wrong for the name beside it. It can be somebody else:
+ * another person scores as a match would — over the threshold, and clear of the
+ * picked person by the same margin the gate demands of a match. Or it can be
+ * nobody: a face that resembles no one strongly passes that test untouched, and
+ * learned under the picked name it starts that person's gallery drifting toward
+ * a stranger. So it must also look at least somewhat like its owner.
+ *
+ * A gallery is the enrolment descriptor plus the taught captures — exactly what
+ * the gate matches against, so this agrees with what the guard just saw.
+ */
+export async function judgeCapture(conn: Conn, selectedId: string, embedding: number[]): Promise<CaptureVerdict> {
+  const people = await conn.execute(sql`
+    SELECT id, name, emp_code, face_descriptor
+      FROM employees
+     WHERE is_active AND (face_descriptor IS NOT NULL OR id = ${selectedId}::uuid)
+  `);
+  const taught = await taughtCapturesByEmployee(conn);
+  let ownScore = 0;
+  let best: CaptureVerdict["lookalike"] = null;
+  for (const p of people.rows as Array<{ id: string; name: string; emp_code: string; face_descriptor: number[] | null }>) {
+    const gallery = [...(isUsableEmbedding(p.face_descriptor) ? [p.face_descriptor] : []), ...(taught.get(p.id) ?? [])];
+    let score = 0;
+    for (const g of gallery) score = Math.max(score, cosine(embedding, g));
+    if (p.id === selectedId) ownScore = score;
+    else if (!best || score > best.score) best = { id: p.id, name: p.name, empCode: p.emp_code, score };
+  }
+  const lookalike = best && best.score >= MATCH_THRESHOLD && best.score - ownScore >= MATCH_MARGIN ? best : null;
+  return { ownScore, lookalike, teach: !lookalike && ownScore >= TEACH_OWN_FLOOR };
 }

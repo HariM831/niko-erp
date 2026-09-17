@@ -7,6 +7,12 @@
  * face failed, so `method = 'manual'` IS the failure rate — per person, per
  * hour, per day — and it has never been read.
  *
+ * Since Sep 2026 that "ONLY" has two exceptions, and the gate says which: a
+ * name may also be picked because the camera was refused or the face engine
+ * never loaded, or because the person has no enrolled face at all. None of
+ * those is recognition failing, so they are left out — `manual_reason` null or
+ * 'no_match' is what counts.
+ *
  * Read-only. No schema change, no new table, nothing written.
  *
  * One correction matters more than the rest. HR closing a forgotten punch-out
@@ -102,7 +108,7 @@ export async function buildFaceHealth(conn: Conn, days = 30): Promise<FaceHealth
     await conn.execute(sql`
       SELECT p.punch_date::text AS day,
              count(*)::int AS scans,
-             count(*) FILTER (WHERE p.method = 'manual')::int AS failures
+             count(*) FILTER (WHERE (p.method = 'manual' AND coalesce(p.manual_reason, 'no_match') = 'no_match'))::int AS failures
         FROM punches p
        WHERE ${window} AND NOT ${HR_RESOLVED}
        GROUP BY p.punch_date
@@ -114,7 +120,7 @@ export async function buildFaceHealth(conn: Conn, days = 30): Promise<FaceHealth
     await conn.execute(sql`
       SELECT EXTRACT(HOUR FROM p.punched_at AT TIME ZONE 'Asia/Kolkata')::int AS hour,
              count(*)::int AS scans,
-             count(*) FILTER (WHERE p.method = 'manual')::int AS failures
+             count(*) FILTER (WHERE (p.method = 'manual' AND coalesce(p.manual_reason, 'no_match') = 'no_match'))::int AS failures
         FROM punches p
        WHERE ${window} AND NOT ${HR_RESOLVED}
        GROUP BY 1 ORDER BY 1
@@ -135,7 +141,7 @@ export async function buildFaceHealth(conn: Conn, days = 30): Promise<FaceHealth
     await conn.execute(sql`
       SELECT e.name, e.emp_code AS "empCode",
              count(*)::int AS scans,
-             count(*) FILTER (WHERE p.method = 'manual')::int AS failures,
+             count(*) FILTER (WHERE (p.method = 'manual' AND coalesce(p.manual_reason, 'no_match') = 'no_match'))::int AS failures,
              (SELECT count(DISTINCT c.punch_date)::int FROM punches c
                WHERE c.employee_id = e.id AND c.face_embedding IS NOT NULL) AS taught,
              (e.face_descriptor IS NOT NULL) AS enrolled,
@@ -144,8 +150,8 @@ export async function buildFaceHealth(conn: Conn, days = 30): Promise<FaceHealth
         JOIN employees e ON e.id = p.employee_id
        WHERE ${window} AND NOT ${HR_RESOLVED}
        GROUP BY e.id, e.name, e.emp_code, e.face_descriptor, e.face_enrolled_at
-      HAVING count(*) FILTER (WHERE p.method = 'manual') > 0
-       ORDER BY count(*) FILTER (WHERE p.method = 'manual') DESC, count(*) DESC
+      HAVING count(*) FILTER (WHERE (p.method = 'manual' AND coalesce(p.manual_reason, 'no_match') = 'no_match')) > 0
+       ORDER BY count(*) FILTER (WHERE (p.method = 'manual' AND coalesce(p.manual_reason, 'no_match') = 'no_match')) DESC, count(*) DESC
        LIMIT 25
     `)
   ).rows as Array<{

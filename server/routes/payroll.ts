@@ -32,7 +32,7 @@ import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { REPEAT_PUNCH_WINDOW_MS } from "./device";
 import { photoThumbnail, photoThumbnails } from "../services/photo";
-import { isUsableEmbedding, roundEmbedding, taughtCapturesByEmployee } from "../services/face-gallery";
+import { isUsableEmbedding, judgeCapture, roundEmbedding, taughtCapturesByEmployee } from "../services/face-gallery";
 import { adviseOn, buildFaceHealth, formatFaceHealth } from "../services/face-health";
 import { looseNumber, nonBlank, timeOfDay, validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
@@ -476,6 +476,31 @@ payrollRouter.get("/employees", view, async (req, res) => {
  * are large enough on their own.
  */
 /**
+ * Everybody active, by name — for the gate when a face cannot decide it.
+ *
+ * The gallery only carries people with an enrolled face, because it is what
+ * the camera matches against. But the name list drew from it too, so a new
+ * joiner not yet enrolled could not be punched at the gate at all: his scan
+ * fails, and he is not on the list that follows. No photographs and no vectors
+ * here — a few kilobytes — and a route of its own because the gallery is a
+ * cursor of changes, in which someone without a face is a deletion.
+ */
+payrollRouter.get("/employees/names", gatePerm, async (_req, res) => {
+  const rows = await db
+    .select({
+      id: employees.id,
+      empCode: employees.empCode,
+      name: employees.name,
+      payType: employees.payType,
+      hasFace: sql<boolean>`${employees.faceDescriptor} IS NOT NULL`,
+    })
+    .from(employees)
+    .where(eq(employees.isActive, true))
+    .orderBy(asc(employees.empCode));
+  res.json(rows);
+});
+
+/**
  * How often the camera fails, out of rows already stored.
  *
  * Read-only, and deliberately reachable from a browser rather than only from
@@ -815,6 +840,15 @@ class RepeatPunch extends Error {}
 /** The next punch has to close last night's shift; an entry would orphan it. */
 class NightShiftOpen extends Error {}
 
+/** The face captured beside a hand-picked name is clearly somebody else's. */
+class FaceConflict extends Error {
+  constructor(message: string, readonly matched: { id: string; name: string; empCode: string }) {
+    super(message);
+  }
+}
+
+const MANUAL_REASONS = ["no_match", "engine_failed", "camera_blocked", "not_enrolled"] as const;
+
 const punchBody = z.object({
   employeeId: z.string().uuid(),
   type: z.enum(["in", "out"]).optional(),
@@ -836,6 +870,12 @@ const punchBody = z.object({
    * nothing to teach from.
    */
   faceEmbedding: z.array(z.number()).nullish(),
+  /**
+   * Why a name was picked by hand. "The camera was refused" and "the face did
+   * not match" are different problems, and the face-failure report counted
+   * both as the face failing.
+   */
+  manualReason: z.enum(MANUAL_REASONS).nullish(),
 });
 
 payrollRouter.post("/punches", gatePerm, validateBody(punchBody), async (req, res) => {
@@ -843,11 +883,35 @@ payrollRouter.post("/punches", gatePerm, validateBody(punchBody), async (req, re
   try {
     const out = await db.transaction(async (tx) => {
       const [emp] = await tx
-        .select({ id: employees.id, isActive: employees.isActive, payType: employees.payType })
+        .select({ id: employees.id, name: employees.name, isActive: employees.isActive, payType: employees.payType })
         .from(employees)
         .where(eq(employees.id, b.employeeId));
       if (!emp) throw new PostingError("No such employee");
       if (!emp.isActive) throw new PostingError("This employee is inactive");
+
+      // Whose face is it? A name picked by hand with somebody else's face
+      // beside it is refused — the guard picks again, or punches without
+      // teaching. A scan that matched is never refused for this: the person is
+      // at the gate and the punch is real; at worst the capture is not learned.
+      // If the judging itself fails, the punch still stands, untaught.
+      let teach = false;
+      if (isUsableEmbedding(b.faceEmbedding)) {
+        let verdict: Awaited<ReturnType<typeof judgeCapture>> | null = null;
+        try {
+          verdict = await judgeCapture(tx, emp.id, b.faceEmbedding);
+        } catch (e) {
+          console.error("[faces] could not judge a capture; punching without teaching:", e);
+        }
+        if (verdict?.lookalike && b.method === "manual") {
+          const l = verdict.lookalike;
+          throw new FaceConflict(
+            `This face looks like ${l.name} (${l.empCode}), not ${emp.name}. Pick the correct worker, or punch ${emp.name} without teaching.`,
+            l,
+          );
+        }
+        // A scan the gate matched has already proved it looks like its owner.
+        teach = verdict ? (b.method === "manual" ? verdict.teach : !verdict.lookalike) : false;
+      }
       const today = istDate();
       const [last] = await tx
         .select({ type: punches.type, punchedAt: punches.punchedAt })
@@ -889,17 +953,19 @@ payrollRouter.post("/punches", gatePerm, validateBody(punchBody), async (req, re
           longitude: b.longitude ?? null,
           accuracyM: b.accuracyM ?? null,
           photoUrl: keepPhoto ? (b.photoUrl ?? null) : null,
-          faceEmbedding: isUsableEmbedding(b.faceEmbedding) ? roundEmbedding(b.faceEmbedding) : null,
+          faceEmbedding: teach && isUsableEmbedding(b.faceEmbedding) ? roundEmbedding(b.faceEmbedding) : null,
+          manualReason: b.method === "manual" ? (b.manualReason ?? null) : null,
           markedBy: req.session.user!.id,
         })
         .returning();
       const day = await recomputeEmployeeDay(tx, b.employeeId, punchDay);
-      return { ...punch!, status: day?.status ?? null, workedHours: day?.workedHours ?? 0, nightShift: !!carry };
+      return { ...punch!, status: day?.status ?? null, workedHours: day?.workedHours ?? 0, nightShift: !!carry, taught: teach };
     });
     res.status(201).json(out);
   } catch (err) {
     if (err instanceof RepeatPunch) return res.status(409).json({ error: err.message, repeatPunch: true });
     if (err instanceof NightShiftOpen) return res.status(409).json({ error: err.message, expected: "out" });
+    if (err instanceof FaceConflict) return res.status(409).json({ error: err.message, faceConflict: true, matchedEmployee: err.matched });
     if (!fail(err, res)) throw err;
   }
 });

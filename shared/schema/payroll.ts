@@ -258,6 +258,8 @@ export const punches = pgTable(
     clientId: varchar("client_id", { length: 64 }).unique(),
     markedBy: uuid("marked_by").references(() => users.id),
     /** HR closed a forgotten punch-out. */
+    /** Why a name was picked by hand: no_match | engine_failed | camera_blocked | not_enrolled. */
+    manualReason: varchar("manual_reason", { length: 20 }),
     resolvedBy: uuid("resolved_by").references(() => users.id),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     resolutionNote: text("resolution_note"),
