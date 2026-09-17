@@ -16,7 +16,7 @@ import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { attendanceDays, employees, holidays, leaveApplications, payrollSettings } from "@shared/schema";
 import type { Db, Tx } from "../db";
 import { PostingError } from "./posting";
-import { addDays, buildHolidayMap, istDate, isWeeklyOff, loadContext, recomputeRange, shiftForDate } from "./day-resolution";
+import { addDays, assignmentForDate, buildHolidayMap, istDate, isWeeklyOff, loadContext, recomputeRange } from "./day-resolution";
 
 type Conn = Tx | Db;
 
@@ -109,7 +109,11 @@ async function compOffEarnedDays(tx: Conn, emp: typeof employees.$inferSelect, y
   const ctx = await loadContext(tx, from, to, [emp.id]);
   return rows
     .map((r) => r.day)
-    .filter((d) => hmap.has(d) || isWeeklyOff(d, shiftForDate(d, ctx.assignmentsByEmp.get(emp.id) ?? [], ctx.shiftById)))
+    .filter((d) => {
+      if (hmap.has(d)) return true;
+      const a = assignmentForDate(d, ctx.assignmentsByEmp.get(emp.id) ?? []);
+      return isWeeklyOff(d, a ? ctx.shiftById.get(a.shiftId) : undefined, a?.weeklyOffDays);
+    })
     .sort();
 }
 

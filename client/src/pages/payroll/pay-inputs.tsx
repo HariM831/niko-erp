@@ -1,12 +1,16 @@
 /**
- * Pay inputs — bonus, overtime, reimbursement and deduction in ONE table
- * (Amino had four pages; the four kinds differ only in two form fields).
+ * Pay inputs — bonus, overtime, reimbursement, deduction and arrears in ONE
+ * table (Amino had five pages; the kinds differ only in a few form fields).
  * Approved rows are picked up by the month's payroll run and marked paid.
  *
- * Below it, Advances: money already handed over, recovered EMI-first by the
- * run, with a manual repayment path for cash paid back outside payroll.
+ * Arrears are late salary: days earned in one month and paid in a later one.
+ * The amount is what that month's slip would have been, worked out by the
+ * server with the run's own arithmetic, not typed from memory.
+ *
+ * Below it, Advances: money already handed over, recovered by the run and by
+ * nothing else. What a month takes is the EMI, so the EMI is what HR changes.
  */
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { api, formatMoney } from "../../api";
@@ -16,9 +20,11 @@ import {
   num, statusTone, useErr, useMonth, usePaged,
 } from "../../components/payroll/ui";
 
-type Kind = "bonus" | "overtime" | "reimbursement" | "deduction";
-const KINDS: Kind[] = ["bonus", "overtime", "reimbursement", "deduction"];
-const KIND_LABEL: Record<Kind, string> = { bonus: "Bonus", overtime: "Overtime", reimbursement: "Reimbursement", deduction: "Deduction" };
+type Kind = "bonus" | "overtime" | "reimbursement" | "deduction" | "arrears";
+const KINDS: Kind[] = ["bonus", "overtime", "reimbursement", "deduction", "arrears"];
+const KIND_LABEL: Record<Kind, string> = { bonus: "Bonus", overtime: "Overtime", reimbursement: "Reimbursement", deduction: "Deduction", arrears: "Arrears" };
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const monthName = (m: number, y: number) => `${MONTHS[m - 1]} ${y}`;
 const BONUS_CATEGORIES = ["festival", "performance", "referral", "retention", "other"];
 const EXPENSE_CATEGORIES = ["travel", "food", "accommodation", "communication", "medical", "other"];
 
@@ -33,10 +39,22 @@ interface PayInput {
   amount: number | string;
   hours: number | null;
   ratePerHour: number | string | null;
+  earnedMonth: number | null;
+  earnedYear: number | null;
+  days: number | null;
   category: string | null;
   description: string | null;
   status: "pending" | "approved" | "rejected" | "paid";
   approvedAmount: number | string | null;
+}
+interface ArrearsSuggestion {
+  days: number;
+  totalDays: number;
+  amount: number;
+  monthly: number | null;
+  working: string;
+  dateOfJoining: string | null;
+  existingSlip: { paidDays: number; netPay: number; status: string } | null;
 }
 interface Advance {
   id: string;
@@ -88,14 +106,14 @@ export function PayrollPayInputsPage() {
   const rows = listQ.data ?? [];
   const paged = usePaged(rows);
   const totals = useMemo(() => {
-    const t: Record<Kind, number> = { bonus: 0, overtime: 0, reimbursement: 0, deduction: 0 };
+    const t: Record<Kind, number> = { bonus: 0, overtime: 0, reimbursement: 0, deduction: 0, arrears: 0 };
     for (const r of rows) if (r.status === "approved" || r.status === "paid") t[r.kind] += Number(r.approvedAmount ?? r.amount);
     return t;
   }, [rows]);
 
   return (
     <div className="p-4 md:p-6">
-      <PageHeader title="Pay inputs" sub="Bonus, overtime, reimbursement and deduction — approved rows flow into the month's run.">
+      <PageHeader title="Pay inputs" sub="Bonus, overtime, reimbursement, deduction and arrears — approved rows flow into the month's run.">
         <button className="btn-primary" onClick={() => setAddOpen(true)}><Plus size={14} /> Add input</button>
       </PageHeader>
       <ErrorBanner message={err} onClose={() => setErr(null)} />
@@ -114,7 +132,7 @@ export function PayrollPayInputsPage() {
           <option value="paid">Paid</option>
         </select>
         <span className="ml-auto text-[12px] tabular-nums text-gray-500">
-          Approved: +{formatMoney(totals.bonus + totals.overtime + totals.reimbursement)} · −{formatMoney(totals.deduction)}
+          Approved: +{formatMoney(totals.bonus + totals.overtime + totals.reimbursement + totals.arrears)} · −{formatMoney(totals.deduction)}
         </span>
       </div>
 
@@ -135,6 +153,9 @@ export function PayrollPayInputsPage() {
                   <Td><Badge tone={r.kind === "deduction" ? "red" : "blue"}>{KIND_LABEL[r.kind]}</Badge></Td>
                   <Td className="max-w-[280px] truncate" title={r.description ?? undefined}>
                     {r.kind === "overtime" && r.hours != null && <span className="tabular-nums">{num(r.hours, 1)} h × {formatMoney(r.ratePerHour ?? 0)} · </span>}
+                    {r.kind === "arrears" && r.earnedMonth && r.earnedYear && (
+                      <span className="tabular-nums">earned {monthName(r.earnedMonth, r.earnedYear)}{r.days != null ? ` · ${num(r.days, 1)} day(s)` : ""} · </span>
+                    )}
                     {r.category && <span className="capitalize">{r.category} · </span>}
                     {r.description ?? ""}
                   </Td>
@@ -193,8 +214,39 @@ function AddInputDialog({ year, month, onClose, onSaved }: { year: number; month
   const { err, setErr, fail } = useErr();
   const [form, setForm] = useState({
     employeeId: "", kind: "bonus" as Kind, amount: "", hours: "", ratePerHour: "", category: "", description: "",
+    earned: "", days: "",
   });
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  // Arrears: the month before the one paying is the latest a day can have been
+  // earned in, and the usual answer, so it is where the picker starts.
+  const lastEarnable = month === 1 ? `${year - 1}-12` : `${year}-${String(month - 1).padStart(2, "0")}`;
+  const isArrears = form.kind === "arrears";
+  const earnedYear = Number(form.earned.slice(0, 4)) || 0;
+  const earnedMonth = Number(form.earned.slice(5, 7)) || 0;
+  useEffect(() => {
+    if (isArrears && !form.earned) set("earned", lastEarnable);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isArrears]);
+
+  const suggestQ = useQuery({
+    queryKey: ["payroll", "arrears-suggest", form.employeeId, form.earned],
+    enabled: isArrears && !!form.employeeId && !!form.earned,
+    queryFn: () => api<ArrearsSuggestion>(`/api/payroll/arrears/suggest?employeeId=${form.employeeId}&earnedMonth=${earnedMonth}&earnedYear=${earnedYear}`),
+  });
+  const suggestion = suggestQ.data;
+  // What attendance says fills the form; after that the figures are HR's to
+  // change, because a closed month's attendance can still be corrected.
+  useEffect(() => {
+    if (suggestion) setForm((f) => ({ ...f, days: String(suggestion.days), amount: String(suggestion.amount) }));
+  }, [suggestion]);
+  const setDays = (v: string) => {
+    setForm((f) => {
+      const next = { ...f, days: v };
+      if (suggestion?.monthly != null && v !== "") next.amount = String(Math.round(((suggestion.monthly * Number(v)) / suggestion.totalDays) * 100) / 100);
+      return next;
+    });
+  };
 
   const otAmount = (Number(form.hours) || 0) * (Number(form.ratePerHour) || 0);
   const amount = form.kind === "overtime" ? otAmount : Number(form.amount) || 0;
@@ -212,6 +264,7 @@ function AddInputDialog({ year, month, onClose, onSaved }: { year: number; month
         ratePerHour: form.kind === "overtime" ? Number(form.ratePerHour) || 0 : null,
         category: form.kind === "bonus" || form.kind === "reimbursement" ? form.category || null : null,
         description: form.description.trim() || null,
+        ...(isArrears && { earnedMonth, earnedYear, days: form.days === "" ? undefined : Number(form.days) }),
       },
     }),
     onSuccess: () => { onSaved(); onClose(); },
@@ -246,6 +299,43 @@ function AddInputDialog({ year, month, onClose, onSaved }: { year: number; month
               </Field>
               <div className="col-span-2 text-[12px] text-gray-500">Amount: <strong className="tabular-nums">{formatMoney(otAmount)}</strong></div>
             </div>
+          ) : isArrears ? (
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Earned in" required hint={suggestion?.dateOfJoining ? `Joined ${dmy(suggestion.dateOfJoining)}` : undefined} className="col-span-2">
+                <input
+                  type="month"
+                  className="input tabular-nums"
+                  max={lastEarnable}
+                  min={suggestion?.dateOfJoining?.slice(0, 7)}
+                  value={form.earned}
+                  onChange={(e) => set("earned", e.target.value)}
+                />
+              </Field>
+              <Field label="Days" hint={suggestion?.monthly == null ? undefined : "Changing this re-works the amount"}>
+                <input type="number" step="0.5" className="input tabular-nums" value={form.days} onChange={(e) => setDays(e.target.value)} />
+              </Field>
+              <Field label="Amount" required>
+                <input type="number" className="input tabular-nums" value={form.amount} onChange={(e) => set("amount", e.target.value)} />
+              </Field>
+              {suggestQ.isFetching && <div className="col-span-2 text-[12px] text-gray-500">Working out what that month earned…</div>}
+              {suggestion && (
+                <div className="col-span-2 text-[12px] text-gray-500">
+                  Attendance says <strong className="tabular-nums">{suggestion.working} = {formatMoney(suggestion.amount)}</strong>
+                  {(Number(form.days) !== suggestion.days || Number(form.amount) !== suggestion.amount) && (
+                    <button type="button" className="ml-2 underline" onClick={() => setForm((f) => ({ ...f, days: String(suggestion.days), amount: String(suggestion.amount) }))}>
+                      Reset
+                    </button>
+                  )}
+                </div>
+              )}
+              {suggestion?.existingSlip && (
+                <div className="col-span-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-[12px] text-amber-900">
+                  {monthName(earnedMonth, earnedYear)} already has a payslip for this person — {num(suggestion.existingSlip.paidDays, 1)} paid day(s),
+                  net {formatMoney(suggestion.existingSlip.netPay)} ({suggestion.existingSlip.status}). Arrears on top of it pay those days a second time
+                  unless they were left out of that slip.
+                </div>
+              )}
+            </div>
           ) : (
             <Field label="Amount" required>
               <input type="number" className="input tabular-nums" value={form.amount} onChange={(e) => set("amount", e.target.value)} />
@@ -265,7 +355,7 @@ function AddInputDialog({ year, month, onClose, onSaved }: { year: number; month
         </div>
         <div className="mt-4 flex justify-end gap-2">
           <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" disabled={save.isPending || !form.employeeId || amount <= 0} onClick={() => save.mutate()}>Add</button>
+          <button className="btn-primary" disabled={save.isPending || !form.employeeId || amount <= 0 || (isArrears && !form.earned)} onClick={() => save.mutate()}>Add</button>
         </div>
       </DialogContent>
     </Dialog>
@@ -278,7 +368,7 @@ function AdvancesSection() {
   const { err, setErr, fail } = useErr();
   const [status, setStatus] = useState("active");
   const [addOpen, setAddOpen] = useState(false);
-  const [repayFor, setRepayFor] = useState<Advance | null>(null);
+  const [recoveryFor, setRecoveryFor] = useState<Advance | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const listQ = useQuery({
@@ -333,7 +423,7 @@ function AdvancesSection() {
                     <Td right onClick={undefined}>
                       {a.status === "active" && (
                         <span className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                          <button className="btn-ghost" onClick={() => setRepayFor(a)}>Repay</button>
+                          <button className="btn-ghost" onClick={() => setRecoveryFor(a)}>Recovery</button>
                           <button className="btn-ghost text-red-600" onClick={() => cancel.mutate(a.id)}>Cancel</button>
                         </span>
                       )}
@@ -363,7 +453,7 @@ function AdvancesSection() {
       </div>
 
       {addOpen && <GiveAdvanceDialog onClose={() => setAddOpen(false)} onSaved={invalidate} />}
-      {repayFor && <RepayDialog advance={repayFor} onClose={() => setRepayFor(null)} onSaved={invalidate} />}
+      {recoveryFor && <RecoveryDialog advance={recoveryFor} onClose={() => setRecoveryFor(null)} onSaved={invalidate} />}
     </div>
   );
 }
@@ -408,41 +498,94 @@ function GiveAdvanceDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
   );
 }
 
-function RepayDialog({ advance, onClose, onSaved }: { advance: Advance; onClose: () => void; onSaved: () => void }) {
+/**
+ * How an advance comes back. The run takes the EMI each month — capped at the
+ * balance and at the pay — and nothing else records a repayment, so this one
+ * figure is the whole of HR's say: less this month, nothing this month, or the
+ * lot at the next run. The schedule underneath is what the figure implies,
+ * redrawn as it is typed; it is derived, never stored.
+ */
+function RecoveryDialog({ advance, onClose, onSaved }: { advance: Advance; onClose: () => void; onSaved: () => void }) {
   const { err, setErr, fail } = useErr();
-  const t = istToday();
-  const [form, setForm] = useState({ amount: "", month: Number(t.slice(5, 7)), year: Number(t.slice(0, 4)), notes: "" });
+  const outstanding = Number(advance.outstanding);
+  const [emi, setEmi] = useState(String(Number(advance.emiAmount)));
+  const emiNum = Number(emi) || 0;
   const save = useMutation({
-    mutationFn: () => api(`/api/payroll/advances/${advance.id}/repay`, {
-      method: "POST",
-      body: { amount: Number(form.amount), month: form.month, year: form.year, notes: form.notes.trim() || null },
-    }),
+    mutationFn: () => api(`/api/payroll/advances/${advance.id}`, { method: "PATCH", body: { emiAmount: emiNum } }),
     onSuccess: () => { onSaved(); onClose(); },
     onError: fail,
   });
+
+  const schedule = useMemo(() => {
+    const rows: { label: string; take: number; left: number }[] = [];
+    const t = istToday();
+    let y = Number(t.slice(0, 4));
+    let m = Number(t.slice(5, 7));
+    let left = outstanding;
+    while (emiNum > 0 && left > 0.005 && rows.length < 60) {
+      const take = Math.min(emiNum, left);
+      left = Math.round((left - take) * 100) / 100;
+      rows.push({ label: monthName(m, y), take, left });
+      if (++m > 12) { m = 1; y++; }
+    }
+    return rows;
+  }, [emiNum, outstanding]);
+
+  const tooMuch = emiNum > outstanding + 0.005;
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader><DialogTitle>Manual repayment · {who(advance)}</DialogTitle></DialogHeader>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>Recovery · {who(advance)}</DialogTitle></DialogHeader>
         <ErrorBanner message={err} onClose={() => setErr(null)} />
-        <div className="mb-2 text-[13px] text-gray-600">Outstanding <strong className="tabular-nums">{formatMoney(advance.outstanding)}</strong></div>
-        <div className="grid grid-cols-3 gap-2">
-          <Field label="Amount" required className="col-span-3">
-            <input type="number" className="input tabular-nums" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
-          </Field>
-          <Field label="Month">
-            <input type="number" min={1} max={12} className="input tabular-nums" value={form.month} onChange={(e) => setForm({ ...form, month: Number(e.target.value) })} />
-          </Field>
-          <Field label="Year">
-            <input type="number" className="input tabular-nums" value={form.year} onChange={(e) => setForm({ ...form, year: Number(e.target.value) })} />
-          </Field>
-          <Field label="Notes" className="col-span-3">
-            <input className="input" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="e.g. paid in cash" />
-          </Field>
+        <div className="mb-3 grid grid-cols-3 gap-2 text-[13px]">
+          <div><div className="text-[11px] text-gray-500">Given</div><strong className="tabular-nums">{formatMoney(advance.amount)}</strong></div>
+          <div><div className="text-[11px] text-gray-500">Recovered</div><strong className="tabular-nums">{formatMoney(Number(advance.amount) - outstanding)}</strong></div>
+          <div><div className="text-[11px] text-gray-500">Outstanding</div><strong className="tabular-nums">{formatMoney(outstanding)}</strong></div>
         </div>
+
+        <Field label="Monthly EMI" hint="What each payroll run takes. Nil skips the month.">
+          <div className="flex gap-2">
+            <input type="number" min={0} className="input tabular-nums" value={emi} onChange={(e) => setEmi(e.target.value)} />
+            <button type="button" className="btn-secondary whitespace-nowrap" onClick={() => setEmi(String(outstanding))}>Clear full balance next run</button>
+          </div>
+        </Field>
+        {tooMuch && <div className="mt-1 text-[12px] text-red-600">Only {formatMoney(outstanding)} is outstanding.</div>}
+
+        <div className="mt-3 text-[12px] text-gray-500">
+          {emiNum <= 0
+            ? "Nothing will be recovered until an EMI is set."
+            : `Clears in ${schedule.length}${schedule.length === 60 ? "+" : ""} run(s), if the pay covers it each month.`}
+        </div>
+        {schedule.length > 0 && (
+          <div className="mt-1 max-h-40 overflow-y-auto rounded-md border border-gray-200">
+            <table className="w-full text-[12px] tabular-nums">
+              <tbody>
+                {schedule.map((r) => (
+                  <tr key={r.label} className="border-b border-gray-100 last:border-0">
+                    <td className="px-2 py-1">{r.label}</td>
+                    <td className="px-2 py-1 text-right">{formatMoney(r.take)}</td>
+                    <td className="px-2 py-1 text-right text-gray-500">{formatMoney(r.left)} left</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {advance.repayments.length > 0 && (
+          <div className="mt-3">
+            <div className="mb-1 text-[11px] text-gray-500">Recovered so far</div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[12px] tabular-nums text-gray-600">
+              {advance.repayments.map((r) => (
+                <span key={r.id}>{monthName(r.month, r.year)}: {formatMoney(r.amount)}{r.payrollRunId ? "" : " (manual)"}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="mt-4 flex justify-end gap-2">
           <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" disabled={save.isPending || !(Number(form.amount) > 0)} onClick={() => save.mutate()}>Record repayment</button>
+          <button className="btn-primary" disabled={save.isPending || tooMuch || emiNum < 0 || emiNum === Number(advance.emiAmount)} onClick={() => save.mutate()}>Save EMI</button>
         </div>
       </DialogContent>
     </Dialog>

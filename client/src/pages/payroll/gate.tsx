@@ -319,6 +319,14 @@ export function PayrollGatePage() {
     setCapturing(true);
     try {
       const photo = frameToDataUrl(video);
+      // With the face engine down there is nothing to check the frame with and
+      // nothing to learn from it. The picture is still worth keeping: it is the
+      // only record of who stood at the gate when a name was picked by hand.
+      if (engineState !== "ready") {
+        setManualCapture({ photo, embedding: null });
+        setErr(null);
+        return;
+      }
       const face = await getFaceEmbedding(video);
       if (!face.ok) { setManualCapture(null); setErr("No face detected — face the camera in good light and capture again."); return; }
       if (looksSpoofed(face)) { setManualCapture(null); setErr("That looks like a photo or a screen, not a live face."); return; }
@@ -341,6 +349,16 @@ export function PayrollGatePage() {
 
   const busy = stage.kind === "matching" || stage.kind === "posting";
 
+  /**
+   * The name list is the fallback after a failed scan, and stays that way
+   * while a scan is possible — picking a name must never be the quick way
+   * through the gate. But a camera the browser refuses, or a face engine that
+   * never loaded, means there is no scan to fail, and until now that meant
+   * nobody could be recorded at all.
+   */
+  const scanImpossible = engineState === "failed" || cameraError !== null;
+  const openManual = () => { setStage({ kind: "idle" }); setManualCapture(null); setManualSearch(""); setManualOpen(true); };
+
   return (
     <div className="mx-auto max-w-3xl space-y-4 p-4 md:p-6">
       <PageHeader title="Gate" sub="Point the camera at the worker and tap Scan.">
@@ -362,6 +380,15 @@ export function PayrollGatePage() {
       {engineState === "failed" && (
         <div className="card flex items-center gap-2 p-3 text-sm text-red-600">
           <AlertTriangle size={15} /> Face engine failed to load. Check internet and reload the page.
+        </div>
+      )}
+      {scanImpossible && (
+        <div className="card flex flex-wrap items-center gap-2 p-3 text-sm text-amber-800">
+          <AlertTriangle size={15} />
+          <span className="flex-1">Faces cannot be scanned right now. Attendance can still be recorded by name.</span>
+          <button className="btn-primary" onClick={openManual} disabled={galleryLoading}>
+            <UserSearch size={14} /> Record by name
+          </button>
         </div>
       )}
 
@@ -431,7 +458,7 @@ export function PayrollGatePage() {
                 {/* Manual selection is the fallback after a failed scan only */}
                 <button
                   className="inline-flex items-center gap-1.5 rounded-md border border-white/40 px-3 py-1.5 text-[13px] text-white"
-                  onClick={() => { setStage({ kind: "idle" }); setManualCapture(null); setManualSearch(""); setManualOpen(true); }}
+                  onClick={openManual}
                 >
                   <UserSearch size={14} /> Select manually
                 </button>
@@ -548,7 +575,7 @@ export function PayrollGatePage() {
                   </div>
                 )}
                 <div className="flex items-center gap-2">
-                  <button className="btn-secondary flex-1" onClick={() => void captureManualPhoto()} disabled={capturing || !cameraOn || engineState !== "ready"}>
+                  <button className="btn-secondary flex-1" onClick={() => void captureManualPhoto()} disabled={capturing || !cameraOn || engineState === "loading"}>
                     {capturing ? <Loader2 size={14} className="animate-spin" /> : <Camera size={14} />}
                     {manualCapture ? "Retake photo" : "Take photo"}
                   </button>

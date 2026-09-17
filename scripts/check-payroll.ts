@@ -14,6 +14,13 @@
  *   confirm:   the journal is balanced with exactly the plan's lines;
  *              a confirmed run refuses deletion and reprocessing
  *   delete:    a draft run deletes clean, advance outstanding restored
+ *   catch-up:  (August, its own people) a leaver switched off mid-month still
+ *              gets his final slip, and nothing after his last day is paid
+ *              whoever wrote the row; nobody gets an empty slip; money waiting
+ *              on a slip that never came is an exception; a personal weekly
+ *              off beats the shift's; the EMI ignores a hand-entered
+ *              repayment; arrears ride in outside the PF base and are not paid
+ *              twice by a reprocess
  *
  * Run: npx tsx scripts/check-payroll.ts
  */
@@ -37,9 +44,9 @@ import {
   wageRoles,
 } from "@shared/schema";
 import { db } from "../server/db";
-import { addDays, istDate, recomputeRange } from "../server/services/day-resolution";
+import { addDays, emptyTotals, istDate, monthTotals, recomputeRange } from "../server/services/day-resolution";
 import { applyLeave, approveLeave, leaveBalance } from "../server/services/leave";
-import { advanceOutstanding, confirmRun, deleteDraftRun, processRun, runExceptions } from "../server/services/payroll";
+import { advanceOutstanding, confirmRun, deleteDraftRun, earnedFor, processRun, runExceptions } from "../server/services/payroll";
 
 let failures = 0;
 const ok = (label: string, cond: boolean, detail = "") => {
@@ -71,7 +78,10 @@ try {
     // Everyone real goes inactive (rolled back), the real holiday calendar
     // goes blank, and the settings become the known statutory numbers — so
     // every figure below is arithmetic, not archaeology.
-    await tx.update(employees).set({ isActive: false });
+    // Inactive is no longer enough to keep someone out of a month: a leaver
+    // switched off since is still on the rolls of the month he left in. So the
+    // real people are also moved out of the year being tested.
+    await tx.update(employees).set({ isActive: false, dateOfLeaving: "2025-12-31" });
     await tx.delete(holidays);
     await tx.update(payrollSettings).set({
       pfEmployeePct: 12,
@@ -92,8 +102,8 @@ try {
       slPerMonth: 0.5,
       compOffValidityDays: 45,
     });
-    await tx.execute(sql`DELETE FROM salary_slips WHERE payroll_run_id IN (SELECT id FROM payroll_runs WHERE year = 2026 AND month IN (6, 7))`);
-    await tx.execute(sql`DELETE FROM payroll_runs WHERE year = 2026 AND month IN (6, 7)`);
+    await tx.execute(sql`DELETE FROM salary_slips WHERE payroll_run_id IN (SELECT id FROM payroll_runs WHERE year = 2026 AND month IN (6, 7, 8))`);
+    await tx.execute(sql`DELETE FROM payroll_runs WHERE year = 2026 AND month IN (6, 7, 8)`);
     // A database seeded before the payroll chart hooks may be missing some of
     // the system keys the run posts to; give it scratch accounts (rolled back
     // with everything else) so the journal test is about the journal.
@@ -369,6 +379,117 @@ try {
     ok("its slips went with it", (await tx.select().from(salarySlips).where(eq(salarySlips.payrollRunId, june.id))).length === 0);
     ok("the advance outstanding walked back", approx(await advanceOutstanding(tx, adv!.id), 38032.63));
 
+    /* ── Catching up with Amino: August, and people of its own ─────────── */
+    console.log("\n  leavers, weekly off, EMI, arrears\n");
+    // July's two step aside, so August's arithmetic is only August's people.
+    await tx.update(employees).set({ isActive: false, dateOfLeaving: "2026-07-31" }).where(inArray(employees.id, [sal!.id, wage!.id]));
+    // Everyone is salaried on ₹31,000 basic and nothing else, so a paid day in
+    // a 31-day month is ₹1,000 and every figure below can be read off.
+    const person = async (empCode: string, extra: Partial<typeof employees.$inferInsert>) => {
+      const [row] = await tx
+        .insert(employees)
+        .values({ empCode, name: `ZZ Check ${empCode}`, payType: "salaried", basicSalary: "31000.00", hra: "0", allowances: "0", pfEnabled: false, esiEnabled: false, ...extra })
+        .returning();
+      return row!;
+    };
+    const mark = (employeeId: string, day: string, status: "P" | "WO", source: "manual" | "import") =>
+      tx.insert(attendanceDays).values({ employeeId, day, status, source, setBy: uid });
+
+    // The leaver: worked the 3rd to the 8th, left on the 10th, switched off
+    // since. An imported weekly off on the 16th and a hand-set present on the
+    // 20th both sit after his last day.
+    const leaver = await person("ZZLEAV", { dateOfJoining: "2026-01-01", dateOfLeaving: "2026-08-10", isActive: false });
+    for (const day of ["2026-08-03", "2026-08-04", "2026-08-05", "2026-08-06", "2026-08-07", "2026-08-08"]) await mark(leaver.id, day, "P", "manual");
+    await mark(leaver.id, "2026-08-16", "WO", "import");
+    await mark(leaver.id, "2026-08-20", "P", "manual");
+
+    // Gone since July, with an approved bonus nobody will ever pay.
+    const gone = await person("ZZGONE", { dateOfJoining: "2026-01-01", dateOfLeaving: "2026-07-31", isActive: false });
+    await tx.insert(payInputs).values({ employeeId: gone.id, kind: "bonus", month: 8, year: 2026, amount: "750.00", status: "approved", createdBy: uid });
+
+    // On the rolls all month, no weekly off at all, never came: nothing to pay.
+    const idle = await person("ZZIDLE", { dateOfJoining: "2026-08-01" });
+    await tx.insert(shiftAssignments).values({ employeeId: idle.id, shiftId: shift!.id, effectiveFrom: "2026-08-01", weeklyOffDays: [] });
+
+    // Rests on Wednesday though the shift rests on Sunday. Owes ₹10,000 at
+    // ₹1,000 a month, and somebody typed ₹600 against August by hand.
+    const wed = await person("ZZWEDN", { dateOfJoining: "2026-08-01" });
+    await tx.insert(shiftAssignments).values({ employeeId: wed.id, shiftId: shift!.id, effectiveFrom: "2026-08-01", weeklyOffDays: [3] });
+    const [wedAdv] = await tx.insert(advances).values({ employeeId: wed.id, amount: "10000.00", emiAmount: "1000.00", givenOn: "2026-08-01", createdBy: uid }).returning();
+    await tx.insert(advanceRepayments).values({ advanceId: wedAdv!.id, amount: "600.00", month: 8, year: 2026, notes: "deduct less this month" });
+
+    // Joined 25 July, after July's payroll had gone: a Sunday off and two days
+    // HR marked present, to be paid with August. PF on, to show it is not
+    // reckoned on the arrear.
+    const joiner = await person("ZZJOIN", { dateOfJoining: "2026-07-25", pfEnabled: true });
+    await mark(joiner.id, "2026-07-27", "P", "manual");
+    await mark(joiner.id, "2026-07-28", "P", "manual");
+    await recomputeRange(tx, "2026-07-01", "2026-07-31", [joiner.id]);
+    const julyTotals = (await monthTotals(tx, "2026-07-01", "2026-07-31", [joiner.id])).get(joiner.id) ?? emptyTotals();
+    const july = earnedFor({ ...joiner, dailyRate: null }, julyTotals, 31, undefined, new Map());
+    ok("what July would have paid the joiner: a Sunday and two days", julyTotals.paid === 3 && approx(july.earnedGross, 3000), `${julyTotals.paid} day(s), ${july.earnedGross}`);
+    const [arrear] = await tx
+      .insert(payInputs)
+      .values({ employeeId: joiner.id, kind: "arrears", month: 8, year: 2026, earnedMonth: 7, earnedYear: 2026, days: julyTotals.paid, amount: july.earnedGross.toFixed(2), status: "approved", createdBy: uid })
+      .returning();
+    try {
+      // A savepoint: the database itself refuses this, and a refused statement
+      // would otherwise take the whole check down with it.
+      await tx.transaction((sp) =>
+        sp.insert(payInputs).values({ employeeId: joiner.id, kind: "arrears", month: 8, year: 2026, earnedMonth: 8, earnedYear: 2026, amount: "1.00", createdBy: uid }),
+      );
+      ok("arrears earned in the month that pays them → refused", false, "was allowed");
+    } catch {
+      ok("arrears earned in the month that pays them → refused", true);
+    }
+
+    const aug = await processRun(tx, { month: 8, year: 2026, userId: uid });
+    const augSlips = await tx.select().from(salarySlips).where(eq(salarySlips.payrollRunId, aug.id));
+    const slipOf = (id: string) => augSlips.find((x) => x.employeeId === id);
+
+    const ls = slipOf(leaver.id);
+    ok("a leaver switched off since still gets his final slip", !!ls);
+    ok("nothing after his last day is paid, whoever wrote the row", ls?.paidDays === 8 && approx(Number(ls?.earnedBasic), 8000), `paid ${ls?.paidDays}, ${ls?.earnedBasic}`);
+    const [stillThere] = await tx.select().from(attendanceDays).where(and(eq(attendanceDays.employeeId, leaver.id), eq(attendanceDays.day, "2026-08-20")));
+    ok("…and HR's row is ignored, not deleted", stillThere?.source === "manual");
+
+    ok("someone who left in an earlier month is not in the run", !slipOf(gone.id));
+    ok("nobody gets an empty slip", !slipOf(idle.id));
+    const augEx = await runExceptions(tx, aug.id);
+    ok("the person passed over is listed", augEx.some((e) => e.employeeId === idle.id && e.issue.includes("no slip")));
+    ok("approved money with no slip to land on is listed with its amount", augEx.some((e) => e.employeeId === gone.id && e.issue.includes("750")), augEx.find((e) => e.employeeId === gone.id)?.issue);
+
+    d = await dayOf(wed.id, "2026-08-05");
+    ok("his own Wednesday is the weekly off", d?.status === "WO" && d?.source === "weekly_off", `${d?.status}/${d?.source}`);
+    d = await dayOf(wed.id, "2026-08-02");
+    ok("the shift's Sunday is an ordinary absence for him", d?.status === "A");
+    d = await dayOf(idle.id, "2026-08-02");
+    ok("an empty list means no weekly off at all", d?.status === "A");
+    const ws = slipOf(wed.id);
+    ok("four Wednesdays paid", ws?.paidDays === 4 && approx(Number(ws?.earnedGross), 4000), `paid ${ws?.paidDays}`);
+    ok("the run takes the EMI whole, whatever was typed by hand", approx(Number(ws?.advanceRecovery), 1000), ws?.advanceRecovery);
+    ok("the hand-entered row still counts towards the balance", approx(await advanceOutstanding(tx, wedAdv!.id), 8400));
+
+    const js = slipOf(joiner.id);
+    ok("the arrear is on the slip as its own figure", approx(Number(js?.arrears), 3000) && approx(Number(js?.bonus), 0), js?.arrears);
+    ok("PF is reckoned on August's own earnings, not the arrear", approx(Number(js?.earnedBasic), 5000) && approx(Number(js?.pfEmployee), 600), `${js?.earnedBasic} / ${js?.pfEmployee}`);
+    ok("net = August + arrear − PF", approx(Number(js?.netPay), 7400), js?.netPay);
+
+    const aug2 = await processRun(tx, { month: 8, year: 2026, userId: uid });
+    const [js2] = await tx.select().from(salarySlips).where(and(eq(salarySlips.payrollRunId, aug2.id), eq(salarySlips.employeeId, joiner.id)));
+    const [arrearAfter] = await tx.select().from(payInputs).where(eq(payInputs.id, arrear!.id));
+    ok("a reprocess pays the arrear once, not twice", approx(Number(js2?.arrears), 3000) && arrearAfter?.status === "paid");
+    ok("and the EMI once", approx(await advanceOutstanding(tx, wedAdv!.id), 8400));
+
+    const augConfirmed = await confirmRun(tx, aug.id, uid);
+    const augLines = await tx
+      .select({ systemKey: accounts.systemKey, debit: journalEntryLines.debit })
+      .from(journalEntryLines)
+      .innerJoin(accounts, eq(accounts.id, journalEntryLines.accountId))
+      .where(eq(journalEntryLines.entryId, augConfirmed.journalEntryId));
+    // 8000 leaver + 4000 Wednesday + 5000 joiner + 3000 arrear.
+    ok("the arrear is in the salary expense", approx(Number(augLines.find((l) => l.systemKey === "salary_expense")?.debit), 20000), augLines.find((l) => l.systemKey === "salary_expense")?.debit);
+
     throw new Rollback();
   });
 } catch (e) {
@@ -382,7 +503,7 @@ try {
 const [left] = await db
   .select({ n: sql<number>`count(*)::int` })
   .from(employees)
-  .where(inArray(employees.empCode, ["ZZSAL1", "ZZWAG1"]));
+  .where(inArray(employees.empCode, ["ZZSAL1", "ZZWAG1", "ZZLEAV", "ZZGONE", "ZZIDLE", "ZZWEDN", "ZZJOIN"]));
 ok("the rollback left nothing behind", left!.n === 0);
 
 console.log(failures ? `\n  ${failures} failed\n` : "\n  all good\n");

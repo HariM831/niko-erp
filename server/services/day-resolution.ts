@@ -79,6 +79,14 @@ export interface ShiftLike {
   weeklyOffDays: number[];
 }
 
+/** One shift assignment; `weeklyOffDays` null means "the shift's own". */
+export interface AssignmentLike {
+  shiftId: string;
+  effectiveFrom: string;
+  effectiveTo: string | null;
+  weeklyOffDays: number[] | null;
+}
+
 export interface EmployeeLike {
   id: string;
   dateOfJoining: string | null;
@@ -95,7 +103,7 @@ export interface ResolveContext {
   /** employeeId → approved leaves. */
   leavesByEmp: Map<string, { fromDate: string; toDate: string; leaveType: string }[]>;
   /** employeeId → assignments, any order. */
-  assignmentsByEmp: Map<string, { shiftId: string; effectiveFrom: string; effectiveTo: string | null }[]>;
+  assignmentsByEmp: Map<string, AssignmentLike[]>;
   shiftById: Map<string, ShiftLike>;
   /** IST today — a day after this with no punches is not written at all. */
   today: string;
@@ -155,18 +163,32 @@ export function statusForHours(hours: number, ctx: Pick<ResolveContext, "fullDay
 
 /* ── Resolution ────────────────────────────────────────────────────────── */
 
+export function assignmentForDate<T extends { effectiveFrom: string; effectiveTo: string | null }>(
+  day: string,
+  assignments: T[],
+): T | undefined {
+  return assignments.find((a) => a.effectiveFrom <= day && (!a.effectiveTo || a.effectiveTo >= day));
+}
+
 export function shiftForDate(
   day: string,
   assignments: { shiftId: string; effectiveFrom: string; effectiveTo: string | null }[],
   shiftById: Map<string, ShiftLike>,
 ): ShiftLike | undefined {
-  const a = assignments.find((a) => a.effectiveFrom <= day && (!a.effectiveTo || a.effectiveTo >= day));
+  const a = assignmentForDate(day, assignments);
   return a ? shiftById.get(a.shiftId) : undefined;
 }
 
-/** Weekly off from the shift; an unassigned employee still gets Sunday. */
-export function isWeeklyOff(day: string, shift: ShiftLike | undefined): boolean {
+/**
+ * Weekly off from the shift; an unassigned employee still gets Sunday.
+ *
+ * `override` is the person's own off days on this assignment — one man on the
+ * day shift rests on Wednesday. Null defers to the shift; an empty list is a
+ * real answer and means no weekly off at all.
+ */
+export function isWeeklyOff(day: string, shift: ShiftLike | undefined, override?: number[] | null): boolean {
   const wd = weekdayOf(day);
+  if (override) return override.includes(wd);
   return shift ? (shift.weeklyOffDays ?? []).includes(wd) : wd === 0;
 }
 
@@ -200,10 +222,11 @@ export function resolveDay(employee: EmployeeLike, day: string, ctx: ResolveCont
 
   const list = ctx.punchesByEmpDay.get(`${employee.id}|${day}`) ?? [];
   const assignments = ctx.assignmentsByEmp.get(employee.id) ?? [];
-  const shift = shiftForDate(day, assignments, ctx.shiftById);
+  const assignment = assignmentForDate(day, assignments);
+  const shift = assignment ? ctx.shiftById.get(assignment.shiftId) : undefined;
   const holiday = ctx.holidaysByDate.has(day);
   const leave = (ctx.leavesByEmp.get(employee.id) ?? []).some((l) => l.fromDate <= day && l.toDate >= day);
-  const wo = isWeeklyOff(day, shift);
+  const wo = isWeeklyOff(day, shift, assignment?.weeklyOffDays);
   const offDay = holiday || leave || wo;
 
   if (list.length) {
@@ -276,7 +299,7 @@ export async function loadContext(tx: Conn, from: string, to: string, employeeId
   }
 
   const assignmentRows = await tx
-    .select({ employeeId: shiftAssignments.employeeId, shiftId: shiftAssignments.shiftId, effectiveFrom: shiftAssignments.effectiveFrom, effectiveTo: shiftAssignments.effectiveTo })
+    .select({ employeeId: shiftAssignments.employeeId, shiftId: shiftAssignments.shiftId, effectiveFrom: shiftAssignments.effectiveFrom, effectiveTo: shiftAssignments.effectiveTo, weeklyOffDays: shiftAssignments.weeklyOffDays })
     .from(shiftAssignments)
     .where(
       and(
@@ -285,7 +308,7 @@ export async function loadContext(tx: Conn, from: string, to: string, employeeId
         employeeIds?.length ? inArray(shiftAssignments.employeeId, employeeIds) : undefined,
       ),
     );
-  const assignmentsByEmp = new Map<string, { shiftId: string; effectiveFrom: string; effectiveTo: string | null }[]>();
+  const assignmentsByEmp = new Map<string, AssignmentLike[]>();
   for (const a of assignmentRows) {
     const list = assignmentsByEmp.get(a.employeeId) ?? [];
     list.push(a);
@@ -396,7 +419,40 @@ export async function recomputeEmployeeDay(tx: Conn, employeeId: string, day: st
 }
 
 /**
- * Recompute every active employee (or the given ones) over [from, to].
+ * Who was on the rolls for any part of [from, to].
+ *
+ * `isActive` alone is the wrong question for a month: HR switches a leaver off
+ * after his last day, and the ten days he worked went with him — no slip, no
+ * exception, nothing. So someone inactive still counts when his leaving date
+ * falls inside the range. The other half matters as much: a person who left in
+ * an earlier month and was never switched off is not on this month's rolls.
+ *
+ * The run and the recompute both ask this, so they cannot disagree about who
+ * the month is for.
+ */
+export function onRollsDuring(from: string, to: string) {
+  return sql`(${employees.dateOfJoining} IS NULL OR ${employees.dateOfJoining} <= ${to})
+    AND (${employees.dateOfLeaving} IS NULL OR ${employees.dateOfLeaving} >= ${from})
+    AND (${employees.isActive} OR (${employees.dateOfLeaving} IS NOT NULL AND ${employees.dateOfLeaving} <= ${to}))`;
+}
+
+/**
+ * An attendance row that falls inside its employee's service.
+ *
+ * The resolver writes nothing outside joining-to-leaving, but `manual` and
+ * `import` rows are never the resolver's to touch, so an imported weekly off
+ * dated after a man left stays in the table — and was paid. It is ignored when
+ * days are counted rather than deleted: a mistyped leaving date, once
+ * corrected, brings HR's own entries back, and a delete would not.
+ */
+export const withinService = sql`NOT EXISTS (
+  SELECT 1 FROM employees svc
+   WHERE svc.id = ${attendanceDays.employeeId}
+     AND ((svc.date_of_joining IS NOT NULL AND ${attendanceDays.day} < svc.date_of_joining)
+       OR (svc.date_of_leaving IS NOT NULL AND ${attendanceDays.day} > svc.date_of_leaving)))`;
+
+/**
+ * Recompute everyone on the rolls (or the given ones) over [from, to].
  * `overrideImported` is for leave decisions — see writeRange.
  */
 export async function recomputeRange(
@@ -409,7 +465,7 @@ export async function recomputeRange(
   const emps = await tx
     .select(employeeLite)
     .from(employees)
-    .where(employeeIds?.length ? inArray(employees.id, employeeIds) : eq(employees.isActive, true));
+    .where(employeeIds?.length ? inArray(employees.id, employeeIds) : onRollsDuring(from, to));
   const ctx = await loadContext(tx, from, to, employeeIds);
   const rows = await writeRange(tx, emps, from, to, ctx, overrideImported);
   return { rows, employees: emps.length };
@@ -469,6 +525,7 @@ export async function wageDayTotals(
         gte(attendanceDays.day, from),
         lte(attendanceDays.day, to),
         inArray(attendanceDays.status, ["P", "H"]),
+        withinService,
         employeeIds?.length ? inArray(attendanceDays.employeeId, employeeIds) : undefined,
       ),
     )
@@ -494,6 +551,7 @@ export async function monthTotals(tx: Conn, from: string, to: string, employeeId
       and(
         gte(attendanceDays.day, from),
         lte(attendanceDays.day, to),
+        withinService,
         employeeIds?.length ? inArray(attendanceDays.employeeId, employeeIds) : undefined,
       ),
     )

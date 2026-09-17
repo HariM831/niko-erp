@@ -6,7 +6,7 @@
  */
 import { createHash } from "node:crypto";
 import { Router } from "express";
-import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   advanceRepayments,
@@ -49,10 +49,13 @@ import {
   resolveDay,
   shiftForDate,
   addToTotals,
+  onRollsDuring,
+  withinService,
 } from "../services/day-resolution";
 import { applyLeave, approveLeave, deleteLeave, leaveBalance, leavesInRange, rejectLeave } from "../services/leave";
 import {
   advanceOutstanding,
+  earnedFor,
   confirmRun,
   deleteDraftRun,
   listRuns,
@@ -237,6 +240,8 @@ payrollRouter.get("/shift-assignments", view, async (req, res) => {
       shiftName: shifts.name,
       effectiveFrom: shiftAssignments.effectiveFrom,
       effectiveTo: shiftAssignments.effectiveTo,
+      weeklyOffDays: shiftAssignments.weeklyOffDays,
+      shiftWeeklyOffDays: shifts.weeklyOffDays,
       notes: shiftAssignments.notes,
     })
     .from(shiftAssignments)
@@ -247,12 +252,37 @@ payrollRouter.get("/shift-assignments", view, async (req, res) => {
   res.json(rows);
 });
 
+/** A person's own off days: 0 = Sunday … 6 = Saturday, each once. Null defers to the shift. */
+const weeklyOffOverride = z
+  .array(z.number().int().min(0).max(6))
+  .max(7)
+  .refine((d) => new Set(d).size === d.length, "A day is listed twice")
+  .nullable();
+
+/**
+ * The off day decides weekly-off against absent, which is paid against not —
+ * so days already resolved under the old answer are resolved again, from the
+ * assignment's start to today. Manual and imported days stay as HR left them.
+ */
+async function recomputeFromAssignment(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], employeeId: string, effectiveFrom: string) {
+  const today = istDate();
+  if (effectiveFrom <= today) await recomputeRange(tx, effectiveFrom, today, [employeeId]);
+}
+
 payrollRouter.post(
   "/shift-assignments",
   settingsPerm,
-  validateBody(z.object({ employeeId: z.string().uuid(), shiftId: z.string().uuid(), effectiveFrom: dateStr, notes: z.string().max(300).optional() })),
+  validateBody(
+    z.object({
+      employeeId: z.string().uuid(),
+      shiftId: z.string().uuid(),
+      effectiveFrom: dateStr,
+      weeklyOffDays: weeklyOffOverride.optional(),
+      notes: z.string().max(300).optional(),
+    }),
+  ),
   async (req, res) => {
-    const b = req.body as { employeeId: string; shiftId: string; effectiveFrom: string; notes?: string };
+    const b = req.body as { employeeId: string; shiftId: string; effectiveFrom: string; weeklyOffDays?: number[] | null; notes?: string };
     const row = await db.transaction(async (tx) => {
       // One open assignment at a time: the new one closes the old at from−1.
       await tx
@@ -261,11 +291,39 @@ payrollRouter.post(
         .where(and(eq(shiftAssignments.employeeId, b.employeeId), isNull(shiftAssignments.effectiveTo)));
       const [created] = await tx
         .insert(shiftAssignments)
-        .values({ employeeId: b.employeeId, shiftId: b.shiftId, effectiveFrom: b.effectiveFrom, notes: b.notes || null })
+        .values({
+          employeeId: b.employeeId,
+          shiftId: b.shiftId,
+          effectiveFrom: b.effectiveFrom,
+          weeklyOffDays: b.weeklyOffDays ? [...b.weeklyOffDays].sort() : null,
+          notes: b.notes || null,
+        })
         .returning();
+      await recomputeFromAssignment(tx, b.employeeId, b.effectiveFrom);
       return created!;
     });
     res.status(201).json(row);
+  },
+);
+
+/** Change the personal weekly off on an assignment that already stands. */
+payrollRouter.patch(
+  "/shift-assignments/:id",
+  settingsPerm,
+  validateBody(z.object({ weeklyOffDays: weeklyOffOverride })),
+  async (req, res) => {
+    const { weeklyOffDays } = req.body as { weeklyOffDays: number[] | null };
+    const row = await db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(shiftAssignments)
+        .set({ weeklyOffDays: weeklyOffDays ? [...weeklyOffDays].sort() : null })
+        .where(eq(shiftAssignments.id, req.params.id!))
+        .returning();
+      if (updated) await recomputeFromAssignment(tx, updated.employeeId, updated.effectiveFrom);
+      return updated;
+    });
+    if (!row) return res.status(404).json({ error: "No such assignment" });
+    res.json(row);
   },
 );
 
@@ -943,7 +1001,9 @@ payrollRouter.get("/attendance/month", view, async (req, res) => {
   const { from, to } = monthRange(year.data, month.data);
   const n = daysInMonth(year.data, month.data);
 
-  const conds = [eq(employees.isActive, true)];
+  // Whoever was on the rolls that month — a leaver since switched off still
+  // shows in the month he left, which is the month his final slip is for.
+  const conds = [onRollsDuring(from, to)];
   if (req.query.department) conds.push(eq(employees.departmentId, String(req.query.department)));
   const staff = await db
     .select({ id: employees.id, empCode: employees.empCode, name: employees.name, department: departments.name })
@@ -955,7 +1015,7 @@ payrollRouter.get("/attendance/month", view, async (req, res) => {
   const rows = await db
     .select()
     .from(attendanceDays)
-    .where(and(gte(attendanceDays.day, from), lte(attendanceDays.day, to)));
+    .where(and(gte(attendanceDays.day, from), lte(attendanceDays.day, to), withinService));
   const byEmp = new Map<string, typeof rows>();
   for (const r of rows) byEmp.set(r.employeeId, [...(byEmp.get(r.employeeId) ?? []), r]);
 
@@ -985,7 +1045,7 @@ payrollRouter.get("/attendance/employee/:id", view, async (req, res) => {
   const dayRows = await db
     .select()
     .from(attendanceDays)
-    .where(and(eq(attendanceDays.employeeId, employeeId), gte(attendanceDays.day, from), lte(attendanceDays.day, to)));
+    .where(and(eq(attendanceDays.employeeId, employeeId), gte(attendanceDays.day, from), lte(attendanceDays.day, to), withinService));
   const punchRows = await db
     .select()
     .from(punches)
@@ -1279,7 +1339,7 @@ payrollRouter.get("/pay-inputs", view, async (req, res) => {
   const conds = [];
   if (req.query.year) conds.push(eq(payInputs.year, Number(req.query.year)));
   if (req.query.month) conds.push(eq(payInputs.month, Number(req.query.month)));
-  if (req.query.kind) conds.push(eq(payInputs.kind, String(req.query.kind) as "bonus" | "overtime" | "reimbursement" | "deduction"));
+  if (req.query.kind) conds.push(eq(payInputs.kind, String(req.query.kind) as "bonus" | "overtime" | "reimbursement" | "deduction" | "arrears"));
   if (req.query.status) conds.push(eq(payInputs.status, String(req.query.status) as "pending" | "approved" | "rejected" | "paid"));
   const rows = await db
     .select({
@@ -1293,6 +1353,9 @@ payrollRouter.get("/pay-inputs", view, async (req, res) => {
       amount: payInputs.amount,
       hours: payInputs.hours,
       ratePerHour: payInputs.ratePerHour,
+      earnedMonth: payInputs.earnedMonth,
+      earnedYear: payInputs.earnedYear,
+      days: payInputs.days,
       category: payInputs.category,
       description: payInputs.description,
       receiptUrl: payInputs.receiptUrl,
@@ -1309,10 +1372,14 @@ payrollRouter.get("/pay-inputs", view, async (req, res) => {
 
 const payInputBody = z.object({
   employeeId: z.string().uuid(),
-  kind: z.enum(["bonus", "overtime", "reimbursement", "deduction"]),
+  kind: z.enum(["bonus", "overtime", "reimbursement", "deduction", "arrears"]),
   month: monthNum,
   year: yearNum,
   amount: moneyNum.optional(),
+  /** Arrears only. */
+  earnedMonth: monthNum.optional(),
+  earnedYear: yearNum.optional(),
+  days: looseNumber(z.number().min(0).max(31)).optional(),
   hours: looseNumber(z.number().positive().max(400)).optional(),
   ratePerHour: moneyNum.optional(),
   category: z.string().max(120).nullish(),
@@ -1330,10 +1397,109 @@ function payInputAmount(b: z.infer<typeof payInputBody>): number {
   return b.amount;
 }
 
+/**
+ * Arrears name the month the days were earned in. It has to be an earlier
+ * month than the one paying it, not before the person joined, and not a month
+ * already carrying an arrear for them — the same days now exist in two places,
+ * and paying them twice is the mistake this whole kind invites.
+ */
+async function checkArrears(
+  b: { employeeId: string; month: number; year: number; earnedMonth?: number; earnedYear?: number },
+  exceptId?: string,
+): Promise<void> {
+  if (!b.earnedMonth || !b.earnedYear) throw new PostingError("Arrears need the month they were earned in");
+  if (b.earnedYear * 12 + b.earnedMonth >= b.year * 12 + b.month) {
+    throw new PostingError("Arrears are for a month before the one that pays them");
+  }
+  const [emp] = await db.select({ name: employees.name, dateOfJoining: employees.dateOfJoining }).from(employees).where(eq(employees.id, b.employeeId));
+  if (!emp) throw new PostingError("No such employee");
+  if (emp.dateOfJoining && monthRange(b.earnedYear, b.earnedMonth).to < emp.dateOfJoining) {
+    throw new PostingError(`${emp.name} joined on ${emp.dateOfJoining} — nothing was earned before that`);
+  }
+  const clash = await db
+    .select({ id: payInputs.id, status: payInputs.status })
+    .from(payInputs)
+    .where(
+      and(
+        eq(payInputs.employeeId, b.employeeId),
+        eq(payInputs.kind, "arrears"),
+        eq(payInputs.earnedYear, b.earnedYear),
+        eq(payInputs.earnedMonth, b.earnedMonth),
+        ne(payInputs.status, "rejected"),
+      ),
+    );
+  if (clash.some((c) => c.id !== exceptId)) {
+    throw new PostingError(`${emp.name} already has arrears entered for ${b.earnedMonth}/${b.earnedYear}`);
+  }
+}
+
+/**
+ * What a month would have paid one person, had it been run: the same
+ * attendance totals and the same proration as the run, through the same
+ * function. Attendance is recomputed first, as the run does, because a month
+ * nobody processed may never have been resolved at all.
+ */
+payrollRouter.get("/arrears/suggest", payInputsPerm, async (req, res) => {
+  const q = z.object({ employeeId: z.string().uuid(), earnedMonth: monthNum, earnedYear: yearNum }).safeParse(req.query);
+  if (!q.success) return res.status(400).json({ error: "employeeId, earnedMonth and earnedYear are required" });
+  const { employeeId, earnedMonth, earnedYear } = q.data;
+  const { from, to } = monthRange(earnedYear, earnedMonth);
+  const totalDays = daysInMonth(earnedYear, earnedMonth);
+
+  const [e] = await db
+    .select({
+      name: employees.name,
+      payType: employees.payType,
+      basicSalary: employees.basicSalary,
+      hra: employees.hra,
+      allowances: employees.allowances,
+      wageRoleId: employees.wageRoleId,
+      dailyRate: wageRoles.dailyRate,
+      dateOfJoining: employees.dateOfJoining,
+    })
+    .from(employees)
+    .leftJoin(wageRoles, eq(wageRoles.id, employees.wageRoleId))
+    .where(eq(employees.id, employeeId));
+  if (!e) return res.status(404).json({ error: "No such employee" });
+
+  const { t, buckets, ratesByRole } = await db.transaction(async (tx) => {
+    await recomputeRange(tx, from, to, [employeeId]);
+    return {
+      t: (await monthTotals(tx, from, to, [employeeId])).get(employeeId) ?? emptyTotals(),
+      buckets: (await wageDayTotals(tx, from, to, [employeeId])).get(employeeId),
+      ratesByRole: new Map((await tx.select({ id: wageRoles.id, dailyRate: wageRoles.dailyRate }).from(wageRoles)).map((r) => [r.id, Number(r.dailyRate)])),
+    };
+  });
+  const earned = earnedFor(e, t, totalDays, buckets, ratesByRole);
+
+  const [slip] = await db
+    .select({ netPay: salarySlips.netPay, paidDays: salarySlips.paidDays, status: payrollRuns.status })
+    .from(salarySlips)
+    .innerJoin(payrollRuns, eq(payrollRuns.id, salarySlips.payrollRunId))
+    .where(and(eq(salarySlips.employeeId, employeeId), eq(payrollRuns.year, earnedYear), eq(payrollRuns.month, earnedMonth)));
+
+  const monthly = earned.basic + earned.hra + earned.allowances;
+  const worked = t.P + 0.5 * t.H;
+  res.json({
+    days: e.payType === "salaried" ? t.paid : worked,
+    totalDays,
+    amount: earned.earnedGross,
+    /** Salaried only: what a day-count typed by hand re-prorates from. */
+    monthly: e.payType === "salaried" ? monthly : null,
+    working:
+      e.payType === "salaried"
+        ? `${t.paid} of ${totalDays} days × ₹${monthly.toLocaleString("en-IN")}`
+        : `${worked} day(s) worked, each at its own wage rate`,
+    dateOfJoining: e.dateOfJoining,
+    existingSlip: slip ? { paidDays: slip.paidDays, netPay: Number(slip.netPay), status: slip.status } : null,
+  });
+});
+
 payrollRouter.post("/pay-inputs", payInputsPerm, validateBody(payInputBody), async (req, res) => {
   const b = req.body as z.infer<typeof payInputBody>;
   try {
     const amount = payInputAmount(b);
+    if (b.kind === "arrears") await checkArrears(b);
     const [row] = await db
       .insert(payInputs)
       .values({
@@ -1344,6 +1510,9 @@ payrollRouter.post("/pay-inputs", payInputsPerm, validateBody(payInputBody), asy
         amount: amount.toFixed(2),
         hours: b.kind === "overtime" ? b.hours : null,
         ratePerHour: b.kind === "overtime" ? b.ratePerHour!.toFixed(2) : null,
+        earnedMonth: b.kind === "arrears" ? b.earnedMonth : null,
+        earnedYear: b.kind === "arrears" ? b.earnedYear : null,
+        days: b.kind === "arrears" ? (b.days ?? null) : null,
         category: b.category ?? null,
         description: b.description ?? null,
         receiptUrl: b.receiptUrl ?? null,
@@ -1363,15 +1532,21 @@ payrollRouter.patch("/pay-inputs/:id", payInputsPerm, validateBody(payInputBody.
   const b = req.body as Partial<z.infer<typeof payInputBody>>;
   try {
     const merged = {
-      kind: existing.kind,
       month: existing.month,
       year: existing.year,
       amount: Number(existing.amount),
       hours: existing.hours ?? undefined,
       ratePerHour: existing.ratePerHour == null ? undefined : Number(existing.ratePerHour),
+      earnedMonth: existing.earnedMonth ?? undefined,
+      earnedYear: existing.earnedYear ?? undefined,
+      days: existing.days ?? undefined,
       ...b,
+      // The kind and the person are what the row is; an edit changes neither.
+      kind: existing.kind,
+      employeeId: existing.employeeId,
     } as z.infer<typeof payInputBody>;
     const amount = payInputAmount(merged);
+    if (merged.kind === "arrears") await checkArrears(merged, existing.id);
     const [row] = await db
       .update(payInputs)
       .set({
@@ -1380,6 +1555,9 @@ payrollRouter.patch("/pay-inputs/:id", payInputsPerm, validateBody(payInputBody.
         amount: amount.toFixed(2),
         hours: merged.kind === "overtime" ? merged.hours : null,
         ratePerHour: merged.kind === "overtime" ? merged.ratePerHour!.toFixed(2) : null,
+        earnedMonth: merged.kind === "arrears" ? merged.earnedMonth : null,
+        earnedYear: merged.kind === "arrears" ? merged.earnedYear : null,
+        days: merged.kind === "arrears" ? (merged.days ?? null) : null,
         ...(b.category !== undefined && { category: b.category }),
         ...(b.description !== undefined && { description: b.description }),
         ...(b.receiptUrl !== undefined && { receiptUrl: b.receiptUrl }),
@@ -1511,28 +1689,30 @@ payrollRouter.post(
   },
 );
 
-/** A repayment taken by hand, outside a run — cash at the counter. */
-payrollRouter.post(
-  "/advances/:id/repay",
+/**
+ * Change what a month recovers. The EMI is the only lever there is: the run
+ * takes it, capped at the balance and at the pay, and nothing else writes a
+ * repayment. Nil skips the month; the whole balance closes the advance out at
+ * the next run. There is no route for a repayment entered by hand — a figure
+ * typed here as "take less this month" was once read as money already paid.
+ */
+payrollRouter.patch(
+  "/advances/:id",
   payInputsPerm,
-  validateBody(z.object({ amount: moneyNum.refine((n) => n > 0), month: monthNum, year: yearNum, notes: z.string().max(300).nullish() })),
+  validateBody(z.object({ emiAmount: moneyNum })),
   async (req, res) => {
-    const b = req.body as { amount: number; month: number; year: number; notes?: string | null };
+    const { emiAmount } = req.body as { emiAmount: number };
     try {
       const out = await db.transaction(async (tx) => {
         const [adv] = await tx.select().from(advances).where(eq(advances.id, req.params.id!));
         if (!adv) throw new PostingError("No such advance");
         if (adv.status !== "active") throw new PostingError(`This advance is ${adv.status}`);
         const outstanding = await advanceOutstanding(tx, adv.id);
-        if (b.amount > outstanding + 0.005) throw new PostingError(`Only ₹${outstanding.toFixed(2)} is outstanding`);
-        const [row] = await tx
-          .insert(advanceRepayments)
-          .values({ advanceId: adv.id, amount: b.amount.toFixed(2), month: b.month, year: b.year, notes: b.notes ?? null })
-          .returning();
-        if (outstanding - b.amount <= 0.005) await tx.update(advances).set({ status: "closed" }).where(eq(advances.id, adv.id));
-        return { ...row!, outstanding: Math.round((outstanding - b.amount) * 100) / 100 };
+        if (emiAmount > outstanding + 0.005) throw new PostingError(`Only ₹${outstanding.toFixed(2)} is outstanding`);
+        const [row] = await tx.update(advances).set({ emiAmount: emiAmount.toFixed(2) }).where(eq(advances.id, adv.id)).returning();
+        return { ...row!, outstanding };
       });
-      res.status(201).json(out);
+      res.json(out);
     } catch (err) {
       if (!fail(err, res)) throw err;
     }

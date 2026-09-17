@@ -1,5 +1,5 @@
 /**
- * The payroll run: one month, every active person, one journal.
+ * The payroll run: one month, everyone on the rolls for any day of it, one journal.
  *
  * A run is processed as a draft — slips are snapshots of what the employee
  * row and the attendance table said at that moment — and may be processed
@@ -29,7 +29,7 @@ import {
 import type { Db, Tx } from "../db";
 import { PostingError, postJournal } from "./posting";
 import { nextDocumentNumber } from "../lib/numbering";
-import { daysInMonth, emptyTotals, monthRange, monthTotals, recomputeRange, wageDayTotals, type MonthTotals } from "./day-resolution";
+import { daysInMonth, emptyTotals, monthRange, monthTotals, onRollsDuring, recomputeRange, wageDayTotals, type MonthTotals } from "./day-resolution";
 
 type Conn = Tx | Db;
 
@@ -83,6 +83,57 @@ export function professionalTaxFor(gross: number, slabs: { upTo: number | null; 
   return 0;
 }
 
+/** What a month's attendance earns one person, before anything is added or held back. */
+export interface Earned {
+  basic: number;
+  hra: number;
+  allowances: number;
+  earnedBasic: number;
+  earnedHra: number;
+  earnedAllowances: number;
+  earnedGross: number;
+  dailyRate: number | null;
+}
+
+/**
+ * Attendance into money. The run calls this for every slip and the arrears
+ * suggestion calls it for a month nobody ran — the same function, because an
+ * arrear is exactly the slip that month would have produced, and two copies of
+ * this arithmetic would one day disagree by a rupee.
+ *
+ * Salaried: each component × paid days ÷ days in the month, rounded on its
+ * own. The divisor is the whole month, never the days on the rolls — dividing
+ * by those would make a leaver's ten days a full month's pay.
+ */
+export function earnedFor(
+  e: { payType: string; basicSalary: string | null; hra: string | null; allowances: string | null; dailyRate: string | null; wageRoleId: string | null },
+  t: MonthTotals,
+  totalDays: number,
+  buckets: Map<string, { P: number; H: number }> | undefined,
+  ratesByRole: Map<string, number>,
+): Earned {
+  if (e.payType === "salaried") {
+    const ratio = t.paid / totalDays;
+    const basic = Number(e.basicSalary);
+    const hra = Number(e.hra);
+    const allowances = Number(e.allowances);
+    const earnedBasic = r2(basic * ratio);
+    const earnedHra = r2(hra * ratio);
+    const earnedAllowances = r2(allowances * ratio);
+    return { basic, hra, allowances, earnedBasic, earnedHra, earnedAllowances, earnedGross: r2(earnedBasic + earnedHra + earnedAllowances), dailyRate: null };
+  }
+  // Wages are for days worked; a holiday or a weekly off earns nothing.
+  // Each day at the rate of the role it was worked in — the blank bucket
+  // is days with no per-day role, priced at the worker's usual one.
+  let earned = 0;
+  for (const [bucketRole, b] of buckets ?? []) {
+    const rid = bucketRole || e.wageRoleId || "";
+    earned += (rid ? (ratesByRole.get(rid) ?? 0) : 0) * (b.P + 0.5 * b.H);
+  }
+  const earnedBasic = r2(earned);
+  return { basic: 0, hra: 0, allowances: 0, earnedBasic, earnedHra: 0, earnedAllowances: 0, earnedGross: earnedBasic, dailyRate: Number(e.dailyRate ?? 0) };
+}
+
 export async function processRun(tx: Tx, input: ProcessInput) {
   const { month, year, userId } = input;
   if (month < 1 || month > 12) throw new PostingError("Month must be 1–12");
@@ -129,7 +180,7 @@ export async function processRun(tx: Tx, input: ProcessInput) {
     })
     .from(employees)
     .leftJoin(wageRoles, eq(wageRoles.id, employees.wageRoleId))
-    .where(and(eq(employees.isActive, true), sql`(${employees.dateOfJoining} IS NULL OR ${employees.dateOfJoining} <= ${to})`));
+    .where(onRollsDuring(from, to));
 
   const totals = await monthTotals(tx, from, to);
   // Wage days priced per day-role: the slip must match the wages report to
@@ -145,16 +196,6 @@ export async function processRun(tx: Tx, input: ProcessInput) {
   const inputsByEmp = new Map<string, typeof inputs>();
   for (const i of inputs) inputsByEmp.set(i.employeeId, [...(inputsByEmp.get(i.employeeId) ?? []), i]);
 
-  // Repayments already recorded for this pay month by hand (after the revert
-  // above, so the draft's own rows are gone): an EMI paid at the counter is
-  // not charged again by the run.
-  const manualReps = await tx
-    .select({ advanceId: advanceRepayments.advanceId, amount: advanceRepayments.amount })
-    .from(advanceRepayments)
-    .where(and(eq(advanceRepayments.year, year), eq(advanceRepayments.month, month)));
-  const repaidThisMonth = new Map<string, number>();
-  for (const r of manualReps) repaidThisMonth.set(r.advanceId, (repaidThisMonth.get(r.advanceId) ?? 0) + Number(r.amount));
-
   let sumGross = 0;
   let sumDeductions = 0;
   let sumNet = 0;
@@ -164,42 +205,29 @@ export async function processRun(tx: Tx, input: ProcessInput) {
   for (const e of staff) {
     const t: MonthTotals = totals.get(e.id) ?? emptyTotals();
     const paidDays = t.paid;
-    const ratio = paidDays / totalDays;
-
-    let basic = 0;
-    let hra = 0;
-    let allowances = 0;
-    let earnedBasic = 0;
-    let earnedHra = 0;
-    let earnedAllowances = 0;
-    let dailyRate: number | null = null;
-    if (e.payType === "salaried") {
-      basic = Number(e.basicSalary);
-      hra = Number(e.hra);
-      allowances = Number(e.allowances);
-      earnedBasic = r2(basic * ratio);
-      earnedHra = r2(hra * ratio);
-      earnedAllowances = r2(allowances * ratio);
-    } else {
-      // Wages are for days worked; a holiday or a weekly off earns nothing.
-      // Each day at the rate of the role it was worked in — the blank bucket
-      // is days with no per-day role, priced at the worker's usual one.
-      dailyRate = Number(e.dailyRate ?? 0);
-      let earned = 0;
-      for (const [bucketRole, b] of dayBuckets.get(e.id) ?? []) {
-        const rid = bucketRole || e.wageRoleId || "";
-        earned += (rid ? (ratesByRole.get(rid) ?? 0) : 0) * (b.P + 0.5 * b.H);
-      }
-      earnedBasic = r2(earned);
-    }
-    const earnedGross = r2(earnedBasic + earnedHra + earnedAllowances);
-
     const mine = inputsByEmp.get(e.id) ?? [];
+
+    // No days and nothing to add: no slip. An empty one reads as a person paid
+    // nothing, when the truth is that nothing is known — the review lists them.
+    if (paidDays <= 0 && !mine.length) continue;
+
+    const { basic, hra, allowances, earnedBasic, earnedHra, earnedAllowances, earnedGross, dailyRate } = earnedFor(
+      e,
+      t,
+      totalDays,
+      dayBuckets.get(e.id),
+      ratesByRole,
+    );
+
     const sumKind = (k: string) => r2(mine.filter((i) => i.kind === k).reduce((n, i) => n + Number(i.approvedAmount ?? i.amount), 0));
     const bonus = sumKind("bonus");
     const overtime = sumKind("overtime");
     const reimbursement = sumKind("reimbursement");
     const otherDeductions = sumKind("deduction");
+    // Late salary for an earlier month. It is pay, so it is in the net and in
+    // the expense — but PF, ESI and PT below are reckoned on this month's own
+    // earnings and do not see it: a joiner's first part-month carries no PF.
+    const arrears = sumKind("arrears");
 
     let pfEmployee = 0;
     let pfEmployer = 0;
@@ -217,9 +245,12 @@ export async function processRun(tx: Tx, input: ProcessInput) {
     }
     const professionalTax = r2(professionalTaxFor(earnedGross, settings.ptSlabs ?? []));
 
-    const netBeforeAdvance = r2(earnedGross + bonus + overtime + reimbursement - (pfEmployee + esiEmployee + professionalTax + otherDeductions));
+    const netBeforeAdvance = r2(earnedGross + bonus + overtime + reimbursement + arrears - (pfEmployee + esiEmployee + professionalTax + otherDeductions));
 
-    // Advances, oldest first, never past what is left of the pay.
+    // Advances, oldest first, never past what is left of the pay. The EMI is
+    // the only lever: a repayment somebody typed in by hand used to be netted
+    // off it, and "deduct ₹2,000 this month" was read as ₹2,000 already paid
+    // and the other ₹1,000 taken anyway. To take less, HR changes the EMI.
     let budget = Math.max(0, netBeforeAdvance);
     let advanceRecovery = 0;
     const active = await tx
@@ -229,8 +260,7 @@ export async function processRun(tx: Tx, input: ProcessInput) {
       .orderBy(asc(advances.givenOn), asc(advances.createdAt));
     for (const adv of active) {
       const outstanding = await advanceOutstanding(tx, adv.id);
-      const due = Math.max(0, Number(adv.emiAmount) - (repaidThisMonth.get(adv.id) ?? 0));
-      const repay = r2(Math.min(due, outstanding, budget));
+      const repay = r2(Math.min(Number(adv.emiAmount), outstanding, budget));
       if (repay <= 0) continue;
       await tx.insert(advanceRepayments).values({ advanceId: adv.id, amount: money(repay), month, year, payrollRunId: runId });
       budget = r2(budget - repay);
@@ -264,6 +294,7 @@ export async function processRun(tx: Tx, input: ProcessInput) {
       bonus: money(bonus),
       overtime: money(overtime),
       reimbursement: money(reimbursement),
+      arrears: money(arrears),
       pfEmployee: money(pfEmployee),
       pfEmployer: money(pfEmployer),
       esiEmployee: money(esiEmployee),
@@ -285,10 +316,10 @@ export async function processRun(tx: Tx, input: ProcessInput) {
         .where(inArray(payInputs.id, mine.map((i) => i.id)));
     }
 
-    sumGross = r2(sumGross + earnedGross + bonus + overtime + reimbursement);
+    sumGross = r2(sumGross + earnedGross + bonus + overtime + reimbursement + arrears);
     sumDeductions = r2(sumDeductions + totalDeductions);
     sumNet = r2(sumNet + netPay);
-    sumEmployer = r2(sumEmployer + earnedGross + bonus + overtime + reimbursement + pfEmployer + esiEmployer);
+    sumEmployer = r2(sumEmployer + earnedGross + bonus + overtime + reimbursement + arrears + pfEmployer + esiEmployer);
     count++;
   }
 
@@ -319,7 +350,7 @@ export async function confirmRun(tx: Tx, runId: string, userId: string) {
 
   const sum = (pick: (s: typeof slips[number]) => number, filter: (s: typeof slips[number]) => boolean = () => true) =>
     r2(slips.filter(filter).reduce((n, s) => n + pick(s), 0));
-  const earnings = (s: typeof slips[number]) => Number(s.earnedGross) + Number(s.bonus) + Number(s.overtime) + Number(s.reimbursement);
+  const earnings = (s: typeof slips[number]) => Number(s.earnedGross) + Number(s.bonus) + Number(s.overtime) + Number(s.reimbursement) + Number(s.arrears);
 
   const salary = sum(earnings, (s) => s.payType === "salaried");
   const wages = sum(earnings, (s) => s.payType === "daily_wage");
@@ -397,6 +428,28 @@ export async function runExceptions(tx: Conn, runId: string): Promise<RunExcepti
     if (Number(r.netPay) <= 0) out.push({ employeeId: r.employeeId, name: r.name, issue: "Net pay is zero or negative" });
     if (!r.bankAccountNumber || !r.bankIfsc) out.push({ employeeId: r.employeeId, name: r.name, issue: "Missing bank details" });
     if (r.payType === "daily_wage" && !r.wageRoleId) out.push({ employeeId: r.employeeId, name: r.name, issue: "Daily-wage employee without a wage role" });
+  }
+
+  // The people the run passed over. A slip that does not exist cannot flag
+  // itself, so these are found from the other side: who was on the rolls, and
+  // whose approved money was waiting for a slip that never came.
+  const [run] = await tx.select({ month: payrollRuns.month, year: payrollRuns.year }).from(payrollRuns).where(eq(payrollRuns.id, runId));
+  if (!run) return out;
+  const { from, to } = monthRange(run.year, run.month);
+  const slipped = new Set(rows.map((r) => r.employeeId));
+  const onRolls = await tx.select({ id: employees.id, name: employees.name }).from(employees).where(onRollsDuring(from, to)).orderBy(asc(employees.empCode));
+  for (const e of onRolls) {
+    if (!slipped.has(e.id)) out.push({ employeeId: e.id, name: e.name, issue: "No paid days — no slip" });
+  }
+  const waiting = await tx
+    .select({ employeeId: payInputs.employeeId, name: employees.name, kind: payInputs.kind, amount: payInputs.amount, approvedAmount: payInputs.approvedAmount })
+    .from(payInputs)
+    .innerJoin(employees, eq(employees.id, payInputs.employeeId))
+    .where(and(eq(payInputs.year, run.year), eq(payInputs.month, run.month), eq(payInputs.status, "approved")));
+  for (const w of waiting) {
+    if (slipped.has(w.employeeId)) continue;
+    const amount = Number(w.approvedAmount ?? w.amount).toLocaleString("en-IN");
+    out.push({ employeeId: w.employeeId, name: w.name, issue: `₹${amount} approved ${w.kind} not paid — no slip this month` });
   }
   return out;
 }

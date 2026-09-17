@@ -61,7 +61,7 @@ export const approvalStatus = pgEnum("approval_status", ["pending", "approved", 
 export const holidayType = pgEnum("holiday_type", ["national", "regional", "company"]);
 export const advanceType = pgEnum("advance_type", ["salary_advance", "loan"]);
 export const advanceStatus = pgEnum("advance_status", ["active", "closed", "cancelled"]);
-export const payInputKind = pgEnum("pay_input_kind", ["bonus", "overtime", "reimbursement", "deduction"]);
+export const payInputKind = pgEnum("pay_input_kind", ["bonus", "overtime", "reimbursement", "deduction", "arrears"]);
 export const payInputStatus = pgEnum("pay_input_status", ["pending", "approved", "rejected", "paid"]);
 export const payrollRunStatus = pgEnum("payroll_run_status", ["draft", "confirmed"]);
 
@@ -178,6 +178,11 @@ export const shiftAssignments = pgTable(
     effectiveFrom: date("effective_from").notNull(),
     /** Null while open. */
     effectiveTo: date("effective_to"),
+    /**
+     * This person's own off days on this assignment, 0 = Sunday … 6 = Saturday.
+     * Null defers to the shift; an empty list means no weekly off at all.
+     */
+    weeklyOffDays: integer("weekly_off_days").array(),
     notes: text("notes"),
   },
   (t) => [index("ix_shift_assignments_emp").on(t.employeeId, t.effectiveFrom)],
@@ -328,6 +333,13 @@ export const payInputs = pgTable(
     month: integer("month").notNull(),
     year: integer("year").notNull(),
     amount: money("amount").notNull(),
+    /**
+     * Arrears only: the month the days were earned in, which is always before
+     * the month they are paid in, and how many days the amount stands for.
+     */
+    earnedMonth: integer("earned_month"),
+    earnedYear: integer("earned_year"),
+    days: real("days"),
     /** Overtime only: amount = hours × rate, computed on the server. */
     hours: real("hours"),
     ratePerHour: money("rate_per_hour"),
@@ -438,6 +450,8 @@ export const salarySlips = pgTable(
     bonus: money("bonus").notNull().default("0"),
     overtime: money("overtime").notNull().default("0"),
     reimbursement: money("reimbursement").notNull().default("0"),
+    /** Salary for days earned in an earlier month; outside the PF, ESI and PT base. */
+    arrears: money("arrears").notNull().default("0"),
     pfEmployee: money("pf_employee").notNull().default("0"),
     pfEmployer: money("pf_employer").notNull().default("0"),
     esiEmployee: money("esi_employee").notNull().default("0"),

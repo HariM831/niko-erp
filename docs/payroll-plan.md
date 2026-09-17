@@ -46,19 +46,25 @@ resolveDay(tx, employee, day, ctx) → { status, source, workedHours }
 1. Refuse if a `confirmed` run exists for the month. If a draft exists: revert its side
    effects (delete its `advance_repayments`, set its `pay_inputs` back to `approved` with
    `payroll_run_id = null`), delete its slips, reuse the row.
-2. Recompute attendance for the month for all active employees, then per employee:
+2. Recompute attendance for the month for everyone on the rolls for any day of it
+   (`onRollsDuring` — a leaver switched off since still counts in the month he left),
+   then per employee — skipping anyone with no paid days and no pay inputs:
    - `totalDays` = days in month; counts from `attendance_days`.
    - **salaried**: `earnedX = X × paidDays / totalDays` for basic/HRA/allowances.
    - **daily_wage**: `dailyRate` from the role; `earnedBasic = earnedGross = rate × (P + 0.5·H)`;
      no HRA/allowances, no PF/ESI unless the employee flags are on.
-   - Pay inputs with status `approved` for the month: bonus, overtime, reimbursement sum
-     into earnings; `deduction` → `otherDeductions`. Mark them `paid` with the run id.
+   - Pay inputs with status `approved` for the month: bonus, overtime, reimbursement and
+     arrears sum into earnings; `deduction` → `otherDeductions`. Mark them `paid` with the
+     run id. Arrears (late salary for `earned_month`/`earned_year`) stay outside the PF,
+     ESI and PT base.
    - PF: if `pfEnabled`: base = min(earnedBasic, ceiling or ∞); employee % and employer %.
    - ESI: if `esiEnabled` and earnedGross ≤ esiGrossCeiling: employee %, employer % of earnedGross.
    - PT: first slab whose `upTo` ≥ earnedGross (null = open) → `amount`.
    - `netBeforeAdvance = earnedGross + bonus + overtime + reimbursement − (pf + esi + pt + other)`.
    - Advances: active advances oldest first; recover `min(emi, outstanding, remaining net)`;
      write `advance_repayments` with the run id; close the advance when outstanding hits 0.
+     The run is the only writer of repayments and ignores any entered by hand before
+     Sep 2026: what a month takes is changed by changing the EMI.
    - `netPay`, `totalDeductions` (pf + esi + pt + other + advance), slip inserted.
 3. Run totals: gross, deductions, net, employerCost = gross + pfEmployer + esiEmployer.
 
@@ -144,7 +150,9 @@ All list endpoints return `{ rows, total }` with `limit`/`offset` when the table
 - `POST /pay-inputs` (overtime: amount = hours × rate computed), `PATCH /pay-inputs/:id` (pending only)
 - `POST /pay-inputs/:id/approve` `{ approvedAmount? }`, `/reject`, `DELETE` (not paid)
 - `GET /advances?employeeId=&status=` → `{ ..., outstanding, repayments:[...] }`
-- `POST /advances`, `POST /advances/:id/repay` `{ amount, month, year, notes }` (manual), `POST /advances/:id/cancel`
+- `POST /advances`, `PATCH /advances/:id` `{ emiAmount }` (0 … outstanding), `POST /advances/:id/cancel`
+- `GET /arrears/suggest?employeeId=&earnedMonth=&earnedYear=` → `{ days, totalDays, amount, monthly, working, dateOfJoining, existingSlip }` — the run's own proration (`earnedFor`)
+- `PATCH /shift-assignments/:id` `{ weeklyOffDays: number[] | null }` — a personal weekly off; null defers to the shift
 
 ### Runs (`run`; `view` to read)
 - `GET /runs` → list newest first `{ id, month, year, status, employeeCount, totalGross, totalDeductions, totalNet, totalEmployerCost, processedAt, confirmedAt, journalEntryNumber }`
@@ -214,7 +222,7 @@ flat grey headers, no outer borders, `tabular-nums`, 25/page `table-pager`. Use 
   (@vladmandic/human from CDN, on-device matching, threshold + margin, relearn on drift);
   punches via `POST /api/payroll/punches`. **Face enrolment** page ported from `face-enrollment.tsx`.
 - **Pay Inputs**: one table with kind filter, add dialog (kind-specific fields), approve/reject;
-  Advances section with outstanding and manual repayment.
+  Advances section with outstanding and a Recovery dialog (EMI, implied schedule).
 - **Run**: pick month → process → review slips table + exceptions → confirm (shows JE number);
   payslip view; bank file download.
 - **Wages**: daily-wage report by date range and role.

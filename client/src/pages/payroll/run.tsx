@@ -55,6 +55,7 @@ interface Slip {
   bonus: number | string;
   overtime: number | string;
   reimbursement: number | string;
+  arrears: number | string;
   pfEmployee: number | string;
   pfEmployer: number | string;
   esiEmployee: number | string;
@@ -210,7 +211,7 @@ export function PayrollRunPage() {
                       <Td right className="col-portrait-hide">{num(s.paidDays, 1)}/{s.totalDays}</Td>
                       <Td right className={`col-portrait-hide ${Number(s.lopDays) > 0 ? "text-red-600" : ""}`}>{num(s.lopDays, 1)}</Td>
                       <Td right className="col-portrait-hide">{formatMoney(s.earnedGross)}</Td>
-                      <Td right className="col-portrait-hide">{formatMoney(Number(s.bonus) + Number(s.overtime) + Number(s.reimbursement))}</Td>
+                      <Td right className="col-portrait-hide">{formatMoney(Number(s.bonus) + Number(s.overtime) + Number(s.reimbursement) + Number(s.arrears))}</Td>
                       <Td right className="col-portrait-hide">{formatMoney(s.pfEmployee)}</Td>
                       <Td right className="col-portrait-hide">{formatMoney(s.esiEmployee)}</Td>
                       <Td right className="col-portrait-hide">{formatMoney(s.professionalTax)}</Td>
@@ -346,7 +347,8 @@ function PayslipDialog({ slip: s, run, onClose }: { slip: Slip; run: Run; onClos
             <Row label="Bonus" value={s.bonus} />
             <Row label="Overtime" value={s.overtime} />
             <Row label="Reimbursement" value={s.reimbursement} />
-            <Row label="Gross earnings" value={Number(s.earnedGross) + Number(s.bonus) + Number(s.overtime) + Number(s.reimbursement)} bold />
+            {Number(s.arrears) > 0 && <Row label="Arrears (earlier month)" value={s.arrears} />}
+            <Row label="Gross earnings" value={Number(s.earnedGross) + Number(s.bonus) + Number(s.overtime) + Number(s.reimbursement) + Number(s.arrears)} bold />
             <div className="pt-1 text-[11px] font-semibold uppercase text-gray-400">Deductions</div>
             <Row label="PF" value={s.pfEmployee} neg />
             <Row label="ESI" value={s.esiEmployee} neg />

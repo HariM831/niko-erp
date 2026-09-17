@@ -47,7 +47,7 @@ interface Balance {
   CompOff: { earned: number; used: number; balance: number; expiring: { workDate: string; expiresOn: string }[] };
 }
 interface OpenPunch { id: string; employeeId: string; name?: string; empCode?: string; punchDate: string; punchedAt: string }
-interface Assignment { id: string; employeeId: string; name?: string; empCode?: string; shiftId: string; shiftName?: string; shift?: { name: string }; effectiveFrom: string; effectiveTo: string | null }
+interface Assignment { id: string; employeeId: string; name?: string; empCode?: string; shiftId: string; shiftName?: string; shift?: { name: string }; effectiveFrom: string; effectiveTo: string | null; weeklyOffDays: number[] | null }
 interface Shift { id: string; name: string; startTime: string; endTime: string; weeklyOffDays: number[]; isActive: boolean; color: string }
 
 const leaveName = (l: Leave) => l.name ?? "—";
@@ -742,8 +742,18 @@ function RosterTab() {
     queryFn: () => api<Assignment[]>("/api/payroll/shift-assignments?active=1"),
   });
   const [form, setForm] = useState({ employeeId: "", shiftId: "", effectiveFrom: istToday() });
+  // A person's own off days, where they differ from the shift's. null in
+  // `days` means "same as the shift".
+  const [offFor, setOffFor] = useState<{ a: Assignment; name: string; shiftDays: number[]; days: number[] | null } | null>(null);
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ["payroll", "shift-assignments"] });
+  // Days already resolved change with the off day, so the grid and the
+  // calendar are stale too, not just this list.
+  const invalidate = () => qc.invalidateQueries({ queryKey: ["payroll"] });
+  const saveOff = useMutation({
+    mutationFn: () => api(`/api/payroll/shift-assignments/${offFor!.a.id}`, { method: "PATCH", body: { weeklyOffDays: offFor!.days } }),
+    onSuccess: () => { invalidate(); setOffFor(null); },
+    onError: fail,
+  });
   const assign = useMutation({
     mutationFn: () => api("/api/payroll/shift-assignments", { method: "POST", body: form }),
     onSuccess: () => { invalidate(); setForm({ ...form, employeeId: "" }); },
@@ -809,7 +819,18 @@ function RosterTab() {
                       ) : a ? (a.shiftName ?? a.shift?.name ?? "—") : <span className="text-gray-400">unassigned</span>}
                     </Td>
                     <Td className="tabular-nums">{s ? `${s.startTime}–${s.endTime}` : "—"}</Td>
-                    <Td>{s ? s.weeklyOffDays.map((d) => DOW[d]).join(", ") || "none" : "—"}</Td>
+                    <Td>
+                      {a && s ? (
+                        <button
+                          className="btn-ghost !px-1"
+                          title="Set this person's own weekly off"
+                          onClick={() => setOffFor({ a, name: emp.name, shiftDays: s.weeklyOffDays, days: a.weeklyOffDays })}
+                        >
+                          {(a.weeklyOffDays ?? s.weeklyOffDays).map((d) => DOW[d]).join(", ") || "none"}
+                          {a.weeklyOffDays && <span className="ml-1 text-[11px] text-amber-700">own</span>}
+                        </button>
+                      ) : "—"}
+                    </Td>
                     <Td className="tabular-nums">{a ? dmy(a.effectiveFrom) : "—"}</Td>
                     <Td right>{a && <button className="btn-ghost text-red-600" onClick={() => remove.mutate(a.id)}>Remove</button>}</Td>
                   </tr>
@@ -821,6 +842,48 @@ function RosterTab() {
         )}
         <Pager total={paged.total} offset={paged.offset} onChange={paged.setOffset} />
       </div>
+
+      {offFor && (
+        <Dialog open onOpenChange={(v) => !v && setOffFor(null)}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader><DialogTitle>Weekly off · {offFor.name}</DialogTitle></DialogHeader>
+            <label className="flex items-center gap-2 text-[13px]">
+              <input
+                type="checkbox"
+                checked={offFor.days === null}
+                onChange={(e) => setOffFor({ ...offFor, days: e.target.checked ? null : [...offFor.shiftDays] })}
+              />
+              Same as the shift ({offFor.shiftDays.map((d) => DOW[d]).join(", ") || "none"})
+            </label>
+            {offFor.days !== null && (
+              <div className="mt-3 flex flex-wrap gap-1">
+                {DOW.map((label, d) => {
+                  const on = offFor.days!.includes(d);
+                  return (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => setOffFor({ ...offFor, days: on ? offFor.days!.filter((x) => x !== d) : [...offFor.days!, d].sort() })}
+                      className={`rounded-md border px-2.5 py-1 text-[13px] ${on ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 text-gray-600"}`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div className="mt-3 text-[12px] text-gray-500">
+              {offFor.days !== null && offFor.days.length === 0
+                ? "No weekly off: every day without a punch is an absence."
+                : `Days since ${dmy(offFor.a.effectiveFrom)} are worked out again. Days HR set by hand stay as they are.`}
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button className="btn-secondary" onClick={() => setOffFor(null)}>Cancel</button>
+              <button className="btn-primary" disabled={saveOff.isPending} onClick={() => saveOff.mutate()}>Save</button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
