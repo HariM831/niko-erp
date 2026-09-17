@@ -16,9 +16,11 @@
  */
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { zohoGet } from "./client";
+import { CUTOFF, EPOCH } from "./cutoff";
 
 const OUT = ".zoho-dump/ledger/all-postings.jsonl";
 const PER_PAGE = 200;
+const PAGE_GAP_MS = 3000;
 
 async function main() {
   await mkdir(".zoho-dump/ledger", { recursive: true });
@@ -39,8 +41,8 @@ async function main() {
   let fetched = 0;
   for (;;) {
     const body = await zohoGet<Record<string, unknown>>("reports/accounttransaction", {
-      from_date: "2000-01-01",
-      to_date: "2026-08-13",
+      from_date: EPOCH,
+      to_date: CUTOFF,
       page,
       per_page: PER_PAGE,
     });
@@ -60,6 +62,10 @@ async function main() {
 
     if (rows.length < PER_PAGE) break;
     page += 1;
+    // Paced. This report is the one endpoint Zoho blocks the whole org over —
+    // "exceeded the maximum number of requests per minute" — and a block costs
+    // far longer than the seconds saved by paging flat out.
+    await new Promise((r) => setTimeout(r, PAGE_GAP_MS));
   }
 
   console.log(`\n${have.size} postings written to ${OUT}`);

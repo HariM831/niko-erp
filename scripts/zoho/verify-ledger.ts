@@ -16,9 +16,10 @@ import { readFile } from "node:fs/promises";
 import { and, eq, gte, lte, sql } from "drizzle-orm";
 import { accounts, journalEntries, journalEntryLines, zohoIdMap } from "@shared/schema";
 import { db, pool } from "../../server/db";
+import { CUTOFF } from "./cutoff";
 
 /** The to_date pull-ledger.ts asks Zoho for; reaching it means nothing is missing. */
-const PULLED_TO = "2026-08-13";
+const PULLED_TO = CUTOFF;
 
 interface Posting {
   date: string;

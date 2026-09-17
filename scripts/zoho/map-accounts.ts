@@ -39,6 +39,10 @@ interface ZohoAccount {
 /** Zoho's account_type -> niko's broad type and granular subtype. */
 const TYPE_MAP: Record<string, { type: string; subtype: string }> = {
   other_asset: { type: "asset", subtype: "other_asset" },
+  // Zoho's non-current assets that are not plant: the Investments tree added in
+  // Sept 2026 (the stakes in the two LLPs). niko's other_asset is where the
+  // seeded chart keeps its own non-current Financial Assets, so they sit together.
+  long_term_asset: { type: "asset", subtype: "other_asset" },
   other_current_asset: { type: "asset", subtype: "other_current_asset" },
   cash: { type: "asset", subtype: "cash" },
   bank: { type: "asset", subtype: "bank" },

@@ -19,11 +19,10 @@ import { readFile, writeFile } from "node:fs/promises";
 import { and, eq, inArray, lte, sql } from "drizzle-orm";
 import { accounts, journalEntries, journalEntryLines, zohoIdMap } from "@shared/schema";
 import { db, pool } from "../../server/db";
+import { CUTOFF, PRIOR_YEARS_END } from "./cutoff";
 
 /** Zoho's reports are as at this date; niko is measured to the same day. */
-const AS_AT = "2026-08-13";
-/** Last day of the financial year before AS_AT — India runs 1 April to 31 March. */
-const PRIOR_YEARS_END = "2026-03-31";
+const AS_AT = CUTOFF;
 
 interface ZohoNode {
   account_id?: string;

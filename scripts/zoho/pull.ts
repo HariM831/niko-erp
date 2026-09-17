@@ -11,6 +11,10 @@
  * Nothing is written to Zoho and nothing is written to the niko database.
  * This step only produces files.
  *
+ * The ledger is not pulled here. It used to be, account by account, and that
+ * endpoint ignores the account it is given — so it fetched the whole ledger
+ * once per account and got the org blocked. pull-ledger.ts does it in one sweep.
+ *
  *   npx tsx scripts/zoho/pull.ts            # everything outstanding
  *   npx tsx scripts/zoho/pull.ts invoices   # one module
  */
@@ -20,8 +24,6 @@ import { createInterface } from "node:readline";
 import { zohoGet, zohoPages, type ZohoError } from "./client";
 
 const DIR = ".zoho-dump";
-const EPOCH = "2000-01-01";
-const TODAY = new Date().toISOString().slice(0, 10);
 
 interface Module {
   /** Endpoint path and the key its records arrive under. */
@@ -165,56 +167,9 @@ async function pullDetail(m: Module, ids: Set<string>) {
   process.stdout.write(`\r  ${m.path} detail: ${todo.length} fetched                    \n`);
 }
 
-/**
- * Every posting Zoho has made, account by account — the double-entry history.
- * This is what the import will be checked against, so it is worth having even
- * though niko re-derives its own postings from the documents.
- */
-async function pullLedger(accountIds: string[]) {
-  const file = `${DIR}/ledger/accounttransactions.jsonl`;
-  const done = await idsInFile(`${DIR}/ledger/accounts-done.jsonl`, "account_id");
-  const todo = accountIds.filter((id) => !done.has(id));
-  console.log(`\nLedger: ${todo.length} accounts to read (${done.size} already done)`);
-
-  let n = 0;
-  for (const accountId of todo) {
-    let page = 1;
-    for (;;) {
-      const body = await zohoGet<Record<string, unknown>>("reports/accounttransaction", {
-        account_id: accountId,
-        from_date: EPOCH,
-        to_date: TODAY,
-        page,
-        per_page: 200,
-      });
-      // This report nests one level deeper than the rest of the API: the outer
-      // `account_transactions` holds a single wrapper, and the transactions are
-      // inside that. Reading the outer array as the rows makes every page look
-      // like one row — which silently capped every account at a single page of
-      // 200 and lost the rest of its history.
-      const wrapper = (body.account_transactions as Array<Record<string, unknown>> | undefined)?.[0];
-      const rows = (wrapper?.account_transactions ?? []) as Array<Record<string, unknown>>;
-      if (rows.length) {
-        await write(
-          file,
-          rows.map((r) => ({ ...r, account_id: accountId })),
-        );
-      }
-      // No page_context on this endpoint, so a short page is the only signal
-      // that the account is exhausted.
-      if (rows.length < 200) break;
-      page += 1;
-    }
-    await appendFile(`${DIR}/ledger/accounts-done.jsonl`, JSON.stringify({ account_id: accountId }) + "\n");
-    n += 1;
-    process.stdout.write(`\r  ledger: ${n}/${todo.length} accounts   `);
-  }
-  process.stdout.write(`\r  ledger: ${todo.length} accounts read                \n`);
-}
-
 async function main() {
   const only = process.argv[2];
-  for (const sub of ["list", "detail", "ledger"]) {
+  for (const sub of ["list", "detail"]) {
     await mkdir(`${DIR}/${sub}`, { recursive: true });
   }
 
@@ -225,14 +180,10 @@ async function main() {
     return;
   }
 
-  let accountIds: string[] = [];
   for (const m of selected) {
     const ids = await pullList(m);
-    if (m.path === "chartofaccounts") accountIds = [...ids];
     if (m.detail) await pullDetail(m, ids);
   }
-
-  if (!only && accountIds.length) await pullLedger(accountIds);
 
   console.log(`\nDone. Files are under ${DIR}/`);
 }

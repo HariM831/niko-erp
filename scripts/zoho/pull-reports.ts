@@ -12,10 +12,9 @@
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { zohoGet } from "./client";
+import { CUTOFF, EPOCH } from "./cutoff";
 
 const DIR = ".zoho-dump/reports";
-const EPOCH = "2000-01-01";
-const TODAY = new Date().toISOString().slice(0, 10);
 
 /** Flatten Zoho's nested section/account report shape into one row per account. */
 function flatten(node: unknown, out: Array<Record<string, unknown>> = []) {
@@ -40,19 +39,19 @@ async function main() {
     {
       name: "trialbalance-all-time",
       path: "reports/trialbalance",
-      params: { from_date: EPOCH, to_date: TODAY },
+      params: { from_date: EPOCH, to_date: CUTOFF },
       key: "trialbalance",
     },
     {
       name: "balancesheet-today",
       path: "reports/balancesheet",
-      params: { date: TODAY },
+      params: { date: CUTOFF },
       key: "balance_sheet",
     },
     {
       name: "profitandloss-all-time",
       path: "reports/profitandloss",
-      params: { from_date: EPOCH, to_date: TODAY },
+      params: { from_date: EPOCH, to_date: CUTOFF },
       key: "profit_and_loss",
     },
   ];

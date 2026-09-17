@@ -16,13 +16,15 @@ import {
   invoices,
   journalEntries,
   journalEntryLines,
+  customerPayments,
+  paymentApplications,
   vendorPaymentApplications,
   vendorPayments,
   zohoIdMap,
 } from "@shared/schema";
 import { db, pool } from "../../server/db";
 
-const ENTITIES = ["invoice", "vendor_payment", "bank_transaction"] as const;
+const ENTITIES = ["invoice", "vendor_payment", "customer_payment", "bank_transaction"] as const;
 type Entity = (typeof ENTITIES)[number];
 
 async function main() {
@@ -70,6 +72,9 @@ async function main() {
         .set({ journalEntryId: null })
         .where(inArray(vendorPayments.id, ids));
     }
+    if (entity === "customer_payment") {
+      await tx.update(customerPayments).set({ journalEntryId: null }).where(inArray(customerPayments.id, ids));
+    }
     if (entryIds.length) {
       await tx.delete(journalEntryLines).where(inArray(journalEntryLines.entryId, entryIds));
       await tx.delete(journalEntries).where(inArray(journalEntries.id, entryIds));
@@ -83,6 +88,10 @@ async function main() {
         .delete(vendorPaymentApplications)
         .where(inArray(vendorPaymentApplications.paymentId, ids));
       await tx.delete(vendorPayments).where(inArray(vendorPayments.id, ids));
+    }
+    if (entity === "customer_payment") {
+      await tx.delete(paymentApplications).where(inArray(paymentApplications.paymentId, ids));
+      await tx.delete(customerPayments).where(inArray(customerPayments.id, ids));
     }
     // A bank transaction has no document of its own: the id map points straight
     // at the journal entry, which the block above has already removed.

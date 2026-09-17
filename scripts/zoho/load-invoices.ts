@@ -177,8 +177,19 @@ async function main() {
    * The consequence, accepted deliberately: niko's revenue accounts no longer
    * match Zoho's P&L account by account. Total revenue is identical, and that
    * is what reconciliation checks.
+   *
+   * One kind of line with no item can still be placed. From August 2026 egg
+   * invoices were typed into Zoho as free text — "Eggs — Extra Large — 200
+   * box(es)" — with no item picked, so Zoho dropped them on the catch-all:
+   * 75 lines, ₹1.29cr by the cutoff. The description says what they are, and
+   * the user asked on 2026-09-17 for them to land in Eggs (Sales) with the rest.
+   * Only a description that begins with "Eggs" qualifies, and every line moved
+   * this way is listed so it can be read rather than trusted.
    */
   const CATCH_ALL_SALES = "1849356000000000486";
+  const EGGS_SALES = "1849356000002015004";
+  const isFreeTextEggs = (l: ZohoLine) =>
+    !l.item_id && l.account_id === CATCH_ALL_SALES && /^eggs\b/i.test(l.description?.trim() ?? "");
   const itemDefaultAccount = new Map<string, string>();
   for (const line of (await readFile(".zoho-dump/detail/items.jsonl", "utf8")).trim().split("\n")) {
     if (!line.trim()) continue;
@@ -196,6 +207,7 @@ async function main() {
     if (item && (!l.account_id || l.account_id === CATCH_ALL_SALES)) {
       return itemDefaultAccount.get(item) ?? l.account_id;
     }
+    if (!item && isFreeTextEggs(l)) return EGGS_SALES;
     return l.account_id;
   };
   let reclassified = 0;
@@ -206,6 +218,13 @@ async function main() {
   for (const inv of all) {
     if (!MANUAL_ITEM[inv.invoice_number]) continue;
     const blanks = (inv.line_items ?? []).filter((l) => !l.item_id).length;
+    // None left blank means the invoice has since been given its item in Zoho
+    // itself, and the classification here has nothing to say: Zoho's own answer
+    // is used. Reported, so it is known which of these notes have gone stale.
+    if (blanks === 0) {
+      console.log(`  ${inv.invoice_number}: item now set in Zoho — manual classification not needed`);
+      continue;
+    }
     if (blanks !== 1) {
       throw new Error(
         `${inv.invoice_number} has ${blanks} lines without an item; the manual classification ` +
@@ -256,6 +275,24 @@ async function main() {
     `  lines re-pointed from the catch-all to their item's account: ${wouldMove.length}` +
       ` (${wouldMove.reduce((s, l) => s + Number(l.item_total ?? 0), 0).toLocaleString("en-IN")})`,
   );
+
+  const freeText = todo.flatMap((i) =>
+    (i.line_items ?? [])
+      .filter((l) => !itemForLine(i.invoice_number, l) && isFreeTextEggs(l))
+      .map((l) => ({ i, l })),
+  );
+  if (freeText.length) {
+    console.log(
+      `  of those, free-text egg lines sent to Eggs (Sales): ${freeText.length}` +
+        ` (${freeText.reduce((s, x) => s + Number(x.l.item_total ?? 0), 0).toLocaleString("en-IN")})`,
+    );
+    for (const { i, l } of freeText) {
+      console.log(
+        `      ${i.date}  ${i.invoice_number.padEnd(20)} ${(l.description ?? "").trim().slice(0, 44).padEnd(46)}` +
+          `${Number(l.item_total ?? 0).toLocaleString("en-IN").padStart(14)}`,
+      );
+    }
+  }
 
   if (!commit) {
     console.log("\nDry run — nothing written. Re-run with --commit to apply.");

@@ -41,7 +41,7 @@ interface ZohoCustomerPayment {
   account_id: string;
   reference_number?: string;
   description?: string;
-  invoices?: Array<{ invoice_id: string; amount_applied: number }>;
+  invoices?: Array<{ invoice_id: string; amount_applied: number; apply_date?: string; date?: string }>;
 }
 
 interface ZohoVendorPayment {
@@ -55,7 +55,7 @@ interface ZohoVendorPayment {
   reference_number?: string;
   description?: string;
   tax_amount_withheld?: number;
-  bills?: Array<{ bill_id: string; amount_applied: number }>;
+  bills?: Array<{ bill_id: string; amount_applied: number; apply_date?: string; date?: string }>;
 }
 
 /** Zoho writes the mode as a label; niko stores an enum. */
@@ -173,6 +173,31 @@ async function main() {
   const [admin] = await db.select({ id: users.id }).from(users).limit(1);
   if (!admin) throw new Error("No user to attribute the import to");
 
+  /**
+   * Money paid before the document it settles exists is an advance until that
+   * document's date — and Zoho books it so: Dr Prepaid on the payment date,
+   * then Dr Payable / Cr Prepaid on the day it is applied. Posting the whole
+   * payment against the payable on the payment date gave the same balance
+   * today and a different one at every month-end in between: a supplier paid
+   * on the 31st for a bill dated the 1st read as overpaid across the year-end,
+   * by ₹2.65cr at the worst. 357 of 2,141 supplier applications and 444 of
+   * 1,340 customer ones land after their payment.
+   *
+   * Zoho names the day on each application (`apply_date`); the later of the two
+   * dates is the fallback. Grouped by day, so one payment settling three later
+   * bills on the same day is one entry, as it is in Zoho.
+   */
+  const laterByDay = (payDate: string, apps: Array<{ amount_applied: number; apply_date?: string; date?: string }>) => {
+    const byDay = new Map<string, number>();
+    for (const a of apps) {
+      const p = paise(a.amount_applied);
+      if (p === 0) continue;
+      const on = a.apply_date || (a.date && a.date > payDate ? a.date : payDate);
+      if (on > payDate) byDay.set(on, (byDay.get(on) ?? 0) + p);
+    }
+    return [...byDay.entries()].sort(([x], [y]) => x.localeCompare(y));
+  };
+
   await db.transaction(async (tx) => {
     for (const p of todoIn) {
       const bankId = bankFor.get(p.account_id)!;
@@ -209,9 +234,11 @@ async function main() {
       const lines: Array<Record<string, string | undefined>> = [
         { accountId: glOfBank.get(bankId)!, debit: money(p.amount), description: `Payment ${p.payment_number}` },
       ];
-      if (appliedP > 0) lines.push({ systemKey: "ar", credit: (appliedP / 100).toFixed(2) });
-      if (unappliedP > 0) {
-        lines.push({ systemKey: "customer_advances", credit: (unappliedP / 100).toFixed(2) });
+      const laterIn = laterByDay(p.date, p.invoices ?? []);
+      const heldIn = laterIn.reduce((s, [, v]) => s + v, 0);
+      if (appliedP - heldIn > 0) lines.push({ systemKey: "ar", credit: ((appliedP - heldIn) / 100).toFixed(2) });
+      if (unappliedP + heldIn > 0) {
+        lines.push({ systemKey: "customer_advances", credit: ((unappliedP + heldIn) / 100).toFixed(2) });
       }
 
       const jeId = await postJournal(tx, {
@@ -227,6 +254,19 @@ async function main() {
         .update(customerPayments)
         .set({ journalEntryId: jeId })
         .where(eq(customerPayments.id, row!.id));
+      for (const [on, v] of laterIn) {
+        await postJournal(tx, {
+          entryDate: on,
+          narration: `Payment ${p.payment_number} applied`,
+          sourceType: "customer_payment",
+          sourceId: row!.id,
+          postedBy: admin.id,
+          lines: [
+            { systemKey: "customer_advances", debit: (v / 100).toFixed(2) },
+            { systemKey: "ar", credit: (v / 100).toFixed(2) },
+          ] as never,
+        });
+      }
 
       await tx.insert(zohoIdMap).values({
         entity: "customer_payment",
@@ -273,18 +313,20 @@ async function main() {
       // it by the 1.31 crore paid ahead of any bill, and left 136 vendors
       // reading as overpaid.
       const unappliedP = paise(p.amount) - appliedP;
+      const laterOut = laterByDay(p.date, p.bills ?? []);
+      const heldOut = laterOut.reduce((s, [, v]) => s + v, 0);
       const lines: Array<Record<string, string | undefined>> = [];
-      if (appliedP > 0) {
+      if (appliedP - heldOut > 0) {
         lines.push({
           systemKey: "ap",
-          debit: (appliedP / 100).toFixed(2),
+          debit: ((appliedP - heldOut) / 100).toFixed(2),
           description: `Payment ${p.payment_number}`,
         });
       }
-      if (unappliedP > 0) {
+      if (unappliedP + heldOut > 0) {
         lines.push({
           systemKey: "vendor_advances",
-          debit: (unappliedP / 100).toFixed(2),
+          debit: ((unappliedP + heldOut) / 100).toFixed(2),
           description: `Payment ${p.payment_number} — on account`,
         });
       }
@@ -307,6 +349,19 @@ async function main() {
         .update(vendorPayments)
         .set({ journalEntryId: jeId })
         .where(eq(vendorPayments.id, row!.id));
+      for (const [on, v] of laterOut) {
+        await postJournal(tx, {
+          entryDate: on,
+          narration: `Payment ${p.payment_number} applied`,
+          sourceType: "vendor_payment",
+          sourceId: row!.id,
+          postedBy: admin.id,
+          lines: [
+            { systemKey: "ap", debit: (v / 100).toFixed(2) },
+            { systemKey: "vendor_advances", credit: (v / 100).toFixed(2) },
+          ] as never,
+        });
+      }
 
       await tx.insert(zohoIdMap).values({
         entity: "vendor_payment",

@@ -20,10 +20,11 @@
  *   It goes to vendorBillNumber and niko issues its own sequence.
  */
 import { readFile } from "node:fs/promises";
-import { eq, sql } from "drizzle-orm";
-import { billLines, bills, contacts, users, zohoIdMap } from "@shared/schema";
+import { and, eq, sql } from "drizzle-orm";
+import { billLines, bills, contacts, journalEntries, users, zohoIdMap } from "@shared/schema";
 import { db, pool } from "../../server/db";
 import { postStoredBillJournal } from "../../server/routes/purchases";
+import { postJournal } from "../../server/services/posting";
 
 interface ZohoLine {
   item_id?: string;
@@ -237,6 +238,57 @@ async function main() {
       });
     }
   });
+
+  /*
+   * A bill with BOTH a header discount and an adjustment.
+   *
+   * niko's bill has one adjustment and one account for it, so the two are
+   * netted onto the discount account — right in total, and wrong by the
+   * adjustment on two accounts. There were none of these when that was written;
+   * by the cutoff there was one (ST/2790: 1% discount of 1,447.10 and a 0.10
+   * shortage deduction), and ten paise is still a difference. The adjustment is
+   * moved to its own account by a journal beside the bill's. Run over every
+   * imported bill each time, and it looks before it posts, so a second run adds
+   * nothing.
+   */
+  let split = 0;
+  await db.transaction(async (tx) => {
+    const mapped = new Map(
+      (await tx.select({ zohoId: zohoIdMap.zohoId, eggsyId: zohoIdMap.eggsyId }).from(zohoIdMap).where(eq(zohoIdMap.entity, "bill"))).map((r) => [r.zohoId, r.eggsyId]),
+    );
+    for (const b of all) {
+      const adjP = paise(b.adjustment);
+      if (!paise(b.discount_total) || !adjP) continue;
+      const billId = mapped.get(b.bill_id);
+      const discountAcc = accountFor.get(b.discount_account_id ?? "");
+      const adjustmentAcc = accountFor.get(b.adjustment_account_id ?? "");
+      if (!billId || !discountAcc || !adjustmentAcc || discountAcc === adjustmentAcc) continue;
+      const narration = `Bill ${b.bill_number} — adjustment apart from the discount`;
+      const [done] = await tx
+        .select({ id: journalEntries.id })
+        .from(journalEntries)
+        .where(and(eq(journalEntries.sourceId, billId), eq(journalEntries.narration, narration)));
+      if (done) continue;
+      const [billRow] = await tx.select({ journalEntryId: bills.journalEntryId }).from(bills).where(eq(bills.id, billId));
+      if (!billRow?.journalEntryId) continue; // void or draft: nothing was posted to correct
+      const amount = (Math.abs(adjP) / 100).toFixed(2);
+      // A positive adjustment raised the bill: it is a debit to its own account.
+      const [toAdj, toDisc] = adjP > 0 ? (["debit", "credit"] as const) : (["credit", "debit"] as const);
+      await postJournal(tx, {
+        entryDate: b.date,
+        narration,
+        sourceType: "bill",
+        sourceId: billId,
+        postedBy: admin.id,
+        lines: [
+          { accountId: adjustmentAcc, [toAdj]: amount },
+          { accountId: discountAcc, [toDisc]: amount },
+        ] as never,
+      });
+      split += 1;
+    }
+  });
+  if (split) console.log(`  ${split} bill(s) with both a discount and an adjustment: adjustment moved to its own account`);
 
   console.log(`\nCommitted ${todo.length} bills, numbered BILL-* in date order.`);
   await pool.end();
