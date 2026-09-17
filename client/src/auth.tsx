@@ -1,3 +1,4 @@
+import { clearRosters } from "./lib/roster-cache";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { api } from "./api";
 
@@ -40,6 +41,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     await api("/api/auth/logout", { method: "POST" });
+    // The gate keeps its face roster in this browser; it leaves with the session.
+    await clearRosters();
     setUser(null);
   };
 

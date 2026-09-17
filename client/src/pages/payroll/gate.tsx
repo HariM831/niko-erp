@@ -7,6 +7,8 @@
  * POST /api/payroll/punches. Manual selection appears only after a failed
  * scan so face recognition stays the primary flow.
  */
+import { loadRoster, saveRoster } from "../../lib/roster-cache";
+import { buildMatchIndex, findBestMatchIndexed } from "@shared/face-match";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -16,7 +18,7 @@ import {
 import { ApiError, api } from "../../api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  DEFAULT_MATCH_THRESHOLD, MIN_MATCH_MARGIN, findBestMatch, frameToDataUrl, getFaceEmbedding, loadFaceEngine, looksSpoofed,
+  DEFAULT_MATCH_THRESHOLD, MIN_MATCH_MARGIN, frameToDataUrl, getFaceEmbedding, loadFaceEngine, looksSpoofed,
 } from "../../lib/face";
 import { Avatar, Badge, ErrorBanner, PageHeader, fmtTime, istToday, useErr } from "../../components/payroll/ui";
 
@@ -129,20 +131,36 @@ export function PayrollGatePage() {
    * megabytes and it was being re-fetched every five minutes for the sake of
    * the handful of rows that had actually changed. The server answers from a
    * cursor: send what changed since, and name whoever has gone. A reload
-   * starts from zero again, which is the one time a full copy is wanted.
+   * picks up from the copy this browser kept (lib/roster-cache.ts), so it too
+   * is a delta; the copy is dropped after a day, which is the one time a full
+   * roster is fetched again.
    */
-  const roster = useRef({ cursor: 0, byId: new Map<string, GalleryEmployee>() });
+  const roster = useRef({ cursor: 0, byId: new Map<string, GalleryEmployee>(), savedAt: 0, seeded: false });
   const { data: gallery = [], isLoading: galleryLoading } = useQuery({
     queryKey: ["payroll", "gallery"],
     queryFn: async () => {
       const r = roster.current;
+      if (!r.seeded) {
+        r.seeded = true;
+        const kept = await loadRoster<GalleryEmployee>("attendance");
+        if (kept) {
+          r.cursor = kept.cursor;
+          r.savedAt = kept.savedAt;
+          r.byId = new Map(kept.people.map((p) => [p.id, p]));
+        }
+      }
       const page = await api<{ cursor: number; people: GalleryEmployee[]; deleted: string[] }>(
         `/api/payroll/employees/gallery?since=${r.cursor}`,
       );
       for (const id of page.deleted) r.byId.delete(id);
       for (const p of page.people) r.byId.set(p.id, p);
       r.cursor = page.cursor;
-      return [...r.byId.values()];
+      const people = [...r.byId.values()];
+      // The age runs from the last FULL fetch, not the last delta — otherwise a
+      // gate left open would renew its own copy for ever and never refresh.
+      if (!r.savedAt) r.savedAt = Date.now();
+      void saveRoster("attendance", r.cursor, people, r.savedAt);
+      return people;
     },
     staleTime: 5 * 60_000,
   });
@@ -168,6 +186,9 @@ export function PayrollGatePage() {
 
   const enrolled = useMemo(() => gallery.filter((e) => e.descriptors?.length > 0), [gallery]);
   const empById = useMemo(() => new Map(gallery.map((e) => [e.id, e])), [gallery]);
+  // Every roster vector scaled to unit length once per roster change, not once
+  // per scan: a score is then a dot product. See shared/face-match.ts.
+  const matchIndex = useMemo(() => buildMatchIndex(enrolled.map((e) => ({ id: e.id, descriptors: e.descriptors }))), [enrolled]);
 
   useEffect(() => {
     let cancelled = false;
@@ -263,10 +284,7 @@ export function PayrollGatePage() {
         setStage({ kind: "nomatch", score: 0, closest: null, photo, spoofed: true });
         return;
       }
-      const match = findBestMatch(
-        face.embedding,
-        enrolled.map((e) => ({ id: e.id, descriptors: e.descriptors })),
-      );
+      const match = findBestMatchIndexed(face.embedding, matchIndex);
       const employee = match.id ? empById.get(match.id) ?? null : null;
       // Auto-accept needs BOTH the absolute score over the threshold AND a
       // clear margin over the runner-up — 0.66 vs 0.64 goes to manual.
