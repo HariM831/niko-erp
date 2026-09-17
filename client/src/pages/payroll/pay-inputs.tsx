@@ -154,7 +154,7 @@ export function PayrollPayInputsPage() {
                   <Td className="max-w-[280px] truncate" title={r.description ?? undefined}>
                     {r.kind === "overtime" && r.hours != null && <span className="tabular-nums">{num(r.hours, 1)} h × {formatMoney(r.ratePerHour ?? 0)} · </span>}
                     {r.kind === "arrears" && r.earnedMonth && r.earnedYear && (
-                      <span className="tabular-nums">earned {monthName(r.earnedMonth, r.earnedYear)}{r.days != null ? ` · ${num(r.days, 1)} day(s)` : ""} · </span>
+                      <span className="tabular-nums">earned {monthName(r.earnedMonth, r.earnedYear)}{r.days != null ? ` · ${num(r.days, 1)} day(s)` : ""}{r.description ? " · " : ""}</span>
                     )}
                     {r.category && <span className="capitalize">{r.category} · </span>}
                     {r.description ?? ""}

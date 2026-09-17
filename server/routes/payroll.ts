@@ -812,7 +812,9 @@ const punchBody = z.object({
   employeeId: z.string().uuid(),
   type: z.enum(["in", "out"]).optional(),
   method: z.enum(["face", "manual"]),
-  matchScore: z.number().min(0).max(1).optional(),
+  // nullish for the reason below: a name picked by hand has no score, the gate
+  // sends null for it, and optional() refused every manual punch outright.
+  matchScore: z.number().min(0).max(1).nullish(),
   // nullish, not optional: the gate sends null when the browser has no
   // location fix, and optional() rejects null — every desktop punch failed
   // validation the moment the location prompt was declined.
