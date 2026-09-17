@@ -34,6 +34,7 @@ import {
   WritesDisabled,
 } from "../services/iot/proposals";
 import { RULES } from "../services/iot/rules";
+import { BOUNDS_KEY, MODE_KEY, houseMode } from "../services/iot/bounds";
 
 export const controlsRouter = Router();
 const view = requirePermission("farms", "view");
@@ -139,6 +140,7 @@ controlsRouter.get("/rules", view, async (req, res) => {
   const { params, enabled, farm, rows } = await ruleParams(houseId);
   res.json({
     farm,
+    mode: houseId ? await houseMode(houseId) : null,
     rules: (Object.keys(RULES) as Array<keyof typeof RULES>).map((key) => ({
       key,
       title: RULES[key].title,
@@ -154,8 +156,13 @@ controlsRouter.get("/rules", view, async (req, res) => {
 /** Set a rule's parameters, for the farm or for one house. */
 controlsRouter.put("/rules/:key", manage, async (req, res) => {
   const key = req.params.key!;
-  if (key !== FARM_KEY && !(key in RULES)) return res.status(404).json({ error: "No such rule" });
+  if (key !== FARM_KEY && key !== MODE_KEY && key !== BOUNDS_KEY && !(key in RULES)) return res.status(404).json({ error: "No such rule" });
   const body = req.body as { houseId?: string | null; params?: Record<string, unknown>; enabled?: boolean };
+  if (key === MODE_KEY) {
+    const m = (body.params as { mode?: string })?.mode;
+    if (!body.houseId || !["advise", "auto", "hold"].includes(m ?? "")) return res.status(400).json({ error: "A mode is per shed and one of advise, auto, hold" });
+    console.log(`[controls] mode of ${body.houseId} set to ${m} by ${req.session.user?.id}`);
+  }
   await saveRule(key, body.houseId ?? null, body.params ?? {}, body.enabled ?? true, req.session.user?.id ?? null);
   res.json({ ok: true });
 });

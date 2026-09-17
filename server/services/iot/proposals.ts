@@ -21,6 +21,7 @@ import { db } from "../../db";
 import { fetchDeviceStatus } from "./bhfarm";
 import { getCatalog, ladderFans, latestSnapshot, snapshotHouse } from "./controls";
 import { writeAndConfirm } from "./control";
+import { checkBounds, farmBounds, houseMode, MODE_KEY } from "./bounds";
 import { weekStats } from "./house-stats";
 import { evaluate, RULES, type Draft, type RuleKey } from "./rules";
 
@@ -51,6 +52,7 @@ export async function ruleParams(houseId: string | null): Promise<{
       Object.assign(farm, r.params as Partial<FarmSettings>);
       continue;
     }
+    if (r.key === MODE_KEY) continue;
     if (!(r.key in RULES)) continue;
     const k = r.key as RuleKey;
     params[k] = { ...(params[k] ?? {}), ...(r.params as Record<string, number>) };
@@ -204,6 +206,9 @@ export async function approveProposal(id: number, userId: string) {
   if (!changes.length) throw new Error("This proposal has nothing to write; it asks for a sitting at the panel.");
   const { farm } = await ruleParams(p.houseId);
   if (!farm.writesEnabled) throw new WritesDisabled();
+  if ((await houseMode(p.houseId)) === "hold") throw new Error("This shed is on hold: niko writes nothing to it until its mode is changed under Rules.");
+  const bc = checkBounds(changes, await farmBounds());
+  if (!bc.ok) throw new Error(`Outside the farm's bounds, so not written: ${bc.violations.join("; ")}. Widen the bound under Rules first.`);
 
   const [h] = await db.select({ code: houses.code, device: houses.bhDeviceId }).from(houses).where(eq(houses.id, p.houseId));
   if (!h?.device) throw new Error("This house names no controller");

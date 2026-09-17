@@ -15,6 +15,7 @@ import { getCatalog, snapshotAll } from "./controls";
 import { evaluateAll } from "./proposals";
 import { watchMasters } from "./watch";
 import { nightSetbackTick } from "./setback";
+import { nightFloorTick } from "./night-floor";
 import { db } from "../../db";
 import { controllerSnapshots } from "@shared/schema";
 import { desc } from "drizzle-orm";
@@ -120,6 +121,9 @@ async function tick(): Promise<void> {
         return [];
       });
       for (const sb of setbacks) if (sb.note) console.log(`[setback] ${sb.code}: ${sb.note}`);
+      // Loop 2: the night floor from the air, for sheds that have it on.
+      const nf = await nightFloorTick().catch((e) => { console.error(`[night-floor] crashed: ${e instanceof Error ? e.message : e}`); return []; });
+      for (const r of nf) console.log(`[night-floor] ${r.code}: ${r.note}`);
     }
   } catch (e) {
     console.error(`[iot] poll crashed: ${e instanceof Error ? e.message : e}`);

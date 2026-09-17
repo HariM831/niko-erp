@@ -126,6 +126,8 @@ interface RuleInfo {
 }
 interface RulesDoc {
   farm: { writesEnabled: boolean };
+  /** This shed's mode: advise (a person approves), auto (niko writes within bounds), hold (nothing). */
+  mode: "advise" | "auto" | "hold" | null;
   rules: RuleInfo[];
 }
 interface Change {
@@ -371,6 +373,16 @@ export function FarmControlsPage() {
       setBusy(null);
     }
   };
+  const setMode = async (mode: "advise" | "auto" | "hold") => {
+    if (mode === "auto" && !window.confirm(`Put ${house?.code ?? "this shed"} in auto mode? Live loops will then write their changes within the farm's bounds without waiting for approval, and you read about them afterwards.`)) return;
+    setBusy("mode");
+    try {
+      await api("/api/farms/controls/rules/mode", { method: "PUT", body: { houseId, params: { mode }, enabled: true } });
+      loadRules();
+    } finally {
+      setBusy(null);
+    }
+  };
   const setWrites = async (on: boolean) => {
     if (on && !window.confirm("Turn on writing to the sheds' controllers for the whole farm? Approved proposals will then be sent to the controllers.")) return;
     setBusy("farm");
@@ -586,7 +598,7 @@ export function FarmControlsPage() {
               <div className="rounded-lg border border-yolk-200 bg-yolk-50 px-3 py-2 text-[12px] text-yolk-800">{notice}</div>
             )}
             {showRules && rules && (
-              <RulesPanel rules={rules} busy={busy} onSave={saveRule} onWrites={setWrites} manage={manage} houseCode={house?.code ?? ""} />
+              <RulesPanel rules={rules} busy={busy} onSave={saveRule} onWrites={setWrites} onMode={setMode} manage={manage} houseCode={house?.code ?? ""} />
             )}
             <ProposalsPanel
               proposals={proposals}
@@ -990,6 +1002,7 @@ function ProposalsPanel({
                 {p.status}
               </span>
               <span className="font-medium text-soil-900">{p.title}</span>
+              {p.evidence?.auto === true && <span className="ml-2 rounded bg-yolk-100 px-1.5 text-[10px] text-yolk-800" title="Written by niko on its own: this shed was in auto mode">auto</span>}
               <span className="ml-2 text-muted-foreground">{fmtWhen(p.decidedAt ?? p.createdAt)}</span>
               {p.writeRecord?.registers && (
                 <span className="ml-2 text-muted-foreground">
@@ -1085,6 +1098,7 @@ function RulesPanel({
   busy,
   onSave,
   onWrites,
+  onMode,
   manage,
   houseCode,
 }: {
@@ -1092,6 +1106,7 @@ function RulesPanel({
   busy: string | null;
   onSave: (key: string, params: Record<string, number>, enabled: boolean, thisHouse?: boolean) => void;
   onWrites: (on: boolean) => void;
+  onMode: (mode: "advise" | "auto" | "hold") => void;
   manage: boolean;
   houseCode: string;
 }) {
@@ -1117,10 +1132,22 @@ function RulesPanel({
           <div className="text-[11px] text-muted-foreground">The numbers the rules read: farm-wide, or set for one shed with "this shed only".</div>
         </div>
         {manage && (
-          <label className="flex items-center gap-2 text-[12px] font-semibold text-soil-900">
-            <input type="checkbox" checked={rules.farm.writesEnabled} disabled={busy !== null} onChange={(e) => onWrites(e.target.checked)} />
-            Writing to controllers {rules.farm.writesEnabled ? "on" : "off"}
-          </label>
+          <div className="flex flex-wrap items-center gap-4">
+            {rules.mode && (
+              <label className="flex items-center gap-2 text-[12px] font-semibold text-soil-900" title="advise: a person approves every change · auto: live loops write within the farm's bounds on their own · hold: niko writes nothing to this shed">
+                {houseCode} mode
+                <select value={rules.mode} disabled={busy !== null} onChange={(e) => onMode(e.target.value as "advise" | "auto" | "hold")} className="rounded border border-soil-200 px-2 py-0.5 text-[12px]">
+                  <option value="advise">advise</option>
+                  <option value="auto">auto within bounds</option>
+                  <option value="hold">hold</option>
+                </select>
+              </label>
+            )}
+            <label className="flex items-center gap-2 text-[12px] font-semibold text-soil-900">
+              <input type="checkbox" checked={rules.farm.writesEnabled} disabled={busy !== null} onChange={(e) => onWrites(e.target.checked)} />
+              Writing to controllers {rules.farm.writesEnabled ? "on" : "off"}
+            </label>
+          </div>
         )}
       </header>
       <ul className="divide-y divide-soil-100/70">

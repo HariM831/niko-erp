@@ -95,6 +95,18 @@ export const RULES = {
       "This controller holds one target per age row and no night target; what L3 shows as 27 and 26 are two age rows. So the night target is niko's: between nightFrom and nightTo (hours IST) it writes the curve's target correction to minus the setback, and clears it at dawn, through the confirmed write path, logged as its own decision. Off unless enabled for a shed with writing on. Note that in a month when the shed cannot get down to its day target at night, a setback only holds the ladder up for nothing.",
     params: { nightFrom: 20, nightTo: 5, setback: 1.0 },
   },
+  "night-floor": {
+    title: "Night floor from the air",
+    description:
+      "Between nightFrom and nightTo (hours IST) the floor of the ladder follows the air instead of the week: up one step when CO₂ or humidity is over the high line, down one when both are under the low line and the ladder is sitting on the floor. One step at a time, at most one an hour, never outside the bounds, never in the quarter hour after a restart; at dawn the floor goes back to the week's. Off unless enabled for a shed. In advise mode each move is a proposal; in auto mode niko writes it.",
+    params: { nightFrom: 20, nightTo: 5.5, co2High: 2500, co2Low: 1800, rhHigh: 85, rhLow: 80 },
+  },
+  bounds: {
+    title: "Bounds",
+    description:
+      "What niko may write, whoever asks: a floor and a ceiling on each master register, never wider than the vendor's own range. A proposal outside a bound is shown and not written; widen the bound here first. floorStepsPerHour and targetPerDay are the most a live loop may move in that time.",
+    params: { targetMin: 24, targetMax: 28, tunnelMin: 25, tunnelMax: 29, floorMin: 1, floorMax: 14, padsMin: 26, padsMax: 32, bandMin: 0.5, bandMax: 1.5, stepDownMin: 40, stepDownMax: 180, pressureMin: 15, pressureMax: 35, floorStepsPerHour: 1, targetPerDay: 0.5 },
+  },
   "target-reachable": {
     title: "A target the air can deliver",
     description:
@@ -535,8 +547,10 @@ export const RULE_FNS: Record<RuleKey, Rule> = {
   "ladder-monotonic": ladderMonotonic,
   "ladder-reach": ladderReach,
   "target-reachable": targetReachable,
-  // Not an evaluation rule: the scheduler acts on it directly (see setback.ts).
+  // Not evaluation rules: the scheduler acts on them directly (setback.ts, night-floor.ts), and bounds are read at write time.
   "night-setback": () => null,
+  "night-floor": () => null,
+  bounds: () => null,
 };
 
 /** Every enabled rule's answer for one house. */
