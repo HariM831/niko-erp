@@ -32,7 +32,7 @@ export type ServingState = (typeof SERVING_STATES)[number];
 
 export const SERVING_STATE_LABEL: Record<ServingState, string> = {
   verified: "Verified",
-  name_matched: "Name matched",
+  name_matched: "Manual",
   unverified_attendance: "Unverified attendance",
   override: "Override",
   guest: "Guest",

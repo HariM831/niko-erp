@@ -37,12 +37,13 @@ const MODEL_BASE = "https://cdn.jsdelivr.net/npm/@vladmandic/human@3.3.5/models/
  * runner-up is at 0.56 or worse, which is already different-person territory.
  * Re-enrolling someone at the gate camera lifts their scores well clear.
  */
-export const DEFAULT_MATCH_THRESHOLD = 0.6;
+import { MATCH_MARGIN, MATCH_THRESHOLD } from "@shared/face";
+export const DEFAULT_MATCH_THRESHOLD = MATCH_THRESHOLD;
 
 /** Minimum gap between the top match and the runner-up for an auto-accept.
  * Prevents "close-call" matches when the top-1 and top-2 are within noise of
  * each other. */
-export const MIN_MATCH_MARGIN = 0.05;
+export const MIN_MATCH_MARGIN = MATCH_MARGIN;
 
 /** Minimum anti-spoof ("real face") score to accept a capture.
  *

@@ -15,6 +15,8 @@
  * hit. The work is a single UPDATE over an indexed predicate, and after the
  * first pass of any day it finds almost nothing to do.
  */
+import { sql } from "drizzle-orm";
+import { PHOTO_RETENTION_DAYS } from "@shared/canteen";
 import { db } from "../db";
 import { pruneTaughtCaptures, taughtCaptureCount } from "./face-gallery";
 import { buildFaceHealth, formatFaceHealth } from "./face-health";
@@ -43,6 +45,19 @@ const istHourAndDate = () => {
   return { date: `${at("year")}-${at("month")}-${at("day")}`, hour: Number(at("hour")) };
 };
 
+/**
+ * Punch and plate photographs older than the retention the devices are told
+ * about. That figure was only ever told: nothing here cleared a photo, so the
+ * one column that holds 30–60 KB a row grew for ever. The row stays — it is the
+ * attendance — and only the picture goes.
+ */
+export async function pruneOldPhotos(conn: typeof db): Promise<number> {
+  const cutoff = sql`((now() AT TIME ZONE 'Asia/Kolkata')::date - ${PHOTO_RETENTION_DAYS}::int)`;
+  const a = await conn.execute(sql`UPDATE punches SET photo_url = NULL WHERE photo_url IS NOT NULL AND punch_date < ${cutoff}`);
+  const b = await conn.execute(sql`UPDATE canteen_servings SET photo_url = NULL WHERE photo_url IS NOT NULL AND meal_date < ${cutoff}`);
+  return (a.rowCount ?? 0) + (b.rowCount ?? 0);
+}
+
 let running = false;
 let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -56,6 +71,9 @@ async function tick() {
     if (cleared > 0) {
       console.log(`[faces] cleared ${cleared} aged-out capture(s); ${await taughtCaptureCount(db)} in the galleries`);
     }
+
+    const photos = await pruneOldPhotos(db);
+    if (photos > 0) console.log(`[faces] cleared ${photos} photograph(s) older than ${PHOTO_RETENTION_DAYS} days`);
 
     const { date, hour } = istHourAndDate();
     if (hour >= REPORT_HOUR_IST && reportedOn !== date) {

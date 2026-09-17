@@ -26,6 +26,7 @@
  * is served and what is stored cannot drift apart and leave the gate matching
  * against vectors that are about to be deleted.
  */
+import { FACE_DIM } from "@shared/face";
 import { isNotNull, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db";
 import { punches } from "@shared/schema";
@@ -52,9 +53,14 @@ export function roundEmbedding(e: number[]): number[] {
   return e.map((n) => Math.round(n * 10_000) / 10_000);
 }
 
-/** Only a real vector teaches. A short or empty one is a bug upstream. */
+/**
+ * Only a real vector teaches: FACE_DIM finite numbers. One of another length
+ * scores zero against every real face, so it never matches anybody — but the
+ * gallery keeps one capture a day, and it would be kept in place of one that
+ * does.
+ */
 export function isUsableEmbedding(v: unknown): v is number[] {
-  return Array.isArray(v) && v.length > 0 && v.every((n) => typeof n === "number" && Number.isFinite(n));
+  return Array.isArray(v) && v.length === FACE_DIM && v.every((n) => typeof n === "number" && Number.isFinite(n));
 }
 
 export interface TaughtCapture {

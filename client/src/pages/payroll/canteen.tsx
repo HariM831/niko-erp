@@ -9,6 +9,7 @@
  *   Canteens & windows   the rooms and their meal timings
  *   Eligibility          who gets breakfast / dinner
  */
+import { SERVING_STATE_LABEL, type ServingState } from "@shared/canteen";
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Search } from "lucide-react";
@@ -149,7 +150,7 @@ function TodayTab() {
                   <Td>{canteenName(r)}</Td>
                   <Td className="capitalize">{r.meal}</Td>
                   <Td className="tabular-nums">{fmtTime(r.servedAt)}</Td>
-                  <Td><Badge tone={STATE_TONE[r.state]}>{r.state.replace(/_/g, " ")}</Badge></Td>
+                  <Td><Badge tone={STATE_TONE[r.state]}>{SERVING_STATE_LABEL[r.state as ServingState] ?? r.state}</Badge></Td>
                   <Td>
                     <span className="flex flex-wrap gap-1">
                       {r.outsideWindow && <Badge tone="amber">outside window</Badge>}
@@ -267,7 +268,7 @@ function ReportTab() {
                 <tr key={i} className="table-row">
                   <Td>{r.canteen}</Td>
                   <Td className="capitalize">{r.meal}</Td>
-                  <Td className="capitalize">{r.state.replace(/_/g, " ")}</Td>
+                  <Td>{SERVING_STATE_LABEL[r.state as ServingState] ?? r.state}</Td>
                   <Td right>{num(r.plates)}</Td>
                 </tr>
               ))}

@@ -640,6 +640,23 @@ function ExceptionsTab() {
   const [resolving, setResolving] = useState<OpenPunch | null>(null);
   const [mode, setMode] = useState<"out" | "day">("out");
   const [outTime, setOutTime] = useState("18:00");
+  // The exit of a shift that ran past midnight is on the day after its entry.
+  // Built on the entry's own date it would fall before the entry, the server
+  // would refuse it, and a night shift could not be closed from here at all.
+  const [nextDay, setNextDay] = useState(false);
+  const settingsQ = useQuery({
+    queryKey: ["payroll", "settings"],
+    queryFn: () => api<{ fullDayHours: number; halfDayHours: number }>("/api/payroll/settings"),
+  });
+  const openResolve = (p: OpenPunch) => {
+    const hour = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", hour12: false }).format(new Date(p.punchedAt))) % 24;
+    const night = hour >= 15;
+    setNextDay(night);
+    setOutTime(night ? "06:00" : "18:00");
+    setMode("out");
+    setResolving(p);
+  };
+  const outAtOf = (p: OpenPunch) => new Date(new Date(`${p.punchDate}T${outTime}:00+05:30`).getTime() + (nextDay ? 86_400_000 : 0));
   const [dayStatus, setDayStatus] = useState<"P" | "H" | "A">("H");
   const [note, setNote] = useState("");
 
@@ -654,7 +671,7 @@ function ExceptionsTab() {
       api(`/api/payroll/punches/${p.id}/resolve`, {
         method: "POST",
         body: mode === "out"
-          ? { outAt: new Date(`${p.punchDate}T${outTime}:00+05:30`).toISOString(), note }
+          ? { outAt: outAtOf(p).toISOString(), note }
           : { status: dayStatus, note },
       }),
     onSuccess: () => {
@@ -685,7 +702,7 @@ function ExceptionsTab() {
                   <Td className="font-medium">{p.name ?? p.empCode ?? "—"}</Td>
                   <Td className="tabular-nums">{dmy(p.punchDate)}</Td>
                   <Td className="tabular-nums">{fmtTime(p.punchedAt)}</Td>
-                  <Td right><button className="btn-secondary" onClick={() => setResolving(p)}>Resolve</button></Td>
+                  <Td right><button className="btn-secondary" onClick={() => openResolve(p)}>Resolve</button></Td>
                 </tr>
               ))}
               {!rows.length && <tr><Td colSpan={4}><Empty>No open punches. Clean sheet.</Empty></Td></tr>}
@@ -705,9 +722,28 @@ function ExceptionsTab() {
               <button className={`flex-1 rounded px-2 py-1 ${mode === "day" ? "bg-white font-medium shadow-sm" : "text-gray-500"}`} onClick={() => setMode("day")}>Set the day</button>
             </div>
             {mode === "out" ? (
-              <Field label="Out at (IST)">
-                <input type="time" className="input" value={outTime} onChange={(e) => setOutTime(e.target.value)} />
-              </Field>
+              <>
+                <Field label="Out at (IST)">
+                  <input type="time" className="input" value={outTime} onChange={(e) => setOutTime(e.target.value)} />
+                </Field>
+                <label className="mt-2 flex items-center gap-2 text-[13px]">
+                  <input type="checkbox" checked={nextDay} onChange={(e) => setNextDay(e.target.checked)} />
+                  Out was on the next day (night shift)
+                </label>
+                {(() => {
+                  const h = (outAtOf(resolving).getTime() - new Date(resolving.punchedAt).getTime()) / 3_600_000;
+                  const full = settingsQ.data?.fullDayHours ?? 8;
+                  const half = settingsQ.data?.halfDayHours ?? 4;
+                  if (!Number.isFinite(h)) return null;
+                  if (h <= 0) return <div className="mt-1 text-[12px] text-red-600">That is before the entry — tick "next day" if the shift ended after midnight.</div>;
+                  if (h > 24) return <div className="mt-1 text-[12px] text-red-600">That would be a shift longer than 24 hours.</div>;
+                  return (
+                    <div className="mt-1 text-[12px] text-gray-500">
+                      ≈ {h.toFixed(1)} h worked → {h >= full ? "full day" : h >= half ? "half day" : "absent"}
+                    </div>
+                  );
+                })()}
+              </>
             ) : (
               <Field label="Day status">
                 <div className="flex gap-1">

@@ -25,13 +25,10 @@ import type { Db, Tx } from "../db";
 
 type Conn = Db | Tx;
 
-/**
- * The gate auto-accepts at this score, and only with a clear margin over the
- * runner-up. Kept in step with DEFAULT_MATCH_THRESHOLD / MIN_MATCH_MARGIN in
- * client/src/lib/face.ts, which is where the decision is actually made.
- */
-export const MATCH_THRESHOLD = 0.6;
-export const MATCH_MARGIN = 0.05;
+// The gate auto-accepts at this score, and only with a clear margin over the
+// runner-up. One definition, shared with the client that makes the decision.
+export { MATCH_MARGIN, MATCH_THRESHOLD } from "@shared/face";
+import { MATCH_MARGIN, MATCH_THRESHOLD } from "@shared/face";
 
 /** HR's desk work, which is not a face failing. See the note above. */
 const HR_RESOLVED = sql`(p.resolution_note IS NOT NULL AND p.resolved_at IS NULL)`;

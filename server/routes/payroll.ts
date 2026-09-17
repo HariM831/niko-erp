@@ -4,6 +4,7 @@
  * and answers. Mounted at /api/payroll after requireAuth (session side only —
  * the field devices speak to routes/device.ts with a bearer token).
  */
+import { FACE_DIM } from "@shared/face";
 import { createHash } from "node:crypto";
 import { Router } from "express";
 import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
@@ -49,6 +50,9 @@ import {
   resolveDay,
   shiftForDate,
   addToTotals,
+  carriedEntries,
+  carryOverIn,
+  rehomeStrayOuts,
   onRollsDuring,
   withinService,
 } from "../services/day-resolution";
@@ -723,7 +727,7 @@ payrollRouter.get("/employees/:id", view, async (req, res) => {
 payrollRouter.post(
   "/employees/:id/face",
   gatePerm,
-  validateBody(z.object({ descriptor: z.array(z.number()).min(64).max(4096) })),
+  validateBody(z.object({ descriptor: z.array(z.number().finite()).length(FACE_DIM) })),
   async (req, res) => {
     const [row] = await db
       .update(employees)
@@ -808,6 +812,9 @@ payrollRouter.post(
  */
 class RepeatPunch extends Error {}
 
+/** The next punch has to close last night's shift; an entry would orphan it. */
+class NightShiftOpen extends Error {}
+
 const punchBody = z.object({
   employeeId: z.string().uuid(),
   type: z.enum(["in", "out"]).optional(),
@@ -855,7 +862,16 @@ payrollRouter.post("/punches", gatePerm, validateBody(punchBody), async (req, re
       if (last && Date.now() - last.punchedAt.getTime() < REPEAT_PUNCH_WINDOW_MS[emp.payType]) {
         throw new RepeatPunch(`Already punched ${last.type} a moment ago — this scan was not recorded.`);
       }
-      const type = b.type ?? (last?.type === "in" ? "out" : "in");
+      // A night worker's first punch of the morning is last night's exit, and
+      // is filed under last night: that is what keeps the pair on one day for
+      // every reader downstream. Only when nothing has been punched today.
+      const carry = last ? null : await carryOverIn(tx, b.employeeId);
+      if (carry && b.type === "in") {
+        const since = carry.inPunch.punchedAt.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false });
+        throw new NightShiftOpen(`Still IN from yesterday ${since} (night shift) — the next punch must be OUT`);
+      }
+      const punchDay = carry?.day ?? today;
+      const type = carry ? "out" : (b.type ?? (last?.type === "in" ? "out" : "in"));
       // The photo is kept only when someone might need to look at it: a manual
       // punch, or a face match below the review threshold.
       const [settings] = await tx.select({ reviewBelowScore: payrollSettings.reviewBelowScore }).from(payrollSettings);
@@ -866,7 +882,7 @@ payrollRouter.post("/punches", gatePerm, validateBody(punchBody), async (req, re
         .values({
           employeeId: b.employeeId,
           type,
-          punchDate: today,
+          punchDate: punchDay,
           method: b.method,
           matchScore: b.matchScore ?? null,
           latitude: b.latitude ?? null,
@@ -877,14 +893,42 @@ payrollRouter.post("/punches", gatePerm, validateBody(punchBody), async (req, re
           markedBy: req.session.user!.id,
         })
         .returning();
-      const day = await recomputeEmployeeDay(tx, b.employeeId, today);
-      return { ...punch!, status: day?.status ?? null, workedHours: day?.workedHours ?? 0 };
+      const day = await recomputeEmployeeDay(tx, b.employeeId, punchDay);
+      return { ...punch!, status: day?.status ?? null, workedHours: day?.workedHours ?? 0, nightShift: !!carry };
     });
     res.status(201).json(out);
   } catch (err) {
     if (err instanceof RepeatPunch) return res.status(409).json({ error: err.message, repeatPunch: true });
+    if (err instanceof NightShiftOpen) return res.status(409).json({ error: err.message, expected: "out" });
     if (!fail(err, res)) throw err;
   }
+});
+
+/**
+ * Nights still in progress: people whose last punch was yesterday's entry and
+ * who are, as far as anyone knows, still inside. The gate lists them so the
+ * guard is offered OUT, not IN.
+ */
+payrollRouter.get("/punches/carried", view, async (_req, res) => {
+  const carried = await carriedEntries(db);
+  if (!carried.length) return res.json([]);
+  const people = await db
+    .select({ id: employees.id, name: employees.name, empCode: employees.empCode })
+    .from(employees)
+    .where(inArray(employees.id, carried.map((c) => c.employeeId)));
+  const byId = new Map(people.map((p) => [p.id, p]));
+  res.json(
+    carried.map((c) => ({
+      id: c.inPunch.id,
+      employeeId: c.employeeId,
+      name: byId.get(c.employeeId)?.name ?? "—",
+      empCode: byId.get(c.employeeId)?.empCode ?? "",
+      type: "in" as const,
+      punchDate: c.day,
+      punchedAt: c.inPunch.punchedAt,
+      carryover: true,
+    })),
+  );
 });
 
 payrollRouter.get("/punches", view, async (req, res) => {
@@ -941,7 +985,15 @@ payrollRouter.get("/punches/open", view, async (req, res) => {
     .innerJoin(employees, eq(employees.id, punches.employeeId))
     .where(sql`${punches.punchDate} < ${before}`)
     .orderBy(punches.employeeId, punches.punchDate, desc(punches.punchedAt));
-  res.json(last.filter((p) => p.type === "in" && !p.resolvedAt).sort((a, b) => (a.punchDate < b.punchDate ? 1 : -1)));
+  // A night still in progress is somebody at work, not an exception: from
+  // midnight until he leaves, his entry is "dangling on a past day" by the
+  // calendar and perfectly in order by the shift.
+  const inProgress = new Set((await carriedEntries(db)).map((c) => c.inPunch.id));
+  res.json(
+    last
+      .filter((p) => p.type === "in" && !p.resolvedAt && !inProgress.has(p.id))
+      .sort((a, b) => (a.punchDate < b.punchDate ? 1 : -1)),
+  );
 });
 
 const resolveBody = z.object({
@@ -962,7 +1014,12 @@ payrollRouter.post("/punches/:id/resolve", attendancePerm, validateBody(resolveB
       const userId = req.session.user!.id;
       if (b.outAt) {
         const outAt = new Date(b.outAt);
-        if (outAt.getTime() <= p.punchedAt.getTime()) throw new PostingError("The out time must be after the in time");
+        if (outAt.getTime() <= p.punchedAt.getTime()) {
+          throw new PostingError("The out time must be after the in time — tick \"next day\" if the shift ended after midnight");
+        }
+        if (outAt.getTime() - p.punchedAt.getTime() > 24 * 3_600_000) {
+          throw new PostingError("That would be a shift longer than 24 hours — check the out time");
+        }
         await tx.insert(punches).values({
           employeeId: p.employeeId,
           type: "out",
@@ -1155,7 +1212,12 @@ payrollRouter.post(
   async (req, res) => {
     const b = req.body as { year: number; month: number; employeeId?: string };
     const { from, to } = monthRange(b.year, b.month);
-    const out = await db.transaction((tx) => recomputeRange(tx, from, to, b.employeeId ? [b.employeeId] : undefined));
+    const out = await db.transaction(async (tx) => {
+      const ids = b.employeeId ? [b.employeeId] : undefined;
+      // First, so the days are resolved with each night's exit where it belongs.
+      const rehomed = await rehomeStrayOuts(tx, from, to, ids);
+      return { ...(await recomputeRange(tx, from, to, ids)), rehomed };
+    });
     res.json(out);
   },
 );
@@ -1217,6 +1279,11 @@ payrollRouter.get("/attendance/today", view, async (_req, res) => {
     .where(eq(punches.punchDate, today))
     .orderBy(punches.employeeId, desc(punches.punchedAt));
   const lastOf = new Map(lastPunches.map((p) => [p.employeeId, p]));
+  // Someone who came in last night and has not left is inside now, though he
+  // has punched nothing today.
+  for (const c of await carriedEntries(db)) {
+    if (!lastOf.has(c.employeeId)) lastOf.set(c.employeeId, { employeeId: c.employeeId, type: "in", punchedAt: c.inPunch.punchedAt });
+  }
 
   const present = staff.filter((e) => ["P", "H"].includes(statusOf.get(e.id) ?? "") || lastOf.has(e.id));
   const insideNow = staff.filter((e) => lastOf.get(e.id)?.type === "in");
@@ -2024,6 +2091,11 @@ payrollRouter.get("/reports/people", view, async (req, res) => {
     .where(eq(punches.punchDate, today))
     .orderBy(punches.employeeId, desc(punches.punchedAt));
   const lastOf = new Map(lastPunches.map((p) => [p.employeeId, p]));
+  // Someone who came in last night and has not left is inside now, though he
+  // has punched nothing today.
+  for (const c of await carriedEntries(db)) {
+    if (!lastOf.has(c.employeeId)) lastOf.set(c.employeeId, { employeeId: c.employeeId, type: "in", punchedAt: c.inPunch.punchedAt });
+  }
 
   const isPresent = (id: string) => ["P", "H"].includes(statusOf.get(id) ?? "") || lastOf.has(id);
   const byDepartment = new Map<string, { department: string; present: number; total: number }>();

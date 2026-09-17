@@ -14,6 +14,12 @@
  *   confirm:   the journal is balanced with exactly the plan's lines;
  *              a confirmed run refuses deletion and reprocessing
  *   delete:    a draft run deletes clean, advance outstanding restored
+ *   nights:    (September, its own people) an exit after midnight closes the
+ *              shift it belongs to and the night is one full day on the date it
+ *              began; only for someone who was on a night — a day worker's
+ *              forgotten exit is not carried; never past sixteen hours, never
+ *              an entry HR has ruled on; a night in progress reads present, not
+ *              a half day; a stray morning exit is filed back under its night
  *   catch-up:  (August, its own people) a leaver switched off mid-month still
  *              gets his final slip, and nothing after his last day is paid
  *              whoever wrote the row; nobody gets an empty slip; money waiting
@@ -44,7 +50,9 @@ import {
   wageRoles,
 } from "@shared/schema";
 import { db } from "../server/db";
-import { addDays, emptyTotals, istDate, monthTotals, recomputeRange } from "../server/services/day-resolution";
+import {
+  addDays, carryOverIn, emptyTotals, istDate, loadContext, monthTotals, recomputeEmployeeDay, recomputeRange, rehomeStrayOuts, resolveDay,
+} from "../server/services/day-resolution";
 import { applyLeave, approveLeave, leaveBalance } from "../server/services/leave";
 import { advanceOutstanding, confirmRun, deleteDraftRun, earnedFor, processRun, runExceptions } from "../server/services/payroll";
 
@@ -490,6 +498,69 @@ try {
     // 8000 leaver + 4000 Wednesday + 5000 joiner + 3000 arrear.
     ok("the arrear is in the salary expense", approx(Number(augLines.find((l) => l.systemKey === "salary_expense")?.debit), 20000), augLines.find((l) => l.systemKey === "salary_expense")?.debit);
 
+    /* ── Night shifts: September, and people of its own ────────────────── */
+    console.log("\n  night shifts\n");
+    const [nightShift] = await tx
+      .insert(shifts)
+      .values({ name: "ZZ Check Night", startTime: "20:00", endTime: "06:00", workingHours: 10, weeklyOffDays: [0] })
+      .returning();
+    const ist = (day: string, time: string) => new Date(`${day}T${time}:00+05:30`);
+    const put = (empId: string, punchDate: string, type: "in" | "out", at: Date) =>
+      tx.insert(punches).values({ employeeId: empId, type, punchDate, punchedAt: at, method: "manual", markedBy: uid }).returning();
+
+    const night = await person("ZZNITE", { dateOfJoining: "2026-09-01" });
+    await tx.insert(shiftAssignments).values({ employeeId: night.id, shiftId: nightShift!.id, effectiveFrom: "2026-09-01" });
+    await put(night.id, "2026-09-01", "in", ist("2026-09-01", "20:00"));
+    let carry = await carryOverIn(tx, night.id, ist("2026-09-02", "06:00"));
+    ok("an exit at 06:00 belongs to the night that began at 20:00", carry?.day === "2026-09-01", carry?.day ?? "not carried");
+    await put(night.id, carry?.day ?? "2026-09-02", "out", ist("2026-09-02", "06:00"));
+    await recomputeEmployeeDay(tx, night.id, "2026-09-01");
+    d = await dayOf(night.id, "2026-09-01");
+    ok("the night is one full day on the date it began", d?.status === "P" && d?.workedHours === 10, `${d?.status} ${d?.workedHours}h`);
+    const [morning] = await tx.select().from(punches).where(and(eq(punches.employeeId, night.id), eq(punches.punchDate, "2026-09-02")));
+    ok("and the morning after holds no stray exit", !morning);
+
+    await put(night.id, "2026-09-03", "in", ist("2026-09-03", "20:00"));
+    carry = await carryOverIn(tx, night.id, ist("2026-09-04", "12:30"));
+    ok("past sixteen hours it is a forgotten exit, not a shift", carry === null);
+    {
+      const ctx = await loadContext(tx, "2026-09-03", "2026-09-03", [night.id]);
+      const at = (now: Date) => resolveDay(night, "2026-09-03", { ...ctx, today: "2026-09-04", now })?.status;
+      ok("a night in progress reads present, not a half day", at(ist("2026-09-04", "01:00")) === "P", at(ist("2026-09-04", "01:00")));
+      ok("…and a half day once the night is long over", at(ist("2026-09-04", "14:00")) === "H", at(ist("2026-09-04", "14:00")));
+    }
+    await tx.update(punches).set({ resolvedAt: new Date(), resolvedBy: uid }).where(and(eq(punches.employeeId, night.id), eq(punches.punchDate, "2026-09-03")));
+    carry = await carryOverIn(tx, night.id, ist("2026-09-04", "05:00"));
+    ok("an entry HR has ruled on is never carried", carry === null);
+
+    // The case the flat sixteen-hour rule gets wrong: a day worker forgets to
+    // punch out at 17:00 and is back at 08:00 — fifteen hours, and not a shift.
+    const dayWorker = await person("ZZDAYW", { dateOfJoining: "2026-09-01" });
+    await tx.insert(shiftAssignments).values({ employeeId: dayWorker.id, shiftId: shift!.id, effectiveFrom: "2026-09-01" });
+    await put(dayWorker.id, "2026-09-01", "in", ist("2026-09-01", "17:00"));
+    carry = await carryOverIn(tx, dayWorker.id, ist("2026-09-02", "08:00"));
+    ok("a day worker's forgotten exit is not carried into the morning", carry === null);
+
+    const noShift = await person("ZZNOSH", { dateOfJoining: "2026-09-01" });
+    await put(noShift.id, "2026-09-01", "in", ist("2026-09-01", "16:00"));
+    carry = await carryOverIn(tx, noShift.id, ist("2026-09-02", "07:00"));
+    ok("with no shift assigned, an afternoon entry is taken as a night", carry?.day === "2026-09-01");
+    await put(noShift.id, "2026-09-03", "in", ist("2026-09-03", "10:00"));
+    carry = await carryOverIn(tx, noShift.id, ist("2026-09-04", "01:00"));
+    ok("…and a morning entry is not", carry === null);
+
+    // History: recorded before the gate knew about nights, the exit sits on
+    // the wrong date. Recompute files it back.
+    const old = await person("ZZOLDN", { dateOfJoining: "2026-09-01" });
+    await tx.insert(shiftAssignments).values({ employeeId: old.id, shiftId: nightShift!.id, effectiveFrom: "2026-09-01" });
+    await put(old.id, "2026-09-07", "in", ist("2026-09-07", "20:00"));
+    await put(old.id, "2026-09-08", "out", ist("2026-09-08", "06:00"));
+    const moved = await rehomeStrayOuts(tx, "2026-09-01", "2026-09-10", [old.id]);
+    await recomputeRange(tx, "2026-09-07", "2026-09-08", [old.id]);
+    d = await dayOf(old.id, "2026-09-07");
+    ok("a stray morning exit is filed back under its night", moved === 1 && d?.status === "P" && d?.workedHours === 10, `moved ${moved}, ${d?.status} ${d?.workedHours}h`);
+    ok("and doing it again moves nothing", (await rehomeStrayOuts(tx, "2026-09-01", "2026-09-10", [old.id])) === 0);
+
     throw new Rollback();
   });
 } catch (e) {
@@ -503,7 +574,7 @@ try {
 const [left] = await db
   .select({ n: sql<number>`count(*)::int` })
   .from(employees)
-  .where(inArray(employees.empCode, ["ZZSAL1", "ZZWAG1", "ZZLEAV", "ZZGONE", "ZZIDLE", "ZZWEDN", "ZZJOIN"]));
+  .where(inArray(employees.empCode, ["ZZSAL1", "ZZWAG1", "ZZLEAV", "ZZGONE", "ZZIDLE", "ZZWEDN", "ZZJOIN", "ZZNITE", "ZZDAYW", "ZZNOSH", "ZZOLDN"]));
 ok("the rollback left nothing behind", left!.n === 0);
 
 console.log(failures ? `\n  ${failures} failed\n` : "\n  all good\n");

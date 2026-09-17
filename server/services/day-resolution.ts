@@ -13,6 +13,13 @@
  *
  * Dates are IST business dates as YYYY-MM-DD strings; the server may run in
  * UTC and the farm does not.
+ *
+ * A punch's `punch_date` is the day its SHIFT belongs to, not the calendar date
+ * it happened on. For a day worker the two are the same. For a night worker who
+ * came in at 20:00 and left at 06:00, both punches belong to the first date —
+ * which is what lets every reader here pair them by the stored date and never
+ * think about midnight. The gate and the HR resolve route both file an exit
+ * under its entry's day; see `punchDayFor`.
  */
 import { and, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import {
@@ -71,12 +78,17 @@ export interface PunchLike {
   id: string;
   type: "in" | "out";
   punchedAt: Date;
+  /** Set once HR has ruled on a dangling entry; such an entry is never carried. */
+  resolvedAt?: Date | null;
 }
 
 export interface ShiftLike {
   id: string;
   name: string;
   weeklyOffDays: number[];
+  /** "HH:MM". A shift that ends at or before it starts runs past midnight. */
+  startTime?: string;
+  endTime?: string;
 }
 
 /** One shift assignment; `weeklyOffDays` null means "the shift's own". */
@@ -107,6 +119,8 @@ export interface ResolveContext {
   shiftById: Map<string, ShiftLike>;
   /** IST today — a day after this with no punches is not written at all. */
   today: string;
+  /** The instant of resolving; decides whether a night shift may still be open. */
+  now: Date;
 }
 
 export interface DayResolution {
@@ -159,6 +173,39 @@ export function statusForHours(hours: number, ctx: Pick<ResolveContext, "fullDay
   if (hours >= ctx.fullDayHours) return "P";
   if (hours >= ctx.halfDayHours) return "H";
   return "A";
+}
+
+/* ── Night shifts ──────────────────────────────────────────────────────── */
+
+/** Longer than this and an open entry is a forgotten exit, not a shift in progress. */
+export const NIGHT_SHIFT_MAX_HOURS = 16;
+/** With no shift assigned, an entry from this IST hour on is taken to be a night's. */
+const NIGHT_ENTRY_FROM_HOUR = 15;
+
+export function isOvernightShift(shift: { startTime?: string; endTime?: string } | undefined): boolean {
+  return !!shift?.startTime && !!shift.endTime && shift.endTime <= shift.startTime;
+}
+
+/** IST hour of day, 0–23, for an instant. */
+export function istHour(d: Date): number {
+  return Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", hour12: false }).format(d)) % 24;
+}
+
+/**
+ * May this open entry still be closed by an exit after midnight?
+ *
+ * Amino's rule was the age alone: any open entry under sixteen hours old. That
+ * takes a day worker who forgot to punch out at 17:00 and turns his 08:00
+ * return into the end of a fifteen-hour shift, losing the morning's entry with
+ * it. So the person has to have been on a night: on an overnight shift that
+ * day, or, with no shift assigned, in from mid-afternoon on. Daily-wage workers
+ * are people like any other here.
+ */
+export function nightShiftStillOpen(entry: PunchLike, shift: ShiftLike | undefined, now: Date): boolean {
+  if (entry.type !== "in" || entry.resolvedAt) return false;
+  const ageH = (now.getTime() - entry.punchedAt.getTime()) / 3_600_000;
+  if (ageH < 0 || ageH > NIGHT_SHIFT_MAX_HOURS) return false;
+  return shift ? isOvernightShift(shift) : istHour(entry.punchedAt) >= NIGHT_ENTRY_FROM_HOUR;
 }
 
 /* ── Resolution ────────────────────────────────────────────────────────── */
@@ -235,7 +282,10 @@ export function resolveDay(employee: EmployeeLike, day: string, ctx: ResolveCont
     // is the fair default until HR resolves it. Today's open `in` is just
     // someone still inside — present-so-far, nothing to decide yet.
     if (s.openIn && s.hours < ctx.halfDayHours) {
-      const status: AttendanceStatus = day < ctx.today ? "H" : "P";
+      // Yesterday's entry on a night still in progress is someone inside, the
+      // same as today's open entry — not a half day to be argued about at 01:00.
+      const inside = day >= ctx.today || (s.openInPunch !== null && nightShiftStillOpen(s.openInPunch, shift, ctx.now));
+      const status: AttendanceStatus = inside ? "P" : "H";
       return { status, source: "punch", workedHours: round2(s.hours), openIn: true, compOffEligible: offDay, shift };
     }
     const status = statusForHours(s.hours, ctx);
@@ -266,14 +316,14 @@ export async function loadContext(tx: Conn, from: string, to: string, employeeId
   const empFilter = employeeIds?.length ? inArray(punches.employeeId, employeeIds) : undefined;
 
   const punchRows = await tx
-    .select({ id: punches.id, employeeId: punches.employeeId, type: punches.type, punchedAt: punches.punchedAt, punchDate: punches.punchDate })
+    .select({ id: punches.id, employeeId: punches.employeeId, type: punches.type, punchedAt: punches.punchedAt, punchDate: punches.punchDate, resolvedAt: punches.resolvedAt })
     .from(punches)
     .where(and(gte(punches.punchDate, from), lte(punches.punchDate, to), empFilter));
   const punchesByEmpDay = new Map<string, PunchLike[]>();
   for (const p of punchRows) {
     const key = `${p.employeeId}|${p.punchDate}`;
     const list = punchesByEmpDay.get(key) ?? [];
-    list.push({ id: p.id, type: p.type, punchedAt: p.punchedAt });
+    list.push({ id: p.id, type: p.type, punchedAt: p.punchedAt, resolvedAt: p.resolvedAt });
     punchesByEmpDay.set(key, list);
   }
 
@@ -315,7 +365,7 @@ export async function loadContext(tx: Conn, from: string, to: string, employeeId
     assignmentsByEmp.set(a.employeeId, list);
   }
 
-  const shiftRows = await tx.select({ id: shifts.id, name: shifts.name, weeklyOffDays: shifts.weeklyOffDays }).from(shifts);
+  const shiftRows = await tx.select({ id: shifts.id, name: shifts.name, weeklyOffDays: shifts.weeklyOffDays, startTime: shifts.startTime, endTime: shifts.endTime }).from(shifts);
 
   return {
     fullDayHours: settings?.fullDayHours ?? 8,
@@ -326,7 +376,95 @@ export async function loadContext(tx: Conn, from: string, to: string, employeeId
     assignmentsByEmp,
     shiftById: new Map(shiftRows.map((s) => [s.id, s])),
     today: istDate(),
+    now: new Date(),
   };
+}
+
+/* ── Which day a punch belongs to ──────────────────────────────────────── */
+
+export interface CarriedEntry {
+  /** The day the shift started: where the exit is filed. */
+  day: string;
+  inPunch: PunchLike;
+}
+
+/**
+ * Yesterday's entry that a punch at `at` would close, if there is one: the
+ * person has not punched at all today, yesterday ended on an open entry HR has
+ * not ruled on, and it is still a night in progress (`nightShiftStillOpen`).
+ */
+export async function carryOverIn(tx: Conn, employeeId: string, at: Date = new Date()): Promise<CarriedEntry | null> {
+  const today = istDate(at);
+  const yesterday = addDays(today, -1);
+  const rows = await tx
+    .select({ id: punches.id, type: punches.type, punchedAt: punches.punchedAt, punchDate: punches.punchDate, resolvedAt: punches.resolvedAt })
+    .from(punches)
+    .where(and(eq(punches.employeeId, employeeId), gte(punches.punchDate, yesterday), lte(punches.punchDate, today)));
+  if (rows.some((p) => p.punchDate === today)) return null;
+  const open = summarizeDay(rows).openInPunch;
+  if (!open) return null;
+
+  const assignments = await tx
+    .select({ shiftId: shiftAssignments.shiftId, effectiveFrom: shiftAssignments.effectiveFrom, effectiveTo: shiftAssignments.effectiveTo })
+    .from(shiftAssignments)
+    .where(eq(shiftAssignments.employeeId, employeeId));
+  const a = assignmentForDate(yesterday, assignments);
+  let shift: ShiftLike | undefined;
+  if (a) {
+    const [row] = await tx
+      .select({ id: shifts.id, name: shifts.name, weeklyOffDays: shifts.weeklyOffDays, startTime: shifts.startTime, endTime: shifts.endTime })
+      .from(shifts)
+      .where(eq(shifts.id, a.shiftId));
+    shift = row;
+  }
+  return nightShiftStillOpen(open, shift, at) ? { day: yesterday, inPunch: open } : null;
+}
+
+/**
+ * Every night still in progress at `at`, for the screens that ask "who is
+ * inside" — the gate's list and today's attendance.
+ */
+export async function carriedEntries(tx: Conn, at: Date = new Date()): Promise<(CarriedEntry & { employeeId: string })[]> {
+  const yesterday = addDays(istDate(at), -1);
+  const ids = await tx.selectDistinct({ employeeId: punches.employeeId }).from(punches).where(eq(punches.punchDate, yesterday));
+  const out: (CarriedEntry & { employeeId: string })[] = [];
+  for (const { employeeId } of ids) {
+    const c = await carryOverIn(tx, employeeId, at);
+    if (c) out.push({ ...c, employeeId });
+  }
+  return out;
+}
+
+/**
+ * A leading exit with nothing before it, the morning after a day that ended on
+ * an open entry: file it under that entry's day.
+ *
+ * For punches recorded before the gate knew about nights, and for any that
+ * arrive out of order. Only an exit that precedes every entry of its own day,
+ * within a night's length of the entry it closes, and only for someone who was
+ * on a night — the same test the gate applies as it happens. Idempotent: once
+ * moved, the morning no longer starts with a stray exit.
+ */
+export async function rehomeStrayOuts(tx: Conn, from: string, to: string, employeeIds?: string[]): Promise<number> {
+  const ctx = await loadContext(tx, addDays(from, -1), to, employeeIds);
+  let moved = 0;
+  for (const [key, list] of ctx.punchesByEmpDay) {
+    const [employeeId, day] = key.split("|") as [string, string];
+    if (day < from || day > to) continue;
+    const sorted = [...list].sort((a, b) => a.punchedAt.getTime() - b.punchedAt.getTime());
+    const first = sorted[0]!;
+    if (first.type !== "out") continue;
+    const prev = addDays(day, -1);
+    const open = summarizeDay(ctx.punchesByEmpDay.get(`${employeeId}|${prev}`) ?? []).openInPunch;
+    if (!open) continue;
+    const a = assignmentForDate(prev, ctx.assignmentsByEmp.get(employeeId) ?? []);
+    const shift = a ? ctx.shiftById.get(a.shiftId) : undefined;
+    // Judged as of the exit itself: was that night still open when he left?
+    if (!nightShiftStillOpen(open, shift, first.punchedAt)) continue;
+    await tx.update(punches).set({ punchDate: prev }).where(eq(punches.id, first.id));
+    moved++;
+  }
+  return moved;
 }
 
 /* ── Writing attendance_days ───────────────────────────────────────────── */

@@ -44,6 +44,8 @@ interface PunchRow {
   latitude: number | null;
   name?: string;
   empCode?: string;
+  /** Yesterday's entry on a night shift still in progress. */
+  carryover?: boolean;
 }
 interface Position { latitude: number; longitude: number; accuracy: number }
 
@@ -141,7 +143,19 @@ export function PayrollGatePage() {
     queryFn: () => api<{ rows: PunchRow[]; total: number }>(`/api/payroll/punches?date=${today}&limit=200&offset=0`),
     refetchInterval: 60_000,
   });
-  const punches = punchData?.rows ?? [];
+  // People who came in last night and have not left. Their next punch is an
+  // OUT that belongs to yesterday, so the board has to know about them even
+  // though they have punched nothing today.
+  const { data: carried = [] } = useQuery({
+    queryKey: ["payroll", "punches-today", today, "carried"],
+    queryFn: () => api<PunchRow[]>("/api/payroll/punches/carried"),
+    refetchInterval: 60_000,
+  });
+  const todays = punchData?.rows ?? [];
+  const punches = useMemo(
+    () => [...todays, ...carried.filter((c) => !todays.some((p) => p.employeeId === c.employeeId))],
+    [todays, carried],
+  );
 
   const enrolled = useMemo(() => gallery.filter((e) => e.descriptors?.length > 0), [gallery]);
   const empById = useMemo(() => new Map(gallery.map((e) => [e.id, e])), [gallery]);
@@ -303,7 +317,9 @@ export function PayrollGatePage() {
       setStage({ kind: "idle" });
       // 409 + repeatPunch: the server refused a scan that repeats one already
       // recorded. Refresh the board so the guard sees the punch that stands.
-      if (e instanceof ApiError && e.status === 409 && e.data?.repeatPunch === true) {
+      // Also 409 + expected: he is still inside from last night, so the punch
+      // has to be an OUT. Said calmly — nothing went wrong, the board was stale.
+      if (e instanceof ApiError && e.status === 409 && (e.data?.repeatPunch === true || e.data?.expected === "out")) {
         setNotice(e.message);
         qc.invalidateQueries({ queryKey: ["payroll", "punches-today"] });
         setTimeout(() => setNotice(null), 4000);
@@ -498,7 +514,7 @@ export function PayrollGatePage() {
 
       {/* Today's punches */}
       <div className="card p-4">
-        <h2 className="mb-3 text-[14px] font-semibold">Today's punches ({punches.length})</h2>
+        <h2 className="mb-3 text-[14px] font-semibold">Today's punches ({todays.length})</h2>
         {punches.length === 0 ? (
           <p className="text-sm text-gray-400">No punches yet today.</p>
         ) : (
@@ -510,8 +526,9 @@ export function PayrollGatePage() {
                   <Avatar src={emp?.photoUrl} name={p.name ?? emp?.name ?? "?"} size="sm" />
                   <div className="min-w-0 flex-1">
                     <span className="font-medium">{p.name ?? emp?.name ?? p.empCode}</span>
-                    <span className="text-gray-400"> · {fmtTime(p.punchedAt)}</span>
+                    <span className="text-gray-400"> · {p.carryover ? "yesterday " : ""}{fmtTime(p.punchedAt)}</span>
                   </div>
+                  {p.carryover && <Badge tone="blue">night shift</Badge>}
                   <Badge tone={p.type === "in" ? "green" : "gray"}>{p.type.toUpperCase()}</Badge>
                   {p.method === "manual" && <Badge tone="amber">manual</Badge>}
                   {p.latitude == null && <MapPinOff size={13} className="text-amber-500" />}
