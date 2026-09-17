@@ -260,8 +260,10 @@ function AddInputDialog({ year, month, onClose, onSaved }: { year: number; month
         year,
         month,
         amount,
-        hours: form.kind === "overtime" ? Number(form.hours) || 0 : null,
-        ratePerHour: form.kind === "overtime" ? Number(form.ratePerHour) || 0 : null,
+        // Left out, not null, for the other kinds: the server takes a number or
+        // nothing, and a null here refused every bonus and deduction outright.
+        hours: form.kind === "overtime" ? Number(form.hours) || 0 : undefined,
+        ratePerHour: form.kind === "overtime" ? Number(form.ratePerHour) || 0 : undefined,
         category: form.kind === "bonus" || form.kind === "reimbursement" ? form.category || null : null,
         description: form.description.trim() || null,
         ...(isArrears && { earnedMonth, earnedYear, days: form.days === "" ? undefined : Number(form.days) }),
