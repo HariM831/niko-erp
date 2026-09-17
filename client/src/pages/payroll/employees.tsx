@@ -9,7 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Plus, ScanFace, Search, Upload } from "lucide-react";
-import { api, formatMoney } from "../../api";
+import { ApiError, api, formatMoney } from "../../api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Avatar, Badge, Empty, EmployeeRow, ErrorBanner, Field, PageHeader, Pager, Spinner, Td, Th, dmy, fileToDataUrl, num, useErr, usePaged,
@@ -172,8 +172,10 @@ export function PayrollEmployeesPage() {
   const invalidate = () => qc.invalidateQueries({ queryKey: ["payroll", "employees"] });
 
   const importM = useMutation({
-    mutationFn: (body: Record<string, string>[]) => api<{ created?: number; updated?: number }>("/api/payroll/employees/import", { method: "POST", body }),
-    onSuccess: () => { invalidate(); setImportOpen(false); },
+    mutationFn: (body: Record<string, string>[]) => api<{ created?: number; updated?: number; skipped?: { empCode: string; error: string }[] }>("/api/payroll/employees/import", { method: "POST", body }),
+    // Rows left out are the reason to keep the dialog open: closing it would
+    // leave HR believing the whole sheet went in.
+    onSuccess: (out) => { invalidate(); if (!out.skipped?.length) setImportOpen(false); },
     onError: fail,
   });
 
@@ -292,6 +294,16 @@ export function PayrollEmployeesPage() {
           />
           {importM.isPending && <Spinner label="Importing…" />}
           {importM.isError && <ErrorBanner message={(importM.error as Error).message} />}
+          {importM.data?.skipped?.length ? (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-2 text-[12px] text-amber-900">
+              <div className="font-medium">
+                {importM.data.created ?? 0} added, {importM.data.updated ?? 0} updated — {importM.data.skipped.length} row(s) left out:
+              </div>
+              <ul className="mt-1 list-disc pl-4">
+                {importM.data.skipped.map((x) => <li key={x.empCode}><span className="tabular-nums">{x.empCode}</span>: {x.error}</li>)}
+              </ul>
+            </div>
+          ) : null}
         </DialogContent>
       </Dialog>
     </div>
@@ -334,10 +346,15 @@ function EmployeeEditor({ id, departments, employees, onClose, onSaved }: {
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm((f) => ({ ...f, [k]: v }));
   const designations = departments.find((d) => d.id === form.departmentId)?.designations.filter((x) => x.isActive) ?? [];
 
+  // Another record already carries this Aadhaar or PAN. Nearly always that is
+  // the same person entered twice, so the save is refused and says who — but
+  // shared cards do exist, so it can be saved anyway, on purpose, this once.
+  const [sharedId, setSharedId] = useState<{ message: string; field: string } | null>(null);
   const save = useMutation({
-    mutationFn: () => {
+    mutationFn: (allowSharedId: boolean = false) => {
       const body = {
         ...form,
+        ...(allowSharedId && { allowSharedId: true }),
         empCode: form.empCode.trim(),
         name: form.name.trim(),
         contactNumber: str(form.contactNumber),
@@ -369,8 +386,11 @@ function EmployeeEditor({ id, departments, employees, onClose, onSaved }: {
         ? api<EmployeeFull>(`/api/payroll/employees/${id}`, { method: "PATCH", body })
         : api<EmployeeFull>("/api/payroll/employees", { method: "POST", body });
     },
-    onSuccess: () => { onSaved(); qc.invalidateQueries({ queryKey: ["payroll", "employee", id] }); onClose(); },
-    onError: fail,
+    onSuccess: () => { setSharedId(null); onSaved(); qc.invalidateQueries({ queryKey: ["payroll", "employee", id] }); onClose(); },
+    onError: (e) => {
+      if (e instanceof ApiError && e.data?.sharedId) { setSharedId({ message: e.message, field: String(e.data.sharedId) }); return; }
+      fail(e);
+    },
   });
 
   const removeFace = useMutation({
@@ -562,7 +582,7 @@ function EmployeeEditor({ id, departments, employees, onClose, onSaved }: {
               {section === "ids" && (
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
                   <Field label="PAN"><input className="input uppercase" maxLength={10} value={form.panNumber ?? ""} onChange={(e) => set("panNumber", e.target.value)} /></Field>
-                  <Field label="Aadhaar"><input className="input tabular-nums" maxLength={12} value={form.aadharNumber ?? ""} onChange={(e) => set("aadharNumber", e.target.value)} /></Field>
+                  <Field label="Aadhaar" hint="12 digits; spaces are fine"><input className="input tabular-nums" maxLength={14} value={form.aadharNumber ?? ""} onChange={(e) => { setSharedId(null); set("aadharNumber", e.target.value); }} /></Field>
                   <Field label="UAN"><input className="input tabular-nums" maxLength={12} value={form.uanNumber ?? ""} onChange={(e) => set("uanNumber", e.target.value)} /></Field>
                   <Field label="ESI number"><input className="input tabular-nums" maxLength={17} value={form.esiNumber ?? ""} onChange={(e) => set("esiNumber", e.target.value)} /></Field>
                   <div className="col-span-full mt-2 text-[11px] font-semibold uppercase text-gray-400">Bank</div>
@@ -648,9 +668,19 @@ function EmployeeEditor({ id, departments, employees, onClose, onSaved }: {
               )}
             </div>
 
+            {sharedId && (
+              <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-[13px] text-amber-900">
+                {sharedId.message}.
+                <div className="mt-2">
+                  <button className="underline" disabled={save.isPending} onClick={() => save.mutate(true)}>
+                    Two different people do share this {sharedId.field} number — save anyway
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="mt-4 flex items-center justify-end gap-2 border-t border-gray-100 pt-3">
               <button className="btn-secondary" onClick={onClose}>Cancel</button>
-              <button className="btn-primary" disabled={save.isPending || !form.empCode.trim() || !form.name.trim()} onClick={() => save.mutate()}>
+              <button className="btn-primary" disabled={save.isPending || !form.empCode.trim() || !form.name.trim()} onClick={() => save.mutate(false)}>
                 {save.isPending ? "Saving…" : id ? "Save changes" : "Create employee"}
               </button>
             </div>

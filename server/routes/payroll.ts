@@ -32,6 +32,7 @@ import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { REPEAT_PUNCH_WINDOW_MS } from "./device";
 import { photoThumbnail, photoThumbnails } from "../services/photo";
+import { clashMessage, findIdClash, isAcceptableUpload, normAadhaar, normPan } from "../services/identity";
 import { isUsableEmbedding, judgeCapture, roundEmbedding, taughtCapturesByEmployee } from "../services/face-gallery";
 import { adviseOn, buildFaceHealth, formatFaceHealth } from "../services/face-health";
 import { looseNumber, nonBlank, timeOfDay, validateBody } from "../lib/validate";
@@ -606,8 +607,10 @@ const employeeFields = z.object({
   dateOfLeaving: dateStr.nullish(),
   contactNumber: z.string().max(20).nullish(),
   email: z.string().max(200).nullish(),
-  panNumber: z.string().max(10).nullish(),
-  aadharNumber: z.string().max(12).nullish(),
+  // Stored as the number itself — ten characters, twelve digits — however it
+  // was typed, which is also how the Amino import wrote them.
+  panNumber: z.string().max(20).nullish().transform((v) => (v == null ? v : normPan(v) || null)).refine((v) => !v || v.length === 10, "A PAN is ten characters"),
+  aadharNumber: z.string().max(20).nullish().transform((v) => (v == null ? v : normAadhaar(v) || null)).refine((v) => !v || v.length === 12, "An Aadhaar number is twelve digits"),
   uanNumber: z.string().max(12).nullish(),
   esiNumber: z.string().max(17).nullish(),
   bankName: z.string().max(200).nullish(),
@@ -623,15 +626,20 @@ const employeeFields = z.object({
   emergencyContactName: z.string().max(120).nullish(),
   emergencyContactNumber: z.string().max(20).nullish(),
   emergencyContactRelation: z.string().max(60).nullish(),
-  photoUrl: z.string().nullish(),
-  panDocUrl: z.string().nullish(),
-  aadharDocUrl: z.string().nullish(),
+  photoUrl: z.string().nullish().refine((v) => !v || isAcceptableUpload(v, { pdf: false }), "The photograph must be a PNG, JPEG, WebP or GIF image"),
+  panDocUrl: z.string().nullish().refine((v) => !v || isAcceptableUpload(v, { pdf: true }), "The PAN document must be an image or a PDF"),
+  aadharDocUrl: z.string().nullish().refine((v) => !v || isAcceptableUpload(v, { pdf: true }), "The Aadhaar document must be an image or a PDF"),
   isActive: z.boolean().optional(),
+  /**
+   * "Yes, two people really do share this number." Said on purpose, per save,
+   * and never stored: the next person to reuse it is asked again.
+   */
+  allowSharedId: z.boolean().nullish(),
 });
 
 /** Money fields to numeric strings, photoHash kept in step with photoUrl. */
 function employeeWrite(b: Partial<z.infer<typeof employeeFields>>) {
-  const { basicSalary, hra, allowances, photoUrl, ...rest } = b;
+  const { basicSalary, hra, allowances, photoUrl, allowSharedId: _allow, ...rest } = b;
   return {
     ...rest,
     ...(basicSalary !== undefined && { basicSalary: basicSalary.toFixed(2) }),
@@ -649,6 +657,10 @@ payrollRouter.post("/employees", employeesPerm, validateBody(employeeFields), as
   }
   const [dup] = await db.select({ id: employees.id }).from(employees).where(eq(employees.empCode, b.empCode));
   if (dup) return res.status(422).json({ error: `Employee code ${b.empCode} is already taken` });
+  if (!b.allowSharedId) {
+    const clash = await findIdClash(db, { aadhar: b.aadharNumber, pan: b.panNumber });
+    if (clash) return res.status(422).json({ error: clashMessage(clash), duplicateEmployeeId: clash.id, sharedId: clash.field });
+  }
   const [row] = await db
     .insert(employees)
     .values(employeeWrite(b) as typeof employees.$inferInsert)
@@ -669,6 +681,24 @@ payrollRouter.patch("/employees/:id", employeesPerm, validateBody(employeeFields
     if (joining && leaving && leaving < joining) {
       return res.status(422).json({ error: "Date of leaving is before date of joining" });
     }
+  }
+  // Only a number being SET is checked, and only if it is changing: a record
+  // that already shares one must stay editable, or nobody could ever fix it.
+  if (!body.allowSharedId && (body.aadharNumber || body.panNumber)) {
+    const [now] = await db
+      .select({ aadharNumber: employees.aadharNumber, panNumber: employees.panNumber })
+      .from(employees)
+      .where(eq(employees.id, req.params.id!));
+    if (!now) return res.status(404).json({ error: "No such employee" });
+    const clash = await findIdClash(
+      db,
+      {
+        aadhar: body.aadharNumber && normAadhaar(now.aadharNumber) !== body.aadharNumber ? body.aadharNumber : null,
+        pan: body.panNumber && normPan(now.panNumber) !== body.panNumber ? body.panNumber : null,
+      },
+      req.params.id!,
+    );
+    if (clash) return res.status(422).json({ error: clashMessage(clash), duplicateEmployeeId: clash.id, sharedId: clash.field });
   }
   const [row] = await db
     .update(employees)
@@ -790,6 +820,10 @@ payrollRouter.post(
     const out = await db.transaction(async (tx) => {
       let created = 0;
       let updated = 0;
+      // A row whose Aadhaar or PAN is already someone else's is left out and
+      // named, and the rest of the sheet still goes in: one doubtful row is not
+      // a reason to refuse a hundred good ones, nor to take it on trust.
+      const skipped: { empCode: string; error: string }[] = [];
       for (const r of rows) {
         const { department, designation, wageRole, ...fields } = r;
         let departmentId: string | null | undefined;
@@ -814,6 +848,11 @@ payrollRouter.post(
         }
         const values = { ...employeeWrite(fields), departmentId, designationId, wageRoleId };
         const [existing] = await tx.select({ id: employees.id }).from(employees).where(eq(employees.empCode, r.empCode));
+        const clash = await findIdClash(tx, { aadhar: fields.aadharNumber, pan: fields.panNumber }, existing?.id);
+        if (clash) {
+          skipped.push({ empCode: r.empCode, error: clashMessage(clash) });
+          continue;
+        }
         if (existing) {
           await tx.update(employees).set(values).where(eq(employees.id, existing.id));
           updated++;
@@ -822,7 +861,7 @@ payrollRouter.post(
           created++;
         }
       }
-      return { created, updated };
+      return { created, updated, skipped };
     });
     res.status(201).json(out);
   },
