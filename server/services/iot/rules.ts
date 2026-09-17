@@ -92,8 +92,8 @@ export const RULES = {
   "night-setback": {
     title: "Night target",
     description:
-      "This controller holds one target per age row and no night target; what L3 shows as 27 and 26 are two age rows. So the night target is niko's: between nightFrom and nightTo (hours IST) it writes the curve's target correction to minus the setback, and clears it at dawn, through the confirmed write path, logged as its own decision. Off unless enabled for a shed with writing on. Note that in a month when the shed cannot get down to its day target at night, a setback only holds the ladder up for nothing.",
-    params: { nightFrom: 20, nightTo: 5, setback: 1.0 },
+      "From nightFrom to nightTo (hours IST) the shed aims lower by the setback. In tunnel the ladder is anchored to the tunnel temperature, so the target and the tunnel temperature of the age row in force move together: target first on the way down, tunnel temperature first on the way up, which the controller requires. About four steps more air through the night for each degree. It is a schedule, not a loop: niko writes it on its own for every shed it is enabled on, while writing is on and the shed is not on hold, and logs each move. L3 runs a night programme from its own panel and is left to it.",
+    params: { nightFrom: 18.17, nightTo: 5.67, setback: 1.0 },
   },
   "night-floor": {
     title: "Night floor from the air",
