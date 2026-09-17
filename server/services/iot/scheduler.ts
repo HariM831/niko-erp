@@ -103,33 +103,50 @@ async function snapshotIsStale(): Promise<boolean> {
   return !last || Date.now() - last.at.getTime() > 86_400_000;
 }
 
+/**
+ * The loops that write: the night target and the night floor. They run AFTER
+ * the poll has let go, under a lock of their own, because a confirmed write
+ * takes a minute or two a register and on 17 September 2026 three sheds'
+ * worth held the five-minute readings up for ten minutes.
+ */
+let looping = false;
+async function loopsTick(): Promise<void> {
+  if (looping) return;
+  looping = true;
+  try {
+    const setbacks = await nightSetbackTick().catch((e) => {
+      console.error(`[setback] crashed: ${e instanceof Error ? e.message : e}`);
+      return [];
+    });
+    for (const sb of setbacks) if (sb.note) console.log(`[setback] ${sb.code}: ${sb.note}`);
+    const nf = await nightFloorTick().catch((e) => { console.error(`[night-floor] crashed: ${e instanceof Error ? e.message : e}`); return []; });
+    for (const r of nf) console.log(`[night-floor] ${r.code}: ${r.note}`);
+  } finally {
+    looping = false;
+  }
+}
+
 async function tick(): Promise<void> {
   if (running) return; // the previous poll is still going — skip, not stack
   running = true;
+  let polled = false;
   try {
     const r = await pollOnce();
     if (r.error) {
       console.error(`[iot] poll failed: ${r.error}`);
     } else {
+      polled = true;
       console.log(`[iot] ${r.houses} house(s), ${r.readings} reading(s)`);
       for (const s of r.skipped) console.log(`[iot] · ${s}`);
       // The masters' twins came in with the readings: anything moved since the last poll is logged now, not at 02:30.
       await watchMasters().catch((e) => console.error(`[watch] crashed: ${e instanceof Error ? e.message : e}`));
-      // The one live loop so far: the night target, for sheds that have it on.
-      const setbacks = await nightSetbackTick().catch((e) => {
-        console.error(`[setback] crashed: ${e instanceof Error ? e.message : e}`);
-        return [];
-      });
-      for (const sb of setbacks) if (sb.note) console.log(`[setback] ${sb.code}: ${sb.note}`);
-      // Loop 2: the night floor from the air, for sheds that have it on.
-      const nf = await nightFloorTick().catch((e) => { console.error(`[night-floor] crashed: ${e instanceof Error ? e.message : e}`); return []; });
-      for (const r of nf) console.log(`[night-floor] ${r.code}: ${r.note}`);
     }
   } catch (e) {
     console.error(`[iot] poll crashed: ${e instanceof Error ? e.message : e}`);
   } finally {
     running = false;
   }
+  if (polled) void loopsTick();
 }
 
 export function startIotPolling(): void {
