@@ -34,7 +34,7 @@ type Conn = Db | Tx;
 // The gate auto-accepts at this score, and only with a clear margin over the
 // runner-up. One definition, shared with the client that makes the decision.
 export { MATCH_MARGIN, MATCH_THRESHOLD } from "@shared/face";
-import { MATCH_MARGIN, MATCH_THRESHOLD } from "@shared/face";
+import { FACE_DIM, MATCH_MARGIN, MATCH_THRESHOLD, TEACH_OWN_FLOOR } from "@shared/face";
 
 /** HR's desk work, which is not a face failing. See the note above. */
 const HR_RESOLVED = sql`(p.resolution_note IS NOT NULL AND p.resolved_at IS NULL)`;
@@ -70,7 +70,26 @@ export interface FaceHealth {
    * look-alike list below cannot be read: a pair at 0.94 means nothing until
    * you know whether the typical pair sits at 0.4 or at 0.9.
    */
-  separation: { pairs: number; median: number; p90: number; p99: number; max: number; overThreshold: number };
+  separation: {
+    pairs: number; median: number; p90: number; p99: number; max: number; overThreshold: number;
+    /**
+     * The same pairs with the population's average face subtracted first. If
+     * everyone resembles everyone, this says whether identity is still in there
+     * under a shared offset (it drops well below the raw median) or the vectors
+     * are genuinely alike (it does not).
+     */
+    centredMedian: number;
+    centredP99: number;
+    /** Typical similarity within and across pay types; a gap means two enrolment routes of different quality. */
+    byPayType: { salaried: number | null; dailyWage: number | null; across: number | null };
+    /** Enrolment vectors left out for not being FACE_DIM finite numbers. */
+    skippedVectors: number;
+  };
+  /**
+   * Captures the gate learned that do not look like the person they are filed
+   * under — each one is pulling that person's gallery toward somebody else.
+   */
+  misfiled: { total: number; shown: Array<{ filedUnder: string; looksLike: string | null; ownScore: number; otherScore: number; method: string; day: string }> };
   /**
    * How much of the face model actually fired on each enrolment photo.
    *
@@ -243,13 +262,17 @@ export async function buildFaceHealth(conn: Conn, days = 30): Promise<FaceHealth
  * refused one, for both of them, every time. That is worth knowing before
  * either of them ends up on the re-photograph list for reasons of their own.
  */
-async function faceSeparation(conn: Conn): Promise<Pick<FaceHealth, "separation" | "lookalikes" | "enrolment" | "clusters">> {
-  const rows = (
+async function faceSeparation(conn: Conn): Promise<Pick<FaceHealth, "separation" | "lookalikes" | "enrolment" | "clusters" | "misfiled">> {
+  const fetched = (
     await conn.execute(sql`
-      SELECT name, face_descriptor AS d FROM employees
+      SELECT id, name, pay_type, face_descriptor AS d FROM employees
        WHERE is_active AND face_descriptor IS NOT NULL
     `)
-  ).rows as Array<{ name: string; d: number[] }>;
+  ).rows as Array<{ id: string; name: string; pay_type: string; d: number[] }>;
+  // One vector of another length turns every dot product it touches into NaN,
+  // and the medians with it. Left out, and counted.
+  const rows = fetched.filter((r) => Array.isArray(r.d) && r.d.length === FACE_DIM && r.d.every((x) => Number.isFinite(x)));
+  const skippedVectors = fetched.length - rows.length;
 
   // Normalise once, then every comparison is a dot product rather than a dot
   // and two square roots — at 180 people this is 16,000 pairs.
@@ -261,8 +284,26 @@ async function faceSeparation(conn: Conn): Promise<Pick<FaceHealth, "separation"
       if (x !== 0) live++;
     }
     const n = Math.sqrt(sq) || 1;
-    return { name: r.name, v: r.d.map((x) => x / n), live };
+    return { id: r.id, name: r.name, payType: r.pay_type, v: r.d.map((x) => x / n), live };
   });
+
+  const median = (xs: number[]) => (xs.length ? [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]! : null);
+  const dotOf = (a: number[], b: number[]) => {
+    let d = 0;
+    for (let k = 0; k < a.length; k++) d += a[k]! * b[k]!;
+    return d;
+  };
+
+  // The average face, taken away from each, and what is left re-measured.
+  const mean = new Array<number>(FACE_DIM).fill(0);
+  for (const u of unit) for (let k = 0; k < FACE_DIM; k++) mean[k]! += u.v[k]! / (unit.length || 1);
+  const centred = unit.map((u) => {
+    const c = u.v.map((x, k) => x - mean[k]!);
+    const n = Math.sqrt(dotOf(c, c)) || 1;
+    return c.map((x) => x / n);
+  });
+  const centredAll: number[] = [];
+  const within: Record<string, number[]> = { salaried: [], daily_wage: [], across: [] };
 
   /** Above this, two enrolment photos are close enough to be worth a look. */
   const CONFUSABLE = 0.8;
@@ -274,6 +315,8 @@ async function faceSeparation(conn: Conn): Promise<Pick<FaceHealth, "separation"
       const a = unit[i]!.v, b = unit[j]!.v;
       for (let k = 0; k < a.length; k++) dot += a[k]! * b[k]!;
       all.push(dot);
+      centredAll.push(dotOf(centred[i]!, centred[j]!));
+      (within[unit[i]!.payType === unit[j]!.payType ? unit[i]!.payType : "across"] ??= []).push(dot);
       if (dot >= CONFUSABLE) close.push({ a: unit[i]!.name, b: unit[j]!.name, similarity: dot });
     }
   }
@@ -288,6 +331,36 @@ async function faceSeparation(conn: Conn): Promise<Pick<FaceHealth, "separation"
     degree.set(c.b, (degree.get(c.b) ?? 0) + 1);
   }
   const clusters = componentsOf(close);
+  centredAll.sort((x, y) => x - y);
+
+  // What the gate has learned, held against the enrolment it was learned for.
+  const byId = new Map(unit.map((u) => [u.id, u]));
+  const learned = (
+    await conn.execute(sql`
+      SELECT employee_id, method, punch_date::text AS day, face_embedding AS e
+        FROM punches
+       WHERE face_embedding IS NOT NULL
+         AND punch_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - 60
+    `)
+  ).rows as Array<{ employee_id: string; method: string; day: string; e: number[] }>;
+  const misfiledAll: FaceHealth["misfiled"]["shown"] = [];
+  for (const p of learned) {
+    const owner = byId.get(p.employee_id);
+    if (!owner || !Array.isArray(p.e) || p.e.length !== FACE_DIM) continue;
+    const n = Math.sqrt(dotOf(p.e, p.e)) || 1;
+    const v = p.e.map((x) => x / n);
+    const ownScore = dotOf(v, owner.v);
+    if (ownScore >= TEACH_OWN_FLOOR) continue;
+    let other: (typeof unit)[number] | null = null;
+    let otherScore = 0;
+    for (const u of unit) {
+      if (u.id === owner.id) continue;
+      const sc = dotOf(v, u.v);
+      if (sc > otherScore) { otherScore = sc; other = u; }
+    }
+    misfiledAll.push({ filedUnder: owner.name, looksLike: other && otherScore >= MATCH_THRESHOLD ? other.name : null, ownScore, otherScore, method: p.method, day: p.day });
+  }
+  misfiledAll.sort((a, b) => a.ownScore - b.ownScore);
 
   const dims = unit.map((u) => u.live).sort((x, y) => x - y);
   const medianDims = dims.length ? dims[Math.floor(dims.length / 2)]! : 0;
@@ -312,7 +385,12 @@ async function faceSeparation(conn: Conn): Promise<Pick<FaceHealth, "separation"
         .sort((x, y) => x.activeDims - y.activeDims),
     },
     clusters,
+    misfiled: { total: misfiledAll.length, shown: misfiledAll.slice(0, 20) },
     separation: {
+      centredMedian: centredAll.length ? centredAll[Math.floor(centredAll.length / 2)]! : 0,
+      centredP99: centredAll.length ? centredAll[Math.floor(0.99 * (centredAll.length - 1))]! : 0,
+      byPayType: { salaried: median(within.salaried ?? []), dailyWage: median(within.daily_wage ?? []), across: median(within.across ?? []) },
+      skippedVectors,
       pairs: all.length,
       median: q(0.5),
       p90: q(0.9),
@@ -507,6 +585,14 @@ export function formatFaceHealth(r: FaceHealth): string {
       `  ${r.separation.pairs} pairs: typical ${r.separation.median.toFixed(3)}, ` +
         `9 in 10 below ${r.separation.p90.toFixed(3)}, 99 in 100 below ${r.separation.p99.toFixed(3)}, closest ${r.separation.max.toFixed(3)}`,
     );
+    L.push(`  with the average face taken away: typical ${r.separation.centredMedian.toFixed(3)}, 99 in 100 below ${r.separation.centredP99.toFixed(3)}`);
+    const t = r.separation.byPayType;
+    const f3 = (n: number | null) => (n == null ? "—" : n.toFixed(3));
+    L.push(`  typical pair — salaried ${f3(t.salaried)}, daily wage ${f3(t.dailyWage)}, one of each ${f3(t.across)}`);
+    if (t.salaried != null && t.dailyWage != null && Math.abs(t.salaried - t.dailyWage) >= 0.15) {
+      L.push("    the two groups differ by 0.15 or more: they were enrolled by routes of different quality");
+    }
+    if (r.separation.skippedVectors) L.push(`  ${r.separation.skippedVectors} enrolment vector(s) left out: not ${FACE_DIM} finite numbers`);
     L.push(`  ${pct(r.separation.overThreshold)} of pairs sit above the ${MATCH_THRESHOLD.toFixed(2)} cutoff, so the margin rule is what keeps them apart, not the cutoff`);
   }
 
@@ -532,6 +618,16 @@ export function formatFaceHealth(r: FaceHealth): string {
       L.push(`  ${c.members.length} people, closest pair ${c.tightest.toFixed(3)}:`);
       L.push(`    ${c.members.join(", ")}`);
     }
+  }
+
+  if (r.misfiled.total) {
+    L.push("");
+    L.push(`Learned under the wrong name — ${r.misfiled.total} capture(s) in 60 days scoring under ${TEACH_OWN_FLOOR.toFixed(2)} against their owner's enrolment`);
+    L.push(`    ${"filed under".padEnd(26)}${"own".padStart(6)}  ${"looks like".padEnd(26)}${"score".padStart(6)}  how      day`);
+    for (const m of r.misfiled.shown) {
+      L.push(`    ${m.filedUnder.slice(0, 25).padEnd(26)}${m.ownScore.toFixed(2).padStart(6)}  ${(m.looksLike ?? "nobody in particular").slice(0, 25).padEnd(26)}${m.otherScore.toFixed(2).padStart(6)}  ${m.method.padEnd(8)} ${m.day}`);
+    }
+    L.push("  Each one drags that person's gallery toward someone else. They age out in 60 days; clear them sooner by setting face_embedding to NULL on those punches.");
   }
 
   const advice = r.advice.length ? r.advice : adviseOn(r);
