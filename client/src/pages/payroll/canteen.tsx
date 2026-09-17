@@ -41,13 +41,15 @@ interface Serving {
   reasonText: string | null;
   attendancePresent: boolean | null;
 }
-interface Eligibility { employeeId: string; name?: string; empCode?: string; breakfast: boolean; dinner: boolean; note: string | null }
+interface Eligibility { employeeId: string; name?: string; empCode?: string; breakfast: boolean; breakfastAuto?: boolean; dinner: boolean; note: string | null }
 /** Shape of GET /api/canteen/report — one cell per canteen × meal × state. */
 interface Report {
   cells: { canteen: string; meal: Meal; state: string; plates: number }[];
   plates: number;
   guests?: number;
   byDate?: { date: string; plates: number }[];
+  days?: { date: string; breakfast: number; lunch: number; dinner: number; total: number }[];
+  totals?: { breakfast: number; lunch: number; dinner: number; total: number };
   costPerPlate?: number | null;
   totalExpense?: number | null;
   note?: string;
@@ -235,16 +237,49 @@ function ReportTab() {
     queryFn: () => api<Report>(`/api/canteen/report?from=${from}&to=${to}`),
     enabled: from <= to,
   });
+  const monthsQ = useQuery({
+    queryKey: ["canteen", "report-monthly"],
+    queryFn: () => api<{ months: { month: string; breakfast: number; lunch: number; dinner: number; total: number }[] }>("/api/canteen/report/monthly?months=12"),
+  });
   const d = repQ.data;
   const cells = d?.cells ?? [];
   const total = d?.plates ?? cells.reduce((a, r) => a + r.plates, 0);
 
   return (
     <div>
+      {/* The year at a glance, newest first; a month opens below as the range. */}
+      {(monthsQ.data?.months.length ?? 0) > 0 && (
+        <div className="table-surface mb-4">
+          <table className="w-full">
+            <thead className="table-head"><tr><Th>Month</Th><Th right>Breakfast</Th><Th right>Lunch</Th><Th right>Dinner</Th><Th right>Plates</Th></tr></thead>
+            <tbody>
+              {monthsQ.data!.months.map((m) => (
+                <tr
+                  key={m.month}
+                  className="table-row cursor-pointer"
+                  onClick={() => {
+                    const [y, mo] = m.month.split("-").map(Number);
+                    const last = new Date(Date.UTC(y!, mo!, 0)).toISOString().slice(0, 10);
+                    setFrom(`${m.month}-01`);
+                    setTo(last > today ? today : last);
+                  }}
+                >
+                  <Td className="tabular-nums">{m.month}</Td>
+                  <Td right>{num(m.breakfast)}</Td><Td right>{num(m.lunch)}</Td><Td right>{num(m.dinner)}</Td>
+                  <Td right className="font-semibold">{num(m.total)}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <input type="date" className="input w-auto" value={from} onChange={(e) => setFrom(e.target.value)} />
         <span className="text-gray-400">–</span>
         <input type="date" className="input w-auto" value={to} onChange={(e) => setTo(e.target.value)} />
+        {from <= to && (
+          <a className="btn-secondary" href={`/api/canteen/report?from=${from}&to=${to}&format=csv`}>Download CSV</a>
+        )}
         {d && (
           <span className="ml-auto flex gap-4 text-[12px] tabular-nums text-gray-500">
             <span>{num(total)} plates</span>
@@ -255,6 +290,26 @@ function ReportTab() {
           </span>
         )}
       </div>
+      {(d?.days?.length ?? 0) > 0 && (
+        <div className="table-surface mb-4">
+          <table className="w-full">
+            <thead className="table-head"><tr><Th>Date</Th><Th right>Breakfast</Th><Th right>Lunch</Th><Th right>Dinner</Th><Th right>Total</Th></tr></thead>
+            <tbody>
+              {d!.days!.map((r) => (
+                <tr key={r.date} className="table-row">
+                  <Td className="tabular-nums">{dmy(r.date)}</Td>
+                  <Td right>{num(r.breakfast)}</Td><Td right>{num(r.lunch)}</Td><Td right>{num(r.dinner)}</Td><Td right>{num(r.total)}</Td>
+                </tr>
+              ))}
+              {d!.totals && (
+                <tr className="bg-gray-50 font-semibold">
+                  <Td>Total</Td><Td right>{num(d!.totals.breakfast)}</Td><Td right>{num(d!.totals.lunch)}</Td><Td right>{num(d!.totals.dinner)}</Td><Td right>{num(d!.totals.total)}</Td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
       <div className="table-surface">
         {repQ.isLoading ? (
           <Spinner />
@@ -488,6 +543,8 @@ function EligibilityTab() {
                         checked={el?.breakfast ?? false}
                         onChange={(ev) => saveM.mutate({ employeeId: e.id, breakfast: ev.target.checked, dinner: el?.dinner ?? false })}
                       />
+                      {/* Granted by the system for a night shift, and taken back by it; not HR's to tick. */}
+                      {el?.breakfastAuto && <span className="ml-2 rounded bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-700">night shift</span>}
                     </Td>
                     <Td>
                       <input

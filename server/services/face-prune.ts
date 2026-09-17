@@ -20,6 +20,8 @@ import { PHOTO_RETENTION_DAYS } from "@shared/canteen";
 import { db } from "../db";
 import { pruneTaughtCaptures, taughtCaptureCount } from "./face-gallery";
 import { buildFaceHealth, formatFaceHealth } from "./face-health";
+import { syncNightShiftBreakfast } from "./canteen";
+import { istDate } from "./day-resolution";
 
 const EVERY_MS = 3_600_000;
 /** Long enough after boot to be behind the migrations and the first requests. */
@@ -35,6 +37,8 @@ const FIRST_DELAY_MS = 120_000;
 const REPORT_HOUR_IST = 21;
 const REPORT_DAYS = 30;
 let reportedOn: string | null = null;
+/** Night-shift breakfast is a statement about today, so it is re-asked each day. */
+let breakfastSyncedOn: string | null = null;
 
 const istHourAndDate = () => {
   const f = new Intl.DateTimeFormat("en-CA", {
@@ -70,6 +74,15 @@ async function tick() {
     // every hour saying "0" is a log nobody reads by the second week.
     if (cleared > 0) {
       console.log(`[faces] cleared ${cleared} aged-out capture(s); ${await taughtCaptureCount(db)} in the galleries`);
+    }
+
+    // An assignment that starts today grants breakfast today, and one that
+    // ended yesterday takes it back, without anybody saving anything.
+    const today = istDate();
+    if (breakfastSyncedOn !== today) {
+      breakfastSyncedOn = today;
+      const r = await syncNightShiftBreakfast(db, undefined, today);
+      if (r.granted || r.withdrawn) console.log(`[canteen] night-shift breakfast: ${r.granted} granted, ${r.withdrawn} withdrawn`);
     }
 
     const photos = await pruneOldPhotos(db);

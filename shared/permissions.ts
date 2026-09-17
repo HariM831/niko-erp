@@ -137,6 +137,9 @@ export const PERMISSION_MODULES: PermissionModule[] = [
       // Running payroll moves money into the ledger; nobody else's verb.
       { key: "run", label: "Run and confirm payroll" },
       { key: "gate", label: "Gate kiosk and face enrolment" },
+      // The counter, and nothing behind it: serve plates at the Canteen Gate
+      // without the eligibility list, the reports or anybody's record.
+      { key: "canteen_punch", label: "Canteen gate (serve plates)" },
       { key: "canteen", label: "Canteen" },
       { key: "devices", label: "Pair and revoke devices" },
       { key: "settings", label: "Shifts, holidays, rates, departments" },

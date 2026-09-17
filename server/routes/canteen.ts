@@ -1,9 +1,10 @@
 /**
- * Canteen admin — canteens, meal windows, who gets breakfast and dinner,
- * the plates the phones sent, and the reports. Mounted at /api/canteen
- * behind the global requireAuth; the phones themselves talk to
- * /api/device/* (routes/device.ts), which imports `checkAttendancePresent`
- * from here so the presence rule is written once.
+ * Canteen — canteens, meal windows, who gets breakfast and dinner, the plates
+ * served, the reports, and the browser Canteen Gate that records them.
+ * Mounted at /api/canteen behind the global requireAuth. The rules themselves
+ * live in services/canteen.ts, where a script can reach them; the old phone
+ * routes (routes/device.ts) import `checkAttendancePresent` from here so the
+ * presence rule is still written once.
  */
 import { Router } from "express";
 import { and, asc, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
@@ -22,7 +23,11 @@ import {
 } from "@shared/schema";
 import { MEALS, SERVING_STATES } from "@shared/canteen";
 import { db, type Db, type Tx } from "../db";
-import { requirePermission } from "../lib/rbac";
+import { requireAnyPermission, requirePermission } from "../lib/rbac";
+import { DuplicatePlate, mealWindowsFor, presentForCanteen, recordBrowserServing } from "../services/canteen";
+import { PostingError } from "../services/posting";
+import { taughtCapturesByEmployee, roundEmbedding } from "../services/face-gallery";
+import { istTimeHHMM, mealForTime, MEAL_LABEL } from "@shared/canteen";
 import { timeOfDay, validateBody } from "../lib/validate";
 
 type Conn = Db | Tx;
@@ -38,19 +43,20 @@ const dateStr = z.string().regex(DATE_RE);
  * closed, and an IN punch is all the proof the counter can have.
  */
 export async function checkAttendancePresent(conn: Conn, employeeId: string | null, day: string): Promise<boolean> {
-  if (!employeeId) return false;
-  const [row] = await conn
-    .select({ id: punches.id })
-    .from(punches)
-    .where(and(eq(punches.employeeId, employeeId), eq(punches.punchDate, day)))
-    .limit(1);
-  return !!row;
+  // …and someone still inside from last night; see services/canteen.ts.
+  return presentForCanteen(conn, employeeId, day);
 }
 
 export const canteenRouter = Router();
 
 const view = requirePermission("payroll", "view");
 const manage = requirePermission("payroll", "canteen");
+/**
+ * The counter. Narrower than `canteen`: whoever serves plates needs neither the
+ * eligibility list nor the reports — and not `payroll.view` either, which would
+ * hand a canteen hand every employee's record to get at a camera.
+ */
+const serve = requireAnyPermission([["payroll", "canteen_punch"], ["payroll", "canteen"]]);
 
 /* ── Canteens ──────────────────────────────────────────────────────────── */
 
@@ -152,6 +158,8 @@ canteenRouter.get("/eligibility", view, async (_req, res) => {
       payType: employees.payType,
       locationId: employees.locationId,
       breakfast: sql<boolean>`coalesce(${canteenMealEligibility.breakfast}, false)`,
+      // Breakfast the system grants for a night shift; shown, never edited.
+      breakfastAuto: sql<boolean>`coalesce(${canteenMealEligibility.breakfastAuto}, false)`,
       dinner: sql<boolean>`coalesce(${canteenMealEligibility.dinner}, false)`,
       note: canteenMealEligibility.note,
     })
@@ -195,7 +203,8 @@ const servingCols = {
   canteenId: canteenServings.canteenId,
   canteen: canteens.name,
   deviceId: canteenServings.deviceId,
-  device: devices.name,
+  device: sql<string>`coalesce(${devices.name}, 'Web gate')`,
+  ineligible: canteenServings.ineligible,
   mealDate: canteenServings.mealDate,
   meal: canteenServings.meal,
   employeeId: canteenServings.employeeId,
@@ -223,7 +232,9 @@ const servingsFrom = (conn: Conn) =>
     .select(servingCols)
     .from(canteenServings)
     .innerJoin(canteens, eq(canteens.id, canteenServings.canteenId))
-    .innerJoin(devices, eq(devices.id, canteenServings.deviceId))
+    // LEFT: a plate served at the browser gate has no device, and an inner join
+    // here made it exist in the table and appear on no screen at all.
+    .leftJoin(devices, eq(devices.id, canteenServings.deviceId))
     .leftJoin(employees, eq(employees.id, canteenServings.employeeId));
 
 canteenRouter.get("/servings", view, async (req, res) => {
@@ -254,6 +265,7 @@ canteenRouter.get("/exceptions", view, async (req, res) => {
           OR ${canteenServings.extraPlateKind} IS NOT NULL
           OR ${canteenServings.authorisedBy} IS NOT NULL
           OR ${canteenServings.outsideWindow}
+          OR ${canteenServings.ineligible}
           OR ${canteenServings.attendancePresent} = false)`,
       ),
     )
@@ -265,6 +277,7 @@ canteenRouter.get("/exceptions", view, async (req, res) => {
       r.state === "guest" || r.extraPlateKind === "guest" ? "guest" : null,
       r.extraPlateKind === "second_plate" ? "second_plate" : null,
       r.outsideWindow ? "outside_window" : null,
+      r.ineligible ? "not_on_list" : null,
       r.attendancePresent === false ? "no_punch" : null,
       r.state === "unverified_attendance" ? "unverified" : null,
     ].filter(Boolean),
@@ -278,6 +291,7 @@ canteenRouter.get("/report", view, async (req, res) => {
   const to = typeof req.query.to === "string" && DATE_RE.test(req.query.to) ? req.query.to : istToday();
   const from = typeof req.query.from === "string" && DATE_RE.test(req.query.from) ? req.query.from : to.slice(0, 8) + "01";
   if (from > to) return res.status(400).json({ error: "from must not be after to" });
+  const canteenId = typeof req.query.canteenId === "string" && req.query.canteenId ? req.query.canteenId : null;
   const range = and(gte(canteenServings.mealDate, from), lte(canteenServings.mealDate, to));
 
   const cells = await db
@@ -301,6 +315,35 @@ canteenRouter.get("/report", view, async (req, res) => {
     .groupBy(canteenServings.mealDate)
     .orderBy(asc(canteenServings.mealDate));
 
+  // The same days, meal by meal — what the kitchen plans from. Days with no
+  // plates are simply absent.
+  const perMeal = await db
+    .select({ date: canteenServings.mealDate, meal: canteenServings.meal, plates: sql<number>`count(*)::int` })
+    .from(canteenServings)
+    .where(canteenId ? and(range, eq(canteenServings.canteenId, canteenId)) : range)
+    .groupBy(canteenServings.mealDate, canteenServings.meal)
+    .orderBy(asc(canteenServings.mealDate));
+  const dayMap = new Map<string, { date: string; breakfast: number; lunch: number; dinner: number; total: number }>();
+  for (const r of perMeal) {
+    const d = dayMap.get(r.date) ?? { date: r.date, breakfast: 0, lunch: 0, dinner: 0, total: 0 };
+    d[r.meal] += r.plates;
+    d.total += r.plates;
+    dayMap.set(r.date, d);
+  }
+  const days = [...dayMap.values()];
+  const totals = days.reduce((t, d) => ({ breakfast: t.breakfast + d.breakfast, lunch: t.lunch + d.lunch, dinner: t.dinner + d.dinner, total: t.total + d.total }), { breakfast: 0, lunch: 0, dinner: 0, total: 0 });
+
+  if (req.query.format === "csv") {
+    const lines = [
+      "Date,Breakfast,Lunch,Dinner,Total",
+      ...days.map((d) => `${d.date},${d.breakfast},${d.lunch},${d.dinner},${d.total}`),
+      `Total,${totals.breakfast},${totals.lunch},${totals.dinner},${totals.total}`,
+    ];
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="Canteen_Report_${from}_to_${to}.csv"`);
+    return res.send(lines.join("\r\n") + "\r\n");
+  }
+
   const plates = cells.reduce((s, c) => s + c.plates, 0);
   const guests = cells.filter((c) => c.state === "guest").reduce((s, c) => s + c.plates, 0);
 
@@ -323,8 +366,105 @@ canteenRouter.get("/report", view, async (req, res) => {
     guests,
     cells,
     byDate,
+    days,
+    totals,
     totalExpense,
     costPerPlate: totalExpense !== null && plates > 0 ? Math.round((totalExpense / plates) * 100) / 100 : null,
     note: account ? undefined : "No account carries the system key 'canteen_expense' yet — cost per plate is not available.",
   });
+});
+
+/** Plates month by month, newest first — the run of the year at a glance. */
+canteenRouter.get("/report/monthly", view, async (req, res) => {
+  const months = Math.min(Math.max(Number(req.query.months) || 12, 1), 36);
+  const to = istToday();
+  const start = new Date(Date.UTC(Number(to.slice(0, 4)), Number(to.slice(5, 7)) - months, 1)).toISOString().slice(0, 10);
+  const rows = await db
+    .select({ month: sql<string>`to_char(${canteenServings.mealDate}, 'YYYY-MM')`, meal: canteenServings.meal, plates: sql<number>`count(*)::int` })
+    .from(canteenServings)
+    .where(and(gte(canteenServings.mealDate, start), lte(canteenServings.mealDate, to)))
+    .groupBy(sql`1`, canteenServings.meal);
+  const byMonth = new Map<string, { month: string; breakfast: number; lunch: number; dinner: number; total: number }>();
+  for (const r of rows) {
+    const m = byMonth.get(r.month) ?? { month: r.month, breakfast: 0, lunch: 0, dinner: 0, total: 0 };
+    m[r.meal] += r.plates;
+    m.total += r.plates;
+    byMonth.set(r.month, m);
+  }
+  res.json({ from: start, to, months: [...byMonth.values()].sort((a, b) => (a.month < b.month ? 1 : -1)) });
+});
+
+/* ── The browser Canteen Gate ──────────────────────────────────────────── */
+
+/**
+ * Everybody active, with what the gate needs to recognise them and nothing
+ * else: descriptors (enrolment plus what the attendance gate has taught
+ * itself), and whether they are on the list for breakfast and dinner. People
+ * with no face are included — they can still be served by name.
+ */
+canteenRouter.get("/gate/roster", serve, async (_req, res) => {
+  const people = await db
+    .select({
+      id: employees.id,
+      empCode: employees.empCode,
+      name: employees.name,
+      payType: employees.payType,
+      faceDescriptor: employees.faceDescriptor,
+      breakfast: sql<boolean>`coalesce(${canteenMealEligibility.breakfast}, false) OR coalesce(${canteenMealEligibility.breakfastAuto}, false)`,
+      dinner: sql<boolean>`coalesce(${canteenMealEligibility.dinner}, false)`,
+    })
+    .from(employees)
+    .leftJoin(canteenMealEligibility, eq(canteenMealEligibility.employeeId, employees.id))
+    .where(eq(employees.isActive, true))
+    .orderBy(asc(employees.empCode));
+  const taught = await taughtCapturesByEmployee(db, people.filter((p) => p.faceDescriptor).map((p) => p.id));
+  res.json(
+    people.map(({ faceDescriptor, ...p }) => ({
+      ...p,
+      descriptors: faceDescriptor ? [roundEmbedding(faceDescriptor as number[]), ...(taught.get(p.id) ?? [])] : [],
+    })),
+  );
+});
+
+/** Which meal the server says it is, and who has already had it. */
+canteenRouter.get("/gate/state", serve, async (req, res) => {
+  const canteenId = typeof req.query.canteenId === "string" ? req.query.canteenId : "";
+  if (!canteenId) return res.status(400).json({ error: "canteenId is required" });
+  const windows = await mealWindowsFor(db, canteenId);
+  const now = mealForTime(istTimeHHMM(), windows);
+  const served = await db
+    .select({ employeeId: canteenServings.employeeId, servedAt: canteenServings.servedAt, personName: canteenServings.personName, state: canteenServings.state, tokenNumber: canteenServings.tokenNumber })
+    .from(canteenServings)
+    .where(and(eq(canteenServings.canteenId, canteenId), eq(canteenServings.mealDate, istToday()), eq(canteenServings.meal, now.meal)))
+    .orderBy(desc(canteenServings.servedAt));
+  res.json({ meal: now.meal, mealLabel: MEAL_LABEL[now.meal], outsideWindow: now.outsideWindow, windows, served });
+});
+
+/** The canteens a counter can be set to — the gate's own list, so it needs no `payroll.view`. */
+canteenRouter.get("/gate/canteens", serve, async (_req, res) => {
+  res.json(await db.select({ id: canteens.id, code: canteens.code, name: canteens.name }).from(canteens).where(eq(canteens.isActive, true)).orderBy(asc(canteens.name)));
+});
+
+const gateServing = z.object({
+  clientId: z.string().uuid(),
+  canteenId: z.string().uuid(),
+  employeeId: z.string().uuid(),
+  method: z.enum(["face", "manual"]),
+  matchScore: z.number().min(0).max(1).nullish(),
+  latitude: z.number().nullish(),
+  longitude: z.number().nullish(),
+  accuracyM: z.number().nullish(),
+});
+
+canteenRouter.post("/gate/servings", serve, validateBody(gateServing), async (req, res) => {
+  try {
+    const { serving, replay } = await db.transaction((tx) => recordBrowserServing(tx, req.session.user!.id, req.body as z.infer<typeof gateServing>));
+    res.status(replay ? 200 : 201).json({ ...serving, mealLabel: MEAL_LABEL[serving.meal] });
+  } catch (err) {
+    if (err instanceof DuplicatePlate) {
+      return res.status(409).json({ error: `Already served ${MEAL_LABEL[err.meal].toLowerCase()} today`, duplicate: true, servedAt: err.servedAt, tokenNumber: err.tokenNumber });
+    }
+    if (err instanceof PostingError) return res.status(422).json({ error: err.message });
+    throw err;
+  }
 });

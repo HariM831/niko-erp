@@ -89,6 +89,7 @@ import { PayrollPayInputsPage } from "./pages/payroll/pay-inputs";
 import { PayrollRunPage } from "./pages/payroll/run";
 import { PayrollWagesPage } from "./pages/payroll/wages";
 import { PayrollCanteenPage } from "./pages/payroll/canteen";
+import { PayrollCanteenGatePage } from "./pages/payroll/canteen-gate";
 import { PayrollDevicesPage } from "./pages/payroll/devices";
 
 const SPLIT: Record<string, { endpoint: string; basePath: string; title: string; newPath: string; dateKey: string }> = {
@@ -266,6 +267,7 @@ export function App() {
         <Route path="/payroll/pay-inputs" component={PayrollPayInputsPage} />
         <Route path="/payroll/run" component={PayrollRunPage} />
         <Route path="/payroll/wages" component={PayrollWagesPage} />
+        <Route path="/payroll/canteen-gate" component={PayrollCanteenGatePage} />
         <Route path="/payroll/canteen" component={PayrollCanteenPage} />
         <Route path="/payroll/devices" component={PayrollDevicesPage} />
         {/* Payroll's masters moved to Settings, where every module keeps them. */}

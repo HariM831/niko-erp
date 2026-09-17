@@ -60,3 +60,46 @@ export const PHOTO_RETENTION_DAYS = 45;
 
 /** Max events accepted per POST /api/device/events. */
 export const MAX_EVENTS_PER_REQUEST = 200;
+
+/* ── Which meal is it? ─────────────────────────────────────────────────── */
+
+export interface MealWindow {
+  meal: Meal;
+  startTime: string;
+  endTime: string;
+}
+
+/** IST wall-clock "HH:MM" for an instant. */
+export function istTimeHHMM(d: Date = new Date()): string {
+  const p = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(d);
+  const at = (t: string) => p.find((x) => x.type === t)!.value;
+  return `${at("hour") === "24" ? "00" : at("hour")}:${at("minute")}`;
+}
+
+const minutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+
+/**
+ * The meal being served at a time of day, decided from the clock and nothing
+ * else: the window the time falls in, or — outside them all — the meal whose
+ * window edge is nearest, flagged as outside its window.
+ *
+ * The SERVER calls this when a plate is recorded; the browser only calls it to
+ * draw a label. Amino's canteen gate let the browser say which meal it was, and
+ * while its page was still loading the windows it said "lunch": a 07:37 plate
+ * went down as lunch, outside its window. A client that cannot send a meal
+ * cannot send the wrong one.
+ */
+export function mealForTime(hhmm: string, windows: MealWindow[]): { meal: Meal; outsideWindow: boolean } {
+  const t = minutes(hhmm);
+  const inside = windows.find((w) => t >= minutes(w.startTime) && t <= minutes(w.endTime));
+  if (inside) return { meal: inside.meal, outsideWindow: false };
+  // Distance round the clock, so 23:30 is nearer a 19:00–22:00 dinner than a 07:00 breakfast.
+  const gap = (a: number, b: number) => Math.min(Math.abs(a - b), 1440 - Math.abs(a - b));
+  let best: MealWindow = windows[0] ?? { meal: "lunch", ...DEFAULT_MEAL_WINDOWS.lunch };
+  let bestGap = Infinity;
+  for (const w of windows) {
+    const g = Math.min(gap(t, minutes(w.startTime)), gap(t, minutes(w.endTime)));
+    if (g < bestGap) { bestGap = g; best = w; }
+  }
+  return { meal: best.meal, outsideWindow: true };
+}

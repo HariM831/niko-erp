@@ -15,3 +15,16 @@ ALTER TABLE "pay_inputs" ADD COLUMN IF NOT EXISTS "date_from" date, ADD COLUMN I
 ALTER TABLE "pay_inputs" ADD CONSTRAINT "ck_pay_inputs_dates" CHECK (
   ("date_from" IS NULL) = ("date_to" IS NULL) AND ("date_to" IS NULL OR "date_to" >= "date_from")
 );
+--> statement-breakpoint
+-- The browser Canteen Gate records plates with no device behind them, under
+-- the name of whoever is logged in; and it serves — but marks — a breakfast or
+-- dinner for someone not on the list for it.
+ALTER TABLE "canteen_servings" ALTER COLUMN "device_id" DROP NOT NULL;
+--> statement-breakpoint
+ALTER TABLE "canteen_servings"
+  ADD COLUMN IF NOT EXISTS "served_by" uuid REFERENCES "users"("id"),
+  ADD COLUMN IF NOT EXISTS "ineligible" boolean NOT NULL DEFAULT false;
+--> statement-breakpoint
+-- Breakfast for a night shift is the system's own flag, beside HR's and never
+-- over it.
+ALTER TABLE "canteen_meal_eligibility" ADD COLUMN IF NOT EXISTS "breakfast_auto" boolean NOT NULL DEFAULT false;

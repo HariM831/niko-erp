@@ -196,6 +196,7 @@ export const NAV: NavItem[] = [
       { label: "Pay Inputs", path: "/payroll/pay-inputs", perm: ["payroll", "pay_inputs"] },
       { label: "Run", path: "/payroll/run", perm: ["payroll", "run"] },
       { label: "Wages", path: "/payroll/wages", perm: ["payroll", "view"] },
+      { label: "Canteen Gate", path: "/payroll/canteen-gate", perm: ["payroll", "canteen_punch"] },
       { label: "Canteen", path: "/payroll/canteen", perm: ["payroll", "canteen"] },
       { label: "Devices", path: "/payroll/devices", perm: ["payroll", "devices"] },
     ],

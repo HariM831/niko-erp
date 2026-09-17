@@ -159,6 +159,14 @@ export const canteenMealEligibility = pgTable("canteen_meal_eligibility", {
     .primaryKey()
     .references(() => employees.id),
   breakfast: boolean("breakfast").notNull().default(false),
+  /**
+   * Breakfast because of a night shift — written by the system alone, never by
+   * HR and never over what HR set. Effective breakfast is `breakfast OR
+   * breakfastAuto`. Amino used one flag and a magic note to tell its own grants
+   * from HR's, and needed a second fix when removing a night shift took an
+   * HR-added dinner with it.
+   */
+  breakfastAuto: boolean("breakfast_auto").notNull().default(false),
   dinner: boolean("dinner").notNull().default(false),
   note: text("note"),
   updatedBy: uuid("updated_by").references(() => users.id),
@@ -171,9 +179,12 @@ export const canteenServings = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     clientId: varchar("client_id", { length: 64 }).notNull().unique(),
-    deviceId: uuid("device_id")
-      .notNull()
-      .references(() => devices.id),
+    /** Null = recorded at the browser Canteen Gate, which has no device. */
+    deviceId: uuid("device_id").references(() => devices.id),
+    /** Who was logged in at the browser gate when the plate was served. */
+    servedBy: uuid("served_by").references(() => users.id),
+    /** Breakfast or dinner served to someone not on the list for it. */
+    ineligible: boolean("ineligible").notNull().default(false),
     canteenId: uuid("canteen_id")
       .notNull()
       .references(() => canteens.id),

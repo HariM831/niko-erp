@@ -133,6 +133,7 @@ export const APP_PAGES: AppPage[] = [
   { key: "pay-inputs", label: "Pay Inputs", path: "/payroll/pay-inputs", group: "Payroll", module: "payroll", action: "pay_inputs" },
   { key: "payroll-run", label: "Run", path: "/payroll/run", group: "Payroll", module: "payroll", action: "run" },
   { key: "wages", label: "Wages", path: "/payroll/wages", group: "Payroll", module: "payroll", action: "view" },
+  { key: "canteen-gate", label: "Canteen Gate", path: "/payroll/canteen-gate", group: "Payroll", module: "payroll", action: "canteen_punch" },
   { key: "canteen", label: "Canteen", path: "/payroll/canteen", group: "Payroll", module: "payroll", action: "canteen" },
   { key: "devices", label: "Devices", path: "/payroll/devices", group: "Payroll", module: "payroll", action: "devices" },
 

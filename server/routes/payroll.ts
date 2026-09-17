@@ -32,6 +32,7 @@ import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { REPEAT_PUNCH_WINDOW_MS } from "./device";
 import { photoThumbnail, photoThumbnails } from "../services/photo";
+import { syncNightShiftBreakfast } from "../services/canteen";
 import { clashMessage, findIdClash, isAcceptableUpload, normAadhaar, normPan } from "../services/identity";
 import { isUsableEmbedding, judgeCapture, roundEmbedding, taughtCapturesByEmployee } from "../services/face-gallery";
 import { adviseOn, buildFaceHealth, formatFaceHealth } from "../services/face-health";
@@ -228,6 +229,9 @@ payrollRouter.post("/shifts", settingsPerm, validateBody(shiftBody), async (req,
 payrollRouter.patch("/shifts/:id", settingsPerm, validateBody(shiftBody.partial().extend({ isActive: z.boolean().optional() })), async (req, res) => {
   const [row] = await db.update(shifts).set(req.body).where(eq(shifts.id, req.params.id!)).returning();
   if (!row) return res.status(404).json({ error: "No such shift" });
+  // A shift whose hours now run past midnight — or no longer do — changes who
+  // is owed breakfast, for everyone on it.
+  await syncNightShiftBreakfast(db);
   res.json(row);
 });
 
@@ -305,6 +309,7 @@ payrollRouter.post(
         })
         .returning();
       await recomputeFromAssignment(tx, b.employeeId, b.effectiveFrom);
+      await syncNightShiftBreakfast(tx, [b.employeeId]);
       return created!;
     });
     res.status(201).json(row);
@@ -333,7 +338,12 @@ payrollRouter.patch(
 );
 
 payrollRouter.delete("/shift-assignments/:id", settingsPerm, async (req, res) => {
-  await db.delete(shiftAssignments).where(eq(shiftAssignments.id, req.params.id!));
+  await db.transaction(async (tx) => {
+    const [gone] = await tx.delete(shiftAssignments).where(eq(shiftAssignments.id, req.params.id!)).returning({ employeeId: shiftAssignments.employeeId });
+    // Off the night shift means off the night-shift breakfast — and nothing
+    // HR set by hand is touched in taking it back.
+    if (gone) await syncNightShiftBreakfast(tx, [gone.employeeId]);
+  });
   res.json({ ok: true });
 });
 
