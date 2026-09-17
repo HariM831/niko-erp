@@ -35,6 +35,7 @@ async function controllerLive(device: string): Promise<boolean | null> {
 import { houseSamples, pollOnce, recentPolls, todayCounters } from "../services/iot/store";
 import { fanEnergyToday, ladderPower, pumpMinutesToday } from "../services/iot/controls";
 import { outsideChangesSince } from "../services/iot/watch";
+import { outsideWeather } from "../services/iot/weather";
 import { fansInGroup, houseFeelsLike, velocity, zoneFeelsLike, type LevelName } from "../services/iot/feels-like";
 
 export const iotRouter = Router();
@@ -354,8 +355,10 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
 
   const exp = tokenExpiry();
   const [last] = await recentPolls(1);
+  const weather = await outsideWeather();
   res.json({
     board,
+    weather,
     poll: last
       ? { at: last.startedAt, ok: last.ok, houses: last.houses, readings: last.readings, error: last.error }
       : null,

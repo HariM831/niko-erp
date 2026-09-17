@@ -162,6 +162,8 @@ interface IotRow {
 
 interface IotBoard {
   board: IotRow[];
+  /** The shade air at the farm from a weather service; the sheds' own outside probes hang in the sun. */
+  weather: { at: string; tempC: number; humidityPct: number; feelsLikeC: number; cloudPct: number; fetchedAt: string } | null;
   poll: { at: string; ok: boolean; houses: number; readings: number; error: string | null } | null;
   tokenExpires: string | null;
 }
@@ -1088,17 +1090,23 @@ export function FarmsHousesPage() {
                 // bird count and all, and niko's own stock can lag a flock's departure; the platform's device status
                 // is the one thing that says off. A probe in the sun reads the sun, so the hover lists each shed's own.
                 const outs = iot.board.filter((r) => r.outsideTempC != null && r.controllerLive === true);
-                if (!outs.length) return null;
-                const avg = outs.reduce((a, r) => a + (r.outsideTempC ?? 0), 0) / outs.length;
-                const lo = Math.min(...outs.map((r) => r.outsideTempC ?? 0));
-                const hi = Math.max(...outs.map((r) => r.outsideTempC ?? 0));
+                const probes = outs.length ? `Wall probes: ${outs.map((r) => `${r.code} ${r.outsideTempC!.toFixed(1)}°`).join(" · ")} — they hang in the sun and read it.` : "";
+                const w = iot.weather;
+                if (!w && !outs.length) return null;
+                const stale = w ? Date.now() - new Date(w.fetchedAt).getTime() > 3_600_000 : false;
                 return (
                   <span
                     className="ml-2 rounded-full border border-soil-200 bg-soil-50 px-2 py-0.5 text-[11px] font-medium text-soil-900"
-                    title={`Outside probe, each shed: ${outs.map((r) => `${r.code} ${r.outsideTempC!.toFixed(1)}°`).join(" · ")}. A probe in the sun reads the sun; the lowest is the truest air temperature.`}
+                    title={w ? `Shade air at Thelamara from the weather service at ${w.at.slice(11, 16)}: ${w.tempC.toFixed(1)}°, ${w.humidityPct}% humidity, feels like ${w.feelsLikeC.toFixed(1)}°, cloud ${w.cloudPct}%${stale ? " (service unreachable; last answer)" : ""}. ${probes}` : probes}
                   >
-                    Outside <strong>{avg.toFixed(1)}°</strong>
-                    {hi - lo >= 2 && <span className="ml-1 font-normal text-muted-foreground">{lo.toFixed(0)} to {hi.toFixed(0)}</span>}
+                    Outside{" "}
+                    <strong>{w ? `${w.tempC.toFixed(1)}°` : `${(outs.reduce((a, r) => a + (r.outsideTempC ?? 0), 0) / outs.length).toFixed(1)}°`}</strong>
+                    {w && <span className="ml-1 font-normal text-muted-foreground">{w.humidityPct}%{stale ? " · old" : ""}</span>}
+                    {w && outs.length > 0 && (
+                      <span className="ml-1 font-normal text-muted-foreground">
+                        · probes {Math.min(...outs.map((r) => r.outsideTempC!)).toFixed(0)} to {Math.max(...outs.map((r) => r.outsideTempC!)).toFixed(0)}
+                      </span>
+                    )}
                   </span>
                 );
               })()}
