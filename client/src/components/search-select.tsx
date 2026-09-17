@@ -13,12 +13,26 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, X } from "lucide-react";
+import { matchesTerms } from "@shared/search";
 
 export interface Choice {
   id: string;
   label: string;
   /** A second line — a code, a category, whatever tells two alike apart. */
   sub?: string | null;
+}
+
+/**
+ * A shortlist pinned above the rest: the few rows this form is almost
+ * certainly after. With `collapseOthers` the full list stays out of the way
+ * until something is typed — two recent joiners, not two among a hundred.
+ */
+export interface PinnedGroup {
+  heading: string;
+  ids: string[];
+  /** A word beside each pinned row: "joined 4 Aug". */
+  meta?: (id: string) => string | null;
+  collapseOthers?: boolean;
 }
 
 export function SearchSelect({
@@ -28,6 +42,9 @@ export function SearchSelect({
   placeholder = "Search…",
   disabled,
   allowClear = true,
+  keepOrder = false,
+  pinned,
+  className,
 }: {
   value: string | null;
   onChange: (id: string | null) => void;
@@ -35,6 +52,10 @@ export function SearchSelect({
   placeholder?: string;
   disabled?: boolean;
   allowClear?: boolean;
+  /** Leave the options in the order given, where that order means something. */
+  keepOrder?: boolean;
+  pinned?: PinnedGroup;
+  className?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -43,19 +64,21 @@ export function SearchSelect({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const sorted = useMemo(
-    () => [...options].sort((a, b) => a.label.localeCompare(b.label, "en-IN")),
-    [options],
+    () => (keepOrder ? options : [...options].sort((a, b) => a.label.localeCompare(b.label, "en-IN"))),
+    [options, keepOrder],
   );
 
-  const matches = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return sorted;
-    // Any part of the name, not just the start — see the note above.
-    return sorted.filter(
-      (o) =>
-        o.label.toLowerCase().includes(q) || (o.sub ?? "").toLowerCase().includes(q),
-    );
-  }, [sorted, query]);
+  // Pinned rows first, in the order they were given; nobody listed twice.
+  const { matches, pinnedCount } = useMemo(() => {
+    // Any part of the name or the second line, every word typed — see
+    // shared/search.ts for why it is not fuzzy.
+    const hit = (o: Choice) => matchesTerms(`${o.sub ?? ""} ${o.label}`, query);
+    const byId = new Map(sorted.map((o) => [o.id, o]));
+    const top = (pinned?.ids ?? []).map((id) => byId.get(id)).filter((o): o is Choice => !!o && hit(o));
+    const topIds = new Set(top.map((o) => o.id));
+    const rest = pinned?.collapseOthers && !query.trim() ? [] : sorted.filter((o) => !topIds.has(o.id) && hit(o));
+    return { matches: [...top, ...rest], pinnedCount: top.length };
+  }, [sorted, query, pinned]);
 
   const selected = options.find((o) => o.id === value) ?? null;
 
@@ -80,7 +103,7 @@ export function SearchSelect({
   };
 
   return (
-    <div ref={boxRef} className="relative">
+    <div ref={boxRef} className={`relative ${className ?? ""}`}>
       <button
         type="button"
         disabled={disabled}
@@ -137,9 +160,18 @@ export function SearchSelect({
                 Nothing matches “{query}”.
               </div>
             )}
+            {pinned?.collapseOthers && !query.trim() && (
+              <div className="px-3 pb-1 text-[11px] text-gray-400">Type to search everyone else.</div>
+            )}
             {matches.slice(0, 200).map((o, i) => (
+              <div key={o.id}>
+              {pinned && pinnedCount > 0 && i === 0 && (
+                <div className="px-3 pb-0.5 pt-1 text-[11px] font-semibold uppercase text-gray-400">{pinned.heading}</div>
+              )}
+              {pinned && pinnedCount > 0 && i === pinnedCount && (
+                <div className="mt-1 border-t border-gray-100 px-3 pb-0.5 pt-1.5 text-[11px] font-semibold uppercase text-gray-400">Everyone</div>
+              )}
               <button
-                key={o.id}
                 type="button"
                 onMouseEnter={() => setCursor(i)}
                 onClick={() => pick(o.id)}
@@ -151,8 +183,12 @@ export function SearchSelect({
                   <span className="block truncate text-gray-900">{o.label}</span>
                   {o.sub && <span className="block truncate text-[11px] text-gray-400">{o.sub}</span>}
                 </span>
+                {i < pinnedCount && pinned?.meta?.(o.id) && (
+                  <span className="shrink-0 text-[11px] text-gray-500">{pinned.meta(o.id)}</span>
+                )}
                 {o.id === value && <Check className="h-3.5 w-3.5 shrink-0 text-brand-600" />}
               </button>
+              </div>
             ))}
             {matches.length > 200 && (
               <div className="px-3 py-1.5 text-[11px] text-gray-400">

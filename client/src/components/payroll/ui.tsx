@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { api } from "../../api";
+import { SearchSelect, type PinnedGroup } from "../search-select";
 
 /* ── Dates ─────────────────────────────────────────────────────────────── */
 export const istToday = () =>
@@ -288,25 +289,52 @@ export function useEmployees(opts: { active?: boolean; all?: boolean } = {}) {
   });
 }
 
-export function EmployeeSelect({ value, onChange, employees, placeholder = "Select employee", className, allowEmpty }: {
+/**
+ * Pick one employee, by typing any part of the name or the code.
+ *
+ * It was a plain <select>: a list of a hundred and twenty to scroll, and the
+ * browser's type-ahead only matches a name's first letters — no use when what
+ * HR has in hand is an employee code. One component behind every payroll form,
+ * so they all behave alike. The list stays in employee-code order.
+ *
+ * A person who has since left is still shown on a record that names them, even
+ * though they are not offered for a new one.
+ */
+export function EmployeeSelect({ value, onChange, employees, placeholder = "Select employee", className, pinned }: {
   value: string;
   onChange: (id: string) => void;
   employees?: EmployeeRow[];
   placeholder?: string;
   className?: string;
+  /** Kept for callers that passed it; the picker can always be cleared. */
   allowEmpty?: boolean;
+  pinned?: PinnedGroup;
 }) {
   const q = useEmployees();
   const list = employees ?? q.data ?? [];
+  // Only fetched when the chosen person is not among the active ones.
+  const missing = !!value && !!list.length && !list.some((e) => e.id === value);
+  const everyone = useQuery({
+    queryKey: ["payroll", "employees", ""],
+    queryFn: () => api<EmployeeRow[]>("/api/payroll/employees"),
+    enabled: missing,
+    staleTime: 60_000,
+  });
+  const gone = missing ? everyone.data?.find((e) => e.id === value) : undefined;
+  const options = useMemo(
+    () => [...list, ...(gone ? [gone] : [])].map((e) => ({ id: e.id, label: e.name, sub: e.empCode })),
+    [list, gone],
+  );
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} className={`input ${className ?? ""}`}>
-      <option value="">{allowEmpty ? placeholder : `${placeholder}…`}</option>
-      {list.map((e) => (
-        <option key={e.id} value={e.id}>
-          {e.name} · {e.empCode}
-        </option>
-      ))}
-    </select>
+    <SearchSelect
+      value={value || null}
+      onChange={(id) => onChange(id ?? "")}
+      options={options}
+      placeholder={`${placeholder}…`}
+      keepOrder
+      pinned={pinned}
+      className={className}
+    />
   );
 }
 

@@ -17,8 +17,9 @@ import { api, formatMoney } from "../../api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Badge, Empty, EmployeeSelect, ErrorBanner, Field, MonthPicker, PageHeader, Pager, Spinner, Td, Th, dmy, istToday,
-  num, statusTone, useErr, useMonth, usePaged,
+  num, statusTone, useEmployees, useErr, useMonth, usePaged,
 } from "../../components/payroll/ui";
+import { monthsBefore } from "@shared/search";
 
 type Kind = "bonus" | "overtime" | "reimbursement" | "deduction" | "arrears";
 const KINDS: Kind[] = ["bonus", "overtime", "reimbursement", "deduction", "arrears"];
@@ -229,6 +230,19 @@ function AddInputDialog({ year, month, onClose, onSaved }: { year: number; month
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isArrears]);
 
+  // Arrears are nearly always for someone who joined late in a month nobody
+  // ran a payroll for. Those few are offered first, each with the date that
+  // makes them a candidate; everyone else is a search away.
+  const staffQ = useEmployees();
+  const recentJoiners = useMemo(() => {
+    const since = monthsBefore(year, month, 2);
+    const recent = (staffQ.data ?? [])
+      .filter((e) => e.dateOfJoining && e.dateOfJoining >= since)
+      .sort((a, b) => (a.dateOfJoining! < b.dateOfJoining! ? 1 : -1));
+    const joined = new Map(recent.map((e) => [e.id, `joined ${dmy(e.dateOfJoining!)}`]));
+    return { heading: "Recent joiners", ids: recent.map((e) => e.id), meta: (id: string) => joined.get(id) ?? null, collapseOthers: recent.length > 0 };
+  }, [staffQ.data, year, month]);
+
   const suggestQ = useQuery({
     queryKey: ["payroll", "arrears-suggest", form.employeeId, form.earned],
     enabled: isArrears && !!form.employeeId && !!form.earned,
@@ -280,7 +294,7 @@ function AddInputDialog({ year, month, onClose, onSaved }: { year: number; month
         <ErrorBanner message={err} onClose={() => setErr(null)} />
         <div className="space-y-2">
           <Field label="Employee" required>
-            <EmployeeSelect value={form.employeeId} onChange={(v) => set("employeeId", v)} />
+            <EmployeeSelect value={form.employeeId} onChange={(v) => set("employeeId", v)} pinned={isArrears ? recentJoiners : undefined} />
           </Field>
           <Field label="Kind" required>
             <div className="flex rounded-md bg-gray-100 p-0.5 text-[13px]">
