@@ -21,9 +21,9 @@
  *   worth closing, but adding a nutrient is a decision about what the standards
  *   must then specify.
  *
- * Only the materials named below are touched. The sheet lists 58; the mill uses
- * fourteen, and filling the item master with the other forty-four would mean
- * rows nobody buys, each needing an account somebody guessed.
+ * Only the materials named below are touched: thirteen of the sheet's
+ * fifty-eight. Filling the item master with the rest would mean rows nobody
+ * buys, each needing an account somebody guessed.
  *
  * Mapped BY ROW, not by name. The sheet carries DORB twice — row 8 at 16%
  * protein and row 71 at 15% — and the recipe names "DORB - 16", which settles
@@ -54,6 +54,10 @@ const FROM_ROW: Record<string, number> = {
   "DCP (Di-Calcium Phosphate)": 37,       // DCP
   "Salt": 39,
   "Soda Bicarb": 40,
+  // The sheet offers two calcium sources; the user confirmed on 18 Sep 2026
+  // that the recipes' "Lime Stone Grit" is LSP/Cal Carb at 37% Ca, not the
+  // 30% SG on the row below it.
+  "Lime Stone Grit": 35,
 };
 
 /**
@@ -61,7 +65,6 @@ const FROM_ROW: Record<string, number> = {
  * than guessed: a calcium source picked wrongly is a layer's shell.
  */
 const UNRESOLVED: Record<string, string> = {
-  "Lime Stone Grit": "the sheet offers LSP/Cal Carb (37% Ca, row 35) and SG (30% Ca, row 36) — which is this?",
   "MixiBlend P": "not on the sheet at all",
   "Cantaxanthin": "not on the sheet at all",
 };
