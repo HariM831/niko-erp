@@ -182,7 +182,10 @@ feedFormulasRouter.get("/matrix", requirePermission("feed_mill", "formulas"), as
   const allNames = await db
     .selectDistinct({ name: formulas.name })
     .from(formulas)
-    .orderBy(...byLifeStage);
+    // By name, not by life stage: SELECT DISTINCT can only be ordered by what
+    // it selects, and this is a bare list of names for the "no live version"
+    // note. Ordering it by stage asked Postgres for a column that is not there.
+    .orderBy(asc(formulas.name));
   const withoutLive = allNames
     .map((n) => n.name)
     .filter((n) => !live.some((f) => f.name === n));
