@@ -202,6 +202,7 @@ feedFormulasRouter.get("/matrix", requirePermission("feed_mill", "formulas"), as
              last.landed::float8     AS "landed",
              last.bill_date::text    AS "pricedOn",
              i.unit                  AS "unit",
+             i.unit_bag_weight_kg::float8 AS "packKg",
              i.cost_price::float8    AS "standing"
         FROM formula_lines fl
         JOIN items i ON i.id = fl.item_id
@@ -226,7 +227,7 @@ feedFormulasRouter.get("/matrix", requirePermission("feed_mill", "formulas"), as
   ).rows as Array<{
     formulaId: string; itemId: string; itemName: string; quantityKg: number;
     lastRate: number | null; landed: number | null; pricedOn: string | null;
-    unit: string; standing: number | null;
+    unit: string; packKg: number | null; standing: number | null;
   }>;
 
   /**
@@ -239,18 +240,23 @@ feedFormulasRouter.get("/matrix", requirePermission("feed_mill", "formulas"), as
    * last bill of 25.30, methionine 283 against 492, and limestone and one of
    * the soyas said nothing at all.
    *
-   * A material bought by the pack rather than by weight gets no rate at all
-   * rather than a wrong one: the premix is 649 a four-kilo pack, and read as
-   * 649 a kilo it would be four times the whole mix.
+   * A material bought by the pack is divided by what the pack weighs — the
+   * premix is 679 a four-kilo pack, so 169.75 a kilo. Read straight it would
+   * cost four times the entire mix. Where the pack weight is not recorded
+   * there is no honest conversion, so it gets no rate rather than a wrong one.
    */
   const priceOf = (l: (typeof lines)[number]) => {
-    if (l.unit !== "kg") {
-      return { ratePerKg: 0, basis: "not per kg" as const, pricedOn: null as string | null };
+    const perPack = l.unit !== "kg";
+    const packKg = l.packKg ?? 0;
+    if (perPack && packKg <= 0) {
+      return { ratePerKg: 0, basis: "not per kg" as const, pricedOn: null as string | null, packKg: null as number | null };
     }
-    if (l.landed != null) return { ratePerKg: l.landed, basis: "delivered" as const, pricedOn: l.pricedOn };
-    if (l.lastRate != null) return { ratePerKg: l.lastRate, basis: "last bill" as const, pricedOn: l.pricedOn };
-    if (l.standing) return { ratePerKg: l.standing, basis: "standing price" as const, pricedOn: null };
-    return { ratePerKg: 0, basis: "never bought" as const, pricedOn: null };
+    const toKg = (v: number) => (perPack ? v / packKg : v);
+    const pack = perPack ? packKg : null;
+    if (l.landed != null) return { ratePerKg: toKg(l.landed), basis: "delivered" as const, pricedOn: l.pricedOn, packKg: pack };
+    if (l.lastRate != null) return { ratePerKg: toKg(l.lastRate), basis: "last bill" as const, pricedOn: l.pricedOn, packKg: pack };
+    if (l.standing) return { ratePerKg: toKg(l.standing), basis: "standing price" as const, pricedOn: null, packKg: pack };
+    return { ratePerKg: 0, basis: "never bought" as const, pricedOn: null, packKg: pack };
   };
   const priced = new Map(lines.map((l) => [l.itemId, priceOf(l)]));
 
@@ -345,6 +351,8 @@ feedFormulasRouter.get("/matrix", requirePermission("feed_mill", "formulas"), as
         // fact. "not per kg" is the premix, sold by the pack.
         priceBasis: priced.get(id)?.basis ?? "never bought",
         pricedOn: priced.get(id)?.pricedOn ?? null,
+        /** Set when the material is bought by the pack; the rate is per kg of it. */
+        packKg: priced.get(id)?.packKg ?? null,
         qty,
         total: Object.values(qty).reduce((s, v) => s + v, 0),
       };

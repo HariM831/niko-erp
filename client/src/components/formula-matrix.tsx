@@ -37,6 +37,8 @@ interface Ingredient {
   ratePerKg: number;
   priceBasis: PriceBasis;
   pricedOn: string | null;
+  /** Bought by the pack: the rate shown is per kg, divided by this. */
+  packKg: number | null;
   qty: Record<string, number>;
 }
 
@@ -134,7 +136,11 @@ export function FormulaMatrix({ onPick }: { onPick?: (name: string) => void }) {
                   <td className="whitespace-nowrap px-3 py-1.5">{ing.name}</td>
                   <td
                     className={`col-portrait-hide ${col} w-[70px] ${BASIS_NOTE[ing.priceBasis].tone}`}
-                    title={`${BASIS_NOTE[ing.priceBasis].title}${ing.pricedOn ? ` (${ing.pricedOn})` : ""}`}
+                    title={
+                      BASIS_NOTE[ing.priceBasis].title +
+                      (ing.pricedOn ? ` (${ing.pricedOn})` : "") +
+                      (ing.packKg ? `, bought by the ${ing.packKg} kg pack` : "")
+                    }
                   >
                     {ing.ratePerKg ? money(ing.ratePerKg) : "—"}
                     {BASIS_NOTE[ing.priceBasis].mark}
