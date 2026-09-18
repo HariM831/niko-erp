@@ -99,19 +99,48 @@ function check(f: File) {
   return bad;
 }
 
-/** How a mix actually analyses, and how much of its weight the analysis covers. */
-async function measured(stage: string, key: string) {
-  const r = await db.execute(sql`
-    SELECT sum(fl.quantity_kg * n.value) / nullif(sum(fl.quantity_kg) FILTER (WHERE n.value IS NOT NULL), 0) AS value,
-           sum(fl.quantity_kg) FILTER (WHERE n.value IS NOT NULL) / nullif(sum(fl.quantity_kg), 0) AS covered
-      FROM formulas f
-      JOIN formula_lines fl ON fl.formula_id = f.id
-      LEFT JOIN item_nutrients n ON n.item_id = fl.item_id AND n.nutrient = ${key}
-     WHERE f.is_active AND f.stage = ${stage}::life_stage
-  `);
-  const row = r.rows[0] as { value: string | null; covered: string | null } | undefined;
-  if (!row?.value) return null;
-  return { value: Number(row.value), covered: Number(row.covered) };
+/**
+ * How the live recipes actually analyse, against the whole batch.
+ *
+ * A material with no figure for a nutrient counts as nothing, which is the only
+ * honest arithmetic: limestone is 18% of a layer mix and contains no lysine and
+ * no energy, so averaging over "the weight that has an analysis" would quietly
+ * report the mix as richer than it is. The cost of that honesty is that a
+ * missing figure looks identical to a real zero — so each nutrient also reports
+ * the heaviest material carrying no figure for it, which is what separates
+ * "limestone has no lysine" from "Dicalcium Phosphate has no available
+ * phosphorus on file and therefore reads as none".
+ */
+async function measured(keys: string[]) {
+  const list = sql.join(keys.map((k) => sql`(${k})`), sql`, `);
+  const rows = (
+    await db.execute(sql`
+      WITH nutrient(key) AS (VALUES ${list}),
+      mix AS (
+        SELECT f.stage::text AS stage, k.key,
+               fl.item_id, i.name, fl.quantity_kg AS kg, n.value,
+               sum(fl.quantity_kg) OVER (PARTITION BY f.stage, k.key) AS batch_kg
+          FROM formulas f
+          JOIN formula_lines fl ON fl.formula_id = f.id
+          JOIN items i ON i.id = fl.item_id
+          CROSS JOIN nutrient k
+          LEFT JOIN item_nutrients n ON n.item_id = fl.item_id AND n.nutrient = k.key
+         WHERE f.is_active
+      )
+      SELECT stage, key,
+             (sum(kg * coalesce(value, 0)) / max(batch_kg))::float8 AS value,
+             -- Every material of any consequence carrying no figure, not merely
+             -- the heaviest: limestone is 18% of a layer mix and would hide the
+             -- 1.5% of dicalcium phosphate standing behind it.
+             array_to_string(
+               array_agg(name || ' ' || round(kg / batch_kg * 100) || '%' ORDER BY kg DESC)
+                 FILTER (WHERE value IS NULL AND kg / batch_kg >= 0.01),
+               ', ') AS gaps
+        FROM mix
+       GROUP BY stage, key
+    `)
+  ).rows as Array<{ stage: string; key: string; value: number; gaps: string | null }>;
+  return new Map(rows.map((r) => [`${r.stage}|${r.key}`, r]));
 }
 
 async function main() {
@@ -126,19 +155,24 @@ async function main() {
   }
 
   const order = (key: string) => NUTRIENT_KEYS.indexOf(key);
+  const allKeys = [...new Set(f.diets.flatMap((d) => Object.keys(d.params)))];
+  const mix = await measured(allKeys);
+
   for (const d of f.diets) {
     const keys = Object.keys(d.params).sort((a, b) => order(a) - order(b));
     console.log(`  ${d.stage.padEnd(14)} ${d.diet}`);
     for (const key of keys) {
       const v = d.params[key]!;
       const window = v.max != null ? `${v.min} - ${v.max}` : `min ${v.min}`;
-      const m = await measured(d.stage, key);
+      const m = mix.get(`${d.stage}|${key}`);
       let against = "";
       if (m) {
+        const dp = key === "me" ? 0 : 2;
         const short = v.min != null && m.value < v.min;
         const over = v.max != null && m.value > v.max;
-        const mark = m.covered < 0.95 ? "~" : short ? "SHORT" : over ? "OVER" : "ok";
-        against = `   mix ${m.value.toFixed(2)} (${(m.covered * 100).toFixed(0)}% of the weight analysed) ${mark}`;
+        const mark = short ? `short ${(v.min! - m.value).toFixed(dp)}` : over ? `over ${(m.value - v.max!).toFixed(dp)}` : "ok";
+        against = `   mix ${m.value.toFixed(dp)}  ${mark}`;
+        if (m.gaps) against += `\n      no figure on file for ${m.gaps}`;
       }
       console.log(`    ${nutrientLabel(key).padEnd(28)}${window.padStart(16)}${against}`);
     }
