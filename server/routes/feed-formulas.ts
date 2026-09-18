@@ -121,6 +121,20 @@ async function formulaProblem(body: Body): Promise<string | null> {
  *
  * Declared before any parameterised route so "picker" is never read as an id.
  */
+/**
+ * A feed's place in a bird's life, which is the order a nutritionist reads a
+ * shelf of recipes in — chick, grower, prelayer, then the layer phases.
+ *
+ * It costs nothing to compute: `life_stage` is a Postgres enum and an enum
+ * sorts by the order its values were DECLARED, which in shared/schema/feedmill.ts
+ * is already that progression. Sorting by name instead put Prelayer after both
+ * Layer phases, because P follows L.
+ *
+ * A formula with no stage set sorts last rather than first, where an unplaced
+ * recipe is noticed instead of heading the list.
+ */
+const byLifeStage = [sql`${formulas.stage} NULLS LAST`, asc(formulas.name)];
+
 feedFormulasRouter.get("/picker", requirePermission("feed_mill", "view"), async (_req, res) => {
   const rows = await db
     .select({
@@ -133,7 +147,7 @@ feedFormulasRouter.get("/picker", requirePermission("feed_mill", "view"), async 
     .from(formulas)
     .leftJoin(items, eq(items.id, formulas.outputItemId))
     .where(eq(formulas.isActive, true))
-    .orderBy(asc(formulas.name));
+    .orderBy(...byLifeStage);
   res.json(
     rows.map((r) => ({
       name: r.name,
@@ -161,14 +175,14 @@ feedFormulasRouter.get("/matrix", requirePermission("feed_mill", "formulas"), as
     .from(formulas)
     .leftJoin(items, eq(items.id, formulas.outputItemId))
     .where(eq(formulas.isActive, true))
-    .orderBy(asc(formulas.name));
+    .orderBy(...byLifeStage);
 
   // Named so the screen can say why a formula everybody knows about is absent,
   // rather than leaving a hole somebody has to investigate.
   const allNames = await db
     .selectDistinct({ name: formulas.name })
     .from(formulas)
-    .orderBy(asc(formulas.name));
+    .orderBy(...byLifeStage);
   const withoutLive = allNames
     .map((n) => n.name)
     .filter((n) => !live.some((f) => f.name === n));
@@ -318,7 +332,7 @@ feedFormulasRouter.get("/", requirePermission("feed_mill", "formulas"), async (_
     .from(formulas)
     .leftJoin(items, eq(items.id, formulas.outputItemId))
     .leftJoin(users, eq(users.id, formulas.createdBy))
-    .orderBy(asc(formulas.name), desc(formulas.version));
+    .orderBy(...byLifeStage, desc(formulas.version));
 
   const lines = versions.length
     ? await db
