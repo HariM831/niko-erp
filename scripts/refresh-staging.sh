@@ -15,6 +15,14 @@
 # staging payment file built from them fails harmlessly at the bank; one built
 # from real numbers does not.
 #
+# What is NOT production's to overwrite: the logins that exist only on staging.
+# Staging is where people are invited to try the thing before it is real, and
+# on 18 Sep 2026 a refresh was about to take four such accounts and the role
+# they used with them — none of which production has ever heard of. They are
+# lifted out before the restore and put back after, with their own password
+# hashes, which never held a production secret. Everyone COPIED from production
+# still has their password reset; that part is the point.
+#
 # Usage, on the Droplet:
 #   PROD_DATABASE_URL=... STAGING_DATABASE_URL=... ./scripts/refresh-staging.sh
 #
@@ -61,7 +69,8 @@ command -v pg_restore >/dev/null || die "pg_restore not found"
 command -v psql       >/dev/null || die "psql not found"
 
 DUMP="$(mktemp -t niko-prod-XXXXXX.dump)"
-cleanup() { rm -f "$DUMP"; }
+KEEP="$(mktemp -t niko-keep-XXXXXX.sql)"
+cleanup() { rm -f "$DUMP" "$KEEP"; }
 trap cleanup EXIT
 
 echo "==> production : $PROD_DB"
@@ -77,6 +86,35 @@ if command -v systemctl >/dev/null && systemctl list-units --full -all \
   sudo systemctl stop "$SERVICE"
   STOPPED=1
 fi
+
+# ── 1b. Lift out the logins that are staging's own ────────────────────────
+# Matched by NAME, not by id: production and staging generate their own uuids,
+# and a role of the same name is the same role. A user is put back against
+# whichever role row carries their role's name after the restore, so a
+# staging-only user on a production role lands on production's copy of it.
+echo "==> keeping staging-only roles and logins"
+PROD_ROLES="$(psql "$PROD_URL" -tAc "SELECT string_agg(quote_literal(name), ',') FROM roles")"
+PROD_USERS="$(psql "$PROD_URL" -tAc "SELECT string_agg(quote_literal(username), ',') FROM users")"
+: "${PROD_ROLES:=''}"
+: "${PROD_USERS:=''}"
+
+psql "$STAGING_URL" -tAc "
+  SELECT format(
+    'INSERT INTO roles (id, name, description, is_system, permissions, created_at)
+       VALUES (%L, %L, %L, %L, %L, %L) ON CONFLICT (name) DO NOTHING;',
+    id, name, description, is_system, permissions, created_at)
+    FROM roles WHERE name NOT IN ($PROD_ROLES)
+  UNION ALL
+  SELECT format(
+    'INSERT INTO users (id, username, name, email, password_hash, role_id, is_active, created_at, updated_at)
+       SELECT %L, %L, %L, %L, %L, r.id, %L, %L, %L FROM roles r WHERE r.name = %L
+       ON CONFLICT (username) DO NOTHING;',
+    u.id, u.username, u.name, u.email, u.password_hash, u.is_active, u.created_at, u.updated_at, r.name)
+    FROM users u JOIN roles r ON r.id = u.role_id WHERE u.username NOT IN ($PROD_USERS)
+" > "$KEEP" 2>/dev/null || true
+KEPT="$(grep -c "INSERT INTO users" "$KEEP" || true)"
+KEPT_ROLES="$(grep -c "INSERT INTO roles" "$KEEP" || true)"
+echo "    $KEPT login(s) and $KEPT_ROLES role(s) exist only on staging"
 
 # ── 2. Dump production ────────────────────────────────────────────────────
 # Read-only: pg_dump takes a consistent snapshot and holds no lock that blocks
@@ -120,7 +158,17 @@ HASH="$(node -e '
   process.stdout.write(salt + ":" + scryptSync(process.argv[1], salt, 64).toString("hex"));
 ' "$STAGING_PW")"
 psql "$STAGING_URL" -v ON_ERROR_STOP=1 -q \
-  -c "UPDATE users SET password_hash = '$HASH';"
+  -c "UPDATE users SET password_hash = '$HASH', failed_login_attempts = 0, locked_until = NULL;"
+
+# Put staging's own logins back, AFTER that reset so they keep their own
+# passwords. Whoever set them is the only one who knows them, which is the
+# whole reason they are worth keeping.
+if [ "${KEPT:-0}" != "0" ] || [ "${KEPT_ROLES:-0}" != "0" ]; then
+  echo "==> restoring staging-only roles and logins"
+  psql "$STAGING_URL" -v ON_ERROR_STOP=1 -q -f "$KEEP"
+  BACK="$(psql "$STAGING_URL" -tAc "SELECT count(*) FROM users")"
+  echo "    $BACK login(s) on staging"
+fi
 
 # ── 5. Verify the scrub actually happened ─────────────────────────────────
 # The step that matters most is the one most likely to fail quietly — a
@@ -151,5 +199,8 @@ fi
 
 echo
 echo "Staging rebuilt from production."
-echo "  every login: password '${STAGING_PW}'"
+echo "  logins copied from production: password '${STAGING_PW}'"
+if [ "${KEPT:-0}" != "0" ]; then
+  echo "  ${KEPT} staging-only login(s) kept their own password"
+fi
 echo "  bank details are blank by design — seed fake ones to test a payment run"
