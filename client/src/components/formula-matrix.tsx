@@ -26,14 +26,33 @@ interface Head {
   outputKg: number;
   overhead: number;
   costPerFinishedKg: number;
+  /** Weight in the mix whose price is a guess — see priceBasis. */
+  unpricedKg: number;
   thinAnalysis: Array<{ name: string; kg: number; measured: number }>;
 }
+type PriceBasis = "delivered" | "last bill" | "standing price" | "never bought" | "not per kg";
 interface Ingredient {
   itemId: string;
   name: string;
   ratePerKg: number;
+  priceBasis: PriceBasis;
+  pricedOn: string | null;
   qty: Record<string, number>;
 }
+
+/**
+ * A rate is only worth what stands behind it. Delivered cost is the real thing
+ * and says so plainly; anything softer is marked, because a cost per kilo read
+ * off a figure somebody typed in 2025 looks exactly like one read off last
+ * week's lorry.
+ */
+const BASIS_NOTE: Record<PriceBasis, { mark: string; tone: string; title: string }> = {
+  delivered: { mark: "", tone: "text-gray-500", title: "Delivered cost of the last load, carriage included" },
+  "last bill": { mark: "*", tone: "text-gray-500", title: "Last bill for this material; no carriage matched to it, so it is the ex-works price" },
+  "standing price": { mark: "!", tone: "text-amber-700", title: "A standing price typed on the item — never bought at this price, and probably stale" },
+  "never bought": { mark: "?", tone: "text-red-600", title: "Never bought and no price on file; it counts as nothing in the cost" },
+  "not per kg": { mark: "?", tone: "text-red-600", title: "Bought by the pack, not by weight, so there is no per-kilo price to use" },
+};
 interface Nutrient {
   key: string;
   label: string;
@@ -113,7 +132,13 @@ export function FormulaMatrix({ onPick }: { onPick?: (name: string) => void }) {
               {data.ingredients.map((ing) => (
                 <tr key={ing.itemId} className="border-b border-gray-100">
                   <td className="whitespace-nowrap px-3 py-1.5">{ing.name}</td>
-                  <td className={`col-portrait-hide ${col} w-[70px] text-gray-500`}>{money(ing.ratePerKg)}</td>
+                  <td
+                    className={`col-portrait-hide ${col} w-[70px] ${BASIS_NOTE[ing.priceBasis].tone}`}
+                    title={`${BASIS_NOTE[ing.priceBasis].title}${ing.pricedOn ? ` (${ing.pricedOn})` : ""}`}
+                  >
+                    {ing.ratePerKg ? money(ing.ratePerKg) : "—"}
+                    {BASIS_NOTE[ing.priceBasis].mark}
+                  </td>
                   {f.map((x) => (
                     <td
                       key={x.id}
@@ -141,6 +166,16 @@ export function FormulaMatrix({ onPick }: { onPick?: (name: string) => void }) {
                 {f.map((x) => (
                   <td key={x.id} className={col}>
                     {money(x.materialCost)}
+                    {/* A mix with unpriced weight in it is costed low, and by
+                        exactly the amount nobody can see. Say how much. */}
+                    {x.unpricedKg > 0 && (
+                      <span
+                        className="ml-1 text-amber-700"
+                        title={`${kgs(x.unpricedKg)} kg of this batch has no price from a purchase, so the cost is understated`}
+                      >
+                        !
+                      </span>
+                    )}
                   </td>
                 ))}
               </tr>

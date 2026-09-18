@@ -192,17 +192,67 @@ feedFormulasRouter.get("/matrix", requirePermission("feed_mill", "formulas"), as
   }
 
   const ids = live.map((f) => f.id);
-  const lines = await db
-    .select({
-      formulaId: formulaLines.formulaId,
-      itemId: formulaLines.itemId,
-      itemName: items.name,
-      quantityKg: formulaLines.quantityKg,
-      ratePerKg: items.costPrice,
-    })
-    .from(formulaLines)
-    .innerJoin(items, eq(items.id, formulaLines.itemId))
-    .where(inArray(formulaLines.formulaId, ids));
+  const lines = (
+    await db.execute(sql`
+      SELECT fl.formula_id           AS "formulaId",
+             fl.item_id              AS "itemId",
+             i.name                  AS "itemName",
+             fl.quantity_kg::float8  AS "quantityKg",
+             last.rate::float8       AS "lastRate",
+             last.landed::float8     AS "landed",
+             last.bill_date::text    AS "pricedOn",
+             i.unit                  AS "unit",
+             i.cost_price::float8    AS "standing"
+        FROM formula_lines fl
+        JOIN items i ON i.id = fl.item_id
+        -- The most recent time this material was actually bought. Delivered
+        -- cost where the carriage has been matched to the load, the bill rate
+        -- where it has not.
+        LEFT JOIN LATERAL (
+          SELECT bl.rate,
+                 NULLIF(bl.landed_unit_cost, 0) AS landed,
+                 b.bill_date
+            FROM bill_lines bl
+            JOIN bills b ON b.id = bl.bill_id
+           WHERE bl.item_id = fl.item_id
+             AND b.status <> 'void'
+             AND bl.quantity > 0
+             AND bl.rate > 0
+           ORDER BY b.bill_date DESC, bl.id DESC
+           LIMIT 1
+        ) last ON true
+       WHERE fl.formula_id IN (${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)})
+    `)
+  ).rows as Array<{
+    formulaId: string; itemId: string; itemName: string; quantityKg: number;
+    lastRate: number | null; landed: number | null; pricedOn: string | null;
+    unit: string; standing: number | null;
+  }>;
+
+  /**
+   * What a kilo of this material costs, and how confidently.
+   *
+   * In order of what it is worth: the delivered cost of the last load, then
+   * what that load cost before carriage, and only then the standing price
+   * somebody typed on the item — which is where this used to start and stop.
+   * Those typed figures had gone stale unnoticed: maize said 22.00 against a
+   * last bill of 25.30, methionine 283 against 492, and limestone and one of
+   * the soyas said nothing at all.
+   *
+   * A material bought by the pack rather than by weight gets no rate at all
+   * rather than a wrong one: the premix is 649 a four-kilo pack, and read as
+   * 649 a kilo it would be four times the whole mix.
+   */
+  const priceOf = (l: (typeof lines)[number]) => {
+    if (l.unit !== "kg") {
+      return { ratePerKg: 0, basis: "not per kg" as const, pricedOn: null as string | null };
+    }
+    if (l.landed != null) return { ratePerKg: l.landed, basis: "delivered" as const, pricedOn: l.pricedOn };
+    if (l.lastRate != null) return { ratePerKg: l.lastRate, basis: "last bill" as const, pricedOn: l.pricedOn };
+    if (l.standing) return { ratePerKg: l.standing, basis: "standing price" as const, pricedOn: null };
+    return { ratePerKg: 0, basis: "never bought" as const, pricedOn: null };
+  };
+  const priced = new Map(lines.map((l) => [l.itemId, priceOf(l)]));
 
   const itemIds = [...new Set(lines.map((l) => l.itemId))];
   const analyses = itemIds.length
@@ -228,7 +278,7 @@ feedFormulasRouter.get("/matrix", requirePermission("feed_mill", "formulas"), as
   const heads = live.map((f) => {
     const own = lines.filter((l) => l.formulaId === f.id);
     const totalKg = own.reduce((s, l) => s + Number(l.quantityKg), 0);
-    const materialCost = own.reduce((s, l) => s + Number(l.quantityKg) * Number(l.ratePerKg ?? 0), 0);
+    const materialCost = own.reduce((s, l) => s + Number(l.quantityKg) * (priced.get(l.itemId)?.ratePerKg ?? 0), 0);
     // Milling bakes off moisture, so a batch yields less than went in; the
     // overhead is charged on what comes OUT, which is what gets transferred.
     const outputKg = totalKg * retention;
@@ -245,6 +295,19 @@ feedFormulasRouter.get("/matrix", requirePermission("feed_mill", "formulas"), as
       outputKg: Number(outputKg.toFixed(3)),
       overhead: Number(overhead.toFixed(2)),
       costPerFinishedKg: outputKg > 0 ? Number(((materialCost + overhead) / outputKg).toFixed(4)) : 0,
+      /**
+       * The weight of the mix whose price is only a guess — a standing figure,
+       * or nothing at all. A cost per kilo means little without it.
+       */
+      unpricedKg: Number(
+        own
+          .filter((l) => {
+            const b = priced.get(l.itemId)?.basis;
+            return b !== "delivered" && b !== "last bill";
+          })
+          .reduce((s, l) => s + Number(l.quantityKg), 0)
+          .toFixed(3),
+      ),
       /**
        * Ingredients whose analysis is incomplete, worst first.
        *
@@ -276,7 +339,12 @@ feedFormulasRouter.get("/matrix", requirePermission("feed_mill", "formulas"), as
       return {
         itemId: id,
         name: any.itemName,
-        ratePerKg: Number(any.ratePerKg ?? 0),
+        ratePerKg: priced.get(id)?.ratePerKg ?? 0,
+        // Where that figure came from, so a mill costed off a typed-in price
+        // or a material never bought is visible as such rather than read as
+        // fact. "not per kg" is the premix, sold by the pack.
+        priceBasis: priced.get(id)?.basis ?? "never bought",
+        pricedOn: priced.get(id)?.pricedOn ?? null,
         qty,
         total: Object.values(qty).reduce((s, v) => s + v, 0),
       };
