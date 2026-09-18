@@ -56,6 +56,7 @@ interface File {
   effectiveFrom: string;
   aminoAcidBasis: string;
   notLoaded: string[];
+  caveats: string[];
   diets: Diet[];
 }
 
@@ -116,25 +117,35 @@ async function measured(keys: string[]) {
   const rows = (
     await db.execute(sql`
       WITH nutrient(key) AS (VALUES ${list}),
+      analysed AS (SELECT DISTINCT item_id FROM item_nutrients),
       mix AS (
         SELECT f.stage::text AS stage, k.key,
                fl.item_id, i.name, fl.quantity_kg AS kg, n.value,
+               (a.item_id IS NULL) AS unknown_material,
                sum(fl.quantity_kg) OVER (PARTITION BY f.stage, k.key) AS batch_kg
           FROM formulas f
           JOIN formula_lines fl ON fl.formula_id = f.id
           JOIN items i ON i.id = fl.item_id
           CROSS JOIN nutrient k
           LEFT JOIN item_nutrients n ON n.item_id = fl.item_id AND n.nutrient = k.key
+          LEFT JOIN analysed a ON a.item_id = fl.item_id
          WHERE f.is_active
       )
       SELECT stage, key,
              (sum(kg * coalesce(value, 0)) / max(batch_kg))::float8 AS value,
-             -- Every material of any consequence carrying no figure, not merely
-             -- the heaviest: limestone is 18% of a layer mix and would hide the
+             -- Every material of consequence carrying no figure, not merely the
+             -- heaviest: limestone is 18% of a layer mix and would hide the
              -- 1.5% of dicalcium phosphate standing behind it.
+             --
+             -- A material with NO analysis at all is never filtered by weight.
+             -- The premix is under 1% of the batch and is the one ingredient
+             -- whose contents could change the answer out of all proportion to
+             -- its weight — a layer premix may carry phytase, which frees
+             -- phytate phosphorus the grains already contain and would move
+             -- available phosphorus far more than the premix's own 8 kg.
              array_to_string(
-               array_agg(name || ' ' || round(kg / batch_kg * 100) || '%' ORDER BY kg DESC)
-                 FILTER (WHERE value IS NULL AND kg / batch_kg >= 0.01),
+               array_agg(name || ' ' || round(kg / batch_kg * 100, 1) || '%' ORDER BY kg DESC)
+                 FILTER (WHERE value IS NULL AND (kg / batch_kg >= 0.01 OR unknown_material)),
                ', ') AS gaps
         FROM mix
        GROUP BY stage, key
@@ -178,6 +189,9 @@ async function main() {
     }
     console.log();
   }
+
+  console.log("  what the comparison above cannot see:");
+  for (const c of f.caveats) console.log(`    - ${c}\n`);
 
   console.log("  specified by the guide and not held:");
   for (const n of f.notLoaded) console.log(`    - ${n}`);
