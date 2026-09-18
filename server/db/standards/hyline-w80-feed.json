@@ -1,0 +1,148 @@
+{
+  "breed": "Hy-Line W-80",
+  "source": "Hy-Line W-80 India Commercial Layers Management Guide, Srinivasa Hy-Line, May 2024 (c) Hy-Line International; PDF W-80-Management-Guide_compressed.pdf, 'Rearing Period Nutritional Recommendations' (guide page 24) and 'Dietary Nutrient Concentrations for Production Period' (guide page 27).",
+  "effectiveFrom": "2026-09-18",
+  "aminoAcidBasis": "Standardized Ileal Digestible. The guide prints SID and total side by side; niko's nutrient keys are digestible, so the SID column is the one loaded. The guide's own footnote says the total column applies only to a corn/soya diet and that SID must be followed where other materials are used, which is this mill.",
+  "notLoaded": [
+    "Sodium and chloride (0.18-0.20% throughout rearing; 0.19-0.21% in lay) — niko has no nutrient key for either.",
+    "Linoleic acid and choline — no nutrient key.",
+    "Methionine+cystine is not a niko key; cystine is loaded as (Met+Cys) minus Met, which is what the sum means.",
+    "Crude fibre, fat and total phosphorus — the guide specifies none of them.",
+    "The guide's second starter diet ('Starter 2', to 410 g body weight) — the mill makes one chick feed, so the stricter Starter 1 spec is the one held."
+  ],
+  "diets": [
+    {
+      "stage": "chick_starter",
+      "diet": "Starter 1",
+      "note": "Guide page 24. Hy-Line splits the starter in two — Starter 1 to 180 g body weight, Starter 2 to 410 g. The mill makes one chick feed covering both, so this holds the stricter of the pair; Starter 2 is ME 2850, CP 19.00, SID lysine 0.94 if a softer spec is ever wanted.",
+      "params": {
+        "me": { "min": 2950 },
+        "cp": { "min": 20.0 },
+        "ca": { "min": 1.05 },
+        "avP": { "min": 0.48 },
+        "digLys": { "min": 1.02 },
+        "digMet": { "min": 0.45 },
+        "digCyst": { "min": 0.33 },
+        "digThr": { "min": 0.66 },
+        "digTrp": { "min": 0.18 },
+        "digArg": { "min": 1.06 },
+        "digIle": { "min": 0.72 },
+        "digVal": { "min": 0.74 }
+      }
+    },
+    {
+      "stage": "grower",
+      "diet": "Grower",
+      "note": "Guide page 24. Fed from 920 g body weight. Footnoted 'avoid excessive body weight gain after 12 weeks'.",
+      "params": {
+        "me": { "min": 2750 },
+        "cp": { "min": 17.5 },
+        "ca": { "min": 0.95 },
+        "avP": { "min": 0.45 },
+        "digLys": { "min": 0.82 },
+        "digMet": { "min": 0.39 },
+        "digCyst": { "min": 0.27 },
+        "digThr": { "min": 0.55 },
+        "digTrp": { "min": 0.17 },
+        "digArg": { "min": 0.85 },
+        "digIle": { "min": 0.61 },
+        "digVal": { "min": 0.64 }
+      }
+    },
+    {
+      "stage": "developer",
+      "diet": "Developer",
+      "note": "Guide page 24. Fed from 1130 g body weight. The mill makes no developer feed today; the spec is held so a recipe can be judged if one is ever made.",
+      "params": {
+        "me": { "min": 2650 },
+        "cp": { "min": 16.0 },
+        "ca": { "min": 0.90 },
+        "avP": { "min": 0.40 },
+        "digLys": { "min": 0.70 },
+        "digMet": { "min": 0.32 },
+        "digCyst": { "min": 0.27 },
+        "digThr": { "min": 0.48 },
+        "digTrp": { "min": 0.15 },
+        "digArg": { "min": 0.73 },
+        "digIle": { "min": 0.53 },
+        "digVal": { "min": 0.57 }
+      }
+    },
+    {
+      "stage": "prelayer",
+      "diet": "Pre-Lay",
+      "note": "Guide page 24. Not earlier than 15 weeks and not past the first egg — it has too little calcium to carry lay. It is where large-particle calcium is introduced: coarse limestone 2-4 mm, up to half the total limestone.",
+      "params": {
+        "me": { "min": 2700 },
+        "cp": { "min": 16.5 },
+        "ca": { "min": 2.70 },
+        "avP": { "min": 0.45 },
+        "digLys": { "min": 0.72 },
+        "digMet": { "min": 0.35 },
+        "digCyst": { "min": 0.27 },
+        "digThr": { "min": 0.50 },
+        "digTrp": { "min": 0.16 },
+        "digArg": { "min": 0.75 },
+        "digIle": { "min": 0.56 },
+        "digVal": { "min": 0.61 }
+      }
+    },
+    {
+      "stage": "layer_1",
+      "diet": "Layer 1",
+      "note": "Guide page 27. First egg until peak, at the guide's typical intake of 95 g/bird/day. Concentrations rise if the flock eats less and fall if it eats more — the guide tabulates 85 to 105 g. Energy is printed as 260-270 kcal/bird/day, which at 95 g is 2,737-2,842 kcal/kg. Calcium and phosphorus are the guide's first-egg-to-32-weeks figures.",
+      "params": {
+        "me": { "min": 2737, "max": 2842 },
+        "cp": { "min": 17.58 },
+        "ca": { "min": 4.32 },
+        "avP": { "min": 0.45 },
+        "digLys": { "min": 0.79 },
+        "digMet": { "min": 0.39 },
+        "digCyst": { "min": 0.32 },
+        "digThr": { "min": 0.55 },
+        "digTrp": { "min": 0.17 },
+        "digArg": { "min": 0.82 },
+        "digIle": { "min": 0.65 },
+        "digVal": { "min": 0.71 }
+      }
+    },
+    {
+      "stage": "layer_2",
+      "diet": "Layer 2",
+      "note": "Guide page 27. Peak down to 90% lay, at the typical intake of 100 g/bird/day. Energy 270-280 kcal/bird/day is 2,700-2,800 kcal/kg at that intake. Calcium and phosphorus are the guide's weeks 33-55 figures.",
+      "params": {
+        "me": { "min": 2700, "max": 2800 },
+        "cp": { "min": 16.0 },
+        "ca": { "min": 4.30 },
+        "avP": { "min": 0.38 },
+        "digLys": { "min": 0.72 },
+        "digMet": { "min": 0.35 },
+        "digCyst": { "min": 0.29 },
+        "digThr": { "min": 0.50 },
+        "digTrp": { "min": 0.16 },
+        "digArg": { "min": 0.75 },
+        "digIle": { "min": 0.58 },
+        "digVal": { "min": 0.64 }
+      }
+    },
+    {
+      "stage": "layer_3",
+      "diet": "Layer 3",
+      "note": "Guide page 27. 89-85% lay, at the typical intake of 105 g/bird/day. Energy 270-280 kcal/bird/day is 2,571-2,667 kcal/kg at that intake. Calcium and phosphorus are the guide's weeks 56-85 figures. The mill makes no Layer 3 feed today.",
+      "params": {
+        "me": { "min": 2571, "max": 2667 },
+        "cp": { "min": 14.57 },
+        "ca": { "min": 4.24 },
+        "avP": { "min": 0.34 },
+        "digLys": { "min": 0.65 },
+        "digMet": { "min": 0.31 },
+        "digCyst": { "min": 0.25 },
+        "digThr": { "min": 0.45 },
+        "digTrp": { "min": 0.14 },
+        "digArg": { "min": 0.66 },
+        "digIle": { "min": 0.51 },
+        "digVal": { "min": 0.56 }
+      }
+    }
+  ]
+}
