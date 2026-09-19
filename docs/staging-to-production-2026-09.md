@@ -82,17 +82,26 @@ In this order. Every one of these has a dry run; read it before committing.
 
 ### 3.1 Zoho one-time load — the big one
 
-Cutoff is **17 Sep 2026**, held in one place at `scripts/zoho/cutoff.ts`.
+Cutoff is **`ZOHO_CUTOFF=2026-09-30`** — the last day Zoho is used. Set it on
+every command in this section; `scripts/zoho/cutoff.ts` refuses to run without
+it, so there is no default to forget.
+
+17 Sep 2026 was the rehearsal date and must not be used at go-live: Zoho keeps
+trading until the 30th, and loading the older dump would have niko re-issue
+invoice numbers Zoho had already given to real customers. See §6.
 
 1. **Back production up first.** Non-negotiable; the load writes the whole ledger.
-2. `npx tsx scripts/zoho/pull.ts` — resumable, so a network drop costs nothing.
+2. `ZOHO_CUTOFF=2026-09-30 npx tsx scripts/zoho/pull.ts` — resumable, so a
+   network drop costs nothing.
    The ledger walk is separate and paced: `pull-ledger.ts` sleeps 3 s a page
    because the org got rate-blocked on `reports/accounttransaction`.
-3. Loaders, each dry first and then `--commit`:
+3. Loaders, each dry first and then `--commit`, all with
+   `ZOHO_CUTOFF=2026-09-30`:
    `load-accounts` → `load-contacts` → `load-items` → `load-banks` →
    `load-invoices` → `load-bills` → `load-expenses` → `load-journals` →
    `load-payments` → `load-vendor-credits` → `load-bank-transactions`
-4. `npx tsx scripts/zoho/reconcile.ts` and `verify-ledger.ts`.
+4. `ZOHO_CUTOFF=2026-09-30 npx tsx scripts/zoho/reconcile.ts`, then
+   `verify-ledger.ts` with the same cutoff.
 5. **`npx tsx scripts/advance-number-series.ts --commit`** — see §6. Nothing
    else moves the counters. On staging it advanced bills to 2097 and expenses
    to 2697 (padding 5→6) and realigned the vendor-credit prefix `VCN-` → `VC-`
@@ -301,15 +310,16 @@ being a fortnight stale is not a cosmetic problem.
 
 As of 19 Sep, Zoho holds 802 EG invoices, highest `A-INV-EG-27-0802` dated
 16 Sep, and the staging copy matches it exactly. Go live on 1 October off the
-17 September dump and niko would start issuing at 0803 while Zoho had already
-used 0803 onwards for a fortnight of real trading — the same invoice number on
+17 September dump — rather than the `2026-09-30` cutoff this document now
+specifies — and niko would start issuing at 0803 while Zoho had already used
+0803 onwards for a fortnight of real trading — the same invoice number on
 two different documents, for GST, which is not a numbering nuisance.
 
 Nothing needs building for this; the pipeline was made for it:
 
 - `ZOHO_CUTOFF` is an environment variable read by everything
-  (`scripts/zoho/cutoff.ts`), so the final pull is the same commands with a
-  later date.
+  (`scripts/zoho/cutoff.ts`), so the final pull is the same commands with the
+  later date. **It is 2026-09-30.**
 - The loaders skip anything already imported, keyed on `zoho_id_map`, so the
   final run is a top-up rather than a reload.
 - `continue-invoice-series.ts` reads the counters off the invoices actually on
@@ -318,10 +328,10 @@ Nothing needs building for this; the pipeline was made for it:
 
 Order on the day:
 
-1. **Stop invoicing in Zoho**, and stop the parallel entry into staging with
-   it. A hard stop: the last Zoho invoice is the last one there will ever be.
+1. **Stop invoicing in Zoho on 30 September**, and stop the parallel entry into
+   staging with it. A hard stop: the last Zoho invoice is the last one there will ever be.
    Anything raised there afterwards is a number niko does not know about.
-2. `ZOHO_CUTOFF=<go-live date>` — pull, then the loaders, as a top-up.
+2. `ZOHO_CUTOFF=2026-09-30` — pull, then the loaders, as a top-up.
 3. `reconcile.ts` and `verify-ledger.ts`.
 4. `advance-number-series.ts --commit`.
 5. `continue-invoice-series.ts --apply`.
