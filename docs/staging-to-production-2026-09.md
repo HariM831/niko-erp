@@ -3,15 +3,20 @@
 Everything staging has that production does not. Kept current as work continues,
 so the cutover is a list to work through rather than a memory test.
 
-Production is at `659dd51`; staging is 24 commits ahead. A deploy carries code
-and migrations. It carries **no data** — every load below has to be run again
-against production, in the order given.
+**Code is done.** Production and staging both run `4477034` as of 19 Sep 2026 —
+the 28 commits and migration `0097` are deployed to both, so the two are
+identical code-wise and §1 and §2 below are history rather than a to-do.
+
+**Data is what remains.** A deploy carries code and migrations and **no data** —
+every load in §3 still has to be run against production, in the order given.
 
 Last updated 19 Sep 2026.
 
 ---
 
 ## 0. By module, at a glance
+
+Code columns are now the same on both; the data columns are the work left.
 
 | module | code commits | schema | data on production today | data on staging |
 |---|---|---|---|---|
@@ -33,10 +38,11 @@ Two things that table makes plain:
   code is proven on staging against 2 test records; the people and the history
   come from Amino and that importer is not written yet (§3.3).
 
-## 1. Code — 24 commits
+## 1. Code — 28 commits, deployed 19 Sep 2026
 
-`sudo -u niko bash -c 'cd /srv/niko && ./scripts/deploy.sh'` pulls main, builds,
-migrates and restarts. One deploy takes all of these.
+Deployed with `sudo -u niko bash -c 'cd /srv/niko && ./scripts/deploy.sh'`,
+which pulls main, builds, migrates and restarts. A database snapshot was taken
+first at `/srv/backups/prod-before-0097-20260919-0217.dump`.
 
 **Payroll completion** (built and proven on staging, decisions 1–4 and manual punch)
 
@@ -71,10 +77,14 @@ migrates and restarts. One deploy takes all of these.
 - `d67c174` carry on the invoice numbering the farm already uses
 - `7340f2c` claim a number the way a save does, then roll it back
 
-## 2. Schema
+## 2. Schema — applied
 
-- `migrations/0097_payroll_completion.sql` — the only migration production has
-  not applied. `deploy.sh` runs it; nothing to do by hand.
+`migrations/0097_payroll_completion.sql`, applied to production by the deploy.
+Verified present afterwards: `punches.manual_reason`, `pay_inputs.date_from` and
+`.date_to` with the `ck_pay_inputs_dates` check, `canteen_servings.served_by`
+and `.ineligible` with `device_id` now nullable, and
+`canteen_meal_eligibility.breakfast_auto`. Every statement is additive and the
+tables it touches were empty on production, which is why it needed no window.
 
 ## 3. Data — none of this arrives with a deploy
 
