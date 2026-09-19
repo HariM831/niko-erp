@@ -137,20 +137,19 @@ async function measured(keys: string[]) {
              -- heaviest: limestone is 18% of a layer mix and would hide the
              -- 1.5% of dicalcium phosphate standing behind it.
              --
-             -- A material with NO analysis at all is never filtered by weight.
-             -- The premix is under 1% of the batch and is the one ingredient
-             -- whose contents could change the answer out of all proportion to
-             -- its weight — a layer premix may carry phytase, which frees
-             -- phytate phosphorus the grains already contain and would move
-             -- available phosphorus far more than the premix's own 8 kg.
+             -- A material analysed for nothing at all is a fact about the
+             -- whole mix, not about one nutrient, so it is reported once per
+             -- stage rather than repeated under all twelve rows.
              array_to_string(
                array_agg(name || ' ' || round(kg / batch_kg * 100, 1) || '%' ORDER BY kg DESC)
-                 FILTER (WHERE value IS NULL AND (kg / batch_kg >= 0.01 OR unknown_material)),
-               ', ') AS gaps
+                 FILTER (WHERE value IS NULL AND kg / batch_kg >= 0.01 AND NOT unknown_material),
+               ', ') AS gaps,
+             array_to_string(
+               array_agg(DISTINCT name) FILTER (WHERE unknown_material), ', ') AS blind
         FROM mix
        GROUP BY stage, key
     `)
-  ).rows as Array<{ stage: string; key: string; value: number; gaps: string | null }>;
+  ).rows as Array<{ stage: string; key: string; value: number; gaps: string | null; blind: string | null }>;
   return new Map(rows.map((r) => [`${r.stage}|${r.key}`, r]));
 }
 
@@ -171,7 +170,9 @@ async function main() {
 
   for (const d of f.diets) {
     const keys = Object.keys(d.params).sort((a, b) => order(a) - order(b));
+    const blind = mix.get(`${d.stage}|${keys[0]}`)?.blind;
     console.log(`  ${d.stage.padEnd(14)} ${d.diet}`);
+    if (blind) console.log(`    nothing at all on file for ${blind} — every figure below is short by whatever they carry`);
     for (const key of keys) {
       const v = d.params[key]!;
       const window = v.max != null ? `${v.min} - ${v.max}` : `min ${v.min}`;
