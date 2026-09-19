@@ -266,6 +266,73 @@ Office receipts are the deliberate exception: a receipt that never went anywhere
 can be deleted and its number reclaimed, and the delete route refuses any
 receipt that has already produced a bill.
 
+### The parallel-entry period, 19 Sep to 1 Oct
+
+From 19 Sep the farm is entering every document **twice** — into Zoho and into
+staging — to catch differences before the switch. On 1 October Zoho stops and
+production at aminofarms.com is the only system.
+
+That makes staging a test rig rather than a mirror, and two things follow that
+are easy to get wrong:
+
+- **Never run the Zoho load against staging again.** A hand-keyed invoice has no
+  row in `zoho_id_map`, so a top-up pull would import Zoho's copy of the same
+  document beside it and double everything from 18 Sep on. Staging's job now is
+  to be typed into, not loaded into.
+- **Never run `scripts/refresh-staging.sh`.** It copies production over staging
+  and would erase every parallel entry.
+
+Production is untouched through all of this: 0 invoices, 0 bills, 0 contacts
+today, and it takes one clean load from Zoho at go-live. Nothing typed into
+staging ever moves to production — Zoho is the source for both, because every
+document typed into staging was typed into Zoho as well.
+
+**The numbering check falls out of this for free.** Each invoice raised in
+staging should be handed the same number Zoho gives its twin —
+`A-INV-EG-27-0803`, then 0804, and so on. The moment the two differ, one system
+has an invoice the other does not, and that is worth stopping for rather than
+reconciling later.
+
+### Going live on a later date than the cutoff
+
+**The sequence continues only if the load at go-live includes every invoice
+Zoho issued right up to the switch.** This is the one part of the cutover where
+being a fortnight stale is not a cosmetic problem.
+
+As of 19 Sep, Zoho holds 802 EG invoices, highest `A-INV-EG-27-0802` dated
+16 Sep, and the staging copy matches it exactly. Go live on 1 October off the
+17 September dump and niko would start issuing at 0803 while Zoho had already
+used 0803 onwards for a fortnight of real trading — the same invoice number on
+two different documents, for GST, which is not a numbering nuisance.
+
+Nothing needs building for this; the pipeline was made for it:
+
+- `ZOHO_CUTOFF` is an environment variable read by everything
+  (`scripts/zoho/cutoff.ts`), so the final pull is the same commands with a
+  later date.
+- The loaders skip anything already imported, keyed on `zoho_id_map`, so the
+  final run is a top-up rather than a reload.
+- `continue-invoice-series.ts` reads the counters off the invoices actually on
+  file, never a hardcoded number, so it lands on the right one by itself —
+  **provided it runs after the top-up, not before.**
+
+Order on the day:
+
+1. **Stop invoicing in Zoho**, and stop the parallel entry into staging with
+   it. A hard stop: the last Zoho invoice is the last one there will ever be.
+   Anything raised there afterwards is a number niko does not know about.
+2. `ZOHO_CUTOFF=<go-live date>` — pull, then the loaders, as a top-up.
+3. `reconcile.ts` and `verify-ledger.ts`.
+4. `advance-number-series.ts --commit`.
+5. `continue-invoice-series.ts --apply`.
+6. `check-invoice-series.ts` — every sequence unbroken, and the next number one
+   past Zoho's last. Compare it against Zoho's own last invoice by eye.
+7. Only now raise an invoice in niko.
+
+And between the load and go-live, **do not raise test invoices on production**.
+Each one consumes a number Zoho has no idea about, and the two sequences part
+company at that point.
+
 ### April 2027
 
 **The financial year is a literal in the prefix.** Nothing computes it. In April

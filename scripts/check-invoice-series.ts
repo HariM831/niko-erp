@@ -79,6 +79,41 @@ async function main() {
     );
   }
 
+  /**
+   * Holes in a live sequence.
+   *
+   * A number is claimed before the save completes, so a save that fails while
+   * somebody else claims the next one leaves a permanent gap — documented and
+   * accepted in numbering.ts, and invisible until an auditor asks where
+   * A-INV-EG-27-0431 went. Every sequence is whole today; this is what notices
+   * when one stops being.
+   */
+  const gaps = (
+    await db.execute(sql`
+      WITH seq AS (
+        SELECT p.prefix, substring(i.number from length(p.prefix) + 1)::int AS n
+          FROM invoices i
+          JOIN (SELECT DISTINCT prefix FROM document_series WHERE entity = 'invoice') p
+            ON i.number LIKE p.prefix || '%'
+         WHERE substring(i.number from length(p.prefix) + 1) ~ '^[0-9]+$'
+      ),
+      span AS (SELECT prefix, min(n) AS lo, max(n) AS hi, count(*) AS issued FROM seq GROUP BY prefix)
+      SELECT span.prefix, span.issued::int, span.lo, span.hi,
+             (SELECT count(*) FROM generate_series(span.lo, span.hi) g
+               WHERE NOT EXISTS (SELECT 1 FROM seq WHERE seq.prefix = span.prefix AND seq.n = g))::int AS missing
+        FROM span ORDER BY span.issued DESC
+    `)
+  ).rows as Array<{ prefix: string; issued: number; lo: number; hi: number; missing: number }>;
+
+  console.log("\n  sequences on file:");
+  for (const g of gaps) {
+    if (g.missing) bad++;
+    console.log(
+      `    ${g.prefix.padEnd(16)}${String(g.issued).padStart(5)} issued, ${g.lo}-${g.hi}` +
+        (g.missing ? `   ${g.missing} MISSING` : "   unbroken"),
+    );
+  }
+
   // Nothing may have been consumed. If a counter moved, the rollback did not
   // take and this check has quietly spent three invoice numbers.
   const after = await db
@@ -89,8 +124,8 @@ async function main() {
 
   console.log(
     bad
-      ? `\n  ${bad} sequence(s) would collide with an invoice already on file.\n`
-      : "\n  Every sequence hands out a free number, and nothing was consumed.\n",
+      ? `\n  ${bad} problem(s) — a collision, or a hole in a sequence.\n`
+      : "\n  Every sequence is unbroken, hands out a free number, and nothing was consumed.\n",
   );
   process.exitCode = bad ? 1 : 0;
   await pool.end();
