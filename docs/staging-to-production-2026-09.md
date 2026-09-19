@@ -3,7 +3,7 @@
 Everything staging has that production does not. Kept current as work continues,
 so the cutover is a list to work through rather than a memory test.
 
-Production is at `659dd51`; staging is 21 commits ahead. A deploy carries code
+Production is at `659dd51`; staging is 24 commits ahead. A deploy carries code
 and migrations. It carries **no data** — every load below has to be run again
 against production, in the order given.
 
@@ -11,7 +11,7 @@ Last updated 19 Sep 2026.
 
 ---
 
-## 1. Code — 21 commits
+## 1. Code — 24 commits
 
 `sudo -u niko bash -c 'cd /srv/niko && ./scripts/deploy.sh'` pulls main, builds,
 migrates and restarts. One deploy takes all of these.
@@ -41,10 +41,13 @@ migrates and restarts. One deploy takes all of these.
 - `907220d` a material with no analysis at all is never filtered out by its weight
 - `ee0f6cc` say once per mix what nothing is known about, not once per nutrient
 
-**Zoho migration and infrastructure**
+**Zoho migration, numbering and infrastructure**
 
 - `1629b2b` the Zoho load, rehearsed against 17 Sep: every account at every month-end
 - `e1cfd7a` a staging refresh keeps the logins that are staging's own
+- `f04c0d9` this list
+- `d67c174` carry on the invoice numbering the farm already uses
+- `7340f2c` claim a number the way a save does, then roll it back
 
 ## 2. Schema
 
@@ -69,9 +72,13 @@ Cutoff is **17 Sep 2026**, held in one place at `scripts/zoho/cutoff.ts`.
    `load-payments` → `load-vendor-credits` → `load-bank-transactions`
 4. `npx tsx scripts/zoho/reconcile.ts` and `verify-ledger.ts`.
 5. **`npx tsx scripts/advance-number-series.ts --commit`** — see §6. Nothing
-   else moves the counters, and skipping it leaves the bill counter at 6 with
-   2,096 bills already on file. **This was never run in the staging rehearsal**,
-   so run the dry form on staging first and read it.
+   else moves the counters. On staging it advanced bills to 2097 and expenses
+   to 2697 (padding 5→6) and realigned the vendor-credit prefix `VCN-` → `VC-`
+   at 16.
+6. **`npx tsx scripts/continue-invoice-series.ts --apply`** — carries on the
+   EG/FD/BD invoice sequences; see §6.
+7. **`npx tsx scripts/check-invoice-series.ts`** — claims a number from each
+   series and rolls it back. Exits non-zero if any sequence would collide.
 
 What the staging rehearsal proved, and what production must match:
 
@@ -84,19 +91,19 @@ What the staging rehearsal proved, and what production must match:
 
 ### 3.2 Feed mill
 
-6. `npx tsx scripts/import-formulas-2026-09.ts` — the five recipes.
-7. `npx tsx scripts/import-rm-nutrients.ts` — 197 nutrient values for 13 materials.
-8. `npx tsx scripts/merge-feed-duplicates.ts --write` — folds the eight items the
+8. `npx tsx scripts/import-formulas-2026-09.ts` — the five recipes.
+9. `npx tsx scripts/import-rm-nutrients.ts` — 197 nutrient values for 13 materials.
+10. `npx tsx scripts/merge-feed-duplicates.ts --write` — folds the eight items the
    formula import created onto the ones carrying the purchase history, and fixes
    Soya Hipro's unit from pieces to kg.
-9. `npx tsx scripts/attach-soya-bill-items.ts --write` — names the material on
+11. `npx tsx scripts/attach-soya-bill-items.ts --write` — names the material on
    three soya bills that were billed as free text.
-10. `npx tsx scripts/match-inward-freight.ts --write` — puts inward carriage back
+12. `npx tsx scripts/match-inward-freight.ts --write` — puts inward carriage back
     on the consignment it carried, so a material costs what it cost delivered.
-11. `npx tsx scripts/load-hyline-feed-standards.ts --apply` — the Hy-Line W-80
+13. `npx tsx scripts/load-hyline-feed-standards.ts --apply` — the Hy-Line W-80
     nutrient specification, 7 stages × 12 nutrients.
 
-Order matters: 8 before 9–11, or the freight and the standards attach to items
+Order matters: 10 before 11–13, or the freight and the standards attach to items
 that are about to be folded away.
 
 ### 3.3 Payroll history from Amino
@@ -107,9 +114,8 @@ Not built yet — see §5. The export script exists on the Amino repo
 ## 4. Open decisions, before production
 
 1. The 11 carried system keys from the Zoho chart — confirm before loading.
-2. Whether niko continues Zoho's `A-INV-EG-27` numbering or starts its own
-   series — and if it continues, whether eggs becomes the default series or the
-   two egg call sites learn to name one. See §6.
+2. ~~Invoice numbering.~~ **Settled 19 Sep 2026: continue EG/FD/BD.** Applied
+   on staging and proven. See §6.
 3. Group companies: set `is_group_company` on the four contacts; decide whether
    to apply the advances; whether to rejoin each LLP's two sides. Net position
    is ₹3,21,27,358 in niko's favour (Nandamuri ₹2,61,11,486, Luit ₹60,15,872).
@@ -182,21 +188,43 @@ Its dry run on staging today says: bill → 2097 (padding 5→6), expense → 26
 (padding 5→6), and it offers to realign the vendor-credit prefix from `VCN-` to
 `VC-` at 16. Payments are reported as "left alone — kept Zoho's numbering".
 
-### The open question on invoices
+### Invoices — settled, continue EG/FD/BD
 
-Invoices are the one type that kept Zoho's numbers *and* has no continuation the
-script can find, because `A-INV-EG-27-0802` does not match `^INV-[0-9]+$`. So
-after a production load, **the next invoice raised in niko is `INV-00002`** —
-technically safe, since the unique index holds and the shapes differ, but it
-abandons the series the business has used for 802 invoices this year.
+Invoices are the one type that kept Zoho's numbers *and* has no continuation
+`advance-number-series` can find, because `A-INV-EG-27-0802` is not `INV-` plus
+digits and it will not parse a counter out of a number another system minted.
+Left alone, the next invoice raised here would have been `INV-00002`.
 
-Continuing Zoho's numbering means creating the series the business actually
-runs — EG for eggs, FD for feed, BD for birds — and setting each counter to
-803 / 9 / 3 at padding 4.
+`scripts/continue-invoice-series.ts` settles it. Applied on staging 19 Sep 2026:
 
-One thing to settle first if that is the choice: **the egg dispatch path never
-picks a series.** `server/services/egg-sales.ts:914` and
-`server/services/owner-billing.ts:544` call `nextDocumentNumber(tx, "invoice")`
-with no series, so they take whichever is flagged default; only the manual
-invoice form at `server/routes/sales.ts:300` can choose one. So either eggs must
-be the default series, or those two call sites need to name theirs.
+| sequence | series | prefix | next |
+|---|---|---|---|
+| eggs (802 invoices) | Default Transaction Series | `A-INV-EG-27-` | 0803 |
+| feed (8) | Feed *(new)* | `A-INV-FD-27-` | 0009 |
+| birds (2) | Birds *(new)* | `A-INV-BD-27-` | 0003 |
+
+Two decisions inside that, both deliberate:
+
+- **Eggs ride the default series.** Egg dispatch and owner billing claim their
+  number without naming a series (`server/services/egg-sales.ts:914`,
+  `server/services/owner-billing.ts:544`), so they take whichever is default.
+  Eggs are 802 of 818 invoices; putting the EG prefix on the default series is
+  what keeps that path right without touching the code.
+- **Feed and Birds carry a numbering row for invoices only.** Picking one of
+  them for a bill fails with "No numbering is configured" — the right answer,
+  since a full set of tagged counters would let a mis-picked series quietly open
+  a second bill sequence in the books.
+
+The one niko-native invoice, `INV-00001`, keeps its number. Nothing is renumbered.
+
+`scripts/check-invoice-series.ts` proves the path rather than the row: it claims
+a number from each series through `nextDocumentNumber` and rolls back. On
+staging it returns `A-INV-EG-27-0803`, `A-INV-FD-27-0009`, `A-INV-BD-27-0003`
+with no counter moved.
+
+### April 2027
+
+**The financial year is a literal in the prefix.** Nothing computes it. In April
+all three prefixes must become `-28-` and their counters go back to 1, in
+Settings → Number Series or by editing `SEQUENCES` in
+`scripts/continue-invoice-series.ts`. Run `check-invoice-series.ts` afterwards.
