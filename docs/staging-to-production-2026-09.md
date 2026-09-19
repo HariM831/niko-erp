@@ -11,6 +11,28 @@ Last updated 19 Sep 2026.
 
 ---
 
+## 0. By module, at a glance
+
+| module | code commits | schema | data on production today | data on staging |
+|---|---|---|---|---|
+| **Payroll** | 7 | `0097` | **0 employees** | 2 |
+| **Feed mill** | 11 (3 touch the app, 8 are one-shot scripts) | none | 0 formulas, 0 nutrients, 0 standards | 5 / 197 / 7 |
+| **Sales** | **0** — not one line | none | 0 invoices | 819 |
+| **Farms** | **0** | none | 6 houses, 4 flocks | identical |
+| Books / Zoho | 13 script files | none | 0 bills, 0 journals, 149 accounts | 2,101 / 10,482 / 403 |
+| Numbering | 3 | none | 1 series, counters at 1 | 3 series, counters continued |
+
+Two things that table makes plain:
+
+- **Sales has no code change at all**, and is still the module the cutover
+  changes most — every invoice, every payment and the whole numbering scheme
+  arrive as data.
+- **Farms is untouched end to end.** Nothing in these 27 commits goes near it,
+  and its data already matches.
+- **Payroll deploys onto an empty module.** Production has no employees. The
+  code is proven on staging against 2 test records; the people and the history
+  come from Amino and that importer is not written yet (§3.3).
+
 ## 1. Code — 24 commits
 
 `sudo -u niko bash -c 'cd /srv/niko && ./scripts/deploy.sh'` pulls main, builds,
