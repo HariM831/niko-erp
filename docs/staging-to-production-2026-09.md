@@ -222,6 +222,28 @@ a number from each series through `nextDocumentNumber` and rolls back. On
 staging it returns `A-INV-EG-27-0803`, `A-INV-FD-27-0009`, `A-INV-BD-27-0003`
 with no counter moved.
 
+### Voids never give a number back
+
+Tested, not assumed — `scripts/check-void-numbering.ts`. Voiding sets a status
+and nothing else; there is no delete route for a bill or an invoice at all, and
+`resyncDocumentNumber` — the only mechanism that could ever return a number — is
+whitelisted to office receipts. The test issues three numbers on a scratch
+series, shows a resync declining to move the bill counter, shows the same resync
+winding a receipt counter back to 1, and cleans up after itself.
+
+Two cases that get confused and should not be:
+
+- A save that **fails or is cancelled** releases its number, because nothing was
+  ever issued. It becomes a permanent gap only if somebody else claimed the next
+  number before the failure.
+- A bill that was **saved and later voided** keeps its number forever. The
+  supplier has it on paper; a second BILL-002097 would make that reference
+  ambiguous for good.
+
+Office receipts are the deliberate exception: a receipt that never went anywhere
+can be deleted and its number reclaimed, and the delete route refuses any
+receipt that has already produced a bill.
+
 ### April 2027
 
 **The financial year is a literal in the prefix.** Nothing computes it. In April
