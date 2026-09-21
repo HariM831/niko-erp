@@ -180,28 +180,34 @@ contactsRouter.get("/", async (req, res) => {
     if (sides.length === 1) conditions.push(inArray(contacts.type, [sides[0]!, "both"]));
   }
   if (isActive !== undefined) conditions.push(eq(contacts.isActive, isActive === "true"));
-  if (search?.trim()) {
+  const q = search?.trim() ?? "";
+  if (q) {
     // Names match from the start of any word, so each letter typed narrows the
-    // list the way the eye scans it; phone and GSTIN are numbers and match
-    // anywhere. contains() escapes the LIKE metacharacters, so a search for
-    // "50%" looks for that text rather than matching every contact.
-    const term = contains(search.trim());
+    // list the way the eye scans it. Phone and GSTIN join in only once a digit
+    // is typed: a GSTIN carries letters too, and "ag" would otherwise find
+    // every vendor whose GSTIN happens to contain them. contains() escapes the
+    // LIKE metacharacters, so "50%" looks for that text.
+    const byNumber = /\d/.test(q);
     conditions.push(
       or(
-        wordStart(contacts.displayName, search),
-        wordStart(contacts.companyName, search),
-        ilike(contacts.phone, term),
-        ilike(contacts.gstin, term),
+        wordStart(contacts.displayName, q),
+        wordStart(contacts.companyName, q),
+        ...(byNumber ? [ilike(contacts.phone, contains(q)), ilike(contacts.gstin, contains(q))] : []),
       ),
     );
   }
   // The quick-search dropdown asks for a handful; the list itself takes the lot.
+  // While searching, names that begin with the term lead — "ag" puts Agarwal
+  // and Agro before Ajmer Agro — and the rest follow alphabetically.
   const asked = Number((req.query as Record<string, string | undefined>).limit);
   const rows = await db
     .select()
     .from(contacts)
     .where(conditions.length ? and(...conditions) : undefined)
-    .orderBy(asc(contacts.displayName))
+    .orderBy(
+      ...(q ? [sql`${contacts.displayName} NOT ILIKE ${contains(q).slice(1)}`] : []),
+      asc(contacts.displayName),
+    )
     .limit(Number.isFinite(asked) && asked > 0 ? asked : 500);
 
   // "Receivables (BCY)" for customers / "Payables (BCY)" for vendors, Zoho's list-view balance column.
