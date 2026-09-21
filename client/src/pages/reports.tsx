@@ -95,7 +95,15 @@ const REPORTS: ReportDef[] = [
 
 const CATEGORIES = [...new Set(REPORTS.map((r) => r.category))];
 
-const today = () => new Date().toISOString().slice(0, 10);
+/**
+ * A date as YYYY-MM-DD in the viewer's own calendar. toISOString() reads the
+ * date in UTC, and India is five and a half hours ahead: local midnight on the
+ * 1st is still the 31st in UTC, so every preset came out a day early —
+ * "Previous Month" ran 31 Jul–30 Aug — and "Today" was yesterday until 5:30 am.
+ */
+const ymd = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const today = () => ymd(new Date());
 const monthStart = () => `${today().slice(0, 8)}01`;
 
 /** Zoho prints report periods as dd/MM/yyyy, not the ISO the inputs use. */
@@ -114,7 +122,7 @@ const PRESETS: Record<string, () => { from: string; to: string }> = {
   "This Quarter": () => {
     const d = new Date();
     const q = Math.floor(d.getMonth() / 3) * 3;
-    return { from: new Date(d.getFullYear(), q, 1).toISOString().slice(0, 10), to: today() };
+    return { from: ymd(new Date(d.getFullYear(), q, 1)), to: today() };
   },
   "This Year": () => {
     // Indian financial year: April to March.
@@ -126,7 +134,7 @@ const PRESETS: Record<string, () => { from: string; to: string }> = {
     const d = new Date();
     const first = new Date(d.getFullYear(), d.getMonth() - 1, 1);
     const last = new Date(d.getFullYear(), d.getMonth(), 0);
-    return { from: first.toISOString().slice(0, 10), to: last.toISOString().slice(0, 10) };
+    return { from: ymd(first), to: ymd(last) };
   },
   "Previous Year": () => {
     const d = new Date();
