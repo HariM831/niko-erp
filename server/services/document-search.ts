@@ -35,8 +35,12 @@ export const contains = (term: string) => `%${term.replace(/[\\%_]/g, (c) => `\\
  * literally.
  */
 export const wordStart = (col: PgColumn, term: string): SQL => {
-  const escaped = term.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return sql`${col} ~* ${`(^|[^[:alnum:]])${escaped}`}`;
+  const t = term.trim();
+  const escaped = t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // The ILIKE is implied by the regex and costs a fraction of it, so it goes
+  // first and the regex only runs on rows that contain the text at all. Across
+  // every bill line, on every key pressed, that is the difference that shows.
+  return sql`(${col} ILIKE ${contains(t)} AND ${col} ~* ${`(^|[^[:alnum:]])${escaped}`})`;
 };
 
 /**
