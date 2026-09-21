@@ -25,7 +25,8 @@ import {
 } from "lucide-react";
 import { useAuth } from "../auth";
 import { TopBar } from "./topbar";
-import { SearchProvider } from "./search-context";
+import { SearchProvider, useSearchContext } from "./search-context";
+import { QuickSearch } from "./quick-search";
 import { NAV, type NavChild, type NavItem } from "../nav";
 
 
@@ -339,6 +340,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
             <span className="flex-1 truncate text-[15px] font-semibold text-gray-900">{title}</span>
           </header>
 
+          <MobileSearch />
+
           {/* The desktop bar carries search and the org switcher. On a phone it
               would take a third of the screen, so it stays behind lg. */}
           <div className="hidden lg:block">
@@ -421,5 +424,30 @@ export function AppLayout({ children }: { children: ReactNode }) {
         )}
       </div>
     </SearchProvider>
+  );
+}
+
+/**
+ * The list search on a phone. The desktop top bar that carries it is hidden
+ * below lg, which left phones with no way to search at all; this is the same
+ * box, full width, under the header — and only on screens that have a list.
+ */
+function MobileSearch() {
+  const { config, term, setTerm } = useSearchContext();
+  if (!config) return null;
+  return (
+    <div className="border-b border-gray-200 bg-white px-3 py-2 lg:hidden print:hidden">
+      <QuickSearch
+        title={config.title}
+        endpoint={config.endpoint}
+        params={config.params}
+        value={term}
+        onChange={setTerm}
+        rowPath={config.rowPath}
+        onOpen={config.onOpen}
+        live={config.live}
+        wide
+      />
+    </div>
   );
 }

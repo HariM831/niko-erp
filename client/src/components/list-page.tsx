@@ -60,7 +60,10 @@ interface ListPageProps<T> {
   /** Highlighted row (used by the split view). */
   activeKey?: string;
   compact?: boolean;
-  /** Filter as the top-bar search is typed, matching the start of any word. */
+  /**
+   * Filter as the top-bar search is typed (the default). False brings back the
+   * ten-row preview that waits for Enter.
+   */
   liveSearch?: boolean;
   /**
    * How many columns survive on a phone held upright. Default 3.
@@ -110,7 +113,7 @@ export function ListPage<T>({
   rowKey,
   activeKey,
   compact,
-  liveSearch = false,
+  liveSearch = true,
   portraitCols,
   banner,
   extraActions,

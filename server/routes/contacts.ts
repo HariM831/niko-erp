@@ -16,7 +16,7 @@ import {
   mayAccessContact,
   requireContactPermission,
 } from "../lib/contact-access";
-import { contains, wordStart } from "../services/document-search";
+import { contains, matches } from "../services/document-search";
 import { gstStateCode, nonBlank, validateBody } from "../lib/validate";
 import { getPreferences } from "../services/preferences";
 import { readCustomFieldValues, saveCustomFieldValues } from "../services/custom-fields";
@@ -182,16 +182,15 @@ contactsRouter.get("/", async (req, res) => {
   if (isActive !== undefined) conditions.push(eq(contacts.isActive, isActive === "true"));
   const q = search?.trim() ?? "";
   if (q) {
-    // Names match from the start of any word, so each letter typed narrows the
-    // list the way the eye scans it. Phone and GSTIN join in only once a digit
+    // Names follow the rule every list does (matches()). Phone and GSTIN join in only once a digit
     // is typed: a GSTIN carries letters too, and "ag" would otherwise find
     // every vendor whose GSTIN happens to contain them. contains() escapes the
     // LIKE metacharacters, so "50%" looks for that text.
     const byNumber = /\d/.test(q);
     conditions.push(
       or(
-        wordStart(contacts.displayName, q),
-        wordStart(contacts.companyName, q),
+        matches(contacts.displayName, q),
+        matches(contacts.companyName, q),
         ...(byNumber ? [ilike(contacts.phone, contains(q)), ilike(contacts.gstin, contains(q))] : []),
       ),
     );

@@ -39,6 +39,17 @@ export const wordStart = (col: PgColumn, term: string): SQL => {
   return sql`${col} ~* ${`(^|[^[:alnum:]])${escaped}`}`;
 };
 
+/**
+ * The one rule every list's search follows, typed a key at a time.
+ *
+ * Words match from their start — "agr" finds Agro Trade but not Nagra. Once a
+ * digit is typed the term is a number, and numbers are remembered by their
+ * tail: "2097" has to find BILL-002097 and "1580" UN/26-27/1580, so a term
+ * with a digit in it matches anywhere.
+ */
+export const matches = (col: PgColumn, term: string): SQL =>
+  /\d/.test(term) ? ilike(col, contains(term.trim())) : wordStart(col, term);
+
 /** Where a document keeps its lines, and which of their columns are text. */
 export interface Lines {
   /** The line table, e.g. billLines. */
@@ -83,8 +94,11 @@ export interface DocumentSearch {
 
 const one = { one: sql<number>`1` };
 
+/** How a column is tested against the term — the quick search's rule, or the advanced search's. */
+type Matcher = (col: PgColumn) => SQL;
+
 /** Does the linked contact match, by display name or company name? */
-function contactMatches(contactId: PgColumn, term: string) {
+function contactMatches(contactId: PgColumn, m: Matcher) {
   return exists(
     db
       .select(one)
@@ -92,16 +106,16 @@ function contactMatches(contactId: PgColumn, term: string) {
       .where(
         and(
           eq(contacts.id, contactId),
-          or(ilike(contacts.displayName, term), ilike(contacts.companyName, term)),
+          or(m(contacts.displayName), m(contacts.companyName)),
         ),
       ),
   );
 }
 
 /** Does the named account match? Used both for expenses and for line accounts. */
-function accountMatches(accountId: PgColumn, term: string) {
+function accountMatches(accountId: PgColumn, m: Matcher) {
   return exists(
-    db.select(one).from(accounts).where(and(eq(accounts.id, accountId), ilike(accounts.name, term))),
+    db.select(one).from(accounts).where(and(eq(accounts.id, accountId), m(accounts.name))),
   );
 }
 
@@ -112,9 +126,9 @@ function accountMatches(accountId: PgColumn, term: string) {
  * document once per matching line, so a three-line bill about feed would appear
  * three times in the list.
  */
-function lineMatches(lines: Lines, documentId: PgColumn, term: string) {
-  const conditions: (SQL | undefined)[] = lines.text.map((c) => ilike(c, term));
-  if (lines.accountId) conditions.push(accountMatches(lines.accountId, term));
+function lineMatches(lines: Lines, documentId: PgColumn, m: Matcher) {
+  const conditions: (SQL | undefined)[] = lines.text.map(m);
+  if (lines.accountId) conditions.push(accountMatches(lines.accountId, m));
   return exists(
     db
       .select(one)
@@ -124,18 +138,19 @@ function lineMatches(lines: Lines, documentId: PgColumn, term: string) {
 }
 
 /**
- * The quick search: one term, matched anywhere the module says it may appear.
- * Returns undefined for an empty term so the caller can drop it from the WHERE.
+ * The quick search: one term, matched everywhere the module says it may
+ * appear, by the rule in matches(). Returns undefined for an empty term so the
+ * caller can drop it from the WHERE.
  */
 export function quickSearch(spec: DocumentSearch, raw: string | undefined): SQL | undefined {
   const trimmed = raw?.trim();
   if (!trimmed) return undefined;
-  const term = contains(trimmed);
+  const m: Matcher = (col) => matches(col, trimmed);
 
-  const conditions: (SQL | undefined)[] = spec.text.map((c) => ilike(c, term));
-  if (spec.contactId) conditions.push(contactMatches(spec.contactId, term));
-  if (spec.accountId) conditions.push(accountMatches(spec.accountId, term));
-  if (spec.lines) conditions.push(lineMatches(spec.lines, spec.id, term));
+  const conditions: (SQL | undefined)[] = spec.text.map(m);
+  if (spec.contactId) conditions.push(contactMatches(spec.contactId, m));
+  if (spec.accountId) conditions.push(accountMatches(spec.accountId, m));
+  if (spec.lines) conditions.push(lineMatches(spec.lines, spec.id, m));
   return or(...conditions);
 }
 
@@ -250,8 +265,8 @@ export function advancedSearch(
         if (!v) break;
         // An account matches either because the document posts to it directly
         // (an expense) or because one of its lines does (a bill).
-        const term = contains(v);
-        if (spec.accountId) out.push(accountMatches(spec.accountId, term));
+        const m: Matcher = (col) => ilike(col, contains(v));
+        if (spec.accountId) out.push(accountMatches(spec.accountId, m));
         else if (spec.lines?.accountId) {
           const lines = spec.lines;
           out.push(
@@ -259,7 +274,7 @@ export function advancedSearch(
               db
                 .select(one)
                 .from(lines.table)
-                .where(and(eq(lines.documentId, spec.id), accountMatches(lines.accountId!, term))),
+                .where(and(eq(lines.documentId, spec.id), accountMatches(lines.accountId!, m))),
             ),
           );
         }

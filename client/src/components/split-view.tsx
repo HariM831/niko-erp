@@ -1,8 +1,9 @@
-import { type ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 import { useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api, formatMoney } from "../api";
 import { StatusBadge } from "./list-page";
+import { useSearchContext } from "./search-context";
 import { shortDate, type DocRow } from "../pages/documents";
 
 interface SplitViewProps {
@@ -32,9 +33,21 @@ export function DocumentSplitView({
   children,
 }: SplitViewProps) {
   const [, navigate] = useLocation();
+
+  // The top bar searches this rail while a record is open, as it searched the
+  // full list before — same endpoint, so the term carries across the click.
+  const { register, term } = useSearchContext();
+  useEffect(() => {
+    register({ title, endpoint, live: true, rowPath: (row) => `${basePath}/${String(row.id)}` });
+    return () => register(null);
+  }, [register, title, endpoint, basePath]);
+  const search = term.trim();
+
   const { data: rows } = useQuery({
-    queryKey: [endpoint, "rail"],
-    queryFn: () => api<DocRow[]>(endpoint),
+    queryKey: [endpoint, "rail", search],
+    queryFn: () =>
+      api<DocRow[]>(search ? `${endpoint}?search=${encodeURIComponent(search)}` : endpoint),
+    placeholderData: keepPreviousData,
   });
 
   return (
@@ -82,7 +95,9 @@ export function DocumentSplitView({
             </button>
           ))}
           {!rows?.length && (
-            <p className="p-4 text-[13px] text-gray-400">No records.</p>
+            <p className="p-4 text-[13px] text-gray-400">
+              {search ? `No ${title.toLowerCase()} match “${search}”.` : "No records."}
+            </p>
           )}
         </div>
       </aside>

@@ -20,7 +20,7 @@ import { db } from "../db";
 import { stockOnHand } from "../services/inventory";
 import { requirePermission } from "../lib/rbac";
 import { requireReferenceRead } from "../lib/reference-access";
-import { contains } from "../services/document-search";
+import { matches } from "../services/document-search";
 import { nonBlank, validateBody } from "../lib/validate";
 import { getPreferences } from "../services/preferences";
 import { findNameHolder, mergeItems } from "../services/item-names";
@@ -100,10 +100,9 @@ itemsRouter.get("/", requireReferenceRead, async (req, res) => {
   else if (category && (itemCategory.enumValues as readonly string[]).includes(category)) {
     conditions.push(eq(items.category, category as (typeof itemCategory.enumValues)[number]));
   }
-  if (search) {
-    // Escaped, so "50%" searches for that text instead of matching everything.
-    const term = contains(search);
-    conditions.push(or(ilike(items.name, term), ilike(items.sku, term)));
+  if (search?.trim()) {
+    // The rule every list follows: words from their start, numbers anywhere.
+    conditions.push(or(matches(items.name, search), matches(items.sku, search)));
   }
   const asked = Number((req.query as Record<string, string | undefined>).limit);
   const rows = await db

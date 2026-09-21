@@ -35,20 +35,19 @@ function ContactSplitView({
 
   // Zoho keeps "Search in Vendors" in the top bar on a vendor's page, and it
   // filters this rail. Registered under the list's own endpoint, so a term
-  // typed on All Vendors survives the click into a vendor. Customers follow
-  // once Vendors has been tried.
+  // typed on All Vendors survives the click into a vendor.
   const { register, term } = useSearchContext();
+  const title = isVendor ? "Vendors" : "Customers";
   useEffect(() => {
-    if (!isVendor) return;
     register({
-      title: "Vendors",
+      title,
       endpoint,
       live: true,
       rowPath: (row) => `${listPath}/${String(row.id)}`,
     });
     return () => register(null);
-  }, [isVendor, register, endpoint, listPath]);
-  const search = isVendor ? term.trim() : "";
+  }, [register, title, endpoint, listPath]);
+  const search = term.trim();
 
   const { data: rows } = useQuery({
     queryKey: ["contacts", endpoint, "rail", search],
@@ -88,7 +87,7 @@ function ContactSplitView({
             </button>
           ))}
           {!rows?.length && (
-            <p className="p-4 text-[13px] text-gray-400">{search ? `No vendors match “${search}”.` : "No records."}</p>
+            <p className="p-4 text-[13px] text-gray-400">{search ? `No ${title.toLowerCase()} match “${search}”.` : "No records."}</p>
           )}
         </div>
       </aside>

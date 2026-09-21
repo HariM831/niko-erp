@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { createHash } from "node:crypto";
-import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte, or, sql } from "drizzle-orm";
+import { matches } from "../services/document-search";
 import { z } from "zod";
 import {
   accounts,
@@ -68,7 +69,9 @@ const bankAccountSchema = z.object({
   glAccountId: z.string().uuid().optional(),
 });
 
-bankingRouter.get("/accounts", requirePermission("banking", "view"), async (_req, res) => {
+bankingRouter.get("/accounts", requirePermission("banking", "view"), async (req, res) => {
+  // The top-bar search, by the rule every list follows.
+  const search = (req.query.search as string | undefined)?.trim();
   // Balance = SQL aggregation over posted journal lines on each GL account.
   const rows = await db
     .select({
@@ -90,6 +93,15 @@ bankingRouter.get("/accounts", requirePermission("banking", "view"), async (_req
       ), 0)::numeric(14,2)`,
     })
     .from(bankAccounts)
+    .where(
+      search
+        ? or(
+            matches(bankAccounts.name, search),
+            matches(bankAccounts.bankName, search),
+            matches(bankAccounts.accountNumber, search),
+          )
+        : undefined,
+    )
     .orderBy(asc(bankAccounts.name));
   res.json(rows);
 });

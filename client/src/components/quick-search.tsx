@@ -82,6 +82,8 @@ interface QuickSearchProps {
   onOpen?: (row: Record<string, unknown>) => void;
   /** Filter the list as the term is typed; no preview dropdown. */
   live?: boolean;
+  /** Fill the width it is given — the phone header — rather than a fixed 16rem. */
+  wide?: boolean;
 }
 
 export function QuickSearch({
@@ -93,6 +95,7 @@ export function QuickSearch({
   rowPath,
   onOpen,
   live = false,
+  wide = false,
 }: QuickSearchProps) {
   const [, navigate] = useLocation();
   const [term, setTerm] = useState(value);
@@ -204,7 +207,7 @@ export function QuickSearch({
   };
 
   return (
-    <div className="relative" ref={boxRef}>
+    <div className={wide ? "relative w-full" : "relative"} ref={boxRef}>
       <div className="flex items-center rounded border border-gray-300 bg-white focus-within:border-brand-500">
         <span className="pl-2 text-gray-400" aria-hidden>
           <svg viewBox="0 0 16 16" className="h-3.5 w-3.5 fill-current">
@@ -223,7 +226,7 @@ export function QuickSearch({
           onKeyDown={onKeyDown}
           placeholder={`Search in ${title} ( / )`}
           aria-label={`Search in ${title}`}
-          className="w-64 bg-transparent px-2 py-1.5 text-[13px] outline-none"
+          className={`${wide ? "min-w-0 flex-1" : "w-64"} bg-transparent px-2 py-1.5 text-[13px] outline-none`}
         />
         {term && (
           <button
