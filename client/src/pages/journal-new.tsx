@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatMoney } from "../api";
 import { AccountSelect, type AccountNode } from "../components/account-select";
+import { SearchSelect } from "../components/search-select";
 
 type Account = AccountNode;
 
@@ -140,14 +141,17 @@ export function JournalNewPage() {
           {series.length > 1 && (
             <div>
               <label className="label">Number Series</label>
-              <select value={seriesId} onChange={(e) => setSeriesId(e.target.value)} className={inputCls}>
-                {series.map((s) => (
-                  <option key={s.id} value={s.isDefault ? "" : s.id}>
-                    {s.name}
-                    {s.isDefault ? " (Default)" : ""}
-                  </option>
-                ))}
-              </select>
+              {/* The default series is chosen as "" — the server's own default. */}
+              <SearchSelect
+                value={seriesId}
+                onChange={(id) => setSeriesId(id ?? "")}
+                options={series.map((s) => ({
+                  id: s.isDefault ? "" : s.id,
+                  label: s.isDefault ? `${s.name} (Default)` : s.name,
+                }))}
+                keepOrder
+                allowClear={false}
+              />
             </div>
           )}
         </div>

@@ -16,6 +16,7 @@ type Account = AccountNode;
 interface Tax {
   id: string;
   name: string;
+  rate?: string | null;
 }
 interface Contact {
   id: string;
@@ -274,12 +275,12 @@ export function ItemNewPage({ editId }: { editId?: string }) {
               </div>
               <div>
                 <label className={label}>Tax Rate</label>
-                <select value={form.taxId} onChange={set("taxId")} className={inputCls}>
-                  <option value="">Not Taxable</option>
-                  {taxes?.map((t) => (
-                    <option key={t.id} value={t.id}>{t.name}</option>
-                  ))}
-                </select>
+                <SearchSelect
+                  value={form.taxId || null}
+                  onChange={(id) => setForm((f) => ({ ...f, taxId: id ?? "" }))}
+                  options={(taxes ?? []).map((t) => ({ id: t.id, label: t.name, sub: t.rate != null ? `${Number(t.rate)}%` : null }))}
+                  placeholder="Not Taxable"
+                />
               </div>
             </div>
           </div>

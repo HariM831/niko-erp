@@ -238,6 +238,10 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
     queryKey: ["taxes"],
     queryFn: () => api<Tax[]>("/api/taxes"),
   });
+  const taxChoices = useMemo<Choice[]>(
+    () => (taxes ?? []).map((t) => ({ id: t.id, label: t.name, sub: `${Number(t.rate)}%` })),
+    [taxes],
+  );
   // Only offered on create, and only when the org actually runs more than one.
   const { data: allSeries } = useQuery({
     queryKey: ["series"],
@@ -431,14 +435,17 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
           {series.length > 1 && (
             <div>
               <label className="label">Number Series</label>
-              <select value={seriesId} onChange={(e) => setSeriesId(e.target.value)} className={inputCls}>
-                {series.map((s) => (
-                  <option key={s.id} value={s.isDefault ? "" : s.id}>
-                    {s.name}
-                    {s.isDefault ? " (Default)" : ""}
-                  </option>
-                ))}
-              </select>
+              {/* The default series is chosen as "" — the server's own default. */}
+              <SearchSelect
+                value={seriesId}
+                onChange={(id) => setSeriesId(id ?? "")}
+                options={series.map((s) => ({
+                  id: s.isDefault ? "" : s.id,
+                  label: s.isDefault ? `${s.name} (Default)` : s.name,
+                }))}
+                keepOrder
+                allowClear={false}
+              />
             </div>
           )}
           {config.withVendorBillNumber && (
@@ -574,14 +581,12 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                   </td>
                   {config.withTax && (
                     <td className="border border-[#ece3d5] px-1 py-1">
-                      <select value={l.taxId ?? ""} onChange={(e) => updateLine(i, { taxId: e.target.value || undefined })} className={inputCls}>
-                        <option value="">No tax</option>
-                        {taxes?.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.name}
-                          </option>
-                        ))}
-                      </select>
+                      <SearchSelect
+                        value={l.taxId ?? null}
+                        onChange={(id) => updateLine(i, { taxId: id ?? undefined })}
+                        options={taxChoices}
+                        placeholder="No tax"
+                      />
                     </td>
                   )}
                   {tags.map((t) => (
@@ -704,14 +709,12 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                 {config.withTax && (
                   <div className="mt-2">
                     <label className="label">Tax</label>
-                    <select value={l.taxId ?? ""} onChange={(e) => updateLine(i, { taxId: e.target.value || undefined })} className={inputCls}>
-                      <option value="">No tax</option>
-                      {taxes?.map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.name}
-                        </option>
-                      ))}
-                    </select>
+                    <SearchSelect
+                      value={l.taxId ?? null}
+                      onChange={(id) => updateLine(i, { taxId: id ?? undefined })}
+                      options={taxChoices}
+                      placeholder="No tax"
+                    />
                   </div>
                 )}
 
