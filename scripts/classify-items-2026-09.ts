@@ -24,7 +24,7 @@
  *   npx tsx scripts/classify-items-2026-09.ts --apply
  */
 import { eq, inArray, sql } from "drizzle-orm";
-import { items } from "@shared/schema";
+import { accounts, items } from "@shared/schema";
 import type { ItemCategory } from "@shared/item-categories";
 import { db } from "../server/db";
 
@@ -122,6 +122,18 @@ const CATEGORY: Record<ItemCategory, string[]> = {
   miscellaneous: ["Diesel (Fuel)", "DEF (Deisel Exhaust Fluid)", "Router"],
 };
 
+/**
+ * Sales accounts for items that have none. The graded eggs niko added itself
+ * came with no account, so their invoices would post to plain Sales; the
+ * merged sizes take one from their Zoho twin, these two have no twin. Named
+ * by the account's name, which the Zoho load brings; the code is not assumed.
+ * Agreed with the user on 21 Sep 2026.
+ */
+const SALES_ACCOUNT: Record<string, string> = {
+  "Eggs — Brown": "Eggs (Sales)",
+  "Eggs — Niko": "Eggs (Sales)",
+};
+
 /** Links to an item that no foreign key enforces. */
 const LOOSE: Array<{ table: string; column: string; where?: string }> = [
   { table: "flock_day", column: "item_id" },
@@ -211,6 +223,24 @@ async function main() {
   for (const [to, names] of byTo) say(`     ${to} ← ${names.length}: ${names.join(", ")}`);
   if (!recat.length) say("     nothing to change");
 
+  // ── 2b. Sales accounts ──
+  say("\n  2b. Sales accounts");
+  const accts = await db.select({ id: accounts.id, name: accounts.name, code: accounts.code }).from(accounts);
+  const setSales: Array<{ id: string; name: string; accountId: string }> = [];
+  for (const [itemName, acctName] of Object.entries(SALES_ACCOUNT)) {
+    const it = find(itemName);
+    const acct = accts.filter((a) => a.name === acctName);
+    if (!it) continue;
+    if (acct.length !== 1) {
+      say(`     ! ${itemName}: ${acct.length ? "several accounts" : "no account"} named "${acctName}" — skipped`);
+      continue;
+    }
+    if (it.salesAccountId) continue;
+    setSales.push({ id: it.id, name: itemName, accountId: acct[0]!.id });
+    say(`     ${itemName} → ${acct[0]!.code} ${acctName}`);
+  }
+  if (!setSales.length) say("     nothing to change");
+
   // ── 3. Deactivate ──
   say("\n  3. Deactivate");
   const retire = DEACTIVATE.map((n) => byName.get(n)).filter((i): i is (typeof all)[number] => !!i && i.isActive);
@@ -252,9 +282,10 @@ async function main() {
       }
     }
     for (const r of recat) await tx.update(items).set({ category: r.to }).where(eq(items.id, r.id));
+    for (const s of setSales) await tx.update(items).set({ salesAccountId: s.accountId }).where(eq(items.id, s.id));
     if (retire.length) await tx.update(items).set({ isActive: false }).where(inArray(items.id, retire.map((i) => i.id)));
   });
-  say(`\n  Merged ${merged}, recategorised ${recat.length}, deactivated ${retire.length}.`);
+  say(`\n  Merged ${merged}, recategorised ${recat.length}, sales accounts set ${setSales.length}, deactivated ${retire.length}.`);
   for (const f of failed) say(`  ! merge skipped — ${f}`);
   say();
 }
