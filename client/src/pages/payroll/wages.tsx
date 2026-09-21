@@ -12,6 +12,8 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatMoney } from "../../api";
+import { useLocalSearch } from "../../components/search-context";
+import { matchesTerm } from "../../lib/utils";
 import { Badge, Empty, PageHeader, Pager, Spinner, Td, Th, istToday, num, usePaged } from "../../components/payroll/ui";
 
 interface WageRow {
@@ -47,6 +49,9 @@ export function PayrollWagesPage() {
   const [to, setTo] = useState(today);
   const [role, setRole] = useState("");
   const [day, setDay] = useState(today);
+  // "Search in Wages" narrows the people listed, in either view; the totals
+  // and the by-role summary still count everyone.
+  const term = useLocalSearch("Wages", `payroll:wages:${view}`);
 
   const rolesQ = useQuery({ queryKey: ["payroll", "wage-roles"], queryFn: () => api<WageRole[]>("/api/payroll/wage-roles") });
   const reportQ = useQuery({
@@ -59,7 +64,7 @@ export function PayrollWagesPage() {
     () => [...(reportQ.data?.rows ?? [])].sort((a, b) => a.empCode.localeCompare(b.empCode, undefined, { numeric: true })),
     [reportQ.data],
   );
-  const paged = usePaged(rows);
+  const paged = usePaged(rows.filter((r) => matchesTerm(term, [r.name, r.empCode, r.role])));
   const grand = reportQ.data?.total != null
     ? Number(reportQ.data.total)
     : rows.reduce((a, r) => a + Number(r.amount), 0);
@@ -94,7 +99,7 @@ export function PayrollWagesPage() {
       </PageHeader>
 
       {view === "day" ? (
-        <DayRoles day={day} roles={rolesQ.data ?? []} />
+        <DayRoles day={day} roles={rolesQ.data ?? []} term={term} />
       ) : (
         <>
           {/* Totals by role */}
@@ -137,7 +142,7 @@ export function PayrollWagesPage() {
                       <Td right className="font-semibold">{formatMoney(r.amount)}</Td>
                     </tr>
                   ))}
-                  {!paged.page.length && <tr><Td colSpan={7}><Empty>No daily-wage attendance in this range.</Empty></Td></tr>}
+                  {!paged.page.length && <tr><Td colSpan={7}><Empty>{term.trim() && rows.length ? "Nobody matches." : "No daily-wage attendance in this range."}</Empty></Td></tr>}
                   {paged.page.length > 0 && (
                     <tr className="bg-gray-50 font-semibold">
                       <Td colSpan={6}>Total ({rows.length} workers)</Td>
@@ -156,7 +161,7 @@ export function PayrollWagesPage() {
 }
 
 /** One day of the yard: everyone on the wage roll, and what they did that day. */
-function DayRoles({ day, roles }: { day: string; roles: WageRole[] }) {
+function DayRoles({ day, roles, term }: { day: string; roles: WageRole[]; term: string }) {
   const qc = useQueryClient();
   const dayQ = useQuery({
     queryKey: ["payroll", "wages-day", day],
@@ -176,7 +181,7 @@ function DayRoles({ day, roles }: { day: string; roles: WageRole[] }) {
   });
 
   const rows = dayQ.data ?? [];
-  const paged = usePaged(rows);
+  const paged = usePaged(rows.filter((r) => matchesTerm(term, [r.name, r.empCode, r.defaultRoleName])));
   const present = rows.filter((r) => r.status === "P" || r.status === "H").length;
   const reassigned = rows.filter((r) => r.dayRoleId && r.dayRoleId !== r.defaultRoleId).length;
 
@@ -243,7 +248,7 @@ function DayRoles({ day, roles }: { day: string; roles: WageRole[] }) {
                   </tr>
                 );
               })}
-              {!paged.page.length && <tr><Td colSpan={3}><Empty>Nobody on the wage roll.</Empty></Td></tr>}
+              {!paged.page.length && <tr><Td colSpan={3}><Empty>{term.trim() && rows.length ? "Nobody matches." : "Nobody on the wage roll."}</Empty></Td></tr>}
             </tbody>
           </table>
         )}

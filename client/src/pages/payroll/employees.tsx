@@ -6,9 +6,10 @@
  * the full row when it opens.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocalSearch } from "../../components/search-context";
 import { Link } from "wouter";
-import { Plus, ScanFace, Search, Upload } from "lucide-react";
+import { Plus, ScanFace, Upload } from "lucide-react";
 import { ApiError, api, formatMoney } from "../../api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -145,7 +146,8 @@ function parseCsv(text: string): Record<string, string>[] {
 export function PayrollEmployeesPage() {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
-  const [q, setQ] = useState("");
+  // Typed in the top bar, as on every list; filtered on the server.
+  const q = useLocalSearch("Employees", "payroll:employees").trim();
   const [dept, setDept] = useState("");
   const [payType, setPayType] = useState("");
   const [active, setActive] = useState("1");
@@ -160,6 +162,7 @@ export function PayrollEmployeesPage() {
   const listQ = useQuery({
     queryKey: ["payroll", "employees", params.toString()],
     queryFn: () => api<EmployeeRow[]>(`/api/payroll/employees?${params}`),
+    placeholderData: keepPreviousData,
   });
   const deptQ = useQuery({ queryKey: ["payroll", "departments"], queryFn: () => api<Department[]>("/api/payroll/departments") });
 
@@ -195,10 +198,6 @@ export function PayrollEmployeesPage() {
       <ErrorBanner message={err} onClose={() => setErr(null)} />
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="relative">
-          <Search size={14} className="pointer-events-none absolute left-2.5 top-2 text-gray-400" />
-          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Name or code" className="input w-56 pl-8" />
-        </div>
         <select value={dept} onChange={(e) => setDept(e.target.value)} className="input w-44">
           <option value="">All departments</option>
           {(deptQ.data ?? []).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}

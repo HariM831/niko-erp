@@ -8,6 +8,7 @@ import { FACE_DIM } from "@shared/face";
 import { createHash } from "node:crypto";
 import { Router } from "express";
 import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { matches } from "../services/document-search";
 import { z } from "zod";
 import {
   advanceRepayments,
@@ -420,9 +421,10 @@ payrollRouter.patch("/settings", settingsPerm, validateBody(settingsPatch), asyn
 payrollRouter.get("/employees", view, async (req, res) => {
   const q = req.query;
   const conds = [];
-  if (q.q) {
-    const like = `%${String(q.q)}%`;
-    conds.push(or(ilike(employees.name, like), ilike(employees.empCode, like)));
+  if (typeof q.q === "string" && q.q.trim()) {
+    // The top-bar search, by the rule every list follows: words from their
+    // start, and a code like "E104" (it has a digit) anywhere.
+    conds.push(or(matches(employees.name, q.q), matches(employees.empCode, q.q)));
   }
   if (q.department) conds.push(eq(employees.departmentId, String(q.department)));
   if (q.payType) conds.push(eq(employees.payType, String(q.payType) as "salaried" | "daily_wage"));

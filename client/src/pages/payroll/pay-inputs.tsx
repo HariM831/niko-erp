@@ -13,6 +13,8 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
+import { useLocalSearch } from "../../components/search-context";
+import { matchesTerm } from "../../lib/utils";
 import { api, formatMoney } from "../../api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -88,6 +90,9 @@ export function PayrollPayInputsPage() {
   const [editing, setEditing] = useState<PayInput | null>(null);
   const [approveFor, setApproveFor] = useState<PayInput | null>(null);
   const [approvedAmount, setApprovedAmount] = useState("");
+  // "Search in Pay Inputs" narrows both lists on the page to the people named;
+  // the month's totals above them still count everyone.
+  const term = useLocalSearch("Pay Inputs", "payroll:pay-inputs");
 
   const listQ = useQuery({
     queryKey: ["payroll", "pay-inputs", year, month, kind, status],
@@ -108,7 +113,7 @@ export function PayrollPayInputsPage() {
   });
 
   const rows = listQ.data ?? [];
-  const paged = usePaged(rows);
+  const paged = usePaged(rows.filter((r) => matchesTerm(term, [r.name, r.empCode])));
   const totals = useMemo(() => {
     const t: Record<Kind, number> = { bonus: 0, overtime: 0, reimbursement: 0, deduction: 0, arrears: 0 };
     for (const r of rows) if (r.status === "approved" || r.status === "paid") t[r.kind] += Number(r.approvedAmount ?? r.amount);
@@ -183,14 +188,14 @@ export function PayrollPayInputsPage() {
                   </Td>
                 </tr>
               ))}
-              {!paged.page.length && <tr><Td colSpan={7}><Empty>No pay inputs for this month.</Empty></Td></tr>}
+              {!paged.page.length && <tr><Td colSpan={7}><Empty>{term.trim() && rows.length ? "No pay inputs match." : "No pay inputs for this month."}</Empty></Td></tr>}
             </tbody>
           </table>
         )}
         <Pager total={paged.total} offset={paged.offset} onChange={paged.setOffset} />
       </div>
 
-      <AdvancesSection />
+      <AdvancesSection term={term} />
 
       {addOpen && <InputDialog year={year} month={month} onClose={() => setAddOpen(false)} onSaved={invalidate} />}
       {editing && <InputDialog year={editing.year} month={editing.month} existing={editing} onClose={() => setEditing(null)} onSaved={invalidate} />}
@@ -427,7 +432,7 @@ function InputDialog({ year, month, existing, onClose, onSaved }: { year: number
 }
 
 /* ── Advances ──────────────────────────────────────────────────────────── */
-function AdvancesSection() {
+function AdvancesSection({ term }: { term: string }) {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
   const [status, setStatus] = useState("active");
@@ -448,6 +453,7 @@ function AdvancesSection() {
 
   const rows = listQ.data ?? [];
   const outstanding = rows.reduce((a, r) => a + Number(r.outstanding), 0);
+  const shown = rows.filter((r) => matchesTerm(term, [r.name, r.empCode]));
 
   return (
     <div className="mt-6">
@@ -472,7 +478,7 @@ function AdvancesSection() {
               <tr><Th>Employee</Th><Th>Type</Th><Th>Given on</Th><Th right>Amount</Th><Th right>EMI</Th><Th right>Outstanding</Th><Th>Status</Th><Th /></tr>
             </thead>
             <tbody>
-              {rows.map((a) => (
+              {shown.map((a) => (
                 <Fragment key={a.id}>
                   <tr className="table-row cursor-pointer" onClick={() => setExpanded(expanded === a.id ? null : a.id)}>
                     <Td className="font-medium">
@@ -510,7 +516,7 @@ function AdvancesSection() {
                   )}
                 </Fragment>
               ))}
-              {!rows.length && <tr><Td colSpan={8}><Empty>No advances.</Empty></Td></tr>}
+              {!shown.length && <tr><Td colSpan={8}><Empty>{rows.length ? "No advances match." : "No advances."}</Empty></Td></tr>}
             </tbody>
           </table>
         )}

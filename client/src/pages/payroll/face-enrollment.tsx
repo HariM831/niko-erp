@@ -9,7 +9,9 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Loader2, ScanFace, Search, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, ScanFace, Trash2, Upload } from "lucide-react";
+import { useLocalSearch } from "../../components/search-context";
+import { matchesTerm } from "../../lib/utils";
 import { api } from "../../api";
 import { getFaceEmbedding, loadFaceEngine, loadImage, resizePhotoFile } from "../../lib/face";
 import { Avatar, Badge, Empty, ErrorBanner, PageHeader, Pager, Spinner, Td, Th, useEmployees, useErr, usePaged } from "../../components/payroll/ui";
@@ -19,7 +21,7 @@ type RowState = { status: "working" } | { status: "done" } | { status: "error"; 
 export function PayrollFaceEnrollmentPage() {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
-  const [search, setSearch] = useState("");
+  const search = useLocalSearch("Face Enrolment", "payroll:face-enrollment");
   const [engineState, setEngineState] = useState<"loading" | "ready" | "failed">("loading");
   const [rowState, setRowState] = useState<Record<string, RowState>>({});
   const [batch, setBatch] = useState<{ running: boolean; done: number; total: number }>({ running: false, done: 0, total: 0 });
@@ -35,11 +37,10 @@ export function PayrollFaceEnrollmentPage() {
   }, []);
 
   const active = empQ.data ?? [];
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return active;
-    return active.filter((e) => e.name.toLowerCase().includes(q) || e.empCode.toLowerCase().includes(q) || (e.department ?? "").toLowerCase().includes(q));
-  }, [active, search]);
+  const filtered = useMemo(
+    () => active.filter((e) => matchesTerm(search, [e.name, e.empCode, e.department])),
+    [active, search],
+  );
   const paged = usePaged(filtered);
 
   const stats = useMemo(() => ({
@@ -136,10 +137,6 @@ export function PayrollFaceEnrollmentPage() {
         </div>
       )}
 
-      <div className="relative mb-3 w-64">
-        <Search size={14} className="pointer-events-none absolute left-2.5 top-2 text-gray-400" />
-        <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name, code or department" className="input pl-8" />
-      </div>
 
       <div className="table-surface">
         {empQ.isLoading ? (

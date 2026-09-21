@@ -4,6 +4,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatMoney } from "../api";
 import { SummaryBanner } from "../components/summary-banner";
 import { shortDate } from "./documents";
+import { useLocalSearch } from "../components/search-context";
+import { matchesTerm } from "../lib/utils";
 
 /**
  * Vendor Sheet — the one screen that answers "what do we owe, and what goes to
@@ -79,6 +81,14 @@ export function VendorSheetPage() {
     [data, showSent],
   );
 
+  // "Search in Vendor Sheet" narrows the rows shown. Ticks are kept on rows
+  // the search hides — the file is built from every tick, and the dialog lists
+  // each one before anything is sent — and the banner still sums the sheet.
+  const term = useLocalSearch("Vendor Sheet", "vendor-sheet");
+  const shown = rows.filter((r) =>
+    matchesTerm(term, [r.vendorName, r.billNumber, r.number, r.description, r.notes, r.beneficiaryName]),
+  );
+
   const chosen = useMemo(
     () => rows.filter((r) => selected.has(rowKey(r))),
     [rows, selected],
@@ -92,11 +102,19 @@ export function VendorSheetPage() {
   // Only a row we can actually pay is selectable: a vendor with no account
   // number cannot go in the file, and letting it be ticked only moves the
   // disappointment to the end of the run.
-  const payable = rows.filter((r) => hasBank(r) && !r.sentBatchId);
+  // The header box works on the rows in view, leaving ticks elsewhere alone.
+  const payable = shown.filter((r) => hasBank(r) && !r.sentBatchId);
   const allSelected = payable.length > 0 && payable.every((r) => selected.has(rowKey(r)));
 
   const toggleAll = () =>
-    setSelected(allSelected ? new Set() : new Set(payable.map(rowKey)));
+    setSelected((s) => {
+      const next = new Set(s);
+      for (const r of payable) {
+        if (allSelected) next.delete(rowKey(r));
+        else next.add(rowKey(r));
+      }
+      return next;
+    });
   const toggleOne = (k: string) =>
     setSelected((s) => {
       const next = new Set(s);
@@ -172,6 +190,8 @@ export function VendorSheetPage() {
           <div className="p-12 text-center text-sm text-gray-500">
             {showSent ? "Nothing has been sent to the bank yet." : "Nothing is unpaid."}
           </div>
+        ) : !shown.length ? (
+          <div className="p-12 text-center text-sm text-gray-500">Nothing matches “{term.trim()}”.</div>
         ) : (
           <table className="list-table w-full border-separate border-spacing-0 text-[13px]">
             <thead className="table-head sticky top-0 z-10">
@@ -196,7 +216,7 @@ export function VendorSheetPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => {
+              {shown.map((r) => {
                 const k = rowKey(r);
                 const selectable = hasBank(r) && !r.sentBatchId;
                 return (

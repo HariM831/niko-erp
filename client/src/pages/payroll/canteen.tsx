@@ -10,9 +10,11 @@
  *   Eligibility          who gets breakfast / dinner
  */
 import { SERVING_STATE_LABEL, type ServingState } from "@shared/canteen";
-import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Search } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocalSearch } from "../../components/search-context";
+import { matchesTerm } from "../../lib/utils";
+import { Plus } from "lucide-react";
 import { api, formatMoney } from "../../api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -69,6 +71,11 @@ type Tab = "today" | "exceptions" | "report" | "setup" | "eligibility";
 
 export function PayrollCanteenPage() {
   const [tab, setTab] = useState<Tab>("today");
+  // One "Search in Canteen" for the tabs that list people; the report and the
+  // setup are not lists of anyone. Switching tab clears it, as moving between
+  // lists does.
+  const peopleTab = tab === "today" || tab === "exceptions" || tab === "eligibility";
+  const term = useLocalSearch("Canteen", peopleTab ? `payroll:canteen:${tab}` : null);
   return (
     <div className="p-4 md:p-6">
       <PageHeader title="Canteen" sub="Plates served on the devices, reconciled against the gate's attendance." />
@@ -83,11 +90,11 @@ export function PayrollCanteenPage() {
         value={tab}
         onChange={setTab}
       />
-      {tab === "today" && <TodayTab />}
-      {tab === "exceptions" && <ExceptionsTab />}
+      {tab === "today" && <TodayTab term={term} />}
+      {tab === "exceptions" && <ExceptionsTab term={term} />}
       {tab === "report" && <ReportTab />}
       {tab === "setup" && <SetupTab />}
-      {tab === "eligibility" && <EligibilityTab />}
+      {tab === "eligibility" && <EligibilityTab term={term} />}
     </div>
   );
 }
@@ -97,7 +104,7 @@ function useCanteens() {
 }
 
 /* ── Today ─────────────────────────────────────────────────────────────── */
-function TodayTab() {
+function TodayTab({ term }: { term: string }) {
   const [date, setDate] = useState(istToday());
   const [canteenId, setCanteenId] = useState("");
   const [meal, setMeal] = useState("");
@@ -105,12 +112,15 @@ function TodayTab() {
 
   const canteensQ = useCanteens();
   const servingsQ = useQuery({
-    queryKey: ["canteen", "servings", date, canteenId, meal, offset],
+    queryKey: ["canteen", "servings", date, canteenId, meal, offset, term.trim()],
     queryFn: () =>
       api<{ rows: Serving[]; total: number }>(
-        `/api/canteen/servings?date=${date}${canteenId ? `&canteenId=${canteenId}` : ""}${meal ? `&meal=${meal}` : ""}&limit=${PAGE_SIZE}&offset=${offset}`,
+        `/api/canteen/servings?date=${date}${canteenId ? `&canteenId=${canteenId}` : ""}${meal ? `&meal=${meal}` : ""}${term.trim() ? `&search=${encodeURIComponent(term.trim())}` : ""}&limit=${PAGE_SIZE}&offset=${offset}`,
       ),
+    placeholderData: keepPreviousData,
   });
+  // A new term starts from the first page; page 4 of the old one may not exist.
+  useEffect(() => setOffset(0), [term]);
 
   const rows = servingsQ.data?.rows ?? [];
   const counts = useMemo(() => {
@@ -173,14 +183,14 @@ function TodayTab() {
 }
 
 /* ── Exceptions ────────────────────────────────────────────────────────── */
-function ExceptionsTab() {
+function ExceptionsTab({ term }: { term: string }) {
   const [date, setDate] = useState(istToday());
   const exQ = useQuery({
     queryKey: ["canteen", "exceptions", date],
     queryFn: () => api<Serving[] | { rows: Serving[] }>(`/api/canteen/exceptions?date=${date}`),
     select: (d) => (Array.isArray(d) ? d : d.rows),
   });
-  const rows = exQ.data ?? [];
+  const rows = (exQ.data ?? []).filter((r) => matchesTerm(term, [r.personName, r.guestParty, r.tokenNumber]));
   const paged = usePaged(rows);
 
   const why = (r: Serving): string[] => {
@@ -485,18 +495,17 @@ function SetupTab() {
 }
 
 /* ── Eligibility ───────────────────────────────────────────────────────── */
-function EligibilityTab() {
+function EligibilityTab({ term }: { term: string }) {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
-  const [search, setSearch] = useState("");
   const empQ = useEmployees();
   const eligQ = useQuery({ queryKey: ["canteen", "eligibility"], queryFn: () => api<Eligibility[]>("/api/canteen/eligibility") });
 
   const byId = useMemo(() => new Map((eligQ.data ?? []).map((e) => [e.employeeId, e])), [eligQ.data]);
-  const rows = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return (empQ.data ?? []).filter((e) => !q || e.name.toLowerCase().includes(q) || e.empCode.toLowerCase().includes(q));
-  }, [empQ.data, search]);
+  const rows = useMemo(
+    () => (empQ.data ?? []).filter((e) => matchesTerm(term, [e.name, e.empCode, e.department])),
+    [empQ.data, term],
+  );
   const paged = usePaged(rows);
 
   const saveM = useMutation({
@@ -516,10 +525,6 @@ function EligibilityTab() {
     <div>
       <ErrorBanner message={err} onClose={() => setErr(null)} />
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="relative w-64">
-          <Search size={14} className="pointer-events-none absolute left-2.5 top-2 text-gray-400" />
-          <input className="input pl-8" placeholder="Name or code" value={search} onChange={(e) => setSearch(e.target.value)} />
-        </div>
         <span className="ml-auto text-[12px] tabular-nums text-gray-500">
           Lunch is everyone's; breakfast ×{counts.b}, dinner ×{counts.d}
         </span>

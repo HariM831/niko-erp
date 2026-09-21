@@ -83,13 +83,16 @@ export const useSearchContext = () => useContext(SearchContext);
 /**
  * Claim the top-bar search for a list the page filters itself — one it already
  * holds whole, so there is nothing to ask the server. `key` stands in for the
- * endpoint: it decides whether the term survives moving between pages.
+ * endpoint: it decides whether the term survives moving between pages. A
+ * null key offers no box at all.
  */
-export function useLocalSearch(title: string, key: string): string {
+export function useLocalSearch(title: string, key: string | null): string {
   const { register, term } = useSearchContext();
+  // A null key: this view has nothing to search, so no box is offered.
   useEffect(() => {
+    if (key === null) return;
     register({ title, endpoint: key, live: true });
     return () => register(null);
   }, [register, title, key]);
-  return term;
+  return key === null ? "" : term;
 }

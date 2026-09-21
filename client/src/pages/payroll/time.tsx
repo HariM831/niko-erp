@@ -14,6 +14,8 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
+import { useLocalSearch } from "../../components/search-context";
+import { matchesTerm } from "../../lib/utils";
 import { api } from "../../api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -56,6 +58,9 @@ type Tab = "calendar" | "grid" | "leave" | "exceptions" | "roster";
 
 export function PayrollTimePage() {
   const [tab, setTab] = useState<Tab>("calendar");
+  // "Search in Time" narrows the tabs that list people. The calendar is one
+  // person's month, picked from its own selector, so it offers no box.
+  const term = useLocalSearch("Time", tab === "calendar" ? null : `payroll:time:${tab}`);
   const openQ = useQuery({
     queryKey: ["payroll", "punches-open"],
     queryFn: () => api<OpenPunch[] | { rows: OpenPunch[] }>("/api/payroll/punches/open"),
@@ -78,10 +83,10 @@ export function PayrollTimePage() {
         onChange={setTab}
       />
       {tab === "calendar" && <CalendarTab />}
-      {tab === "grid" && <TeamGridTab />}
-      {tab === "leave" && <LeaveTab />}
-      {tab === "exceptions" && <ExceptionsTab />}
-      {tab === "roster" && <RosterTab />}
+      {tab === "grid" && <TeamGridTab term={term} />}
+      {tab === "leave" && <LeaveTab term={term} />}
+      {tab === "exceptions" && <ExceptionsTab term={term} />}
+      {tab === "roster" && <RosterTab term={term} />}
     </div>
   );
 }
@@ -277,7 +282,7 @@ function DayDialog({ employeeId, employeeName, day, cell, onClose, onChanged }: 
 }
 
 /* ── Team grid ─────────────────────────────────────────────────────────── */
-function TeamGridTab() {
+function TeamGridTab({ term }: { term: string }) {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
   const { year, month, setYear, setMonth } = useMonth();
@@ -295,8 +300,11 @@ function TeamGridTab() {
   });
 
   const employees = useMemo(
-    () => [...(gridQ.data?.employees ?? [])].sort((a, b) => a.empCode.localeCompare(b.empCode, undefined, { numeric: true })),
-    [gridQ.data],
+    () =>
+      [...(gridQ.data?.employees ?? [])]
+        .filter((e) => matchesTerm(term, [e.name, e.empCode, e.department]))
+        .sort((a, b) => a.empCode.localeCompare(b.empCode, undefined, { numeric: true })),
+    [gridQ.data, term],
   );
   const paged = usePaged(employees);
   const days = gridQ.data?.days ?? [];
@@ -411,7 +419,7 @@ function TeamGridTab() {
 }
 
 /* ── Leave ─────────────────────────────────────────────────────────────── */
-function LeaveTab() {
+function LeaveTab({ term }: { term: string }) {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
   const year = Number(istToday().slice(0, 4));
@@ -447,7 +455,7 @@ function LeaveTab() {
     onError: fail,
   });
 
-  const rows = listQ.data ?? [];
+  const rows = (listQ.data ?? []).filter((l) => matchesTerm(term, [l.name, l.empCode, l.reason]));
   const paged = usePaged(rows);
 
   return (
@@ -634,7 +642,7 @@ function ApplyLeaveDialog({ onClose, onSaved }: { onClose: () => void; onSaved: 
 }
 
 /* ── Exceptions ────────────────────────────────────────────────────────── */
-function ExceptionsTab() {
+function ExceptionsTab({ term }: { term: string }) {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
   const [resolving, setResolving] = useState<OpenPunch | null>(null);
@@ -683,7 +691,7 @@ function ExceptionsTab() {
     onError: fail,
   });
 
-  const rows = openQ.data ?? [];
+  const rows = (openQ.data ?? []).filter((p) => matchesTerm(term, [p.name, p.empCode]));
   return (
     <div>
       <ErrorBanner message={err} onClose={() => setErr(null)} />
@@ -768,7 +776,7 @@ function ExceptionsTab() {
 }
 
 /* ── Roster ────────────────────────────────────────────────────────────── */
-function RosterTab() {
+function RosterTab({ term }: { term: string }) {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
   const empQ = useEmployees();
@@ -803,7 +811,9 @@ function RosterTab() {
 
   const byEmp = new Map((listQ.data ?? []).map((a) => [a.employeeId, a]));
   const shiftById = new Map((shiftsQ.data ?? []).map((s) => [s.id, s]));
-  const rows = (empQ.data ?? []).map((e) => ({ emp: e, a: byEmp.get(e.id) ?? null }));
+  const rows = (empQ.data ?? [])
+    .filter((e) => matchesTerm(term, [e.name, e.empCode, e.department]))
+    .map((e) => ({ emp: e, a: byEmp.get(e.id) ?? null }));
   const paged = usePaged(rows);
   const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 

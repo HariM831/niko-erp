@@ -7,7 +7,8 @@
  * presence rule is still written once.
  */
 import { Router } from "express";
-import { and, asc, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
+import { matches } from "../services/document-search";
 import { z } from "zod";
 import {
   accounts,
@@ -244,6 +245,16 @@ canteenRouter.get("/servings", view, async (req, res) => {
   if (typeof q.canteenId === "string" && q.canteenId) conds.push(eq(canteenServings.canteenId, q.canteenId));
   if (typeof q.meal === "string" && (MEALS as readonly string[]).includes(q.meal)) conds.push(eq(canteenServings.meal, q.meal as (typeof MEALS)[number]));
   if (typeof q.state === "string" && (SERVING_STATES as readonly string[]).includes(q.state)) conds.push(eq(canteenServings.state, q.state as (typeof SERVING_STATES)[number]));
+  // The top-bar search. Here, not in the page: the list is paged, and a page
+  // can only filter the twenty-five plates it was given.
+  if (typeof q.search === "string" && q.search.trim()) {
+    const cond = or(
+      matches(canteenServings.personName, q.search),
+      matches(canteenServings.tokenNumber, q.search),
+      matches(canteenServings.guestParty, q.search),
+    );
+    if (cond) conds.push(cond);
+  }
   const limit = Math.min(Math.max(Number(q.limit) || 25, 1), 200);
   const offset = Math.max(Number(q.offset) || 0, 0);
   const where = and(...conds);

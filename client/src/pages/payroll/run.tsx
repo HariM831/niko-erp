@@ -8,6 +8,8 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Download, Printer } from "lucide-react";
+import { useLocalSearch } from "../../components/search-context";
+import { matchesTerm } from "../../lib/utils";
 import { api, formatMoney } from "../../api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -119,7 +121,10 @@ export function PayrollRunPage() {
   const run = detail?.run;
     // The server returns them in employee-code order; keep it.
   const slips = useMemo(() => detail?.slips ?? [], [detail]);
-  const paged = usePaged(slips);
+  // "Search in Payroll Run" finds a person's slip; the run's totals are the
+  // server's and still cover everyone.
+  const term = useLocalSearch("Payroll Run", "payroll:run");
+  const paged = usePaged(slips.filter((sl) => matchesTerm(term, [sl.name, sl.empCode, sl.department])));
 
   return (
     <div className="p-4 md:p-6">
@@ -220,7 +225,7 @@ export function PayrollRunPage() {
                       <Td right className="font-semibold">{formatMoney(s.netPay)}</Td>
                     </tr>
                   ))}
-                  {!paged.page.length && <tr><Td colSpan={12}><Empty>No slips.</Empty></Td></tr>}
+                  {!paged.page.length && <tr><Td colSpan={12}><Empty>{term.trim() && slips.length ? "No slips match." : "No slips."}</Empty></Td></tr>}
                 </tbody>
               </table>
             )}
