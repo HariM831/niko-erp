@@ -18,6 +18,8 @@
  */
 import { useState } from "react";
 import { useLocation } from "wouter";
+import { useLocalSearch } from "../components/search-context";
+import { matchesTerm } from "../lib/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api } from "../api";
 import { useAuth } from "../auth";
@@ -664,7 +666,11 @@ export function StationPage({ station }: { station: Station }) {
     qc: useQueue("qc"),
     "weigh-out": useQueue("weigh-out"),
   };
-  const { data: queue, isLoading } = queues[station] ?? { data: undefined, isLoading: false };
+  const { data: allQueued, isLoading } = queues[station] ?? { data: undefined, isLoading: false };
+  // "Search in Weighment" narrows the tab in view — the queue, the open slips
+  // or the day's transfers. A new tab is a new list, and starts clear.
+  const term = useLocalSearch("Weighment", `office:station:${station}`);
+  const queue = allQueued?.filter((r) => matchesTerm(term, [r.vehicleNumber, r.number, r.vendorName, r.lineSummary]));
 
   const { data: receipt } = useQuery<Receipt>({
     queryKey: ["office", "receipt", selected],
@@ -730,19 +736,21 @@ export function StationPage({ station }: { station: Station }) {
       </div>
 
       {!QUEUELESS.includes(station) && (
-        <div className="mb-3 text-right text-[13px] text-gray-400">{queue?.length ?? 0} waiting</div>
+        <div className="mb-3 text-right text-[13px] text-gray-400">{term.trim() ? `${queue?.length ?? 0} of ${allQueued?.length ?? 0}` : (queue?.length ?? 0)} waiting</div>
       )}
 
       {station === "slips" ? (
-        <WeighbridgeSlips />
+        <WeighbridgeSlips term={term} />
       ) : QUEUELESS.includes(station) ? (
-        <FeedTransferForm />
+        <FeedTransferForm term={term} />
       ) : (
       <div className="grid gap-4 md:grid-cols-2">
         <div className="card overflow-hidden">
           {isLoading && <div className="p-4 text-[13px] text-gray-400">Loading…</div>}
           {!isLoading && !queue?.length && (
-            <div className="p-6 text-center text-[13px] text-gray-400">{meta.empty}</div>
+            <div className="p-6 text-center text-[13px] text-gray-400">
+              {term.trim() && allQueued?.length ? `No truck matches “${term.trim()}”.` : meta.empty}
+            </div>
           )}
           {queue?.map((r) => (
             <button

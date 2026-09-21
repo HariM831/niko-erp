@@ -14,6 +14,8 @@ import { useEffect, useRef, useState } from "react";
 import { Camera, Loader2, Plus, Stethoscope, Trash2, X } from "lucide-react";
 import { api } from "../api";
 import { useApp } from "../lib/store";
+import { useLocalSearch } from "../components/search-context";
+import { matchesTerm } from "../lib/utils";
 
 interface ObsImage {
   id: string;
@@ -123,6 +125,9 @@ export function DrEggsyPage() {
   const [showNew, setShowNew] = useState(false);
   const [analyzing, setAnalyzing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // "Search in Dr niko": by house, by what was noted, or by what the model said.
+  const term = useLocalSearch("Dr niko", "farms:dr-eggsy");
+  const shown = observations.filter((o) => matchesTerm(term, [o.houseCode, o.note, o.aiRemark]));
 
   const load = () =>
     api<{ observations: Observation[] }>("/api/farms/dr-eggsy")
@@ -190,9 +195,11 @@ export function DrEggsyPage() {
         <div className="py-16 text-center text-sm text-muted-foreground">
           Nothing observed yet. Photograph what you found and send it in.
         </div>
+      ) : !shown.length ? (
+        <div className="py-16 text-center text-sm text-muted-foreground">Nothing observed matches “{term.trim()}”.</div>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {observations.map((o) => {
+          {shown.map((o) => {
             const cat = categoryOf(o.aiRemark);
             const summary = summaryOf(o.aiRemark);
             return (

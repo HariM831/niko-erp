@@ -18,6 +18,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Printer, Scale, Truck } from "lucide-react";
 import { ApiError, api } from "../api";
+import { matchesTerm } from "../lib/utils";
 import { PlatformWeight } from "./platform-weight";
 import { SearchSelect } from "./search-select";
 import { WeighbridgeCamera, type Shot } from "./weighbridge-camera";
@@ -116,7 +117,7 @@ function KindChoice({ value, onChange }: { value: Kind; onChange: (k: Kind) => v
   );
 }
 
-export function WeighbridgeSlips() {
+export function WeighbridgeSlips({ term = "" }: { term?: string }) {
   const qc = useQueryClient();
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -125,11 +126,12 @@ export function WeighbridgeSlips() {
     queryKey: ["weigh-context"],
     queryFn: () => api("/api/weigh-tickets/context"),
   });
-  const { data: open } = useQuery<Ticket[]>({
+  const { data: allOpen } = useQuery<Ticket[]>({
     queryKey: ["weigh-tickets", "open"],
     queryFn: () => api("/api/weigh-tickets?status=open"),
     refetchInterval: 30_000,
   });
+  const open = allOpen?.filter((t) => matchesTerm(term, [t.vehicleNumber, t.number, t.partyName, t.itemName, t.notes]));
   const { data: slip } = useQuery<Slip>({
     queryKey: ["weigh-ticket", selected],
     queryFn: () => api(`/api/weigh-tickets/${selected}`),
@@ -183,13 +185,15 @@ export function WeighbridgeSlips() {
         <div className="mb-2 flex items-baseline justify-between">
           <h3 className="text-[14px] font-semibold text-gray-900">On the weighbridge</h3>
           <span className="text-[12px] text-gray-400">
-            {open?.length ?? 0} waiting for a second weighment
+            {term.trim() ? `${open?.length ?? 0} of ${allOpen?.length ?? 0}` : (open?.length ?? 0)} waiting for a second weighment
           </span>
         </div>
         <div className="card overflow-hidden">
           {!open?.length && (
             <div className="p-6 text-center text-[13px] text-gray-400">
-              No vehicle is part-weighed. Take a first weighment above.
+              {term.trim() && allOpen?.length
+                ? `No part-weighed vehicle matches “${term.trim()}”.`
+                : "No vehicle is part-weighed. Take a first weighment above."}
             </div>
           )}
           {open?.map((t) => (

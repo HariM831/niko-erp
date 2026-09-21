@@ -11,7 +11,8 @@ import { existsSync, mkdirSync } from "node:fs";
 import { copyFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import multer from "multer";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { matches } from "../services/document-search";
 import { z } from "zod";
 import {
   RECEIPT_TRANSITIONS,
@@ -569,8 +570,21 @@ officeRouter.post(
 );
 
 officeRouter.get("/receipts", requirePermission("office", "receipts"), async (req, res) => {
-  const { status, vendorId, locationId } = req.query as Record<string, string | undefined>;
+  const { status, vendorId, locationId, search } = req.query as Record<string, string | undefined>;
   const where = [];
+  // The top-bar search, by the rule every list follows. Here rather than in
+  // the page: the list stops at the newest 200, and a search has to reach past
+  // them, so a search is not capped.
+  const term = search?.trim();
+  if (term) {
+    const cond = or(
+      matches(officeReceipts.number, term),
+      matches(officeReceipts.vehicleNumber, term),
+      matches(officeReceipts.vendorBillNumber, term),
+      matches(contacts.displayName, term),
+    );
+    if (cond) where.push(cond);
+  }
   if (status) where.push(eq(officeReceipts.status, status as ReceiptStatus));
   if (vendorId) where.push(eq(officeReceipts.vendorId, vendorId));
   if (locationId) where.push(eq(officeReceipts.locationId, locationId));
@@ -599,7 +613,7 @@ officeRouter.get("/receipts", requirePermission("office", "receipts"), async (re
     .leftJoin(locations, eq(locations.id, officeReceipts.locationId))
     .where(where.length ? and(...where) : undefined)
     .orderBy(desc(officeReceipts.arrivalAt))
-    .limit(200);
+    .limit(term ? 100_000 : 200);
   res.json(rows);
 });
 

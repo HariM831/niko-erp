@@ -6,7 +6,8 @@
  * testing leaves the counter where it started.
  */
 import { useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocalSearch } from "../components/search-context";
 import { ApiError, api, formatMoney } from "../api";
 import { StatusBadge } from "../components/status-badge";
 import type { LineMatch } from "@shared/po-match-types";
@@ -723,9 +724,13 @@ export function GoodsReceiptsPage() {
   const [editing, setEditing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // "Search in Goods Receipts" is answered by the server: the list shows the
+  // newest 200, and a search has to reach the trucks behind them.
+  const term = useLocalSearch("Goods Receipts", "office:receipts").trim();
   const { data: rows, isLoading } = useQuery<ReceiptRow[]>({
-    queryKey: ["office", "receipts"],
-    queryFn: () => api("/api/office/receipts"),
+    queryKey: ["office", "receipts", term],
+    queryFn: () => api(term ? `/api/office/receipts?search=${encodeURIComponent(term)}` : "/api/office/receipts"),
+    placeholderData: keepPreviousData,
   });
   const { data: ctx } = useQuery<Context>({
     queryKey: ["office", "context"],
@@ -792,7 +797,7 @@ export function GoodsReceiptsPage() {
             {!isLoading && !rows?.length && (
               <tr>
                 <td colSpan={9} className="px-3 py-8 text-center text-gray-400">
-                  No trucks recorded yet.
+                  {term ? `No trucks match “${term}”.` : "No trucks recorded yet."}
                 </td>
               </tr>
             )}

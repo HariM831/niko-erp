@@ -32,6 +32,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { api } from "../api";
+import { useLocalSearch } from "../components/search-context";
+import { matchesTerm } from "../lib/utils";
 import {
   getBatchAgeRefDate,
   getAgeRefStock,
@@ -708,6 +710,15 @@ export function FarmsHousesPage() {
     ? shedMetrics.find((m) => m.shed.id === modalShed.id)
     : null;
 
+  // "Search in Houses": a house by its name, or by a batch it holds. The
+  // tables' totals are then of the houses shown, as a total row under a
+  // table should be.
+  const term = useLocalSearch("Houses", "farms:houses");
+  const housesFound = (rows: typeof shedMetrics) =>
+    rows.filter((m) =>
+      matchesTerm(term, [m.shed.name, ...(stocks[m.shed.id] ?? []).map((s) => s.batchNumber)]),
+    );
+
   if (isLoading) {
     return (
       <div className="min-h-full space-y-4 bg-soil-50 p-4" data-testid="page-skeleton">
@@ -763,8 +774,8 @@ export function FarmsHousesPage() {
       return shedNumber(a.shed.name) - shedNumber(b.shed.name) || a.shed.name.localeCompare(b.shed.name);
     });
 
-  const layerSheds = inOrder(shedMetrics.filter((m) => m.shed.type === "layer"));
-  const pulletSheds = inOrder(shedMetrics.filter((m) => m.shed.type === "pullet"));
+  const layerSheds = inOrder(housesFound(shedMetrics.filter((m) => m.shed.type === "layer")));
+  const pulletSheds = inOrder(housesFound(shedMetrics.filter((m) => m.shed.type === "pullet")));
 
   const computeAggregate = (group: typeof shedMetrics) => {
     const totalBirds = group.reduce((s, m) => s + m.closingStock, 0);
@@ -891,6 +902,9 @@ export function FarmsHousesPage() {
 
       {/* ===== DESKTOP TABLE VIEW (hidden on mobile) ===== */}
       <div className="hidden md:block">
+        {term.trim() && !layerSheds.length && !pulletSheds.length && (
+          <p className="p-4 text-center text-[13px] text-soil-400">No house matches “{term.trim()}”.</p>
+        )}
         {layerSheds.length > 0 && (
           <div className="mb-4">
             <div className="mb-2 flex items-center gap-1.5">
@@ -1137,7 +1151,8 @@ export function FarmsHousesPage() {
                 </tr>
               </thead>
               <tbody>
-                {[...iot.board]
+                {iot.board
+                  .filter((r) => matchesTerm(term, [r.code, r.purpose, r.device]))
                   .sort(
                     (a, b) =>
                       a.purpose.localeCompare(b.purpose) || shedNumber(a.code) - shedNumber(b.code),
@@ -1268,6 +1283,9 @@ export function FarmsHousesPage() {
 
       {/* ===== MOBILE CARD VIEW (hidden on desktop) ===== */}
       <div className="md:hidden">
+        {term.trim() && !layerSheds.length && !pulletSheds.length && (
+          <p className="p-4 text-center text-[13px] text-soil-400">No house matches “{term.trim()}”.</p>
+        )}
         {layerSheds.length > 0 && (
           <div className="mb-3">
             <div className="mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">

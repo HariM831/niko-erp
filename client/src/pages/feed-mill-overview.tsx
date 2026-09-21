@@ -16,6 +16,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { api } from "../api";
 import { useAuth } from "../auth";
+import { useLocalSearch } from "../components/search-context";
+import { matchesTerm } from "../lib/utils";
 
 interface Truck {
   id: string;
@@ -113,6 +115,12 @@ export function FeedMillOverviewPage() {
     refetchInterval: 60_000,
   });
 
+  // "Search in Feed Mill" finds a truck wherever it stands — by vehicle, GRN,
+  // vendor or item. Each spot's count becomes the count that matches.
+  const term = useLocalSearch("Feed Mill", "feed-mill:overview");
+  const find = (trucks: Truck[]) =>
+    trucks.filter((t) => matchesTerm(term, [t.vehicleNumber, t.number, t.vendorName, t.items]));
+
   const kg = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(1)} t` : `${Math.round(v)} kg`);
 
   const spots = [
@@ -137,7 +145,7 @@ export function FeedMillOverviewPage() {
           {shown.length > 0 && (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {shown.map((s) => (
-                <Spot key={s.key} label={s.label} hint={s.hint} href={s.href} trucks={data![s.key] ?? []} />
+                <Spot key={s.key} label={s.label} hint={s.hint} href={s.href} trucks={find(data![s.key] ?? [])} />
               ))}
             </div>
           )}

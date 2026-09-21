@@ -16,6 +16,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Layers, Plus, X } from "lucide-react";
 import { ApiError, api } from "../api";
+import { useLocalSearch } from "../components/search-context";
+import { matchesTerm } from "../lib/utils";
 import { FLOCK_STATUS_LABELS, hatchProfile, type FlockStatus } from "@shared/schema/flocks";
 import { HOUSE_PURPOSE_LABELS, type HousePurpose } from "@shared/schema/farms";
 
@@ -62,10 +64,13 @@ export function FarmsBatchesPage() {
   const [adding, setAdding] = useState(false);
   const [status, setStatus] = useState<"all" | FlockStatus>("all");
 
-  const { data: flocks, isLoading } = useQuery<Flock[]>({
+  const { data: allFlocks, isLoading } = useQuery<Flock[]>({
     queryKey: ["farm-batches", status],
     queryFn: () => api(`/api/farms/flocks?status=${status}`),
   });
+  // "Search in Batches": by batch code, house, breed or site, within the status chosen.
+  const term = useLocalSearch("Batches", "farms:batches");
+  const flocks = allFlocks?.filter((f) => matchesTerm(term, [f.code, f.houseCodes, f.breedName, f.locationName]));
 
   return (
     <div className="min-h-full bg-soil-50 p-4 md:p-6">
@@ -103,7 +108,11 @@ export function FarmsBatchesPage() {
 
       {isLoading && <p className="text-[13px] text-gray-500">Loading…</p>}
 
-      {flocks && !flocks.length && (
+      {!!allFlocks?.length && !flocks?.length && (
+        <p className="p-4 text-center text-[13px] text-soil-400">No batch matches “{term.trim()}”.</p>
+      )}
+
+      {allFlocks && !allFlocks.length && (
         <div className="rounded-2xl bg-white p-6 text-center shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
           <p className="text-[14px] font-medium text-soil-900">No batches yet.</p>
           <p className="mt-1 text-[13px] text-soil-400">

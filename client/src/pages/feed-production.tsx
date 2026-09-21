@@ -12,6 +12,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Factory, Plus, X } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
 import { StatusBadge } from "../components/status-badge";
+import { useLocalSearch } from "../components/search-context";
+import { matchesTerm } from "../lib/utils";
 
 interface FormulaGroup {
   name: string;
@@ -123,10 +125,16 @@ export function FeedProductionPage() {
    * total. Three DATES WITH DATA rather than three calendar days, so a quiet
    * weekend does not blank the screen.
    */
+  // "Search in Production" looks through every run loaded (the newest
+  // hundred), not only three days of them; the day totals are then of what
+  // matched.
+  const term = useLocalSearch("Production", "feed-mill:production");
+  const found = (rows ?? []).filter((r) => matchesTerm(term, [r.number, r.formulaName, r.voidReason]));
   const byDay = (() => {
-    const days = [...new Set((rows ?? []).map((r) => r.orderDate))].sort().reverse().slice(0, 3);
+    const all = [...new Set(found.map((r) => r.orderDate))].sort().reverse();
+    const days = term.trim() ? all : all.slice(0, 3);
     return days.map((day) => {
-      const dayRows = (rows ?? []).filter((r) => r.orderDate === day);
+      const dayRows = found.filter((r) => r.orderDate === day);
       const live = dayRows.filter((r) => r.status !== "void");
       return {
         day,
@@ -243,6 +251,12 @@ export function FeedProductionPage() {
               </button>
             </div>
           </div>
+
+          {term.trim() && !byDay.length && (
+
+            <p className="p-4 text-center text-[13px] text-gray-400">No run matches “{term.trim()}”.</p>
+
+          )}
 
           {byDay.map(({ day, rows: dayRows, totalKg, totalValue }) => (
             <div key={day} className="card mb-3 overflow-hidden">

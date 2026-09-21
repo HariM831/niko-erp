@@ -17,6 +17,8 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { api } from "../api";
+import { useLocalSearch } from "../components/search-context";
+import { matchesTerm } from "../lib/utils";
 import { FormulaMatrix } from "../components/formula-matrix";
 import { FormulaSolver } from "../components/formula-solver";
 
@@ -35,6 +37,10 @@ export function FeedFormulasPage() {
     queryKey: ["feed-formulas"],
     queryFn: () => api("/api/feed/formulas"),
   });
+  // "Search in Formulas" narrows the list down the side. The comparison stays
+  // on the whole set: it is a table of every formula, not a list to search.
+  const term = useLocalSearch("Formulas", "feed-mill:formulas");
+  const shownGroups = groups?.filter((g) => matchesTerm(term, [g.name]));
 
   const entry = (key: string | null, title: string, sub: string) => (
     <button
@@ -63,7 +69,7 @@ export function FeedFormulasPage() {
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <aside className="flex shrink-0 gap-2 overflow-x-auto border-b bg-white p-2 lg:w-56 lg:flex-col lg:gap-0 lg:overflow-x-visible lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-0">
           {entry(null, "All formulas", "Side by side, with cost per kg")}
-          {groups?.map((g) => (
+          {shownGroups?.map((g) => (
             <div key={g.name}>
               {entry(
                 g.name,
@@ -76,6 +82,9 @@ export function FeedFormulasPage() {
           ))}
           {groups && !groups.length && (
             <p className="p-4 text-[13px] text-gray-400">No formulas yet.</p>
+          )}
+          {!!groups?.length && !shownGroups?.length && (
+            <p className="p-4 text-[13px] text-gray-400">No formula matches “{term.trim()}”.</p>
           )}
         </aside>
 

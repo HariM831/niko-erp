@@ -10,6 +10,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { ArrowDownToLine, ArrowUpFromLine, Loader2, PackageOpen } from "lucide-react";
 import { api } from "../api";
+import { useLocalSearch } from "../components/search-context";
+import { matchesTerm } from "../lib/utils";
 
 interface Store {
   id: string;
@@ -148,6 +150,12 @@ export function FarmStorePage() {
       .sort((a, b) => (a.category ?? "zz").localeCompare(b.category ?? "zz") || a.name.localeCompare(b.name));
   }, [stock, stores]);
 
+  // "Search in Farm Store" narrows both tables to the item looked for — what
+  // is on the shelf, and how it came and went.
+  const term = useLocalSearch("Farm Store", "farms:store");
+  const shownItems = byItem.filter((r) => matchesTerm(term, [r.name, r.category]));
+  const shownEntries = entries.filter((e) => matchesTerm(term, [e.itemName, e.storeName, e.sourceType, e.notes]));
+
   return (
     <div className="min-h-full bg-soil-50 p-4 md:p-6">
       <div className="page-header -mx-4 px-4 py-3 md:-mx-6 md:px-6 mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -199,7 +207,11 @@ export function FarmStorePage() {
             </span>
             <span className="text-[13px] font-bold text-soil-900">On hand</span>
           </div>
-          {!byItem.length ? (
+          {!!byItem.length && !shownItems.length ? (
+            <div className="rounded-2xl bg-white px-4 py-6 text-center text-sm text-muted-foreground shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
+              Nothing on hand matches “{term.trim()}”.
+            </div>
+          ) : !byItem.length ? (
             <div className="flex items-center gap-3 rounded-2xl bg-white px-4 py-6 text-sm text-muted-foreground shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
               <PackageOpen className="h-5 w-5" />
               Nothing on the shelves yet. Receive a delivery, or bill goods to this farm in Purchases.
@@ -218,7 +230,7 @@ export function FarmStorePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {byItem.map((r) => {
+                  {shownItems.map((r) => {
                     const total = r.main + r.houses;
                     const low = r.reorderLevel != null && total < Number(r.reorderLevel);
                     return (
@@ -266,7 +278,7 @@ export function FarmStorePage() {
                 </tr>
               </thead>
               <tbody>
-                {entries.map((e) => {
+                {shownEntries.map((e) => {
                   const qty = Number(e.quantity);
                   return (
                     <tr key={e.id} className="border-b border-soil-100/70 last:border-0 transition-colors hover:bg-yolk-50/70">
@@ -286,10 +298,10 @@ export function FarmStorePage() {
                     </tr>
                   );
                 })}
-                {!entries.length && (
+                {!shownEntries.length && (
                   <tr>
                     <td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">
-                      No movements yet.
+                      {entries.length ? `No movement matches “${term.trim()}”.` : "No movements yet."}
                     </td>
                   </tr>
                 )}

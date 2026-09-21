@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Send } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
+import { matchesTerm } from "../lib/utils";
 import { StatusBadge } from "../components/status-badge";
 import { PlatformWeight } from "./platform-weight";
 
@@ -41,7 +42,7 @@ const kg = (v: string | number | null | undefined) =>
   v == null ? "—" : `${Number(v).toLocaleString("en-IN", { maximumFractionDigits: 3 })} kg`;
 const inr = (n: number) => `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-export function FeedTransferForm() {
+export function FeedTransferForm({ term = "" }: { term?: string }) {
   const qc = useQueryClient();
   const [itemId, setItemId] = useState("");
   const [fromId, setFromId] = useState("");
@@ -112,11 +113,17 @@ export function FeedTransferForm() {
 
   const over = held != null && qty > held.quantity;
 
-  /** The last three days that saw transfers, newest first, with day totals. */
+  /**
+   * The last three days that saw transfers, newest first, with day totals.
+   * A search looks through every transfer loaded (the newest hundred), not
+   * just three days of them; the totals are then of what matched.
+   */
+  const found = (rows ?? []).filter((r) => matchesTerm(term, [r.number, r.itemName, r.toLocationName]));
   const byDay = (() => {
-    const days = [...new Set((rows ?? []).map((r) => r.transferDate))].sort().reverse().slice(0, 3);
+    const all = [...new Set(found.map((r) => r.transferDate))].sort().reverse();
+    const days = term.trim() ? all : all.slice(0, 3);
     return days.map((day) => {
-      const dayRows = (rows ?? []).filter((r) => r.transferDate === day);
+      const dayRows = found.filter((r) => r.transferDate === day);
       const live = dayRows.filter((r) => r.status !== "void");
       return {
         day,
@@ -252,6 +259,12 @@ export function FeedTransferForm() {
               </div>
             </div>
           </div>
+
+          {term.trim() && !byDay.length && (
+
+            <p className="p-4 text-center text-[13px] text-gray-400">No transfer matches “{term.trim()}”.</p>
+
+          )}
 
           {byDay.map(({ day, rows: dayRows, totalKg, totalValue }) => (
             <div key={day} className="card mb-3 overflow-hidden">

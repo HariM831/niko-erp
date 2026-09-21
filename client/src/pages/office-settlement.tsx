@@ -11,6 +11,8 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api } from "../api";
 import { StatusBadge } from "../components/status-badge";
+import { useLocalSearch } from "../components/search-context";
+import { matchesTerm } from "../lib/utils";
 
 interface QueueRow {
   id: string;
@@ -76,11 +78,14 @@ export function SettlementPage() {
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
-  const { data: queue } = useQuery<QueueRow[]>({
+  const { data: allQueued } = useQuery<QueueRow[]>({
     queryKey: ["office", "queue", "settlement"],
     queryFn: () => api("/api/office/queue/settlement"),
     refetchInterval: 30_000,
   });
+  // "Search in Settlement" narrows the trucks waiting to be billed.
+  const term = useLocalSearch("Settlement", "office:settlement");
+  const queue = allQueued?.filter((r) => matchesTerm(term, [r.vehicleNumber, r.number, r.vendorName, r.lineSummary]));
   const { data: ctx } = useQuery<Context>({
     queryKey: ["office", "settlement", selected],
     queryFn: () => api(`/api/office/receipts/${selected}/settlement-context`),
@@ -162,7 +167,7 @@ export function SettlementPage() {
     <div className="mx-auto max-w-4xl p-4 sm:p-6">
       <div className="page-header -mx-4 mb-4 flex items-baseline justify-between gap-4 px-4 py-3 sm:-mx-6 sm:px-6">
         <h1 className="text-[19px] font-semibold text-gray-900">Settlement</h1>
-        <span className="text-[13px] text-gray-500">{queue?.length ?? 0} pending</span>
+        <span className="text-[13px] text-gray-500">{term.trim() ? `${queue?.length ?? 0} of ${allQueued?.length ?? 0}` : (queue?.length ?? 0)} pending</span>
       </div>
 
       {done && (
@@ -179,7 +184,9 @@ export function SettlementPage() {
       <div className="grid gap-4 md:grid-cols-2">
         <div className="card overflow-hidden">
           {!queue?.length && (
-            <div className="p-6 text-center text-[13px] text-gray-400">Nothing waiting to be settled.</div>
+            <div className="p-6 text-center text-[13px] text-gray-400">
+              {term.trim() && allQueued?.length ? `No truck matches “${term.trim()}”.` : "Nothing waiting to be settled."}
+            </div>
           )}
           {queue?.map((r) => (
             <button
