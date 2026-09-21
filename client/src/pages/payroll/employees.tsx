@@ -14,7 +14,7 @@ import { ApiError, api, formatMoney } from "../../api";
 import { SearchSelect } from "../../components/search-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  Avatar, Badge, Empty, EmployeeRow, ErrorBanner, Field, PageHeader, Pager, Spinner, Td, Th, dmy, fileToDataUrl, num, useErr, usePaged,
+  Avatar, Badge, Empty, EmployeeRow, ErrorBanner, Field, PageHeader, Pager, Spinner, Td, Th, dmy, fileToDataUrl, num, useEmployees, useErr, usePaged,
 } from "../../components/payroll/ui";
 
 interface Department { id: string; name: string; isActive: boolean; designations: { id: string; name: string; displayOrder: number; isActive: boolean }[] }
@@ -268,7 +268,6 @@ export function PayrollEmployeesPage() {
         <EmployeeEditor
           id={editing === "new" ? null : editing}
           departments={deptQ.data ?? []}
-          employees={rows}
           onClose={() => setEditing(null)}
           onSaved={() => { invalidate(); }}
         />
@@ -314,10 +313,9 @@ export function PayrollEmployeesPage() {
 }
 
 /* ── Editor ────────────────────────────────────────────────────────────── */
-function EmployeeEditor({ id, departments, employees, onClose, onSaved }: {
+function EmployeeEditor({ id, departments, onClose, onSaved }: {
   id: string | null;
   departments: Department[];
-  employees: EmployeeRow[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -327,6 +325,12 @@ function EmployeeEditor({ id, departments, employees, onClose, onSaved }: {
   const [section, setSection] = useState<"basic" | "pay" | "ids" | "docs" | "shift">("basic");
   const [faceEnrolledAt, setFaceEnrolledAt] = useState<string | null>(null);
   const photoRef = useRef<HTMLInputElement>(null);
+
+  // "Reporting to" offers the whole staff, not the rows the list behind this
+  // dialog happens to be filtered to — a manager in another department, or on
+  // a later page, was missing. Everyone active, plus the current manager if
+  // they have since left, so an old record never loses its line.
+  const staffQ = useEmployees({ all: true });
 
   const fullQ = useQuery({
     queryKey: ["payroll", "employee", id],
@@ -518,7 +522,9 @@ function EmployeeEditor({ id, departments, employees, onClose, onSaved }: {
                       value={form.reportingTo || null}
                       onChange={(v) => set("reportingTo", v || null)}
                       placeholder="—"
-                      options={employees.filter((e) => e.id !== id).map((e) => ({ id: e.id, label: e.name, sub: e.empCode }))}
+                      options={(staffQ.data ?? [])
+                        .filter((e) => e.id !== id && (e.isActive || e.id === form.reportingTo))
+                        .map((e) => ({ id: e.id, label: e.name, sub: e.department ? `${e.empCode} · ${e.department}` : e.empCode }))}
                     />
                   </Field>
                   <Field label="Date of joining">
