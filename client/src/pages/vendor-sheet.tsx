@@ -247,7 +247,8 @@ export function VendorSheetPage() {
                     <td className="border-b border-[#ece3d5] px-3 py-2">
                       <div className="text-gray-800">{r.vendorName}</div>
                       <div className="text-[11px] text-gray-400">
-                        {r.kind === "bill" ? "Bill" : "Expense"} · {r.number}
+                        {/* A bill goes by the vendor's number (the server falls back to ours); an expense by its own. */}
+                        {r.kind === "bill" ? `Bill · ${r.billNumber}` : `Expense · ${r.number}`}
                       </div>
                       {!hasBank(r) && (
                         <div className="text-[11px] text-amber-600">no bank details</div>
