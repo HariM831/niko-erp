@@ -40,6 +40,35 @@ fi
 cd "$APP_DIR" || die "no such directory: $APP_DIR"
 [ -d .git ] || die "$APP_DIR is not a git checkout"
 
+# One deploy per checkout at a time. `npm ci` empties node_modules before it
+# installs, so two deploys of the same checkout delete each other's install
+# mid-build: on 21 Sep 2026 two sessions deployed staging within seconds of each
+# other and both died on "vite: not found", leaving a service that was up only
+# because the old process was still in memory.
+#
+# Per checkout, not per machine — prod and staging share nothing and may deploy
+# side by side. Inside .git so it never shows in `git status` and the reset
+# below cannot touch it. The second deploy waits rather than fails: it was asked
+# to ship something, and what it ships is fetched after the wait, so it is never
+# stale.
+#
+# The lock lives on fd 9 and is held until the script exits. `exec` keeps open
+# descriptors, so a re-exec'd copy already holds it — NIKO_DEPLOY_LOCKED says so,
+# because opening the file again would drop the lock for an instant and let a
+# waiter in. The variable alone is not believed: without fd 9 actually open
+# there is no lock, whatever the environment claims.
+if [ "${NIKO_DEPLOY_LOCKED:-0}" != "1" ] || [ ! -e "/proc/$$/fd/9" ]; then
+  exec 9>"$APP_DIR/.git/deploy.lock"
+  if ! flock -n 9; then
+    echo "==> another deploy of $APP_DIR is running; waiting for it (up to 15 min)"
+    flock -w 900 9 || die "gave up waiting for the other deploy of $APP_DIR"
+    # That deploy reset the checkout while this shell sat here with deploy.sh
+    # half read — the same hazard as the re-exec further down. Start over.
+    NIKO_DEPLOY_LOCKED=1 exec bash "$APP_DIR/scripts/deploy.sh"
+  fi
+  export NIKO_DEPLOY_LOCKED=1
+fi
+
 echo "==> $SERVICE  ($APP_DIR, branch $BRANCH)"
 
 # A deploy that would silently discard someone's hand-edit on the server is a
