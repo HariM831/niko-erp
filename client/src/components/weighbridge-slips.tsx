@@ -15,7 +15,7 @@
  * book records a tare before a gross as often as after.
  */
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Printer, Scale, Truck } from "lucide-react";
 import { ApiError, api } from "../api";
 import { matchesTerm } from "../lib/utils";
@@ -132,6 +132,14 @@ export function WeighbridgeSlips({ term = "" }: { term?: string }) {
     refetchInterval: 30_000,
   });
   const open = allOpen?.filter((t) => matchesTerm(term, [t.vehicleNumber, t.number, t.partyName, t.itemName, t.notes]));
+  // Finished slips, newest first: fifty to browse, every one when searched —
+  // the search goes to the server, which is where the older slips are.
+  const q = term.trim();
+  const { data: past, isFetching: pastLoading } = useQuery<Ticket[]>({
+    queryKey: ["weigh-tickets", "closed", q],
+    queryFn: () => api(`/api/weigh-tickets?status=closed${q ? `&search=${encodeURIComponent(q)}` : ""}`),
+    placeholderData: keepPreviousData,
+  });
   const { data: slip } = useQuery<Slip>({
     queryKey: ["weigh-ticket", selected],
     queryFn: () => api(`/api/weigh-tickets/${selected}`),
@@ -214,6 +222,45 @@ export function WeighbridgeSlips({ term = "" }: { term?: string }) {
                 {t.grossWeightKg != null
                   ? `Gross ${kg(t.grossWeightKg)} at ${when(t.grossAt)} — needs tare`
                   : `Tare ${kg(t.tareWeightKg)} at ${when(t.tareAt)} — needs gross`}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Every slip finished here, so a driver's copy can be found and printed again. */}
+      <div className="mt-5">
+        <div className="mb-2 flex items-baseline justify-between">
+          <h3 className="text-[14px] font-semibold text-gray-900">Past weighments</h3>
+          <span className="text-[12px] text-gray-400">
+            {q ? `${past?.length ?? 0} found` : past?.length === 50 ? "the latest 50 — search for older" : `${past?.length ?? 0} slips`}
+          </span>
+        </div>
+        <div className="card overflow-hidden">
+          {!past?.length && (
+            <div className="p-6 text-center text-[13px] text-gray-400">
+              {pastLoading ? "Loading…" : q ? `No finished slip matches “${q}”.` : "No weighment has been finished yet."}
+            </div>
+          )}
+          {past?.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setSelected(t.id)}
+              className="block w-full border-b border-gray-100 px-3 py-2 text-left last:border-0 hover:bg-gray-50"
+            >
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-[14px] font-semibold text-gray-900">{t.vehicleNumber}</span>
+                <span className="text-[13px] font-semibold tabular-nums text-gray-900">Net {kg(t.netWeightKg)}</span>
+              </div>
+              <div className="flex items-baseline justify-between gap-2 text-[12px] text-gray-500">
+                <span className="truncate">
+                  {t.partyName ?? "Party not set"}
+                  {t.itemName ? ` · ${t.itemName}` : ""}
+                </span>
+                <span className="shrink-0 font-mono text-[11px] text-gray-400">{t.number}</span>
+              </div>
+              <div className="text-[11px] text-gray-400">
+                Gross {kg(t.grossWeightKg)} · Tare {kg(t.tareWeightKg)} · {when(t.tareAt && t.grossAt && t.tareAt > t.grossAt ? t.tareAt : t.grossAt)}
               </div>
             </button>
           ))}

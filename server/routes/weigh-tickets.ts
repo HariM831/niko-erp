@@ -23,6 +23,7 @@ import { db } from "../db";
 import { nextDocumentNumber } from "../lib/numbering";
 import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
+import { matches } from "../services/document-search";
 
 export const weighTicketsRouter = Router();
 
@@ -92,15 +93,28 @@ weighTicketsRouter.get(
   requirePermission("office", "weighbridge"),
   async (req, res) => {
     const status = (req.query.status as string | undefined) ?? "open";
-    const where =
+    const byStatus =
       status === "open"
         ? isOpen
         : status === "closed"
           ? and(isNotNull(weighTickets.grossWeightKg), isNotNull(weighTickets.tareWeightKg))
           : undefined;
+    // The top-bar search, by the rule every list follows. Past slips are
+    // browsed fifty at a time; a search reaches every one, so it is not capped.
+    const term = typeof req.query.search === "string" ? req.query.search.trim() : "";
+    const bySearch = term
+      ? or(
+          matches(weighTickets.number, term),
+          matches(weighTickets.vehicleNumber, term),
+          matches(contacts.displayName, term),
+          matches(items.name, term),
+          matches(weighTickets.notes, term),
+        )
+      : undefined;
+    const where = and(byStatus, bySearch);
     const rows = await (where ? withNames().where(where) : withNames())
       .orderBy(desc(weighTickets.createdAt))
-      .limit(status === "open" ? 100 : 50);
+      .limit(term ? 100_000 : status === "open" ? 100 : 50);
     res.json(rows);
   },
 );
