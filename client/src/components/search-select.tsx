@@ -168,7 +168,7 @@ export function SearchSelect({
           <div className="max-h-64 overflow-y-auto py-1">
             {matches.length === 0 && (
               <div className="px-3 py-3 text-center text-[12px] text-gray-400">
-                Nothing matches “{query}”.
+                {query.trim() ? <>Nothing matches “{query.trim()}”.</> : "Nothing to choose from."}
               </div>
             )}
             {pinned?.collapseOthers && !query.trim() && (
