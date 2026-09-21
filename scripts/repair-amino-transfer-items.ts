@@ -1,9 +1,10 @@
 /**
  * Put the Amino feed transfers on the feed they carried.
  *
- * import-from-amino.ts looked for feed items in a category called
- * "poultry_feed". niko's feed is in "feed", so it found none and fell back to
- * whatever item the table returned first — "Eggs (farm)". Every imported
+ * import-from-amino.ts looked for feed items in the "poultry_feed" category.
+ * The mill's feeds had been filed under "feed" (raw material) instead, so it
+ * found none and fell back to whatever item the table returned first —
+ * "Eggs (farm)". Every imported
  * transfer (AMN-FT-…) was written against it: 599 lorries of Layer 1, Grower
  * and the rest, recorded as eggs. The owner-billing feed invoice groups by that
  * item and the Houses board names the formula from it, so both would say eggs.

@@ -603,9 +603,10 @@ try {
     const [mill] = await tx.select().from(locations).limit(1);
     // Amino names the feed by its formula ("Layer 1"), and a formula says which
     // item it makes — so the item is looked up, never guessed. This once
-    // searched a "poultry_feed" category that does not exist, found nothing,
-    // and put all 599 lorries on whatever item came first: "Eggs (farm)".
-    // A formula with no item now stops that lorry and says so.
+    // searched the "poultry_feed" category, which held no items (the mill's
+    // feeds had been filed under "feed", raw material), found nothing, and put
+    // all 599 lorries on whatever item came first: "Eggs (farm)". A formula
+    // with no item now stops that lorry and says so.
     const madeBy = new Map<string, string>();
     for (const f of await tx
       .select({ name: formulas.name, itemId: formulas.outputItemId })

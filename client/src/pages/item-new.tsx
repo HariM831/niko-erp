@@ -6,7 +6,7 @@ import { AccountSelect, type AccountNode } from "../components/account-select";
 import {
   ITEM_CATEGORIES,
   ITEM_CATEGORY_LABELS,
-  PRODUCE_CATEGORIES,
+  SALE_CATEGORIES,
 } from "@shared/item-categories";
 import { uploadPending } from "../components/pending-attachments";
 import { ImagePlus, Search, X } from "lucide-react";
@@ -114,8 +114,8 @@ export function ItemNewPage({ editId }: { editId?: string }) {
 
   const set = (k: keyof typeof form) => (e: { target: { value: string } }) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
-  /** Only what the farm produces is sold; everything else is bought to use. */
-  const sellable = (PRODUCE_CATEGORIES as readonly string[]).includes(form.category);
+  /** Only what niko sells (SALE_CATEGORIES) carries sale terms; everything else is bought to use. */
+  const sellable = (SALE_CATEGORIES as readonly string[]).includes(form.category);
   // Gated on the *effective* flag, not the raw one. The Sales checkbox is
   // disabled for a non-produce category, so isSold can neither be unticked nor
   // priced there — reading it literally left Save permanently dead for every

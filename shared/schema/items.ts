@@ -27,6 +27,7 @@ export const itemCategory = pgEnum("item_category", [
   "vaccines",
   "medicines",
   "construction",
+  "packaging",
   "miscellaneous",
 ]);
 

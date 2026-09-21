@@ -147,8 +147,8 @@ What the staging rehearsal proved, and what production must match:
 14. `npx tsx scripts/repair-amino-transfer-items.ts --apply` — moves the 599
     Amino feed transfers (AMN-FT-…) off "Eggs (farm)" and onto the feed each
     carried, looked up from the formula named in its note. The Amino import put
-    them all on the wrong item (it searched a feed category that does not
-    exist); production has them too, and until this runs, owner billing would
+    them all on the wrong item (it searched the Poultry Feed category, which
+    held no items); production has them too, and until this runs, owner billing would
     invoice the group's feed as eggs. Run it without `--apply` first — it
     should list 599, split Layer 1 350 / Grower 105 / Prelayer 87 / Layer 2 33 /
     Chick 24, with no "!" lines.

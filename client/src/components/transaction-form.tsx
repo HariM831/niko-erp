@@ -5,6 +5,7 @@ import { api, ApiError, formatMoney } from "../api";
 import { PendingAttachments, uploadPending } from "./pending-attachments";
 import { CustomFieldsBlock, type CustomFieldValues } from "./custom-fields";
 import { AccountSelect, type AccountNode } from "./account-select";
+import { PURCHASE_CATEGORIES, SALE_CATEGORIES } from "@shared/item-categories";
 
 interface Contact {
   id: string;
@@ -15,6 +16,7 @@ interface Item {
   id: string;
   name: string;
   unit: string;
+  category?: string | null;
   sellingPrice?: string;
   costPrice?: string;
   taxId?: string;
@@ -194,6 +196,25 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
     queryKey: ["items-active"],
     queryFn: () => api<Item[]>("/api/items?isActive=true"),
   });
+  /**
+   * Only the items this side of the business deals in: an invoice offers what
+   * niko sells, a bill what it buys (shared/item-categories). An item already
+   * on a line is always kept in its own list, so opening an old document never
+   * loses what it says.
+   */
+  const offered = useMemo(() => {
+    const sell = config.contactType === "customer";
+    return (items ?? []).filter((it) =>
+      sell
+        ? !!it.category && (SALE_CATEGORIES as readonly string[]).includes(it.category)
+        : !it.category || (PURCHASE_CATEGORIES as readonly string[]).includes(it.category),
+    );
+  }, [items, config.contactType]);
+  const itemOptions = (current?: string) => {
+    if (!current || offered.some((it) => it.id === current)) return offered;
+    const kept = items?.find((it) => it.id === current);
+    return kept ? [kept, ...offered] : offered;
+  };
   const { data: taxes } = useQuery({
     queryKey: ["taxes"],
     queryFn: () => api<Tax[]>("/api/taxes"),
@@ -502,7 +523,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                   <td className="border border-[#ece3d5] px-1 py-1">
                     <select value={l.itemId ?? ""} onChange={(e) => pickItem(i, e.target.value)} className={inputCls}>
                       <option value="">— manual —</option>
-                      {items?.map((it) => (
+                      {itemOptions(l.itemId).map((it) => (
                         <option key={it.id} value={it.id}>
                           {it.name}
                         </option>
@@ -622,7 +643,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                 <label className="label">Item</label>
                 <select value={l.itemId ?? ""} onChange={(e) => pickItem(i, e.target.value)} className={`${inputCls} mb-2`}>
                   <option value="">— manual —</option>
-                  {items?.map((it) => (
+                  {itemOptions(l.itemId).map((it) => (
                     <option key={it.id} value={it.id}>
                       {it.name}
                     </option>
