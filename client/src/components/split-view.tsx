@@ -4,6 +4,8 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api, formatMoney } from "../api";
 import { StatusBadge } from "./list-page";
 import { useSearchContext } from "./search-context";
+// A bill goes by the vendor's number; every other document has none and keeps its own.
+import { billNo } from "../lib/utils";
 import { shortDate, type DocRow } from "../pages/documents";
 
 interface SplitViewProps {
@@ -78,7 +80,7 @@ export function DocumentSplitView({
             >
               <div className="mb-0.5 flex items-center justify-between gap-2">
                 <span className="truncate text-[13px] font-medium text-gray-800">
-                  {r.contactName ?? r.number}
+                  {r.contactName ?? billNo(r)}
                 </span>
                 <span className="shrink-0 text-[13px] font-medium tabular-nums">
                   {formatMoney((r.total ?? r.amount) as string)}
@@ -86,7 +88,7 @@ export function DocumentSplitView({
               </div>
               <div className="flex items-center justify-between gap-2 text-xs text-gray-500">
                 <span className="truncate">
-                  <span className="text-brand-600">{r.number}</span>
+                  <span className="text-brand-600">{billNo(r)}</span>
                   {" · "}
                   {shortDate(r[dateKey] as string)}
                 </span>

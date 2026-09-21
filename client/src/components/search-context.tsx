@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 /**
  * Which list the top bar is searching.
@@ -79,3 +79,17 @@ export function SearchProvider({ children }: { children: ReactNode }) {
 }
 
 export const useSearchContext = () => useContext(SearchContext);
+
+/**
+ * Claim the top-bar search for a list the page filters itself — one it already
+ * holds whole, so there is nothing to ask the server. `key` stands in for the
+ * endpoint: it decides whether the term survives moving between pages.
+ */
+export function useLocalSearch(title: string, key: string): string {
+  const { register, term } = useSearchContext();
+  useEffect(() => {
+    register({ title, endpoint: key, live: true });
+    return () => register(null);
+  }, [register, title, key]);
+  return term;
+}

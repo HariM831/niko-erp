@@ -4,6 +4,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, Landmark, SlidersHorizontal, UploadCloud, Wallet } from "lucide-react";
 import { api, formatDate, formatMoney } from "../api";
 import { StatusBadge } from "../components/list-page";
+import { useLocalSearch } from "../components/search-context";
+import { matchesTerm } from "../lib/utils";
 
 interface BankTxn {
   id: string;
@@ -82,6 +84,16 @@ export function BankingDetailPage({ bankAccountId }: { bankAccountId: string }) 
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, []);
+
+  // "Search in Banking" filters this account's transactions. The dashboard is a
+  // chart of all of them, so typing moves you to the list the term can narrow.
+  const term = useLocalSearch("Banking", `banking:${bankAccountId}`);
+  useEffect(() => {
+    if (term.trim()) setTab((t) => (t === "dashboard" ? "all" : t));
+  }, [term]);
+  const searchedRows = (register?.rows ?? []).filter((r) =>
+    matchesTerm(term, [r.reference, r.narration, r.party, r.entryNumber, r.typeLabel]),
+  );
 
   const currentBalance = register?.rows.length ? register.rows[register.rows.length - 1]!.running : "0.00";
   const uncategorizedCount = uncategorized?.length ?? 0;
@@ -192,11 +204,12 @@ export function BankingDetailPage({ bankAccountId }: { bankAccountId: string }) 
         {tab === "uncategorized" && (
           <UncategorizedTab
             bankAccountId={bankAccountId}
+            term={term}
             showImport={panel === "import"}
             onToggleImport={() => setPanel(panel === "import" ? null : "import")}
           />
         )}
-        {tab === "all" && <AllTransactionsTab rows={register?.rows ?? []} onOpen={(p) => navigate(p)} />}
+        {tab === "all" && <AllTransactionsTab rows={searchedRows} term={term} onOpen={(p) => navigate(p)} />}
       </div>
     </div>
   );
@@ -383,8 +396,19 @@ const STATUS_STYLES: Record<RegisterRow["status"], string> = {
   "Manually Added": "text-gray-500",
 };
 
-function AllTransactionsTab({ rows, onOpen }: { rows: RegisterRow[]; onOpen: (path: string) => void }) {
+function AllTransactionsTab({
+  rows,
+  term,
+  onOpen,
+}: {
+  rows: RegisterRow[];
+  term: string;
+  onOpen: (path: string) => void;
+}) {
   const desc = [...rows].reverse();
+  if (!desc.length && term.trim()) {
+    return <div className="p-12 text-center text-sm text-gray-500">No transactions match “{term.trim()}”.</div>;
+  }
   if (!desc.length) {
     return <div className="p-12 text-center text-sm text-gray-500">No transactions posted to this account yet.</div>;
   }
@@ -791,10 +815,12 @@ function ImportStatementWizard({
 
 function UncategorizedTab({
   bankAccountId,
+  term,
   showImport,
   onToggleImport,
 }: {
   bankAccountId: string;
+  term: string;
   showImport: boolean;
   onToggleImport: () => void;
 }) {
@@ -810,6 +836,7 @@ function UncategorizedTab({
   const { data: txns } = useQuery({
     queryKey: ["bank-txns", bankAccountId, subTab],
     queryFn: () => api<BankTxn[]>(`/api/banking/transactions?bankAccountId=${bankAccountId}&matchStatus=${subTab}`),
+    select: (rows) => rows.filter((t) => matchesTerm(term, [t.description, t.counterparty, t.utr])),
   });
   const { data: accounts } = useQuery({
     queryKey: ["accounts-all"],
@@ -872,7 +899,9 @@ function UncategorizedTab({
       )}
 
       {!txns?.length ? (
-        <div className="p-12 text-center text-sm text-gray-500">No {subTab} transactions.</div>
+        <div className="p-12 text-center text-sm text-gray-500">
+          {term.trim() ? `No ${subTab} transactions match “${term.trim()}”.` : `No ${subTab} transactions.`}
+        </div>
       ) : (
         <table className="w-full text-[13px]">
           <thead className="table-head sticky top-0">

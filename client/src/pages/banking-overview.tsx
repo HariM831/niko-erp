@@ -2,6 +2,8 @@ import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Landmark, Wallet } from "lucide-react";
 import { api, formatMoney } from "../api";
+import { useLocalSearch } from "../components/search-context";
+import { matchesTerm } from "../lib/utils";
 
 interface AccountSummary {
   id: string;
@@ -25,6 +27,10 @@ export function BankingOverviewPage() {
     queryKey: ["banking-summary"],
     queryFn: () => api<Summary>("/api/banking/summary"),
   });
+  const term = useLocalSearch("Banking", "banking:accounts");
+  const accounts = (data?.accounts ?? []).filter((a) =>
+    matchesTerm(term, [a.name, a.bankName, a.accountNumber]),
+  );
 
   return (
     <div className="h-full overflow-y-auto bg-surface">
@@ -63,7 +69,9 @@ export function BankingOverviewPage() {
         <div className="card overflow-hidden">
           {isLoading ? (
             <div className="p-8 text-center text-sm text-gray-500">Loading…</div>
-          ) : !data?.accounts.length ? (
+          ) : !accounts.length && term.trim() ? (
+            <div className="p-10 text-center text-sm text-gray-500">No accounts match “{term.trim()}”.</div>
+          ) : !accounts.length ? (
             <div className="p-10 text-center text-sm text-gray-500">
               No bank or cash accounts yet.{" "}
               <button onClick={() => navigate("/banking/new")} className="text-brand-600 hover:underline">
@@ -80,7 +88,7 @@ export function BankingOverviewPage() {
                 </tr>
               </thead>
               <tbody>
-                {data.accounts.map((a) => (
+                {accounts.map((a) => (
                   <tr
                     key={a.id}
                     onClick={() => navigate(`/banking/${a.id}`)}
