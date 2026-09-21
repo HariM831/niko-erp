@@ -68,7 +68,15 @@ const kindRank = (k: string) => {
 
 type Row =
   | { kind: "heading"; key: string; label: string }
-  | { kind: "account"; key: string; a: AccountNode; depth: number; pickable: boolean };
+  | {
+      kind: "account";
+      key: string;
+      a: AccountNode;
+      depth: number;
+      pickable: boolean;
+      /** Shown only as the parent of a match — kept for place, drawn quieter. */
+      context: boolean;
+    };
 
 export function AccountSelect({
   value,
@@ -117,10 +125,12 @@ export function AccountSelect({
     // A search keeps every match and the parents above it, so a hit is read in its place.
     const q = query.trim();
     let visible: Set<string> | null = null;
+    const hits = new Set<string>();
     if (q) {
       visible = new Set();
       for (const a of pool) {
         if (!matchesTerm(q, [a.name, a.code])) continue;
+        hits.add(a.id);
         let cur: AccountNode | undefined = a;
         while (cur && !visible.has(cur.id)) {
           visible.add(cur.id);
@@ -133,7 +143,7 @@ export function AccountSelect({
     const out: Row[] = [];
     const walk = (a: AccountNode, depth: number) => {
       if (visible && !visible.has(a.id)) return;
-      out.push({ kind: "account", key: a.id, a, depth, pickable: !a.isGroup });
+      out.push({ kind: "account", key: a.id, a, depth, pickable: !a.isGroup, context: !!q && !hits.has(a.id) });
       for (const c of children.get(a.id) ?? []) walk(c, depth + 1);
     };
     const roots = children.get(null) ?? [];
@@ -151,6 +161,11 @@ export function AccountSelect({
     () => rows.flatMap((r, i) => (r.kind === "account" && r.pickable ? [i] : [])),
     [rows],
   );
+  /** Where Enter lands after typing: the first account that actually matched, not a parent above it. */
+  const firstHit = useMemo(() => {
+    const i = rows.findIndex((r) => r.kind === "account" && r.pickable && !r.context);
+    return i >= 0 ? i : (pickable[0] ?? -1);
+  }, [rows, pickable]);
   const selected = pool.find((a) => a.id === value) ?? (accounts ?? []).find((a) => a.id === value) ?? null;
 
   useEffect(() => {
@@ -176,7 +191,7 @@ export function AccountSelect({
 
   // Typing moves the cursor to the first account that can be picked.
   useEffect(() => {
-    if (open && query) setCursor(pickable[0] ?? -1);
+    if (open && query) setCursor(firstHit);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
@@ -278,7 +293,9 @@ export function AccountSelect({
                       ? "cursor-default text-gray-500"
                       : i === cursor
                         ? "bg-brand-500 text-white"
-                        : "text-gray-800"
+                        : r.context
+                          ? "text-gray-400"
+                          : "text-gray-800"
                   }`}
                 >
                   <span className="truncate">• {r.a.name}</span>
