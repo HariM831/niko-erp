@@ -4,13 +4,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { PendingAttachments, uploadPending } from "../components/pending-attachments";
 import { CustomFieldsBlock, type CustomFieldValues } from "../components/custom-fields";
+import { AccountSelect, type AccountNode } from "../components/account-select";
 
-interface Account {
-  id: string;
-  code: string;
-  name: string;
-  type: string;
-}
+type Account = AccountNode;
 interface BankAccount {
   id: string;
   name: string;
@@ -180,16 +176,12 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
           </div>
           <div>
             <label className="label-required">Expense Account *</label>
-            <select value={form.expenseAccountId} onChange={set("expenseAccountId")} className={inputCls}>
-              <option value="">Select account…</option>
-              {accounts
-                ?.filter((a) => a.type === "expense")
-                .map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.code} · {a.name}
-                  </option>
-                ))}
-            </select>
+            <AccountSelect
+              value={form.expenseAccountId}
+              onChange={(id) => setForm((f) => ({ ...f, expenseAccountId: id }))}
+              accounts={accounts}
+              include={(a) => a.type === "expense"}
+            />
           </div>
           <div>
             <label className={unpaid ? label : "label-required"}>
