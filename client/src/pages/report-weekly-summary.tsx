@@ -173,7 +173,9 @@ export function WeeklySummaryPage() {
           <h1 className="text-[18px] font-semibold text-[#212529]">Weekly Management Summary</h1>
           {flock && (
             <>
-              <span className="text-gray-300">•</span>
+              {/* Below `sm` the batch line wraps under the title, and a
+                  separator with nothing after it is just a stray dot. */}
+              <span className="hidden text-gray-300 sm:inline">•</span>
               <span className="text-[13px] text-gray-600">
                 {flock.code} · {flock.breed} · hatched {dmy(flock.hatchDate)}
               </span>
