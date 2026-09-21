@@ -16,7 +16,7 @@ import {
   mayAccessContact,
   requireContactPermission,
 } from "../lib/contact-access";
-import { contains } from "../services/document-search";
+import { contains, wordStart } from "../services/document-search";
 import { gstStateCode, nonBlank, validateBody } from "../lib/validate";
 import { getPreferences } from "../services/preferences";
 import { readCustomFieldValues, saveCustomFieldValues } from "../services/custom-fields";
@@ -180,14 +180,16 @@ contactsRouter.get("/", async (req, res) => {
     if (sides.length === 1) conditions.push(inArray(contacts.type, [sides[0]!, "both"]));
   }
   if (isActive !== undefined) conditions.push(eq(contacts.isActive, isActive === "true"));
-  if (search) {
-    // contains() escapes the LIKE metacharacters, so a search for "50%" looks
-    // for that text rather than matching every contact.
-    const term = contains(search);
+  if (search?.trim()) {
+    // Names match from the start of any word, so each letter typed narrows the
+    // list the way the eye scans it; phone and GSTIN are numbers and match
+    // anywhere. contains() escapes the LIKE metacharacters, so a search for
+    // "50%" looks for that text rather than matching every contact.
+    const term = contains(search.trim());
     conditions.push(
       or(
-        ilike(contacts.displayName, term),
-        ilike(contacts.companyName, term),
+        wordStart(contacts.displayName, search),
+        wordStart(contacts.companyName, search),
         ilike(contacts.phone, term),
         ilike(contacts.gstin, term),
       ),

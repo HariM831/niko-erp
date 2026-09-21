@@ -116,6 +116,7 @@ export const VendorsPage = () => (
   <ListPage<ContactRow>
     title="Vendors"
     endpoint="/api/contacts?type=vendor"
+    liveSearch
     rowKey={(r) => r.id}
     newLabel="New Vendor"
     newPath="/purchases/vendors/new"

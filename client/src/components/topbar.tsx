@@ -76,6 +76,7 @@ export function TopBar() {
             onChange={setTerm}
             rowPath={config.rowPath}
             onOpen={config.onOpen}
+            live={config.live}
           />
         )}
       </div>

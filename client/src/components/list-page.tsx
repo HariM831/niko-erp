@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api } from "../api";
 import { AdvancedSearch, type Criteria, type SearchField } from "./advanced-search";
 import { useSearchContext } from "./search-context";
@@ -60,6 +60,8 @@ interface ListPageProps<T> {
   /** Highlighted row (used by the split view). */
   activeKey?: string;
   compact?: boolean;
+  /** Filter as the top-bar search is typed, matching the start of any word. */
+  liveSearch?: boolean;
   /**
    * How many columns survive on a phone held upright. Default 3.
    *
@@ -108,6 +110,7 @@ export function ListPage<T>({
   rowKey,
   activeKey,
   compact,
+  liveSearch = false,
   portraitCols,
   banner,
   extraActions,
@@ -181,9 +184,10 @@ export function ListPage<T>({
       onOpen: handlersRef.current.handleRow
         ? (row) => handlersRef.current.handleRow!(row as T)
         : undefined,
+      live: liveSearch,
     });
     return () => register(null);
-  }, [register, title, endpoint, viewKey]);
+  }, [register, title, endpoint, viewKey, liveSearch]);
   const params = new URLSearchParams(viewParams);
   if (search) params.set("search", search);
   for (const [k, v] of Object.entries(criteria)) params.set(k, v);
@@ -193,6 +197,9 @@ export function ListPage<T>({
   const { data, isLoading, error } = useQuery({
     queryKey: [endpoint, views?.[activeView]?.label ?? "all", search, criteria],
     queryFn: () => api<T[]>(url),
+    // A live search refetches on every key; holding the last rows until the
+    // next arrive stops the table blanking to "Loading…" between letters.
+    placeholderData: liveSearch ? keepPreviousData : undefined,
   });
   const criteriaCount = Object.keys(criteria).length;
 

@@ -80,6 +80,8 @@ interface QuickSearchProps {
   onChange: (term: string) => void;
   rowPath?: (row: Record<string, unknown>) => string;
   onOpen?: (row: Record<string, unknown>) => void;
+  /** Filter the list as the term is typed; no preview dropdown. */
+  live?: boolean;
 }
 
 export function QuickSearch({
@@ -90,6 +92,7 @@ export function QuickSearch({
   onChange,
   rowPath,
   onOpen,
+  live = false,
 }: QuickSearchProps) {
   const [, navigate] = useLocation();
   const [term, setTerm] = useState(value);
@@ -103,9 +106,16 @@ export function QuickSearch({
   useEffect(() => setTerm(value), [value]);
 
   useEffect(() => {
-    const t = setTimeout(() => setDebounced(term), 250);
+    const t = setTimeout(() => setDebounced(term), live ? 150 : 250);
     return () => clearTimeout(t);
-  }, [term]);
+  }, [term, live]);
+
+  // Live: the list itself is the preview, so the settled term goes straight to it.
+  const commitRef = useRef(onChange);
+  commitRef.current = onChange;
+  useEffect(() => {
+    if (live) commitRef.current(debounced);
+  }, [live, debounced]);
 
   /** Zoho focuses its search on "/". Not while the user is typing elsewhere. */
   useEffect(() => {
@@ -143,11 +153,11 @@ export function QuickSearch({
   const { data, isFetching } = useQuery({
     queryKey: ["quick-search", endpoint, params, debounced],
     queryFn: () => api<Record<string, unknown>[]>(url),
-    enabled: debounced.trim().length > 0,
+    enabled: !live && debounced.trim().length > 0,
   });
 
   const rows = debounced.trim() ? (data ?? []) : [];
-  const showing = open && debounced.trim().length > 0;
+  const showing = !live && open && debounced.trim().length > 0;
 
   const choose = (row: Record<string, unknown>) => {
     setOpen(false);
@@ -158,6 +168,18 @@ export function QuickSearch({
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
       setOpen(false);
+      if (live) {
+        setTerm("");
+        onChange("");
+      }
+      return;
+    }
+    if (live) {
+      // Nothing to pick from; Enter only saves waiting out the debounce.
+      if (e.key === "Enter") {
+        e.preventDefault();
+        onChange(term);
+      }
       return;
     }
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {

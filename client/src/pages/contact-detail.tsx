@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
 import { CustomFieldsDisplay } from "../components/custom-fields";
 import { StatusBadge } from "../components/list-page";
 import { CommentsTimeline } from "../components/comments";
 import { AttachmentsButton } from "../components/attachments";
 import { billNo } from "../lib/utils";
+import { useSearchContext } from "../components/search-context";
 
 interface ContactRailRow {
   id: string;
@@ -27,9 +28,33 @@ function ContactSplitView({
   const [, navigate] = useLocation();
   const listPath = type === "customer" ? "/sales/customers" : "/purchases/vendors";
   const newPath = `${listPath}/new`;
+  const isVendor = type !== "customer";
+  // The rail is the Vendors list in miniature, so it is the same query — a
+  // contact trading both ways opens under Vendors and shows that list.
+  const endpoint = isVendor ? "/api/contacts?type=vendor" : `/api/contacts?type=${type}`;
+
+  // Zoho keeps "Search in Vendors" in the top bar on a vendor's page, and it
+  // filters this rail. Registered under the list's own endpoint, so a term
+  // typed on All Vendors survives the click into a vendor. Customers follow
+  // once Vendors has been tried.
+  const { register, term } = useSearchContext();
+  useEffect(() => {
+    if (!isVendor) return;
+    register({
+      title: "Vendors",
+      endpoint,
+      live: true,
+      rowPath: (row) => `${listPath}/${String(row.id)}`,
+    });
+    return () => register(null);
+  }, [isVendor, register, endpoint, listPath]);
+  const search = isVendor ? term.trim() : "";
+
   const { data: rows } = useQuery({
-    queryKey: ["contacts", type, "rail"],
-    queryFn: () => api<ContactRailRow[]>(`/api/contacts?type=${type}`),
+    queryKey: ["contacts", endpoint, "rail", search],
+    queryFn: () =>
+      api<ContactRailRow[]>(search ? `${endpoint}&search=${encodeURIComponent(search)}` : endpoint),
+    placeholderData: keepPreviousData,
   });
 
   return (
@@ -62,7 +87,9 @@ function ContactSplitView({
               <div className="text-xs tabular-nums text-gray-500">{formatMoney(r.outstanding)}</div>
             </button>
           ))}
-          {!rows?.length && <p className="p-4 text-[13px] text-gray-400">No records.</p>}
+          {!rows?.length && (
+            <p className="p-4 text-[13px] text-gray-400">{search ? `No vendors match “${search}”.` : "No records."}</p>
+          )}
         </div>
       </aside>
       <div className="min-w-0 flex-1 overflow-y-auto">{children}</div>
@@ -107,7 +134,7 @@ interface DocRow {
 type Tab = "overview" | "comments" | "transactions" | "statement";
 
 export function ContactDetailPage({ id }: { id: string }) {
-  const [, navigate] = useLocation();
+  const [location, navigate] = useLocation();
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>("overview");
   const [newTxnOpen, setNewTxnOpen] = useState(false);
@@ -131,7 +158,14 @@ export function ContactDetailPage({ id }: { id: string }) {
       }>(`/api/contacts/${id}/summary`),
   });
 
-  if (isLoading) return <div className="p-8 text-sm text-gray-500">Loading…</div>;
+  // The rail stays up while the next contact loads: clicking down the list
+  // should not blank it, nor drop the search that narrowed it.
+  if (isLoading)
+    return (
+      <ContactSplitView type={location.startsWith("/purchases") ? "vendor" : "customer"} activeId={id}>
+        <div className="p-8 text-sm text-gray-500">Loading…</div>
+      </ContactSplitView>
+    );
   if (!contact) return <div className="p-8 text-sm text-red-600">Contact not found.</div>;
 
   const isCustomer = contact.type === "customer";

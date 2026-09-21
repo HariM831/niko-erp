@@ -24,6 +24,21 @@ import { db } from "../db";
  */
 export const contains = (term: string) => `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 
+/**
+ * A name search that matches the start of any word, the way a person scans a
+ * list of names: "agr" finds Agarwal Industries and Agro Trade Global, "trade"
+ * finds Agro Trade Global too, "music" finds M/S MUSIC MAHAL — but "gra" does
+ * not find Nagra. A word starts at the beginning of the name or after anything
+ * that is not a letter or digit, so the "S" in "M/S" counts.
+ *
+ * The term is escaped for the regex, so a dot or a bracket is looked for
+ * literally.
+ */
+export const wordStart = (col: PgColumn, term: string): SQL => {
+  const escaped = term.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return sql`${col} ~* ${`(^|[^[:alnum:]])${escaped}`}`;
+};
+
 /** Where a document keeps its lines, and which of their columns are text. */
 export interface Lines {
   /** The line table, e.g. billLines. */

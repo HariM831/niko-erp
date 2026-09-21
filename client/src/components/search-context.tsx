@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 
 /**
  * Which list the top bar is searching.
@@ -20,6 +20,12 @@ export interface SearchConfig {
   params?: Record<string, string>;
   rowPath?: (row: Record<string, unknown>) => string;
   onOpen?: (row: Record<string, unknown>) => void;
+  /**
+   * Filter the list with every key pressed instead of previewing ten rows and
+   * waiting for Enter. For lists of names, where the eye scans by first
+   * letters: A, then Ag, then Agr, the list narrowing each time.
+   */
+  live?: boolean;
 }
 
 interface SearchContextValue {
@@ -43,9 +49,26 @@ export function SearchProvider({ children }: { children: ReactNode }) {
   // Registering is how a list says "I am what the box searches now". Moving
   // from Bills to Invoices clears the term with it — carrying a bill number
   // over to the invoice list would silently show nothing.
+  //
+  // The same list registering again keeps it: Vendors hands over to a vendor's
+  // page, whose left rail is the same list, and a filter typed on one should
+  // still hold on the other. Leaving a list unregisters it first, so the term
+  // is only dropped once nothing has claimed the box by the next tick.
+  const last = useRef<string | null>(null);
+  const pendingClear = useRef<ReturnType<typeof setTimeout> | null>(null);
   const register = useCallback((next: SearchConfig | null) => {
     setConfig(next);
-    setTerm("");
+    if (pendingClear.current) clearTimeout(pendingClear.current);
+    pendingClear.current = null;
+    if (!next) {
+      pendingClear.current = setTimeout(() => {
+        last.current = null;
+        setTerm("");
+      }, 0);
+      return;
+    }
+    if (next.endpoint !== last.current) setTerm("");
+    last.current = next.endpoint;
   }, []);
 
   const value = useMemo(
