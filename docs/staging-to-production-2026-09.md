@@ -160,8 +160,10 @@ What the staging rehearsal proved, and what production must match:
     leftovers. Needs migration `0098` (the Packaging category), which the deploy
     applies. The invoice and bill item lists are filtered by category, so until
     this runs a Zoho item with no category is missing from invoices. Dry run
-    first: on staging it merged 8, categorised 71, retired 6, and left
-    Safeguard, Solex - M and Wagnor uncategorised on purpose.
+    first: on staging it merged 8, categorised 73, set Eggs (Sales) on Eggs —
+    Brown and Eggs — Niko, retired 6, and deleted Wagnor (a 2024 WagonR tyre
+    bill's item; the line keeps its own Vehicle Maintenance account). After it,
+    no active item is uncategorised.
 
 Order matters: 10 before 11–15, or the freight, the standards, the repaired
 transfers and the categories attach to items that are about to be folded away.

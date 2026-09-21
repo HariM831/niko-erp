@@ -1,5 +1,6 @@
 /**
- * Give every item a category, fold the duplicates, retire the leftovers.
+ * Give every item a category, fold the duplicates, retire the leftovers, and
+ * delete the one item that should never have been one (Wagnor).
  *
  * The invoice form offers only what niko sells and the bill form only what it
  * buys (shared/item-categories: SALE_CATEGORIES, PURCHASE_CATEGORIES), which
@@ -119,8 +120,20 @@ const CATEGORY: Record<ItemCategory, string[]> = {
     "Sludge Pump",
   ],
   packaging: ["Corrugated Boxes (210 Eggs)", "Corrugated Boxes (360 Eggs)", "Egg Tray", "BOPP Tape", "PP Strap", "Jute Rolls"],
-  miscellaneous: ["Diesel (Fuel)", "DEF (Deisel Exhaust Fluid)", "Router"],
+  // Safeguard and Solex - M are disinfectants — the user, 21 Sep 2026.
+  miscellaneous: ["Diesel (Fuel)", "DEF (Deisel Exhaust Fluid)", "Router", "Safeguard", "Solex - M"],
 };
+
+/**
+ * Items to remove outright. "Wagnor" was the office WagonR, keyed as an item
+ * for one tyre bill in 2024 (BILL-000122, Super Tyre Sales and Service). That
+ * line names its own account, 6530 Vehicle Maintenance, so letting go of the
+ * item changes no posting: the line keeps its text, account and amount, and
+ * only loses the link. The Zoho id-map entry goes too, so nothing points at a
+ * missing item. A reference that cannot simply be cleared (a required column,
+ * an attachment) stops the delete and is reported.
+ */
+const DELETE = ["Wagnor"];
 
 /**
  * Sales accounts for items that have none. The graded eggs niko added itself
@@ -246,10 +259,48 @@ async function main() {
   const retire = DEACTIVATE.map((n) => byName.get(n)).filter((i): i is (typeof all)[number] => !!i && i.isActive);
   say(`     ${retire.map((i) => i.name).join(", ") || "nothing — already inactive or gone"}`);
 
+  // ── 4. Delete ──
+  say("\n  4. Delete");
+  const nullable = new Set(
+    (
+      await db.execute<{ table_name: string; column_name: string }>(sql`
+        SELECT table_name, column_name FROM information_schema.columns
+        WHERE table_schema = 'public' AND is_nullable = 'YES'`)
+    ).rows.map((r) => `${r.table_name}.${r.column_name}`),
+  );
+  const deletes: Array<{ item: (typeof all)[number]; clear: Array<(typeof refs)[number]>; dropMap: boolean }> = [];
+  for (const name of DELETE) {
+    const item = byName.get(name);
+    if (!item) {
+      say(`     = ${name}: already gone`);
+      continue;
+    }
+    const clear: Array<(typeof refs)[number]> = [];
+    const blockers: string[] = [];
+    let dropMap = false;
+    for (const t of refs) {
+      const n = await count(t, item.id);
+      if (!n) continue;
+      if (t.table === "zoho_id_map") dropMap = true;
+      else if (fks.some((f) => f.table === t.table && f.column === t.column) && nullable.has(`${t.table}.${t.column}`)) clear.push(t);
+      else blockers.push(`${t.table}.${t.column} ${n}`);
+    }
+    if (blockers.length) {
+      say(`     ! ${name}: kept — ${blockers.join(", ")} cannot simply be cleared`);
+      continue;
+    }
+    deletes.push({ item, clear, dropMap });
+    say(
+      `     ${name}: ${clear.length ? `unlink ${clear.map((t) => `${t.table}.${t.column}`).join(", ")}; ` : ""}${dropMap ? "drop its Zoho id entry; " : ""}delete`,
+    );
+  }
+  if (!DELETE.length) say("     nothing to delete");
+
   // What is left without a category once all of the above is done.
   const merging = new Set(merges.map((m) => m.dupe.id));
   const gettingOne = new Set(recat.map((r) => r.id));
-  const left = all.filter((i) => !i.category && !merging.has(i.id) && !gettingOne.has(i.id));
+  const going = new Set(deletes.map((d) => d.item.id));
+  const left = all.filter((i) => !i.category && !merging.has(i.id) && !gettingOne.has(i.id) && !going.has(i.id));
   say(`\n  Still uncategorised after this: ${left.length}${left.length ? ` — ${left.map((i) => i.name).join(", ")}` : ""}`);
   if (missing.length) say(`\n  ! Not found by name (skipped): ${missing.join(", ")}`);
 
@@ -284,8 +335,19 @@ async function main() {
     for (const r of recat) await tx.update(items).set({ category: r.to }).where(eq(items.id, r.id));
     for (const s of setSales) await tx.update(items).set({ salesAccountId: s.accountId }).where(eq(items.id, s.id));
     if (retire.length) await tx.update(items).set({ isActive: false }).where(inArray(items.id, retire.map((i) => i.id)));
+    for (const d of deletes) {
+      for (const t of d.clear) {
+        await tx.execute(
+          sql`UPDATE ${sql.identifier(t.table)} SET ${sql.identifier(t.column)} = NULL WHERE ${sql.identifier(t.column)} = ${d.item.id}`,
+        );
+      }
+      if (d.dropMap) await tx.execute(sql`DELETE FROM zoho_id_map WHERE entity = 'item' AND eggsy_id = ${d.item.id}`);
+      await tx.delete(items).where(eq(items.id, d.item.id));
+    }
   });
-  say(`\n  Merged ${merged}, recategorised ${recat.length}, sales accounts set ${setSales.length}, deactivated ${retire.length}.`);
+  say(
+    `\n  Merged ${merged}, recategorised ${recat.length}, sales accounts set ${setSales.length}, deactivated ${retire.length}, deleted ${deletes.length}.`,
+  );
   for (const f of failed) say(`  ! merge skipped — ${f}`);
   say();
 }
