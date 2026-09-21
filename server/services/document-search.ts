@@ -11,7 +11,7 @@
  * WHERE clause. Nothing here reads req.query directly, so a module cannot
  * silently accept a filter it never applies.
  */
-import { type SQL, and, eq, exists, gte, ilike, lte, or, sql } from "drizzle-orm";
+import { type SQL, and, eq, exists, gte, ilike, inArray, lte, or, sql } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { accounts, contacts } from "@shared/schema";
 import { db } from "../db";
@@ -101,43 +101,36 @@ const one = { one: sql<number>`1` };
 /** How a column is tested against the term — the quick search's rule, or the advanced search's. */
 type Matcher = (col: PgColumn) => SQL;
 
+/*
+ * Each helper below asks "which contacts / accounts / lines match?" once, and
+ * keeps the documents that point at one — `col IN (SELECT …)`, uncorrelated,
+ * which Postgres runs a single time and hashes. Written as a correlated EXISTS
+ * inside the quick search's OR, the same question was re-asked for every
+ * document: 1,900 bills each scanning the bill lines, most of a second a key.
+ * IN also cannot repeat a document the way a join would, so a three-line bill
+ * about feed still appears once.
+ */
+
 /** Does the linked contact match, by display name or company name? */
 function contactMatches(contactId: PgColumn, m: Matcher) {
-  return exists(
-    db
-      .select(one)
-      .from(contacts)
-      .where(
-        and(
-          eq(contacts.id, contactId),
-          or(m(contacts.displayName), m(contacts.companyName)),
-        ),
-      ),
+  return inArray(
+    contactId,
+    db.select({ id: contacts.id }).from(contacts).where(or(m(contacts.displayName), m(contacts.companyName))),
   );
 }
 
 /** Does the named account match? Used both for expenses and for line accounts. */
 function accountMatches(accountId: PgColumn, m: Matcher) {
-  return exists(
-    db.select(one).from(accounts).where(and(eq(accounts.id, accountId), m(accounts.name))),
-  );
+  return inArray(accountId, db.select({ id: accounts.id }).from(accounts).where(m(accounts.name)));
 }
 
-/**
- * Does any line match?
- *
- * EXISTS rather than a join on purpose: joining the lines in would return the
- * document once per matching line, so a three-line bill about feed would appear
- * three times in the list.
- */
+/** Does any line match, by its own text or by the name of the account it posts to? */
 function lineMatches(lines: Lines, documentId: PgColumn, m: Matcher) {
   const conditions: (SQL | undefined)[] = lines.text.map(m);
   if (lines.accountId) conditions.push(accountMatches(lines.accountId, m));
-  return exists(
-    db
-      .select(one)
-      .from(lines.table)
-      .where(and(eq(lines.documentId, documentId), or(...conditions))),
+  return inArray(
+    documentId,
+    db.select({ id: lines.documentId }).from(lines.table).where(or(...conditions)),
   );
 }
 
