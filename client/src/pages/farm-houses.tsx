@@ -18,6 +18,7 @@ import { Plus } from "lucide-react";
 import { ApiError, api } from "../api";
 import { HOUSE_PURPOSE_LABELS, HOUSE_PURPOSES, type HousePurpose } from "@shared/schema/farms";
 import { Banner, EmptyRow, SettingsHeader, SettingsTable } from "../components/settings-ui";
+import { SearchSelect } from "../components/search-select";
 
 interface House {
   id: string;
@@ -121,33 +122,28 @@ export function FarmHousesSection() {
           <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
             <div>
               <label className="label-required">Site *</label>
-              <select
-                value={form.locationId}
-                onChange={(e) => setForm((f) => ({ ...f, locationId: e.target.value }))}
-                className="input"
-              >
-                <option value="">Choose…</option>
-                {ctx?.sites.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+              <SearchSelect
+                value={form.locationId || null}
+                onChange={(id) => setForm((f) => ({ ...f, locationId: id ?? "" }))}
+                options={(ctx?.sites ?? []).map((s) => ({ id: s.id, label: s.name }))}
+                placeholder="Choose…"
+              />
             </div>
             <div>
               <label className="label">Owner</label>
-              <select
+              {/* "Us" is a real choice, not an empty one — kept first, the owners after it A–Z. */}
+              <SearchSelect
                 value={form.ownerId}
-                onChange={(e) => setForm((f) => ({ ...f, ownerId: e.target.value }))}
-                className="input"
-              >
-                <option value="">{ctx?.ourName ?? "Us"}</option>
-                {ctx?.owners.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.name}
-                  </option>
-                ))}
-              </select>
+                onChange={(id) => setForm((f) => ({ ...f, ownerId: id ?? "" }))}
+                options={[
+                  { id: "", label: ctx?.ourName ?? "Us" },
+                  ...[...(ctx?.owners ?? [])]
+                    .sort((a, b) => a.name.localeCompare(b.name, "en-IN"))
+                    .map((o) => ({ id: o.id, label: o.name })),
+                ]}
+                allowClear={false}
+                keepOrder
+              />
             </div>
             <div>
               <label className="label-required">Code *</label>

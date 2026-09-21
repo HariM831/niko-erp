@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, Pencil, Plus } from "lucide-react";
 import { api, formatDate } from "../api";
+import { SearchSelect } from "../components/search-select";
 
 interface Agreement {
   id: string;
@@ -205,13 +206,14 @@ function AgreementDialog({
           {!agreement && (
             <div>
               <label className="mb-1 block text-xs font-medium text-muted-foreground">Customer</label>
-              <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} className={inputCls}>
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+              <SearchSelect
+                value={customerId || null}
+                onChange={(id) => id && setCustomerId(id)}
+                options={customers.map((c) => ({ id: c.id, label: c.name }))}
+                placeholder="Select customer"
+                allowClear={false}
+                buttonClassName={inputCls}
+              />
             </div>
           )}
 

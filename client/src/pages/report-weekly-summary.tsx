@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
+import { SearchSelect } from "../components/search-select";
 
 /**
  * Weekly Management Summary.
@@ -166,9 +167,9 @@ export function WeeklySummaryPage() {
 
   return (
     <div className="flex h-full flex-col bg-[#f4f4f9]">
-      <header className="page-header px-6 py-2.5">
+      <header className="page-header px-3 py-2.5 sm:px-6">
         <div className="text-[12px] font-medium text-[#4c526c]">Farms</div>
-        <div className="flex items-baseline gap-2">
+        <div className="flex flex-wrap items-baseline gap-x-2">
           <h1 className="text-[18px] font-semibold text-[#212529]">Weekly Management Summary</h1>
           {flock && (
             <>
@@ -181,22 +182,26 @@ export function WeeklySummaryPage() {
         </div>
       </header>
 
-      <div className="flex flex-wrap items-center gap-2 border-t bg-white px-6 py-2.5">
+      <div className="flex flex-wrap items-center gap-2 border-t bg-white px-3 py-2.5 sm:px-6">
         <span className="mr-1 text-[13px] text-gray-500">Filters :</span>
-        <label className="flex h-8 items-center gap-2 rounded-md border px-3 text-[13px]">
+        {/* A div, not a label: a label would forward clicks inside the open
+            list back to the picker's button and snap it shut again. */}
+        <div className="flex h-8 items-center gap-2 rounded-md border px-3 text-[13px]">
           <span className="text-gray-500">Batch :</span>
-          <select
-            value={flockId}
-            onChange={(e) => navigate(`/reports/weekly-management-summary?flockId=${e.target.value}`)}
-            className="max-w-[22rem] bg-transparent outline-none"
-          >
-            {batches.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.code} — {b.houses ?? "no house"} · {b.placedCount.toLocaleString("en-IN")} birds
-              </option>
-            ))}
-          </select>
-        </label>
+          <SearchSelect
+            value={flockId || null}
+            onChange={(id) => id && navigate(`/reports/weekly-management-summary?flockId=${id}`)}
+            options={batches.map((b) => ({
+              id: b.id,
+              label: b.code,
+              sub: `${b.houses ?? "no house"} · ${b.placedCount.toLocaleString("en-IN")} birds`,
+            }))}
+            allowClear={false}
+            keepOrder
+            className="w-56"
+            buttonClassName="bg-transparent py-0 outline-none"
+          />
+        </div>
 
         <label className="flex h-8 cursor-pointer items-center gap-2 rounded-md border px-3 text-[13px] text-gray-700">
           <input type="checkbox" checked={hideEmpty} onChange={(e) => setHideEmpty(e.target.checked)} />
@@ -211,8 +216,8 @@ export function WeeklySummaryPage() {
         </Link>
       </div>
 
-      <div className="flex-1 overflow-auto p-4">
-        <div className="min-h-full bg-white px-6 py-6">
+      <div className="min-h-0 flex-1 overflow-auto p-2 sm:p-4">
+        <div className="flex min-h-full flex-col bg-white px-3 py-4 sm:px-6 sm:py-6">
           {flock && (
             <div className="mb-5 flex flex-wrap gap-x-8 gap-y-1 text-[13px] text-gray-600">
               <span>
@@ -247,8 +252,15 @@ export function WeeklySummaryPage() {
             <>
               {/* Wide by nature — the week column and the header both stay put,
                   because a figure in the middle of a 60-week batch is unreadable
-                  once you cannot see which week or which column it is in. */}
-              <div className="table-surface relative max-h-[70vh] overflow-auto">
+                  once you cannot see which week or which column it is in.
+
+                  The table is the one thing that scrolls, in both directions,
+                  and it takes whatever height the window has left. Not
+                  `.table-surface`: that clips vertically by design and, being
+                  unlayered, wins over any overflow utility put beside it — the
+                  weeks past the fold were simply cut off. The floor is for a
+                  phone on its side, where the page scrolls instead. */}
+              <div className="relative min-h-[max(20rem,60dvh)] flex-1 basis-0 overflow-auto rounded-lg bg-white shadow-sm">
                 <table className="min-w-full border-separate border-spacing-0 text-[12px]">
                   <thead className="table-head">
                     <tr>

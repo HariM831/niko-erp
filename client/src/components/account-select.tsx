@@ -17,7 +17,9 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Search, X } from "lucide-react";
+import { createPortal } from "react-dom";
 import { matchesTerm } from "../lib/utils";
+import { useFloatingPanel } from "./floating";
 
 export interface AccountNode {
   id: string;
@@ -123,6 +125,8 @@ export function AccountSelect({
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(-1);
   const boxRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const { style: panelStyle, host } = useFloatingPanel(open, boxRef);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -192,7 +196,8 @@ export function AccountSelect({
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (!boxRef.current?.contains(t) && !panelRef.current?.contains(t)) setOpen(false);
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
@@ -216,13 +221,16 @@ export function AccountSelect({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
+  // Waits for the list as well as the cursor: the list is placed before it
+  // mounts, so on opening the chosen account is scrolled to once it is there.
+  const placed = !!panelStyle;
   useEffect(() => {
-    if (cursor < 0) return;
+    if (cursor < 0 || !placed) return;
     listRef.current?.querySelector<HTMLElement>(`[data-row="${cursor}"]`)?.scrollIntoView({ block: "nearest" });
-  }, [cursor]);
+  }, [cursor, placed]);
 
-  // The panel is at least 18rem wide (min-w below): in a table cell the box is
-  // narrow, and a tree needs room to indent.
+  // The panel is at least 18rem wide (useFloatingPanel): in a table cell the
+  // box is narrow, and a tree needs room to indent.
   const pick = (id: string) => {
     onChange(id);
     setOpen(false);
@@ -261,13 +269,14 @@ export function AccountSelect({
         </span>
       </button>
 
-      {open && (
-        <div className="absolute z-30 mt-1 w-full min-w-[18rem] rounded-lg border border-gray-200 bg-white shadow-lg">
+      {open && panelStyle && host && createPortal(
+        <div ref={panelRef} style={panelStyle} className="rounded-lg border border-gray-200 bg-white shadow-lg">
           <div className="p-2">
             <div className="flex items-center gap-2 rounded-md border border-gray-300 px-2 focus-within:border-brand-500">
               <Search className="h-3.5 w-3.5 shrink-0 text-gray-400" />
               <input
                 ref={inputRef}
+                autoFocus
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 onKeyDown={(e) => {
@@ -327,7 +336,8 @@ export function AccountSelect({
               ),
             )}
           </div>
-        </div>
+        </div>,
+        host,
       )}
     </div>
   );

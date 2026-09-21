@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useQuery } from "@tanstack/react-query";
+import { SearchSelect } from "./search-select";
 
 /**
  * Field-by-field search, the way Zoho's "Advanced Search" works.
@@ -56,14 +57,13 @@ function ContactPicker({
     queryFn: () => api<{ id: string; displayName: string }[]>(`/api/contacts?type=${type}`),
   });
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} className={INPUT}>
-      <option value="">All</option>
-      {(data ?? []).map((c) => (
-        <option key={c.id} value={c.id}>
-          {c.displayName}
-        </option>
-      ))}
-    </select>
+    <SearchSelect
+      value={value || null}
+      onChange={(id) => onChange(id ?? "")}
+      options={(data ?? []).map((c) => ({ id: c.id, label: c.displayName }))}
+      placeholder="All"
+      buttonClassName={INPUT}
+    />
   );
 }
 

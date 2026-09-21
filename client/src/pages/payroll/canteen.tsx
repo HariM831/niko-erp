@@ -16,6 +16,7 @@ import { useLocalSearch } from "../../components/search-context";
 import { matchesTerm } from "../../lib/utils";
 import { Plus } from "lucide-react";
 import { api, formatMoney } from "../../api";
+import { SearchSelect } from "../../components/search-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Badge, Empty, ErrorBanner, Field, PAGE_SIZE, PageHeader, Pager, PillTabs, Spinner, Td, Th, dmy, fmtTime, istToday,
@@ -134,10 +135,13 @@ function TodayTab({ term }: { term: string }) {
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <input type="date" className="input w-auto" value={date} onChange={(e) => { setDate(e.target.value); setOffset(0); }} />
-        <select className="input w-44" value={canteenId} onChange={(e) => { setCanteenId(e.target.value); setOffset(0); }}>
-          <option value="">All canteens</option>
-          {(canteensQ.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
+        <SearchSelect
+          className="w-44"
+          value={canteenId || null}
+          onChange={(id) => { setCanteenId(id ?? ""); setOffset(0); }}
+          placeholder="All canteens"
+          options={(canteensQ.data ?? []).map((c) => ({ id: c.id, label: c.name, sub: c.code }))}
+        />
         <select className="input w-36" value={meal} onChange={(e) => { setMeal(e.target.value); setOffset(0); }}>
           <option value="">All meals</option>
           {MEALS.map((m) => <option key={m} value={m} className="capitalize">{m}</option>)}
@@ -436,10 +440,22 @@ function SetupTab() {
       <div>
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-[14px] font-semibold">Meal windows</h2>
-          <select className="input w-48" value={scope} onChange={(e) => { setScope(e.target.value); setWinForm(null); }}>
-            <option value="global">Global default</option>
-            {(canteensQ.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          <SearchSelect
+            className="w-48"
+            value={scope}
+            onChange={(id) => {
+              // Re-picking the same scope must not throw away unsaved window edits.
+              if (!id || id === scope) return;
+              setScope(id);
+              setWinForm(null);
+            }}
+            allowClear={false}
+            keepOrder
+            options={[
+              { id: "global", label: "Global default" },
+              ...(canteensQ.data ?? []).map((c) => ({ id: c.id, label: c.name, sub: c.code })),
+            ]}
+          />
         </div>
         <div className="card p-4">
           <div className="space-y-2">
@@ -478,10 +494,12 @@ function SetupTab() {
             <Field label="Code" required><input className="input" maxLength={12} value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} /></Field>
             <Field label="Name" required><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
             <Field label="Location" required>
-              <select className="input" value={form.locationId} onChange={(e) => setForm({ ...form, locationId: e.target.value })}>
-                <option value="">—</option>
-                {(locQ.data ?? []).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-              </select>
+              <SearchSelect
+                value={form.locationId || null}
+                onChange={(id) => setForm({ ...form, locationId: id ?? "" })}
+                placeholder="—"
+                options={(locQ.data ?? []).map((l) => ({ id: l.id, label: l.name }))}
+              />
             </Field>
           </div>
           <div className="mt-4 flex justify-end gap-2">

@@ -243,18 +243,12 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
           {tags.map((t) => (
             <div key={t.id}>
               <label className={label}>{t.name}</label>
-              <select
-                value={lineTags[t.id] ?? ""}
-                onChange={(e) => setLineTags((m) => ({ ...m, [t.id]: e.target.value }))}
-                className={inputCls}
-              >
-                <option value="">—</option>
-                {t.options.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.name}
-                  </option>
-                ))}
-              </select>
+              <SearchSelect
+                value={lineTags[t.id] || null}
+                onChange={(id) => setLineTags((m) => ({ ...m, [t.id]: id ?? "" }))}
+                options={t.options.map((o) => ({ id: o.id, label: o.name }))}
+                placeholder="—"
+              />
             </div>
           ))}
           <div className="col-span-2">

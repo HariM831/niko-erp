@@ -9,6 +9,7 @@ import {
 import { overviewPagesForModule, pagesForAction } from "@shared/pages";
 import { api } from "../api";
 import { useAuth } from "../auth";
+import { SearchSelect } from "../components/search-select";
 import {
   Badge,
   Banner,
@@ -109,25 +110,23 @@ export function UsersSection() {
             </td>
             <td className="s-td text-gray-600">{u.username}</td>
             <td className="s-td">
-              <select
+              <SearchSelect
                 value={u.roleId}
                 disabled={u.id === me?.id}
-                onChange={(e) =>
+                onChange={(id) => {
+                  // Re-picking the same role is not a change — a native select never fired for it.
+                  if (!id || id === u.roleId) return;
                   act(() =>
                     api(`/api/users/${u.id}`, {
                       method: "PATCH",
-                      body: { roleId: e.target.value },
+                      body: { roleId: id },
                     }),
-                  )
-                }
-                className="w-full rounded border border-gray-200 px-2 py-1 text-[13px] disabled:border-transparent disabled:bg-transparent disabled:text-gray-500"
-              >
-                {roles?.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
+                  );
+                }}
+                options={(roles ?? []).map((r) => ({ id: r.id, label: r.name, sub: r.description }))}
+                allowClear={false}
+                buttonClassName="rounded border border-gray-200 px-2 py-1 text-[13px] disabled:border-transparent disabled:bg-transparent disabled:text-gray-500"
+              />
             </td>
             <td className="s-td">
               {!u.isActive ? (
@@ -273,14 +272,12 @@ function NewUserDialog({
         </div>
         <div>
           <label className="label-required">Role *</label>
-          <select value={form.roleId} onChange={(e) => set({ roleId: e.target.value })} className="input">
-            <option value="">Select role…</option>
-            {roles.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
+          <SearchSelect
+            value={form.roleId || null}
+            onChange={(id) => set({ roleId: id ?? "" })}
+            options={roles.map((r) => ({ id: r.id, label: r.name, sub: r.description }))}
+            placeholder="Select role…"
+          />
         </div>
         <div className="col-span-2">
           <label className="label-required">Initial Password *</label>

@@ -24,6 +24,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Calculator, Plus, X } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
+import { SearchSelect } from "./search-select";
 import { LIFE_STAGES, LIFE_STAGE_LABELS, nutrientLabel, type LifeStage } from "@shared/feed";
 
 interface Material {
@@ -344,18 +345,14 @@ export function FormulaSolver({
                       </tbody>
                     </table>
                     <div className="border-t border-gray-100 p-2">
-                      <select
-                        value=""
-                        onChange={(e) => e.target.value && setPool((p) => [...p, e.target.value])}
-                        className="input h-7 text-[12px]"
-                      >
-                        <option value="">+ Add material…</option>
-                        {addable.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.name}
-                          </option>
-                        ))}
-                      </select>
+                      <SearchSelect
+                        value={null}
+                        onChange={(id) => id && setPool((p) => [...p, id])}
+                        options={addable.map((m) => ({ id: m.id, label: m.name }))}
+                        placeholder="+ Add material…"
+                        allowClear={false}
+                        buttonClassName="input h-7 py-0 text-[12px]"
+                      />
                     </div>
                   </div>
 
@@ -702,18 +699,12 @@ function SaveDialog({
               </div>
               <div>
                 <label className="label-required">Output item *</label>
-                <select
-                  value={outputItemId}
-                  onChange={(e) => setOutputItemId(e.target.value)}
-                  className="input"
-                >
-                  <option value="">Select…</option>
-                  {outputs?.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.name}
-                    </option>
-                  ))}
-                </select>
+                <SearchSelect
+                  value={outputItemId || null}
+                  onChange={(id) => setOutputItemId(id ?? "")}
+                  options={(outputs ?? []).map((o) => ({ id: o.id, label: o.name }))}
+                  placeholder="Select…"
+                />
               </div>
             </>
           )}

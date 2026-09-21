@@ -22,6 +22,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
 import { Banner, EmptyRow, SettingsHeader, SettingsTable } from "../components/settings-ui";
+import { SearchSelect } from "../components/search-select";
 
 type Basis = "pct_of_value" | "per_point_per_kg" | "shortfall_value" | "flat";
 
@@ -374,18 +375,14 @@ export function DeductionRulesSection() {
                 <div className="label">Reads</div>
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                   <div className="w-44">
-                    <select
-                      value={draft.parameter}
-                      onChange={(e) => set({ parameter: e.target.value })}
-                      className="input h-8 text-[13px]"
-                    >
-                      <option value="">Choose a reading…</option>
-                      {params?.map((p) => (
-                        <option key={p.parameter} value={p.parameter}>
-                          {p.label}
-                        </option>
-                      ))}
-                    </select>
+                    <SearchSelect
+                      value={draft.parameter || null}
+                      onChange={(id) => set({ parameter: id ?? "" })}
+                      options={(params ?? []).map((p) => ({ id: p.parameter, label: p.label, sub: p.source }))}
+                      keepOrder
+                      placeholder="Choose a reading…"
+                      buttonClassName="input h-8 py-0 text-[13px]"
+                    />
                   </div>
                   <div className="w-28">
                     <select
@@ -464,32 +461,22 @@ export function DeductionRulesSection() {
                 <div className="label">Applies to</div>
                 <div className="mb-1 flex flex-wrap gap-2">
                   <div className="w-52">
-                    <select
-                      value={draft.itemId}
-                      onChange={(e) => set({ itemId: e.target.value })}
-                      className="input h-8 text-[13px]"
-                    >
-                      <option value="">Every material</option>
-                      {targets?.materials.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.name}
-                        </option>
-                      ))}
-                    </select>
+                    <SearchSelect
+                      value={draft.itemId || null}
+                      onChange={(id) => set({ itemId: id ?? "" })}
+                      options={(targets?.materials ?? []).map((m) => ({ id: m.id, label: m.name }))}
+                      placeholder="Every material"
+                      buttonClassName="input h-8 py-0 text-[13px]"
+                    />
                   </div>
                   <div className="w-52">
-                    <select
-                      value={draft.vendorId}
-                      onChange={(e) => set({ vendorId: e.target.value })}
-                      className="input h-8 text-[13px]"
-                    >
-                      <option value="">Every vendor</option>
-                      {targets?.vendors.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {v.name}
-                        </option>
-                      ))}
-                    </select>
+                    <SearchSelect
+                      value={draft.vendorId || null}
+                      onChange={(id) => set({ vendorId: id ?? "" })}
+                      options={(targets?.vendors ?? []).map((v) => ({ id: v.id, label: v.name }))}
+                      placeholder="Every vendor"
+                      buttonClassName="input h-8 py-0 text-[13px]"
+                    />
                   </div>
                   <div className="w-36">
                     <select

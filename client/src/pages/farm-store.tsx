@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowDownToLine, ArrowUpFromLine, Loader2, PackageOpen } from "lucide-react";
 import { api } from "../api";
 import { useLocalSearch } from "../components/search-context";
+import { SearchSelect } from "../components/search-select";
 import { matchesTerm } from "../lib/utils";
 
 interface Store {
@@ -169,17 +170,15 @@ export function FarmStorePage() {
         </div>
         <div className="flex items-center gap-2">
           {farms.length > 1 && (
-            <select
-              value={locationId}
-              onChange={(e) => setLocationId(e.target.value)}
-              className="h-9 rounded-md border border-border bg-background px-2 text-sm"
-            >
-              {farms.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.name}
-                </option>
-              ))}
-            </select>
+            <SearchSelect
+              value={locationId || null}
+              onChange={(id) => id && setLocationId(id)}
+              options={farms.map((f) => ({ id: f.id, label: f.name }))}
+              allowClear={false}
+              keepOrder
+              className="w-56"
+              buttonClassName="input h-9 py-0"
+            />
           )}
           <button
             onClick={() => setDialog("receive")}
@@ -426,13 +425,17 @@ function MoveDialog({
 
         <div className="space-y-3">
           <Field label="Item">
-            <select value={itemId} onChange={(e) => setItemId(e.target.value)} className={inputCls}>
-              {options.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            <SearchSelect
+              value={itemId || null}
+              onChange={(id) => setItemId(id ?? "")}
+              options={options.map((c) => ({
+                id: c.id,
+                label: c.name,
+                sub: [c.category, c.unit].filter(Boolean).join(" · ") || null,
+              }))}
+              placeholder="Pick an item"
+              allowClear={false}
+            />
           </Field>
 
           <div className="grid grid-cols-2 gap-3">
@@ -478,14 +481,13 @@ function MoveDialog({
             </>
           ) : (
             <Field label="To shed (optional)">
-              <select value={houseId} onChange={(e) => setHouseId(e.target.value)} className={inputCls}>
-                <option value="">— general use —</option>
-                {houses.map((h) => (
-                  <option key={h.houseId} value={h.houseId}>
-                    {h.code}
-                  </option>
-                ))}
-              </select>
+              <SearchSelect
+                value={houseId || null}
+                onChange={(id) => setHouseId(id ?? "")}
+                options={houses.map((h) => ({ id: h.houseId, label: h.code }))}
+                placeholder="— general use —"
+                keepOrder
+              />
             </Field>
           )}
 

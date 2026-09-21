@@ -15,6 +15,7 @@ import { Camera, Loader2, Plus, Stethoscope, Trash2, X } from "lucide-react";
 import { api } from "../api";
 import { useApp } from "../lib/store";
 import { useLocalSearch } from "../components/search-context";
+import { SearchSelect } from "../components/search-select";
 import { matchesTerm } from "../lib/utils";
 
 interface ObsImage {
@@ -399,17 +400,14 @@ function NewObservation({
         <h2 className="mb-3 text-lg font-semibold">New observation</h2>
 
         <label className="mb-1 block text-xs font-medium text-muted-foreground">Shed</label>
-        <select
-          value={houseId}
-          onChange={(e) => setHouseId(e.target.value)}
-          className="mb-3 h-9 w-full rounded-md border border-border bg-background px-2 text-sm"
-        >
-          {houses.map((h) => (
-            <option key={h.houseId} value={h.houseId}>
-              {h.code}
-            </option>
-          ))}
-        </select>
+        <SearchSelect
+          value={houseId || null}
+          onChange={(id) => id && setHouseId(id)}
+          options={houses.map((h) => ({ id: h.houseId, label: h.code }))}
+          allowClear={false}
+          keepOrder
+          className="mb-3"
+        />
 
         <label className="mb-1 block text-xs font-medium text-muted-foreground">Date</label>
         <input

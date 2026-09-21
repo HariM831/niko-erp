@@ -12,6 +12,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatMoney } from "../../api";
+import { SearchSelect } from "../../components/search-select";
 import { useLocalSearch } from "../../components/search-context";
 import { matchesTerm } from "../../lib/utils";
 import { Badge, Empty, PageHeader, Pager, Spinner, Td, Th, istToday, num, usePaged } from "../../components/payroll/ui";
@@ -88,10 +89,13 @@ export function PayrollWagesPage() {
             <input type="date" className="input w-auto" value={from} onChange={(e) => setFrom(e.target.value)} />
             <span className="text-gray-400">–</span>
             <input type="date" className="input w-auto" value={to} onChange={(e) => setTo(e.target.value)} />
-            <select value={role} onChange={(e) => setRole(e.target.value)} className="input w-44">
-              <option value="">All roles</option>
-              {(rolesQ.data ?? []).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-            </select>
+            <SearchSelect
+              className="w-44"
+              value={role || null}
+              onChange={(id) => setRole(id ?? "")}
+              placeholder="All roles"
+              options={(rolesQ.data ?? []).map((r) => ({ id: r.id, label: r.name }))}
+            />
           </>
         ) : (
           <input type="date" className="input w-auto" value={day} onChange={(e) => setDay(e.target.value)} />
@@ -229,21 +233,20 @@ function DayRoles({ day, roles, term }: { day: string; roles: WageRole[]; term: 
                       )}
                     </Td>
                     <Td>
-                      <select
-                        className={`input h-8 w-full max-w-56 py-0 text-[13px] ${changed ? "border-brand-300 bg-brand-50/50" : ""}`}
+                      {/* No role for the day (null) is "usual": the placeholder shows it, the × goes back to it. */}
+                      <SearchSelect
+                        className="w-full max-w-56"
+                        buttonClassName={`input h-8 py-0 text-[13px] ${changed ? "border-brand-300 bg-brand-50/50" : ""}`}
                         disabled={!r.status || setRole.isPending}
-                        value={r.dayRoleId ?? ""}
-                        onChange={(e) =>
-                          setRole.mutate({ employeeId: r.id, wageRoleId: e.target.value || null })
-                        }
-                      >
-                        <option value="">
-                          usual{r.defaultRoleName ? ` — ${r.defaultRoleName}` : ""}
-                        </option>
-                        {roles.filter((x) => x.isActive || x.id === r.dayRoleId).map((x) => (
-                          <option key={x.id} value={x.id}>{x.name}</option>
-                        ))}
-                      </select>
+                        value={r.dayRoleId || null}
+                        onChange={(id) => {
+                          // A <select> only fired on a change; re-picking the same role saves nothing.
+                          if ((id || null) === (r.dayRoleId || null)) return;
+                          setRole.mutate({ employeeId: r.id, wageRoleId: id || null });
+                        }}
+                        placeholder={`usual${r.defaultRoleName ? ` — ${r.defaultRoleName}` : ""}`}
+                        options={roles.filter((x) => x.isActive || x.id === r.dayRoleId).map((x) => ({ id: x.id, label: x.name }))}
+                      />
                     </Td>
                   </tr>
                 );

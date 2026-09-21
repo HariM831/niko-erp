@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
 import { AccountSelect, type AccountNode } from "./account-select";
+import { SearchSelect } from "./search-select";
 
 interface FieldOption {
   id: string;
@@ -70,18 +71,12 @@ function LookupSelect({
     );
   }
   return (
-    <select
-      value={(value as string) ?? ""}
-      onChange={(e) => onChange(e.target.value || undefined)}
-      className="input"
-    >
-      <option value="">—</option>
-      {(data ?? []).map((r) => (
-        <option key={r.id} value={r.id}>
-          {(source.label as (x: unknown) => string)(r)}
-        </option>
-      ))}
-    </select>
+    <SearchSelect
+      value={(value as string) || null}
+      onChange={(id) => onChange(id || undefined)}
+      options={(data ?? []).map((r) => ({ id: r.id as string, label: (source.label as (x: unknown) => string)(r) }))}
+      placeholder="—"
+    />
   );
 }
 
@@ -129,20 +124,15 @@ function LookupMultiSelect({
           })}
         </div>
       )}
-      <select
-        value=""
-        onChange={(e) => e.target.value && onChange([...chosen, e.target.value])}
-        className="input"
-      >
-        <option value="">Add…</option>
-        {(data ?? [])
+      <SearchSelect
+        value={null}
+        onChange={(id) => id && onChange([...chosen, id])}
+        options={(data ?? [])
           .filter((r) => !chosen.includes(r.id ?? ""))
-          .map((r) => (
-            <option key={r.id} value={r.id}>
-              {label(r)}
-            </option>
-          ))}
-      </select>
+          .map((r) => ({ id: r.id as string, label: label(r) }))}
+        placeholder="Add…"
+        allowClear={false}
+      />
     </div>
   );
 }
@@ -198,20 +188,13 @@ function FieldInput({
       );
     case "dropdown":
       return (
-        <select
-          value={(value as string) ?? ""}
-          onChange={(e) => onChange(e.target.value || undefined)}
-          className={cls}
-        >
-          <option value="">—</option>
-          {field.options
-            .filter((o) => o.isActive)
-            .map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-        </select>
+        <SearchSelect
+          value={(value as string) || null}
+          onChange={(id) => onChange(id || undefined)}
+          options={field.options.filter((o) => o.isActive).map((o) => ({ id: o.id, label: o.label }))}
+          placeholder="—"
+          keepOrder
+        />
       );
     case "multiselect": {
       const chosen = Array.isArray(value) ? (value as string[]) : [];

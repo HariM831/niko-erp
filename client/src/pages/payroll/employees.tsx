@@ -11,6 +11,7 @@ import { useLocalSearch } from "../../components/search-context";
 import { Link } from "wouter";
 import { Plus, ScanFace, Upload } from "lucide-react";
 import { ApiError, api, formatMoney } from "../../api";
+import { SearchSelect } from "../../components/search-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Avatar, Badge, Empty, EmployeeRow, ErrorBanner, Field, PageHeader, Pager, Spinner, Td, Th, dmy, fileToDataUrl, num, useErr, usePaged,
@@ -198,10 +199,13 @@ export function PayrollEmployeesPage() {
       <ErrorBanner message={err} onClose={() => setErr(null)} />
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <select value={dept} onChange={(e) => setDept(e.target.value)} className="input w-44">
-          <option value="">All departments</option>
-          {(deptQ.data ?? []).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-        </select>
+        <SearchSelect
+          className="w-44"
+          value={dept || null}
+          onChange={(id) => setDept(id ?? "")}
+          placeholder="All departments"
+          options={(deptQ.data ?? []).map((d) => ({ id: d.id, label: d.name }))}
+        />
         <select value={payType} onChange={(e) => setPayType(e.target.value)} className="input w-36">
           <option value="">All pay types</option>
           <option value="salaried">Salaried</option>
@@ -474,37 +478,48 @@ function EmployeeEditor({ id, departments, employees, onClose, onSaved }: {
                     </div>
                   </Field>
                   <Field label="Department">
-                    <select className="input" value={form.departmentId ?? ""} onChange={(e) => { set("departmentId", e.target.value || null); set("designationId", null); }}>
-                      <option value="">—</option>
-                      {departments.filter((d) => d.isActive).map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                    </select>
+                    <SearchSelect
+                      value={form.departmentId || null}
+                      onChange={(id) => { set("departmentId", id || null); set("designationId", null); }}
+                      placeholder="—"
+                      options={departments.filter((d) => d.isActive).map((d) => ({ id: d.id, label: d.name }))}
+                    />
                   </Field>
                   {form.payType === "salaried" ? (
                     <Field label="Designation">
-                      <select className="input" value={form.designationId ?? ""} onChange={(e) => set("designationId", e.target.value || null)}>
-                        <option value="">—</option>
-                        {designations.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                      </select>
+                      <SearchSelect
+                        value={form.designationId || null}
+                        onChange={(id) => set("designationId", id || null)}
+                        placeholder="—"
+                        keepOrder
+                        options={designations.map((d) => ({ id: d.id, label: d.name }))}
+                      />
                     </Field>
                   ) : (
                     <Field label="Wage role" required hint="The rate card sets the daily rate">
-                      <select className="input" value={form.wageRoleId ?? ""} onChange={(e) => set("wageRoleId", e.target.value || null)}>
-                        <option value="">—</option>
-                        {(rolesQ.data ?? []).filter((r) => r.isActive).map((r) => <option key={r.id} value={r.id}>{r.name} · {formatMoney(r.dailyRate)}/day</option>)}
-                      </select>
+                      <SearchSelect
+                        value={form.wageRoleId || null}
+                        onChange={(id) => set("wageRoleId", id || null)}
+                        placeholder="—"
+                        options={(rolesQ.data ?? []).filter((r) => r.isActive).map((r) => ({ id: r.id, label: r.name, sub: `${formatMoney(r.dailyRate)}/day` }))}
+                      />
                     </Field>
                   )}
                   <Field label="Location">
-                    <select className="input" value={form.locationId ?? ""} onChange={(e) => set("locationId", e.target.value || null)}>
-                      <option value="">—</option>
-                      {(locQ.data ?? []).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                    </select>
+                    <SearchSelect
+                      value={form.locationId || null}
+                      onChange={(id) => set("locationId", id || null)}
+                      placeholder="—"
+                      options={(locQ.data ?? []).map((l) => ({ id: l.id, label: l.name, sub: l.code }))}
+                    />
                   </Field>
                   <Field label="Reporting to">
-                    <select className="input" value={form.reportingTo ?? ""} onChange={(e) => set("reportingTo", e.target.value || null)}>
-                      <option value="">—</option>
-                      {employees.filter((e) => e.id !== id).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
-                    </select>
+                    <SearchSelect
+                      value={form.reportingTo || null}
+                      onChange={(v) => set("reportingTo", v || null)}
+                      placeholder="—"
+                      options={employees.filter((e) => e.id !== id).map((e) => ({ id: e.id, label: e.name, sub: e.empCode }))}
+                    />
                   </Field>
                   <Field label="Date of joining">
                     <input type="date" className="input" value={form.dateOfJoining ?? ""} onChange={(e) => set("dateOfJoining", e.target.value || null)} />
@@ -647,10 +662,13 @@ function EmployeeEditor({ id, departments, employees, onClose, onSaved }: {
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     <Field label="Shift">
-                      <select className="input" value={newShift.shiftId} onChange={(e) => setNewShift({ ...newShift, shiftId: e.target.value })}>
-                        <option value="">—</option>
-                        {(shiftsQ.data ?? []).filter((s) => s.isActive).map((s) => <option key={s.id} value={s.id}>{s.name} ({s.startTime}–{s.endTime})</option>)}
-                      </select>
+                      <SearchSelect
+                        value={newShift.shiftId || null}
+                        onChange={(v) => setNewShift({ ...newShift, shiftId: v ?? "" })}
+                        placeholder="—"
+                        keepOrder
+                        options={(shiftsQ.data ?? []).filter((s) => s.isActive).map((s) => ({ id: s.id, label: s.name, sub: `${s.startTime}–${s.endTime}` }))}
+                      />
                     </Field>
                     <Field label="Effective from">
                       <input type="date" className="input" value={newShift.effectiveFrom} onChange={(e) => setNewShift({ ...newShift, effectiveFrom: e.target.value })} />

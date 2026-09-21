@@ -12,6 +12,7 @@ import { ApiError, api, formatMoney } from "../api";
 import { StatusBadge } from "../components/status-badge";
 import type { LineMatch } from "@shared/po-match-types";
 import { Modal } from "../components/settings-ui";
+import { SearchSelect, type Choice } from "../components/search-select";
 
 interface ReceiptRow {
   id: string;
@@ -386,18 +387,14 @@ function ReceiptEditor({
       <div className="mb-4 grid grid-cols-3 gap-3">
         <div>
           <label className="label-required">Site *</label>
-          <select
-            value={locationId}
-            onChange={(e) => setLocationId(e.target.value)}
+          <SearchSelect
+            value={locationId || null}
+            onChange={(id) => setLocationId(id ?? "")}
+            options={ctx.locations.map((l): Choice => ({ id: l.id, label: l.name, sub: l.code }))}
             disabled={editing}
-            className="input disabled:bg-gray-50"
-          >
-            {ctx.locations.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
+            allowClear={false}
+            placeholder="Choose a site…"
+          />
         </div>
         <div>
           <label className="label-required">Vehicle number *</label>
@@ -410,14 +407,12 @@ function ReceiptEditor({
         </div>
         <div>
           <label className="label">Vendor</label>
-          <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} className="input">
-            <option value="">Not identified yet</option>
-            {ctx.vendors.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name}
-              </option>
-            ))}
-          </select>
+          <SearchSelect
+            value={vendorId || null}
+            onChange={(id) => setVendorId(id ?? "")}
+            options={ctx.vendors.map((v): Choice => ({ id: v.id, label: v.name }))}
+            placeholder="Not identified yet"
+          />
         </div>
         <div>
           <label className="label">Vendor's bill number</label>
@@ -534,21 +529,15 @@ function ReceiptEditor({
               {lines.map((l, i) => (
                 <tr key={i} className="border-b border-gray-100">
                   <td className="px-2 py-1">
-                    <select
-                      value={l.itemId}
-                      onChange={(e) => {
-                        const item = ctx.items.find((it) => it.id === e.target.value);
-                        setLine(i, { itemId: e.target.value, itemName: item?.name ?? "" });
+                    <SearchSelect
+                      value={l.itemId || null}
+                      onChange={(id) => {
+                        const item = ctx.items.find((it) => it.id === id);
+                        setLine(i, { itemId: id ?? "", itemName: item?.name ?? "" });
                       }}
-                      className="input"
-                    >
-                      <option value="">Choose…</option>
-                      {ctx.items.map((it) => (
-                        <option key={it.id} value={it.id}>
-                          {it.name}
-                        </option>
-                      ))}
-                    </select>
+                      options={ctx.items.map((it): Choice => ({ id: it.id, label: it.name, sub: it.unit }))}
+                      placeholder="Choose…"
+                    />
                   </td>
                   <td className="px-1 py-1">
                     <input

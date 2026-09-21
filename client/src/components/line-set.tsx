@@ -14,6 +14,7 @@
  */
 import { useEffect, useState } from "react";
 import { Plus, X } from "lucide-react";
+import { SearchSelect } from "./search-select";
 
 export interface Column {
   key: string;
@@ -68,25 +69,21 @@ export function LineSet<T extends Record<string, string>>({
                 {columns.map((c) => (
                   <div key={c.key} style={{ width: c.width ?? "10rem" }}>
                     {c.kind === "select" ? (
-                      <select
-                        value={row[c.key] ?? ""}
+                      <SearchSelect
+                        value={row[c.key] || null}
                         disabled={disabled}
-                        onChange={(e) =>
+                        onChange={(id) =>
                           onChange(
                             rows.map((r, j) =>
-                              j === i ? { ...r, [c.key]: e.target.value } : r,
+                              j === i ? { ...r, [c.key]: id ?? "" } : r,
                             ),
                           )
                         }
-                        className="input"
-                      >
-                        <option value="">{c.label}…</option>
-                        {c.options?.map((o) => (
-                          <option key={o.value} value={o.value}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </select>
+                        options={(c.options ?? []).map((o) => ({ id: o.value, label: o.label }))}
+                        placeholder={`${c.label}…`}
+                        keepOrder
+                        buttonClassName="input px-2"
+                      />
                     ) : (
                       <input
                         type={c.kind === "date" ? "date" : "text"}

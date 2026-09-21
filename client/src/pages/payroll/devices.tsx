@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Copy, Plus, RotateCw, X } from "lucide-react";
 import { api } from "../../api";
+import { SearchSelect } from "../../components/search-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Badge, Empty, ErrorBanner, Field, PageHeader, PillTabs, Spinner, Td, Th, timeAgo, useErr,
@@ -270,17 +271,23 @@ function PairDialog({ replace, onClose }: { replace?: DeviceRow; onClose: () => 
                 </div>
               </Field>
               <Field label="Location" required>
-                <select className="input" value={form.locationId} onChange={(e) => setForm({ ...form, locationId: e.target.value })} disabled={!!replace}>
-                  <option value="">—</option>
-                  {(locQ.data ?? []).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                </select>
+                <SearchSelect
+                  value={form.locationId || null}
+                  onChange={(id) => setForm({ ...form, locationId: id ?? "" })}
+                  disabled={!!replace}
+                  placeholder="—"
+                  options={(locQ.data ?? []).map((l) => ({ id: l.id, label: l.name, sub: l.code }))}
+                />
               </Field>
               {form.role === "canteen" && (
                 <Field label="Canteen" required>
-                  <select className="input" value={form.canteenId} onChange={(e) => setForm({ ...form, canteenId: e.target.value })} disabled={!!replace}>
-                    <option value="">—</option>
-                    {(canteensQ.data ?? []).filter((c) => c.isActive).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
+                  <SearchSelect
+                    value={form.canteenId || null}
+                    onChange={(id) => setForm({ ...form, canteenId: id ?? "" })}
+                    disabled={!!replace}
+                    placeholder="—"
+                    options={(canteensQ.data ?? []).filter((c) => c.isActive).map((c) => ({ id: c.id, label: c.name, sub: c.code }))}
+                  />
                 </Field>
               )}
             </div>
@@ -384,16 +391,20 @@ function PinsTab() {
           <div className="space-y-2">
             <Field label="Name" required><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
             <Field label="Location" required>
-              <select className="input" value={form.locationId} onChange={(e) => setForm({ ...form, locationId: e.target.value })}>
-                <option value="">—</option>
-                {(locQ.data ?? []).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-              </select>
+              <SearchSelect
+                value={form.locationId || null}
+                onChange={(id) => setForm({ ...form, locationId: id ?? "" })}
+                placeholder="—"
+                options={(locQ.data ?? []).map((l) => ({ id: l.id, label: l.name, sub: l.code }))}
+              />
             </Field>
             <Field label="Canteen" hint="Leave empty for any canteen at the location">
-              <select className="input" value={form.canteenId} onChange={(e) => setForm({ ...form, canteenId: e.target.value })}>
-                <option value="">Any</option>
-                {(canteensQ.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
+              <SearchSelect
+                value={form.canteenId || null}
+                onChange={(id) => setForm({ ...form, canteenId: id ?? "" })}
+                placeholder="Any"
+                options={(canteensQ.data ?? []).map((c) => ({ id: c.id, label: c.name, sub: c.code }))}
+              />
             </Field>
             <Field label="PIN" required hint="4–6 digits; stored hashed, never shown again">
               <input className="input tabular-nums" inputMode="numeric" maxLength={6} value={form.pin} onChange={(e) => setForm({ ...form, pin: e.target.value.replace(/\D/g, "") })} />

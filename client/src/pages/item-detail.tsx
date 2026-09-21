@@ -7,6 +7,7 @@ import { ChevronDown, Package } from "lucide-react";
 import { api, formatMoney } from "../api";
 import { AttachmentsButton } from "../components/attachments";
 import { CommentsButton } from "../components/comments";
+import { SearchSelect } from "../components/search-select";
 import { StatusBadge } from "../components/list-page";
 import { shortDate } from "./documents";
 import { ITEM_CATEGORY_LABELS, type ItemCategory } from "@shared/item-categories";
@@ -238,20 +239,16 @@ export function ItemDetailPage({ id }: { id: string }) {
           </p>
           {mergeError && <p className="mb-2 text-[12px] font-medium text-red-700">{mergeError}</p>}
           <div className="flex items-center gap-2">
-            <select
-              value={mergeTarget}
-              onChange={(e) => setMergeTarget(e.target.value)}
-              className="input h-8 w-80 text-[13px]"
-            >
-              <option value="">Choose the surviving item…</option>
-              {mergeCandidates
-                ?.filter((c) => c.id !== id)
-                .map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-            </select>
+            <SearchSelect
+              value={mergeTarget || null}
+              onChange={(target) => setMergeTarget(target ?? "")}
+              options={(mergeCandidates ?? [])
+                .filter((c) => c.id !== id)
+                .map((c) => ({ id: c.id, label: c.name }))}
+              placeholder="Choose the surviving item…"
+              className="w-80"
+              buttonClassName="input h-8 py-0 text-[13px]"
+            />
             <button onClick={() => void merge()} disabled={!mergeTarget} className="btn-primary h-8">
               Merge
             </button>

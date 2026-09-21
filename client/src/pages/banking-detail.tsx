@@ -7,6 +7,7 @@ import { StatusBadge } from "../components/list-page";
 import { useLocalSearch } from "../components/search-context";
 import { matchesTerm } from "../lib/utils";
 import { AccountSelect, bankNodes, type AccountNode } from "../components/account-select";
+import { SearchSelect } from "../components/search-select";
 
 interface BankTxn {
   id: string;
@@ -720,16 +721,13 @@ function ImportStatementWizard({
                   {FIELD_LABELS[key]}
                   {key === "date" ? " *" : ""}
                 </label>
-                <select
-                  value={mapping[key] ?? ""}
-                  onChange={(e) => setMapping((m) => ({ ...m, [key]: e.target.value === "" ? null : Number(e.target.value) }))}
-                  className="input"
-                >
-                  <option value="">Not in file</option>
-                  {headers.map((h, i) => (
-                    <option key={i} value={i}>{h || `Column ${i + 1}`}</option>
-                  ))}
-                </select>
+                <SearchSelect
+                  value={mapping[key] == null ? null : String(mapping[key])}
+                  onChange={(id) => setMapping((m) => ({ ...m, [key]: id == null || id === "" ? null : Number(id) }))}
+                  options={headers.map((h, i) => ({ id: String(i), label: h || `Column ${i + 1}` }))}
+                  placeholder="Not in file"
+                  keepOrder
+                />
               </div>
             ))}
           </div>
@@ -961,14 +959,17 @@ function UncategorizedTab({
                           <span className="text-xs text-gray-400">or</span>
                           <div className="w-72">
                             <label className="label">Match to journal entry</label>
-                            <select value={matchJe} onChange={(e) => setMatchJe(e.target.value)} className="input">
-                              <option value="">Select entry…</option>
-                              {journals?.map((j) => (
-                                <option key={j.id} value={j.id}>
-                                  {j.entryNumber} · {j.narration.slice(0, 40)}
-                                </option>
-                              ))}
-                            </select>
+                            <SearchSelect
+                              value={matchJe || null}
+                              onChange={(id) => setMatchJe(id ?? "")}
+                              options={(journals ?? []).map((j) => ({
+                                id: j.id,
+                                label: `${j.entryNumber} · ${j.narration.slice(0, 40)}`,
+                                sub: formatDate(j.entryDate),
+                              }))}
+                              placeholder="Select entry…"
+                              keepOrder
+                            />
                           </div>
                           <button
                             onClick={() =>

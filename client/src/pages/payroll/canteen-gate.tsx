@@ -21,6 +21,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Camera, CameraOff, CheckCircle2, Loader2, ScanFace, SwitchCamera, UserSearch, Utensils } from "lucide-react";
 import { ApiError, api } from "../../api";
+import { SearchSelect } from "../../components/search-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge, ErrorBanner, PageHeader, useErr } from "../../components/payroll/ui";
 import { DEFAULT_MATCH_THRESHOLD, MIN_MATCH_MARGIN, getFaceEmbedding, looksSpoofed } from "../../lib/face";
@@ -160,10 +161,13 @@ export function PayrollCanteenGatePage() {
       {(canteensQ.data?.length ?? 0) > 1 || !canteenId ? (
         <div className="card mb-3 flex items-center gap-2 p-3 text-sm">
           <span className="text-gray-500">Canteen</span>
-          <select className="input flex-1" value={canteenId} onChange={(e) => setCanteenId(e.target.value)}>
-            <option value="">Choose the canteen this counter is in…</option>
-            {(canteensQ.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
+          <SearchSelect
+            className="flex-1"
+            value={canteenId || null}
+            onChange={(id) => setCanteenId(id ?? "")}
+            placeholder="Choose the canteen this counter is in…"
+            options={(canteensQ.data ?? []).map((c) => ({ id: c.id, label: c.name, sub: c.code }))}
+          />
         </div>
       ) : null}
       {canteensQ.data && canteensQ.data.length === 0 && (

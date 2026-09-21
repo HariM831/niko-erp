@@ -17,6 +17,7 @@ import { Link } from "wouter";
 import { Layers, Plus, X } from "lucide-react";
 import { ApiError, api } from "../api";
 import { useLocalSearch } from "../components/search-context";
+import { SearchSelect } from "../components/search-select";
 import { matchesTerm } from "../lib/utils";
 import { FLOCK_STATUS_LABELS, hatchProfile, type FlockStatus } from "@shared/schema/flocks";
 import { HOUSE_PURPOSE_LABELS, type HousePurpose } from "@shared/schema/farms";
@@ -272,52 +273,37 @@ function NewBatchDialog({ onClose, onSaved }: { onClose: () => void; onSaved: ()
           </div>
           <div>
             <label className="label-required">Site *</label>
-            <select
-              value={f.locationId}
-              onChange={(e) =>
-                setF((v) => ({ ...v, locationId: e.target.value, houseId: "" }))
-              }
-              className="input"
-            >
-              <option value="">Choose…</option>
-              {ctx?.sites.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+            <SearchSelect
+              value={f.locationId || null}
+              onChange={(id) => setF((v) => ({ ...v, locationId: id ?? "", houseId: "" }))}
+              options={(ctx?.sites ?? []).map((s) => ({ id: s.id, label: s.name }))}
+              placeholder="Choose…"
+            />
           </div>
           <div>
             <label className="label-required">House *</label>
-            <select
-              value={f.houseId}
-              onChange={(e) => setF((v) => ({ ...v, houseId: e.target.value }))}
+            <SearchSelect
+              value={f.houseId || null}
+              onChange={(id) => setF((v) => ({ ...v, houseId: id ?? "" }))}
+              options={housesHere.map((h) => ({
+                id: h.id,
+                label: h.code,
+                sub: HOUSE_PURPOSE_LABELS[h.purpose],
+              }))}
+              placeholder={f.locationId ? "Choose…" : "Pick a site first"}
               disabled={!f.locationId}
-              className="input"
-            >
-              <option value="">{f.locationId ? "Choose…" : "Pick a site first"}</option>
-              {housesHere.map((h) => (
-                <option key={h.id} value={h.id}>
-                  {h.code} — {HOUSE_PURPOSE_LABELS[h.purpose]}
-                </option>
-              ))}
-            </select>
+              keepOrder
+            />
           </div>
 
           <div className="md:col-span-3">
             <label className="label-required">Breed *</label>
-            <select
-              value={f.breedId}
-              onChange={(e) => setF((v) => ({ ...v, breedId: e.target.value }))}
-              className="input"
-            >
-              <option value="">Choose…</option>
-              {ctx?.breeds.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
+            <SearchSelect
+              value={f.breedId || null}
+              onChange={(id) => setF((v) => ({ ...v, breedId: id ?? "" }))}
+              options={(ctx?.breeds ?? []).map((b) => ({ id: b.id, label: b.name }))}
+              placeholder="Choose…"
+            />
             {f.breedId && !ctx?.standardSets.some((s) => s.breedId === f.breedId && s.isDefault) && (
               <p className="mt-1 text-[11px] text-amber-700">
                 That breed has no default standard set, so this flock will be placed without a

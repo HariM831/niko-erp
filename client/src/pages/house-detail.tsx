@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchSelect } from "@/components/search-select";
 import { ArrowLeft, Plus, Bird, Calendar, Scale, Droplets, Wheat, AlertTriangle, Check, Trash2, Home, Egg, ArrowDownRight, ArrowUpRight, Scissors, Syringe, Upload, Edit, Eye, EyeOff } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { apiRequest } from "@/lib/queryClient";
@@ -1097,21 +1098,24 @@ export function HouseDetailPage() {
                 </Button>
               )}
               {batchesWithCounts.length > 0 && (
-                <Select value={selectedBatch} onValueChange={(val) => setSelectedBatch(val)}>
-                  <SelectTrigger className="w-auto h-8 text-xs gap-1" data-testid="select-batch">
-                    <SelectValue placeholder="All Batches" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__all__" data-testid="select-batch-all">
-                      All Batches ({batchesWithCounts.reduce((s, b) => s + Math.max(0, b.currentBirds), 0).toLocaleString("en-IN")} birds)
-                    </SelectItem>
-                    {batchesWithCounts.map(b => (
-                      <SelectItem key={b.batchNumber} value={b.batchNumber} data-testid={`select-batch-${b.batchNumber}`}>
-                        {b.batchNumber} ({b.currentBirds > 0 ? `${b.currentBirds.toLocaleString("en-IN")} birds` : 'Empty'})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchSelect
+                  value={selectedBatch}
+                  onChange={(val) => setSelectedBatch(val ?? "__all__")}
+                  options={[
+                    {
+                      id: "__all__",
+                      label: `All Batches (${batchesWithCounts.reduce((s, b) => s + Math.max(0, b.currentBirds), 0).toLocaleString("en-IN")} birds)`,
+                    },
+                    ...batchesWithCounts.map(b => ({
+                      id: b.batchNumber,
+                      label: `${b.batchNumber} (${b.currentBirds > 0 ? `${b.currentBirds.toLocaleString("en-IN")} birds` : 'Empty'})`,
+                    })),
+                  ]}
+                  allowClear={selectedBatch !== "__all__"}
+                  keepOrder
+                  className="w-60"
+                  buttonClassName="input h-8 py-0 text-xs"
+                />
               )}
             </div>
             {age && (
@@ -2056,21 +2060,22 @@ export function HouseDetailPage() {
                           </div>
                           <div>
                             <Label>Vaccine Name</Label>
-                            <Select
-                              value={vaccinationForm.vaccineName}
-                              onValueChange={(value) => setVaccinationForm(prev => ({ ...prev, vaccineName: value }))}
-                            >
-                              <SelectTrigger className="min-h-[44px]" data-testid="select-vaccine-name">
-                                <SelectValue placeholder="Select vaccine" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {vaccineStandards.map(vs => (
-                                  <SelectItem key={vs.id} value={vs.vaccineName}>
-                                    {vs.vaccineName}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            {/* The value is the vaccine's NAME, and one vaccine can recur in
+                                the schedule — one row per name, its ages underneath. */}
+                            <SearchSelect
+                              value={vaccinationForm.vaccineName || null}
+                              onChange={(value) => setVaccinationForm(prev => ({ ...prev, vaccineName: value ?? "" }))}
+                              options={Array.from(
+                                vaccineStandards.reduce((m, vs) => {
+                                  m.set(vs.vaccineName, [...(m.get(vs.vaccineName) ?? []), vs.age].filter(Boolean));
+                                  return m;
+                                }, new Map<string, string[]>()),
+                                ([name, ages]) => ({ id: name, label: name, sub: ages.join(", ") || null }),
+                              )}
+                              placeholder="Select vaccine"
+                              keepOrder
+                              buttonClassName="input min-h-[44px]"
+                            />
                           </div>
                           <div>
                             <Label>Batch Number</Label>

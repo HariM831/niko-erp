@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
 import { AccountSelect } from "../components/account-select";
+import { SearchSelect } from "../components/search-select";
 
 
 interface Account {
@@ -114,12 +115,12 @@ function FilterModal({
           <div className="mb-3 flex items-start gap-4">
             <label className="w-36 shrink-0 pt-1.5 text-[13px] text-gray-600">Contact</label>
             <div className="flex-1">
-              <select value={f.contactId} onChange={(e) => set({ contactId: e.target.value })} className="input">
-                <option value="">Select Contact</option>
-                {contacts.map((c) => (
-                  <option key={c.id} value={c.id}>{c.displayName}</option>
-                ))}
-              </select>
+              <SearchSelect
+                value={f.contactId || null}
+                onChange={(id) => set({ contactId: id ?? "" })}
+                options={contacts.map((c) => ({ id: c.id, label: c.displayName, sub: c.type }))}
+                placeholder="Select Contact"
+              />
             </div>
           </div>
 
@@ -353,19 +354,17 @@ export function BulkUpdatePage() {
                   <h2 className="text-[13px] font-semibold text-gray-800">
                     {g.label} ({g.rows.length})
                   </h2>
-                  <label className="flex items-center gap-1.5 text-[12px] text-gray-600">
+                  <div className="flex items-center gap-1.5 text-[12px] text-gray-600">
                     Status:
-                    <select
-                      value={statusFilter[g.type] ?? "all"}
-                      onChange={(e) => setStatusFilter((s) => ({ ...s, [g.type]: e.target.value }))}
-                      className="rounded border border-[#e3e3ec] px-1.5 py-0.5 text-[12px]"
-                    >
-                      <option value="all">All</option>
-                      {statuses.map((s) => (
-                        <option key={s} value={s}>{s.replace(/_/g, " ")}</option>
-                      ))}
-                    </select>
-                  </label>
+                    <SearchSelect
+                      value={(statusFilter[g.type] ?? "all") === "all" ? null : (statusFilter[g.type] ?? null)}
+                      onChange={(id) => setStatusFilter((s) => ({ ...s, [g.type]: id ?? "all" }))}
+                      options={statuses.map((s) => ({ id: s, label: s.replace(/_/g, " ") }))}
+                      placeholder="All"
+                      className="w-36"
+                      buttonClassName="rounded border border-[#e3e3ec] px-1.5 py-0.5 text-[12px]"
+                    />
+                  </div>
                 </div>
                 <table className="w-full text-[13px]">
                   <thead className="table-head">

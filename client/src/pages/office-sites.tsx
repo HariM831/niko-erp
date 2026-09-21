@@ -15,6 +15,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MapPin, Plus, Scale } from "lucide-react";
 import { ApiError, api } from "../api";
 import { Banner, EmptyRow, SettingsHeader, SettingsTable } from "../components/settings-ui";
+import { SearchSelect } from "../components/search-select";
 
 interface Gate {
   id: string;
@@ -260,13 +261,13 @@ function GateForm({ locations, onDone, onError, onCancel }: FormProps) {
         </div>
         <div>
           <label className="label-required">Location *</label>
-          <select value={f.locationId} onChange={set("locationId")} className="input">
-            {locations.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
+          <SearchSelect
+            value={f.locationId || null}
+            onChange={(id) => setF((s) => ({ ...s, locationId: id ?? "" }))}
+            options={locations.map((l) => ({ id: l.id, label: l.name }))}
+            allowClear={false}
+            placeholder="Choose a location…"
+          />
         </div>
         <div>
           <label className="label">Latitude</label>
@@ -327,13 +328,13 @@ function WeighbridgeForm({ locations, onDone, onError, onCancel }: FormProps) {
         </div>
         <div>
           <label className="label-required">Location *</label>
-          <select value={f.locationId} onChange={set("locationId")} className="input">
-            {locations.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
+          <SearchSelect
+            value={f.locationId || null}
+            onChange={(id) => setF((s) => ({ ...s, locationId: id ?? "" }))}
+            options={locations.map((l) => ({ id: l.id, label: l.name }))}
+            allowClear={false}
+            placeholder="Choose a location…"
+          />
         </div>
         <div>
           <label className="label">Capacity (kg)</label>

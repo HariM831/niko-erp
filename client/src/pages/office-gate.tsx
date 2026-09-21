@@ -14,6 +14,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { ApiError, api } from "../api";
 import { shrink } from "../lib/image";
+import { SearchSelect, type Choice } from "../components/search-select";
 import type { LineMatch } from "@shared/po-match-types";
 
 interface Context {
@@ -355,6 +356,10 @@ export function GateInPage() {
   }, [vendorId, billDate, lines]);
 
   const site = locationId || ctx?.locations[0]?.id || "";
+  const itemChoices = useMemo(
+    () => (ctx?.items ?? []).map((it): Choice => ({ id: it.id, label: it.name, sub: it.unit })),
+    [ctx],
+  );
   const setLine = (i: number, patch: Partial<LineDraft>) =>
     setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...patch } : l)));
 
@@ -539,13 +544,13 @@ export function GateInPage() {
         <div className="mb-3 grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
           <div>
             <label className="label-required">Site *</label>
-            <select value={site} onChange={(e) => setLocationId(e.target.value)} className="input">
-              {ctx.locations.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
-            </select>
+            <SearchSelect
+              value={site || null}
+              onChange={(id) => setLocationId(id ?? "")}
+              options={ctx.locations.map((l): Choice => ({ id: l.id, label: l.name, sub: l.code }))}
+              allowClear={false}
+              placeholder="Choose a site…"
+            />
           </div>
           <div>
             <label className="label-required">Vehicle number *</label>
@@ -558,14 +563,12 @@ export function GateInPage() {
           </div>
           <div>
             <label className="label">Vendor</label>
-            <select value={vendorId} onChange={(e) => setVendorId(e.target.value)} className="input">
-              <option value="">Not identified yet</option>
-              {ctx.vendors.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.name}
-                </option>
-              ))}
-            </select>
+            <SearchSelect
+              value={vendorId || null}
+              onChange={(id) => setVendorId(id ?? "")}
+              options={ctx.vendors.map((v): Choice => ({ id: v.id, label: v.name }))}
+              placeholder="Not identified yet"
+            />
           </div>
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
@@ -634,21 +637,15 @@ export function GateInPage() {
             {lines.map((l, i) => (
               <tr key={i} className="border-b border-gray-100">
                 <td className="px-3 py-2">
-                  <select
-                    value={l.itemId}
-                    onChange={(e) => {
-                      const item = ctx.items.find((it) => it.id === e.target.value);
-                      setLine(i, { itemId: e.target.value, itemName: item?.name ?? "" });
+                  <SearchSelect
+                    value={l.itemId || null}
+                    onChange={(id) => {
+                      const item = ctx.items.find((it) => it.id === id);
+                      setLine(i, { itemId: id ?? "", itemName: item?.name ?? "" });
                     }}
-                    className="input"
-                  >
-                    <option value="">Choose a material…</option>
-                    {ctx.items.map((it) => (
-                      <option key={it.id} value={it.id}>
-                        {it.name}
-                      </option>
-                    ))}
-                  </select>
+                    options={itemChoices}
+                    placeholder="Choose a material…"
+                  />
                 </td>
                 <td className="px-2 py-2">
                   <input
@@ -711,21 +708,16 @@ export function GateInPage() {
                 )}
               </div>
               <label className="label">Material</label>
-              <select
-                value={l.itemId}
-                onChange={(e) => {
-                  const item = ctx.items.find((it) => it.id === e.target.value);
-                  setLine(i, { itemId: e.target.value, itemName: item?.name ?? "" });
+              <SearchSelect
+                value={l.itemId || null}
+                onChange={(id) => {
+                  const item = ctx.items.find((it) => it.id === id);
+                  setLine(i, { itemId: id ?? "", itemName: item?.name ?? "" });
                 }}
-                className="input mb-2"
-              >
-                <option value="">Choose a material…</option>
-                {ctx.items.map((it) => (
-                  <option key={it.id} value={it.id}>
-                    {it.name}
-                  </option>
-                ))}
-              </select>
+                options={itemChoices}
+                placeholder="Choose a material…"
+                className="mb-2"
+              />
               <div className="grid grid-cols-3 gap-2">
                 <div>
                   <label className="label">Quantity (kg)</label>

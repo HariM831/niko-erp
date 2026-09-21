@@ -591,20 +591,12 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                   )}
                   {tags.map((t) => (
                     <td key={t.id} className="border border-[#ece3d5] px-1 py-1">
-                      <select
-                        value={l.tags?.[t.id] ?? ""}
-                        onChange={(e) =>
-                          updateLine(i, { tags: { ...(l.tags ?? {}), [t.id]: e.target.value } })
-                        }
-                        className={inputCls}
-                      >
-                        <option value="">—</option>
-                        {t.options.map((o) => (
-                          <option key={o.id} value={o.id}>
-                            {o.name}
-                          </option>
-                        ))}
-                      </select>
+                      <SearchSelect
+                        value={l.tags?.[t.id] || null}
+                        onChange={(id) => updateLine(i, { tags: { ...(l.tags ?? {}), [t.id]: id ?? "" } })}
+                        options={t.options.map((o) => ({ id: o.id, label: o.name }))}
+                        placeholder="—"
+                      />
                     </td>
                   ))}
                   <td className="border border-[#ece3d5] px-2 py-1 text-right tabular-nums">{formatMoney(net)}</td>
@@ -721,18 +713,12 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                 {tags.map((t) => (
                   <div key={t.id} className="mt-2">
                     <label className="label">{t.name}</label>
-                    <select
-                      value={l.tags?.[t.id] ?? ""}
-                      onChange={(e) => updateLine(i, { tags: { ...(l.tags ?? {}), [t.id]: e.target.value } })}
-                      className={inputCls}
-                    >
-                      <option value="">—</option>
-                      {t.options.map((o) => (
-                        <option key={o.id} value={o.id}>
-                          {o.name}
-                        </option>
-                      ))}
-                    </select>
+                    <SearchSelect
+                      value={l.tags?.[t.id] || null}
+                      onChange={(id) => updateLine(i, { tags: { ...(l.tags ?? {}), [t.id]: id ?? "" } })}
+                      options={t.options.map((o) => ({ id: o.id, label: o.name }))}
+                      placeholder="—"
+                    />
                   </div>
                 ))}
 

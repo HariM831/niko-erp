@@ -29,6 +29,7 @@ import {
 } from "recharts";
 import { api } from "../api";
 import { FanWall, type LiveShed } from "../components/iot-widgets";
+import { SearchSelect } from "../components/search-select";
 
 /** recharts 3 types the tooltip callbacks tighter than these call sites want. */
 const Tooltip = RechartsTooltip as unknown as (props: Record<string, unknown>) => ReactElement;
@@ -228,17 +229,15 @@ export function ShedConditionsPage() {
         <div className="flex items-center gap-2">
           {/* Other sheds, so the reader can flick between them without going
               back to the board and finding the row again. */}
-          <select
-            value={houseId}
-            onChange={(e) => setLocation(`/farms/conditions/${e.target.value}`)}
-            className="h-9 min-w-[5rem] rounded-md border border-border bg-background px-2 text-sm"
-          >
-            {houses.map((h) => (
-              <option key={h.houseId} value={h.houseId}>
-                {h.code}
-              </option>
-            ))}
-          </select>
+          <SearchSelect
+            value={houseId || null}
+            onChange={(id) => id && setLocation(`/farms/conditions/${id}`)}
+            options={houses.map((h) => ({ id: h.houseId, label: h.code }))}
+            allowClear={false}
+            keepOrder
+            className="w-28"
+            buttonClassName="input h-9 py-0"
+          />
           <div className="flex rounded-md border border-border">
             {RANGES.map((r) => (
               <button

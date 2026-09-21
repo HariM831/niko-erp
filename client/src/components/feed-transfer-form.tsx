@@ -12,6 +12,7 @@ import { Send } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
 import { StatusBadge } from "../components/status-badge";
 import { PlatformWeight } from "./platform-weight";
+import { SearchSelect } from "./search-select";
 
 interface Context {
   feeds: Array<{ itemId: string; formulaName: string; itemName: string; quantity: number; value: number }>;
@@ -185,13 +186,17 @@ export function FeedTransferForm({ term = "" }: { term?: string }) {
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
                 <label className="label-required">Formula *</label>
-                <select value={itemId} onChange={(e) => setItemId(e.target.value)} className="input">
-                  {ctx?.feeds.map((f) => (
-                    <option key={f.itemId} value={f.itemId}>
-                      {f.formulaName} — {Number(f.quantity).toLocaleString("en-IN")} kg in stock
-                    </option>
-                  ))}
-                </select>
+                <SearchSelect
+                  value={itemId || null}
+                  onChange={(id) => setItemId(id ?? "")}
+                  options={(ctx?.feeds ?? []).map((f) => ({
+                    id: f.itemId,
+                    label: f.formulaName,
+                    sub: `${Number(f.quantity).toLocaleString("en-IN")} kg in stock`,
+                  }))}
+                  allowClear={false}
+                  placeholder="Choose a formula…"
+                />
                 {ctx && !ctx.feeds.length && (
                   <p className="mt-1 text-[12px] text-amber-700">
                     No finished feed in stock — complete a production order first.
@@ -200,26 +205,25 @@ export function FeedTransferForm({ term = "" }: { term?: string }) {
               </div>
               <div>
                 <label className="label-required">From *</label>
-                <select value={fromId} onChange={(e) => setFromId(e.target.value)} className="input">
-                  {ctx?.locations.map((l) => (
-                    <option key={l.id} value={l.id}>
-                      {l.name}
-                    </option>
-                  ))}
-                </select>
+                <SearchSelect
+                  value={fromId || null}
+                  onChange={(id) => setFromId(id ?? "")}
+                  options={(ctx?.locations ?? []).map((l) => ({ id: l.id, label: l.name }))}
+                  allowClear={false}
+                  placeholder="Choose a site…"
+                />
               </div>
               <div>
                 <label className="label-required">To house *</label>
-                <select value={toId} onChange={(e) => setToId(e.target.value)} className="input">
-                  <option value="">Choose…</option>
-                  {/* Houses, not locations. Offering locations is what let the
-                      feed mill appear as somewhere to send feed to. */}
-                  {ctx?.houses.map((h) => (
-                    <option key={h.id} value={h.id}>
-                      {h.farmName} · {h.code}
-                    </option>
-                  ))}
-                </select>
+                {/* Houses, not locations. Offering locations is what let the
+                    feed mill appear as somewhere to send feed to. */}
+                <SearchSelect
+                  value={toId || null}
+                  onChange={(id) => setToId(id ?? "")}
+                  options={(ctx?.houses ?? []).map((h) => ({ id: h.id, label: `${h.farmName} · ${h.code}`, sub: h.purpose }))}
+                  keepOrder
+                  placeholder="Choose…"
+                />
               </div>
               <div>
                 <label className="label-required">Quantity (kg) *</label>

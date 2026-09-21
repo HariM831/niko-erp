@@ -29,6 +29,7 @@ import {
   type MovementKind,
 } from "@shared/schema/flocks";
 import { LineSet, type Column } from "../components/line-set";
+import { SearchSelect } from "../components/search-select";
 
 const today = () => new Date().toISOString().slice(0, 10);
 const n = (v: number) => v.toLocaleString("en-IN");
@@ -655,13 +656,17 @@ function RecordMovement({ flock, onSaved }: { flock: Flock; onSaved: () => void 
       <div className="mb-2 flex flex-wrap items-end gap-2">
         <div className="w-40">
           <label className="label">House</label>
-          <select value={placementId} onChange={(e) => setPlacementId(e.target.value)} className="input">
-            {open.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.houseCode} · {p.birds.toLocaleString("en-IN")} birds
-              </option>
-            ))}
-          </select>
+          <SearchSelect
+            value={placementId || null}
+            onChange={(id) => id && setPlacementId(id)}
+            options={open.map((p) => ({
+              id: p.id,
+              label: p.houseCode,
+              sub: `${p.birds.toLocaleString("en-IN")} birds`,
+            }))}
+            allowClear={false}
+            keepOrder
+          />
         </div>
         <div className="w-36">
           <label className="label">Event</label>
@@ -691,14 +696,12 @@ function RecordMovement({ flock, onSaved }: { flock: Flock; onSaved: () => void 
         {needsCause && (
           <div className="w-44">
             <label className="label">Cause</label>
-            <select value={causeCode} onChange={(e) => setCauseCode(e.target.value)} className="input">
-              <option value="">Choose…</option>
-              {(causes ?? []).map((c) => (
-                <option key={c.code} value={c.code}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
+            <SearchSelect
+              value={causeCode || null}
+              onChange={(id) => setCauseCode(id ?? "")}
+              options={(causes ?? []).map((c) => ({ id: c.code, label: c.label }))}
+              placeholder="Choose…"
+            />
           </div>
         )}
         <div className="w-28">

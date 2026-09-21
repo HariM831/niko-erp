@@ -16,6 +16,7 @@ import { useLocation, useRoute } from "wouter";
 import { ArrowLeft, Camera, Check, ClipboardList, RefreshCw, Settings2, Wifi, WifiOff, X } from "lucide-react";
 import { api, ApiError } from "../api";
 import { useAuth } from "../auth";
+import { SearchSelect } from "../components/search-select";
 
 interface BoardRow {
   houseId: string;
@@ -491,17 +492,15 @@ export function FarmControlsPage() {
           <ArrowLeft className="h-3.5 w-3.5" /> Houses
         </button>
         <h1 className="text-[20px] font-bold text-soil-900">Controls</h1>
-        <select
-          value={houseId}
-          onChange={(e) => setLocation(`/farms/controls/${e.target.value}`)}
-          className="rounded-lg border border-soil-200 bg-white px-2.5 py-1.5 text-[13px] font-semibold text-soil-900"
-        >
-          {houses.map((h) => (
-            <option key={h.houseId} value={h.houseId}>
-              {h.code}
-            </option>
-          ))}
-        </select>
+        <SearchSelect
+          value={houseId || null}
+          onChange={(id) => id && setLocation(`/farms/controls/${id}`)}
+          options={houses.map((h) => ({ id: h.houseId, label: h.code }))}
+          allowClear={false}
+          keepOrder
+          className="w-28"
+          buttonClassName="rounded-lg border border-soil-200 bg-white px-2.5 py-1.5 text-[13px] font-semibold text-soil-900"
+        />
         {status && (
           <span
             className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ${

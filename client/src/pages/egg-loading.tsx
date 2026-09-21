@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Loader2, Truck, X } from "lucide-react";
 import { api, formatMoney } from "../api";
+import { SearchSelect } from "../components/search-select";
 import { EggOrdersTable, isStruck, type OrderLine } from "../components/egg-orders-table";
 import { EGG_SIZE_LABEL, VISIBLE_EGG_SIZES, isDirectRate } from "@shared/egg-sizes";
 
@@ -383,13 +384,14 @@ function LoadDialog({
         {!line && (
           <div className="mb-3">
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Customer</label>
-            <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} className={inputCls}>
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            <SearchSelect
+              value={customerId || null}
+              onChange={(id) => id && setCustomerId(id)}
+              options={customers.map((c) => ({ id: c.id, label: c.name }))}
+              placeholder="Select customer"
+              allowClear={false}
+              buttonClassName={inputCls}
+            />
           </div>
         )}
 

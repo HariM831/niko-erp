@@ -232,11 +232,15 @@ export function MonthPicker({ year, month, onChange }: { year: number; month: nu
       <button onClick={() => shiftBy(-1)} className="px-1.5 py-1 text-gray-500 hover:bg-gray-100" aria-label="Previous month">
         <ChevronLeft size={15} />
       </button>
-      <select value={month} onChange={(e) => onChange(year, Number(e.target.value))} className="bg-transparent py-1 text-[13px] font-medium outline-none">
-        {MONTHS_LONG.map((m, i) => (
-          <option key={m} value={i + 1}>{m}</option>
-        ))}
-      </select>
+      <SearchSelect
+        className="w-28"
+        buttonClassName="bg-transparent py-1 text-[13px] font-medium outline-none"
+        value={String(month)}
+        onChange={(id) => { if (id && Number(id) !== month) onChange(year, Number(id)); }}
+        allowClear={false}
+        keepOrder
+        options={MONTHS_LONG.map((m, i) => ({ id: String(i + 1), label: m }))}
+      />
       <input
         type="number"
         value={year}

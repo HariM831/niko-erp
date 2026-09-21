@@ -13,6 +13,7 @@ import { Factory, Plus, X } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
 import { StatusBadge } from "../components/status-badge";
 import { useLocalSearch } from "../components/search-context";
+import { SearchSelect } from "../components/search-select";
 
 interface FormulaGroup {
   name: string;
@@ -178,20 +179,18 @@ export function FeedProductionPage() {
               <div key={i} className="mb-2 flex flex-wrap items-end gap-3">
                 <div className="min-w-56 flex-1">
                   {i === 0 && <label className="label-required">Formula *</label>}
-                  <select
-                    value={r.formulaId}
-                    onChange={(e) =>
-                      setRuns((rs) => rs.map((x, j) => (j === i ? { ...x, formulaId: e.target.value } : x)))
+                  <SearchSelect
+                    value={r.formulaId || null}
+                    onChange={(id) =>
+                      setRuns((rs) => rs.map((x, j) => (j === i ? { ...x, formulaId: id ?? "" } : x)))
                     }
-                    className="input"
-                  >
-                    <option value="">Choose…</option>
-                    {live.map((g) => (
-                      <option key={g.active!.id} value={g.active!.id}>
-                        {g.name} — {Number(g.active!.batchSizeKg).toLocaleString("en-IN")} kg/batch
-                      </option>
-                    ))}
-                  </select>
+                    options={live.map((g) => ({
+                      id: g.active!.id,
+                      label: g.name,
+                      sub: `${Number(g.active!.batchSizeKg).toLocaleString("en-IN")} kg/batch`,
+                    }))}
+                    placeholder="Choose…"
+                  />
                 </div>
                 <div className="w-24">
                   {i === 0 && <label className="label-required">Batches *</label>}

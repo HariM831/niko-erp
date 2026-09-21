@@ -13,6 +13,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { ChevronLeft, ChevronRight, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
 import { api } from "../api";
+import { SearchSelect } from "../components/search-select";
 import { EggOrdersTable, EGG_SIZES as SIZES, EGG_SIZE_LABEL as SIZE_LABEL, isStruck, type EggSize as Size, type OrderLine } from "../components/egg-orders-table";
 
 interface CalDay {
@@ -355,13 +356,14 @@ function DayDrawer({
                   {!form.id && (
                     <div className="mb-2">
                       <label className="mb-1 block text-xs font-medium text-muted-foreground">Customer</label>
-                      <select value={form.customerId} onChange={(e) => pickCustomer(e.target.value)} className={inputCls}>
-                        {customers.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </select>
+                      <SearchSelect
+                        value={form.customerId || null}
+                        onChange={(id) => id && pickCustomer(id)}
+                        options={customers.map((c) => ({ id: c.id, label: c.name }))}
+                        placeholder="Select customer"
+                        allowClear={false}
+                        buttonClassName={inputCls}
+                      />
                     </div>
                   )}
                   <div className="mb-2 grid grid-cols-3 gap-2">

@@ -18,6 +18,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Camera, CameraOff, Download, RefreshCw } from "lucide-react";
+import { SearchSelect } from "./search-select";
 
 /** The picked camera outlives the visit; a cabin has one and it does not move. */
 const DEVICE_KEY = "niko.weighbridge.camera";
@@ -305,23 +306,25 @@ export function WeighbridgeCamera({
       {relayCams.length > 0 && (
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <span className="text-[11px] uppercase tracking-wide text-gray-400">Source</span>
-          <select
-            className="input w-auto"
+          <SearchSelect
             value={source}
-            onChange={(e) => {
+            onChange={(id) => {
+              // A native select fires only on a change; re-picking the same
+              // source must not stop a running camera.
+              if (!id || id === source) return;
               stop();
               setError(null);
-              setSource(e.target.value);
-              localStorage.setItem(SOURCE_KEY, e.target.value);
+              setSource(id);
+              localStorage.setItem(SOURCE_KEY, id);
             }}
-          >
-            <option value="webcam">USB webcam</option>
-            {relayCams.map((c) => (
-              <option key={c.name} value={`ip:${c.name}`}>
-                {c.label}
-              </option>
-            ))}
-          </select>
+            options={[
+              { id: "webcam", label: "USB webcam" },
+              ...relayCams.map((c) => ({ id: `ip:${c.name}`, label: c.label })),
+            ]}
+            keepOrder
+            allowClear={false}
+            className="w-56"
+          />
         </div>
       )}
 
@@ -349,21 +352,20 @@ export function WeighbridgeCamera({
           </>
         )}
         {!usingRelay && devices.length > 1 && (
-          <select
-            className="input w-auto"
-            value={deviceId}
-            onChange={(e) => {
-              setDeviceId(e.target.value);
-              localStorage.setItem(DEVICE_KEY, e.target.value);
-              if (live) void start(e.target.value);
+          <SearchSelect
+            value={deviceId || null}
+            onChange={(id) => {
+              if (!id || id === deviceId) return;
+              setDeviceId(id);
+              localStorage.setItem(DEVICE_KEY, id);
+              if (live) void start(id);
             }}
-          >
-            {devices.map((d, i) => (
-              <option key={d.deviceId} value={d.deviceId}>
-                {d.label || `Camera ${i + 1}`}
-              </option>
-            ))}
-          </select>
+            options={devices.map((d, i) => ({ id: d.deviceId, label: d.label || `Camera ${i + 1}` }))}
+            placeholder="Choose camera"
+            keepOrder
+            allowClear={false}
+            className="w-56"
+          />
         )}
         {!usingRelay && live && (
           <button className="btn-ghost" onClick={() => void start()} title="Reopen the stream">

@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, formatMoney } from "../api";
 import { CommentsTimeline } from "../components/comments";
 import { AttachmentsButton } from "../components/attachments";
+import { SearchSelect } from "../components/search-select";
 import { OverviewTab, StatementTab, TransactionsTab } from "./contact-detail";
 
 /**
@@ -181,17 +182,14 @@ export function OwnerBillingPage() {
           <div className="flex items-center gap-3">
             {/* The picker stands where the contact page puts the name. There
                 are a handful of owners and moving between them IS the job. */}
-            <select
-              value={ownerId}
-              onChange={(e) => navigate(`/accountant/group-companies?owner=${e.target.value}`)}
-              className="rounded-md border border-gray-200 bg-white px-2 py-1 text-lg font-semibold text-gray-900"
-            >
-              {owners.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
-            </select>
+            <SearchSelect
+              value={ownerId || null}
+              onChange={(id) => id && navigate(`/accountant/group-companies?owner=${id}`)}
+              options={owners.map((o) => ({ id: o.id, label: o.name }))}
+              allowClear={false}
+              className="w-72"
+              buttonClassName="rounded-md border border-gray-200 bg-white px-2 py-1 text-lg font-semibold text-gray-900"
+            />
             <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-gray-500">
               {contact.type}
             </span>

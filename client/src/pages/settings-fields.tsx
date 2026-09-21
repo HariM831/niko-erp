@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
+import { SearchSelect } from "../components/search-select";
 import {
   Badge,
   Banner,
@@ -290,18 +291,14 @@ function FieldModal({
 
         <div>
           <label className="label-required">Data Type *</label>
-          <select
+          <SearchSelect
             value={dataType}
             disabled={editing}
-            onChange={(e) => setDataType(e.target.value)}
-            className="input disabled:bg-gray-50 disabled:text-gray-500"
-          >
-            {DATA_TYPES.map((t) => (
-              <option key={t.key} value={t.key}>
-                {t.label}
-              </option>
-            ))}
-          </select>
+            onChange={(id) => id && setDataType(id)}
+            options={DATA_TYPES.map((t) => ({ id: t.key, label: t.label }))}
+            keepOrder
+            allowClear={false}
+          />
           {editing && (
             <p className="mt-1 text-[12px] text-gray-500">
               The type cannot change once the field exists — values already recorded would have
@@ -313,17 +310,13 @@ function FieldModal({
         {["lookup", "multiselect_lookup"].includes(dataType) && !editing && (
           <div>
             <label className="label-required">Looks up *</label>
-            <select
-              value={lookupEntity}
-              onChange={(e) => setLookupEntity(e.target.value)}
-              className="input"
-            >
-              {lookupTargets.map((t) => (
-                <option key={t} value={t}>
-                  {entityLabels[t] ?? t}
-                </option>
-              ))}
-            </select>
+            <SearchSelect
+              value={lookupEntity || null}
+              onChange={(id) => id && setLookupEntity(id)}
+              options={lookupTargets.map((t) => ({ id: t, label: entityLabels[t] ?? t }))}
+              placeholder="Select a module"
+              allowClear={false}
+            />
           </div>
         )}
 

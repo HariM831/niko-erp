@@ -17,6 +17,7 @@ import { RefreshCw } from "lucide-react";
 import { useLocalSearch } from "../../components/search-context";
 import { matchesTerm } from "../../lib/utils";
 import { api } from "../../api";
+import { SearchSelect } from "../../components/search-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   ALL_STATUSES, AttStatus, Avatar, Badge, Empty, EmployeeSelect, ErrorBanner, Field, MonthPicker, PageHeader, Pager, PillTabs,
@@ -334,10 +335,14 @@ function TeamGridTab({ term }: { term: string }) {
       <ErrorBanner message={err} onClose={() => setErr(null)} />
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <MonthPicker year={year} month={month} onChange={(y, m) => { setYear(y); setMonth(m); }} />
-        <select value={department} onChange={(e) => setDepartment(e.target.value)} className="input w-44">
-          <option value="">All departments</option>
-          {(deptQ.data ?? []).map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
-        </select>
+        {/* The filter goes by department name, so the name is the choice's id. */}
+        <SearchSelect
+          className="w-44"
+          value={department || null}
+          onChange={(v) => setDepartment(v ?? "")}
+          placeholder="All departments"
+          options={[...new Set((deptQ.data ?? []).map((d) => d.name))].map((n) => ({ id: n, label: n }))}
+        />
         {selected.size > 0 && (
           <button className="btn-primary" onClick={() => setBulkOpen(true)}>Set a day for {selected.size} selected</button>
         )}
@@ -825,10 +830,14 @@ function RosterTab({ term }: { term: string }) {
           <EmployeeSelect value={form.employeeId} onChange={(v) => setForm({ ...form, employeeId: v })} className="w-60" />
         </Field>
         <Field label="Shift">
-          <select className="input w-56" value={form.shiftId} onChange={(e) => setForm({ ...form, shiftId: e.target.value })}>
-            <option value="">—</option>
-            {(shiftsQ.data ?? []).filter((s) => s.isActive).map((s) => <option key={s.id} value={s.id}>{s.name} ({s.startTime}–{s.endTime})</option>)}
-          </select>
+          <SearchSelect
+            className="w-56"
+            value={form.shiftId || null}
+            onChange={(v) => setForm({ ...form, shiftId: v ?? "" })}
+            placeholder="—"
+            keepOrder
+            options={(shiftsQ.data ?? []).filter((s) => s.isActive).map((s) => ({ id: s.id, label: s.name, sub: `${s.startTime}–${s.endTime}` }))}
+          />
         </Field>
         <Field label="From">
           <input type="date" className="input" value={form.effectiveFrom} onChange={(e) => setForm({ ...form, effectiveFrom: e.target.value })} />

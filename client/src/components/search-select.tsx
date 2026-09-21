@@ -12,6 +12,8 @@
  * behave identically, because an operator who learns one has learnt them all.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useFloatingPanel } from "./floating";
 import { Check, ChevronDown, X } from "lucide-react";
 import { matchesTerms } from "@shared/search";
 
@@ -64,7 +66,9 @@ export function SearchSelect({
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const boxRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { style: panelStyle, host } = useFloatingPanel(open, boxRef);
 
   const sorted = useMemo(
     () => (keepOrder ? options : [...options].sort((a, b) => a.label.localeCompare(b.label, "en-IN"))),
@@ -88,7 +92,8 @@ export function SearchSelect({
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (!boxRef.current?.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (!boxRef.current?.contains(t) && !panelRef.current?.contains(t)) setOpen(false);
     };
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
@@ -130,10 +135,13 @@ export function SearchSelect({
         </span>
       </button>
 
-      {open && (
-        <div className="absolute z-30 mt-1 w-full min-w-[18rem] rounded-lg border border-gray-200 bg-white shadow-lg">
+      {open && panelStyle && host && createPortal(
+        <div ref={panelRef} style={panelStyle} className="rounded-lg border border-gray-200 bg-white shadow-lg">
           <input
             ref={inputRef}
+            // The list mounts a beat after opening (it is placed first), so the
+            // box focuses itself rather than waiting on the open effect.
+            autoFocus
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
@@ -199,7 +207,8 @@ export function SearchSelect({
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        host,
       )}
     </div>
   );
