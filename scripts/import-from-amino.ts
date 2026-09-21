@@ -32,6 +32,7 @@ import {
   flockMovements,
   flockPlacements,
   flocks,
+  formulas,
   houses,
   items,
   locations,
@@ -600,8 +601,18 @@ try {
     // ledger is a document, and stays.
     step("7. Feed sent to the sheds");
     const [mill] = await tx.select().from(locations).limit(1);
-    const feedItems = await tx.select().from(items).where(eq(items.category, "poultry_feed"));
-    const anyItem = feedItems[0] ?? (await tx.select().from(items).limit(1))[0];
+    // Amino names the feed by its formula ("Layer 1"), and a formula says which
+    // item it makes — so the item is looked up, never guessed. This once
+    // searched a "poultry_feed" category that does not exist, found nothing,
+    // and put all 599 lorries on whatever item came first: "Eggs (farm)".
+    // A formula with no item now stops that lorry and says so.
+    const madeBy = new Map<string, string>();
+    for (const f of await tx
+      .select({ name: formulas.name, itemId: formulas.outputItemId })
+      .from(formulas)) {
+      madeBy.set(f.name.trim().toLowerCase(), f.itemId);
+    }
+    const unmatched = new Map<string, number>();
     if (RESET && APPLY) {
       const gone = await tx
         .delete(feedTransfers)
@@ -626,22 +637,24 @@ try {
     let sent = 0;
     for (const [i, f] of feedSorted.entries()) {
       const house = houseOf.get(s(f.shed_id));
-      if (!house || !anyItem || !mill) continue;
+      const itemId = madeBy.get(s(f.formula_name).trim().toLowerCase());
+      if (!itemId) {
+        unmatched.set(s(f.formula_name), (unmatched.get(s(f.formula_name)) ?? 0) + 1);
+        continue;
+      }
+      if (!house || !mill) continue;
       if (!APPLY) {
         sent++;
         continue;
       }
       const kg = n(f.quantity_kg);
       const rate = n(f.cost_per_kg);
-      const byName = feedItems.find(
-        (it) => it.name.toUpperCase().includes(s(f.formula_name).toUpperCase()),
-      );
       await tx
         .insert(feedTransfers)
         .values({
           number: `AMN-FT-${String(i + 1).padStart(5, "0")}`,
           transferDate: day(f.date),
-          itemId: (byName ?? anyItem).id,
+          itemId,
           quantityKg: kg.toFixed(3),
           fromLocationId: mill.id,
           toLocationId: house.locationId,
@@ -655,6 +668,9 @@ try {
       sent++;
     }
     note(`${sent} transfer(s)`);
+    for (const [name, count] of unmatched) {
+      problem(`${count} transfer(s) of "${name}" skipped — no formula of that name in niko to say which item it is`);
+    }
 
     /* ── 8. The farm store catalogue ────────────────────────────────────── */
     step("8. Farm store → items");
