@@ -153,9 +153,19 @@ What the staging rehearsal proved, and what production must match:
     should list 599, split Layer 1 350 / Grower 105 / Prelayer 87 / Layer 2 33 /
     Chick 24, with no "!" lines.
 
-Order matters: 10 before 11–14, or the freight, the standards and the repaired
-transfers attach to items that are about to be folded away. 14 needs the
-formulas from 8.
+15. `npx tsx scripts/classify-items-2026-09.ts --apply` — gives every item the
+    category agreed on 21 Sep 2026, folds eight duplicates (the Zoho egg sizes
+    into niko's graded eggs, which take their Eggs (Sales) account; the second
+    Mixiblend premix; Egg Trays; Poultry Manure into Manure) and retires seven
+    leftovers. Needs migration `0098` (the Packaging category), which the deploy
+    applies. The invoice and bill item lists are filtered by category, so until
+    this runs a Zoho item with no category is missing from invoices. Dry run
+    first: on staging it merged 8, categorised 71, retired 6, and left
+    Safeguard, Solex - M and Wagnor uncategorised on purpose.
+
+Order matters: 10 before 11–15, or the freight, the standards, the repaired
+transfers and the categories attach to items that are about to be folded away.
+14 needs the formulas from 8.
 
 ### 3.3 Payroll history from Amino
 
