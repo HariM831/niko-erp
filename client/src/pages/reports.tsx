@@ -3,6 +3,7 @@ import { Link, useLocation, useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { api } from "../api";
+import { SearchSelect } from "../components/search-select";
 
 /**
  * Reports, laid out the way Zoho Books lays them out.
@@ -394,17 +395,15 @@ export function ReportViewPage({ reportKey }: { reportKey: string }) {
         <span className="mr-1 text-[13px] text-gray-500">Filters :</span>
         <label className="flex h-8 items-center gap-2 rounded-md border px-3 text-[13px]">
           <span className="text-gray-500">Date Range :</span>
-          <select
+          <SearchSelect
             value={preset}
-            onChange={(e) => apply({ range: e.target.value })}
-            className="bg-transparent outline-none"
-          >
-            {Object.keys(PRESETS).map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
+            onChange={(id) => id && id !== preset && apply({ range: id })}
+            options={Object.keys(PRESETS).map((p) => ({ id: p, label: p }))}
+            allowClear={false}
+            keepOrder
+            className="w-36"
+            buttonClassName="bg-transparent outline-none text-[13px]"
+          />
         </label>
 
         {/* niko posts on accrual only, so the basis is stated rather than

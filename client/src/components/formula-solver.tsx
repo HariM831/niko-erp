@@ -200,22 +200,19 @@ export function FormulaSolver({
                 <span className="text-[12px] text-gray-500">v{current.active.version}</span>
               )}
               <span className="ml-2 text-[12px] text-gray-500">solve against</span>
-              <div className="w-44">
-                <select
-                  value={stage}
-                  onChange={(e) => {
-                    setStage(e.target.value as LifeStage);
-                    setResult(null);
-                  }}
-                  className="input h-8 text-[13px]"
-                >
-                  {LIFE_STAGES.map((s) => (
-                    <option key={s} value={s}>
-                      {LIFE_STAGE_LABELS[s]}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <SearchSelect
+                value={stage}
+                onChange={(id) => {
+                  if (!id || id === stage) return;
+                  setStage(id as LifeStage);
+                  setResult(null);
+                }}
+                options={LIFE_STAGES.map((s) => ({ id: s, label: LIFE_STAGE_LABELS[s] }))}
+                allowClear={false}
+                keepOrder
+                className="w-44"
+                buttonClassName="input h-8 py-0 text-[13px]"
+              />
               <button
                 onClick={() => solve.mutate()}
                 disabled={solve.isPending || pool.length === 0 || !standard?.params.length}

@@ -670,27 +670,35 @@ function RecordMovement({ flock, onSaved }: { flock: Flock; onSaved: () => void 
         </div>
         <div className="w-36">
           <label className="label">Event</label>
-          <select
+          <SearchSelect
             value={kind}
-            onChange={(e) => setKind(e.target.value as typeof kind)}
-            className="input"
-          >
-            <option value="adjustment">Adjustment</option>
-            <option value="cull">Cull</option>
-            <option value="male_removal">Male removal</option>
-          </select>
+            onChange={(id) => {
+              if (id && id !== kind) setKind(id as typeof kind);
+            }}
+            options={[
+              { id: "adjustment", label: "Adjustment" },
+              { id: "cull", label: "Cull" },
+              { id: "male_removal", label: "Male removal" },
+            ]}
+            allowClear={false}
+            keepOrder
+          />
         </div>
         {kind === "adjustment" && (
           <div className="w-32">
             <label className="label">Direction</label>
-            <select
-              value={sign}
-              onChange={(e) => setSign(Number(e.target.value) as -1 | 1)}
-              className="input"
-            >
-              <option value={-1}>Shortage (−)</option>
-              <option value={1}>Found (+)</option>
-            </select>
+            <SearchSelect
+              value={String(sign)}
+              onChange={(id) => {
+                if (id && Number(id) !== sign) setSign(Number(id) as -1 | 1);
+              }}
+              options={[
+                { id: "-1", label: "Shortage (−)" },
+                { id: "1", label: "Found (+)" },
+              ]}
+              allowClear={false}
+              keepOrder
+            />
           </div>
         )}
         {needsCause && (

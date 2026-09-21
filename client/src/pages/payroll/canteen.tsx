@@ -142,10 +142,14 @@ function TodayTab({ term }: { term: string }) {
           placeholder="All canteens"
           options={(canteensQ.data ?? []).map((c) => ({ id: c.id, label: c.name, sub: c.code }))}
         />
-        <select className="input w-36" value={meal} onChange={(e) => { setMeal(e.target.value); setOffset(0); }}>
-          <option value="">All meals</option>
-          {MEALS.map((m) => <option key={m} value={m} className="capitalize">{m}</option>)}
-        </select>
+        <SearchSelect
+          className="w-36"
+          keepOrder
+          value={meal || null}
+          onChange={(v) => { if ((v ?? "") === meal) return; setMeal(v ?? ""); setOffset(0); }}
+          placeholder="All meals"
+          options={MEALS.map((m) => ({ id: m, label: m.charAt(0).toUpperCase() + m.slice(1) }))}
+        />
         <span className="ml-auto text-[12px] tabular-nums text-gray-500">
           {servingsQ.data?.total ?? 0} plates{meal === "" && rows.length > 0 && ` · B ${counts.breakfast} / L ${counts.lunch} / D ${counts.dinner} on this page`}
         </span>

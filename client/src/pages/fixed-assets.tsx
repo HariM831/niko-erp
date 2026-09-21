@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
 import { AccountSelect, type AccountNode } from "../components/account-select";
+import { SearchSelect } from "../components/search-select";
 
 interface AssetRow {
   id: string;
@@ -76,16 +77,19 @@ export function FixedAssetsPage() {
       <header className="page-header flex flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-6">
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-semibold">Fixed Assets</h1>
-          <select
-            value={view}
-            onChange={(e) => setView(e.target.value)}
-            className="rounded border border-gray-200 px-2 py-1 text-[13px]"
-          >
-            <option value="">All assets</option>
-            <option value="active">Active</option>
-            <option value="fully_depreciated">Fully depreciated</option>
-            <option value="disposed">Disposed</option>
-          </select>
+          <SearchSelect
+            value={view || null}
+            onChange={(id) => setView(id ?? "")}
+            options={[
+              { id: "active", label: "Active" },
+              { id: "fully_depreciated", label: "Fully depreciated" },
+              { id: "disposed", label: "Disposed" },
+            ]}
+            placeholder="All assets"
+            keepOrder
+            className="w-48"
+            buttonClassName="rounded border border-gray-200 px-2 py-1 text-[13px]"
+          />
         </div>
         <div className="flex gap-2">
           <button onClick={() => setRunOpen(true)} className="btn-secondary">
@@ -446,14 +450,16 @@ export function FixedAssetNewPage() {
 
           <div>
             <label className="label-required">Method *</label>
-            <select
+            <SearchSelect
               value={form.method}
-              onChange={(e) => set({ method: e.target.value })}
-              className="input"
-            >
-              <option value="straight_line">Straight line</option>
-              <option value="written_down_value">Written down value</option>
-            </select>
+              onChange={(id) => id && set({ method: id })}
+              options={[
+                { id: "straight_line", label: "Straight line" },
+                { id: "written_down_value", label: "Written down value" },
+              ]}
+              allowClear={false}
+              keepOrder
+            />
           </div>
           <div>
             <label className="label-required">Useful Life (months) *</label>

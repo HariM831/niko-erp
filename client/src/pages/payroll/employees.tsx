@@ -206,16 +206,29 @@ export function PayrollEmployeesPage() {
           placeholder="All departments"
           options={(deptQ.data ?? []).map((d) => ({ id: d.id, label: d.name }))}
         />
-        <select value={payType} onChange={(e) => setPayType(e.target.value)} className="input w-36">
-          <option value="">All pay types</option>
-          <option value="salaried">Salaried</option>
-          <option value="daily_wage">Daily wage</option>
-        </select>
-        <select value={active} onChange={(e) => setActive(e.target.value)} className="input w-32">
-          <option value="1">Active</option>
-          <option value="0">Inactive</option>
-          <option value="">All</option>
-        </select>
+        <SearchSelect
+          className="w-36"
+          keepOrder
+          value={payType || null}
+          onChange={(v) => setPayType(v ?? "")}
+          placeholder="All pay types"
+          options={[
+            { id: "salaried", label: "Salaried" },
+            { id: "daily_wage", label: "Daily wage" },
+          ]}
+        />
+        <SearchSelect
+          className="w-32"
+          keepOrder
+          allowClear={false}
+          value={active}
+          onChange={(v) => setActive(v ?? "")}
+          options={[
+            { id: "1", label: "Active" },
+            { id: "0", label: "Inactive" },
+            { id: "", label: "All" },
+          ]}
+        />
       </div>
 
       <div className="table-surface overflow-x-auto">

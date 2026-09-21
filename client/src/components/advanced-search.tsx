@@ -109,18 +109,14 @@ export function AdvancedSearch({ title, fields, initial, onApply, onClose }: Pro
                 />
               )}
               {f.kind === "select" && (
-                <select
-                  value={values[f.key] ?? ""}
-                  onChange={(e) => set(f.key, e.target.value)}
-                  className={INPUT}
-                >
-                  <option value="">All</option>
-                  {(f.options ?? []).map((o) => (
-                    <option key={o} value={o}>
-                      {o.replace(/_/g, " ")}
-                    </option>
-                  ))}
-                </select>
+                <SearchSelect
+                  value={values[f.key] || null}
+                  onChange={(id) => set(f.key, id ?? "")}
+                  options={(f.options ?? []).map((o) => ({ id: o, label: o.replace(/_/g, " ") }))}
+                  placeholder="All"
+                  keepOrder
+                  buttonClassName={INPUT}
+                />
               )}
               {f.kind === "contact" && (
                 <ContactPicker

@@ -271,11 +271,19 @@ function AgreementDialog({
             {agreement && (
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">Status</label>
-                <select value={status} onChange={(e) => setStatus(e.target.value)} className={inputCls} disabled={status === "ended"}>
-                  <option value="active">Active</option>
-                  <option value="paused">Paused</option>
-                  {status === "ended" && <option value="ended">Ended</option>}
-                </select>
+                <SearchSelect
+                  value={status}
+                  onChange={(id) => id && setStatus(id)}
+                  options={[
+                    { id: "active", label: "Active" },
+                    { id: "paused", label: "Paused" },
+                    ...(status === "ended" ? [{ id: "ended", label: "Ended" }] : []),
+                  ]}
+                  disabled={status === "ended"}
+                  allowClear={false}
+                  keepOrder
+                  buttonClassName={inputCls}
+                />
               </div>
             )}
             <div>

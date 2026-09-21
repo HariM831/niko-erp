@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { CustomFieldsBlock, type CustomFieldValues } from "../components/custom-fields";
+import { SearchSelect, type Choice } from "../components/search-select";
 
 const GST_TREATMENTS = [
   ["registered_business", "Registered Business"],
@@ -14,6 +15,7 @@ const GST_TREATMENTS = [
 ] as const;
 
 const SALUTATIONS = ["Mr.", "Ms.", "Mrs.", "Dr."];
+const SALUTATION_CHOICES: Choice[] = SALUTATIONS.map((s) => ({ id: s, label: s }));
 
 interface PersonForm {
   id?: string;
@@ -209,14 +211,13 @@ export function ContactNewPage({ type, editId }: { type: "customer" | "vendor" |
           <div className="col-span-2">
             <label className={label}>Primary Contact</label>
             <div className="grid grid-cols-3 gap-2">
-              <select
-                value={persons[0]?.salutation ?? ""}
-                onChange={(e) => updatePerson(0, { salutation: e.target.value })}
-                className={inputCls}
-              >
-                <option value="">Salutation</option>
-                {SALUTATIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
+              <SearchSelect
+                value={persons[0]?.salutation || null}
+                onChange={(id) => updatePerson(0, { salutation: id ?? "" })}
+                options={SALUTATION_CHOICES}
+                placeholder="Salutation"
+                keepOrder
+              />
               <input
                 value={persons[0]?.firstName ?? ""}
                 onChange={(e) => updatePerson(0, { firstName: e.target.value, isPrimary: true })}
@@ -277,11 +278,13 @@ export function ContactNewPage({ type, editId }: { type: "customer" | "vendor" |
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="label-required">GST Treatment *</label>
-                <select value={form.gstTreatment} onChange={set("gstTreatment")} className={inputCls}>
-                  {GST_TREATMENTS.map(([v, l]) => (
-                    <option key={v} value={v}>{l}</option>
-                  ))}
-                </select>
+                <SearchSelect
+                  value={form.gstTreatment}
+                  onChange={(id) => id && set("gstTreatment")({ target: { value: id } })}
+                  options={GST_TREATMENTS.map(([v, l]) => ({ id: v, label: l }))}
+                  allowClear={false}
+                  keepOrder
+                />
               </div>
               <div>
                 <label className="label-required">Place of Supply *</label>
@@ -439,10 +442,14 @@ export function ContactNewPage({ type, editId }: { type: "customer" | "vendor" |
                   {persons.map((p, i) => (
                     <tr key={i}>
                       <td className="border border-[#ece3d5] p-1">
-                        <select value={p.salutation} onChange={(e) => updatePerson(i, { salutation: e.target.value })} className="input py-1">
-                          <option value=""></option>
-                          {SALUTATIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-                        </select>
+                        <SearchSelect
+                          value={p.salutation || null}
+                          onChange={(id) => updatePerson(i, { salutation: id ?? "" })}
+                          options={SALUTATION_CHOICES}
+                          placeholder=""
+                          keepOrder
+                          buttonClassName="input h-8 py-0 text-[13px]"
+                        />
                       </td>
                       <td className="border border-[#ece3d5] p-1">
                         <input value={p.firstName} onChange={(e) => updatePerson(i, { firstName: e.target.value })} className="input py-1" />

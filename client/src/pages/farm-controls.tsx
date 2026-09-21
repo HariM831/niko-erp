@@ -1133,14 +1133,26 @@ function RulesPanel({
         {manage && (
           <div className="flex flex-wrap items-center gap-4">
             {rules.mode && (
-              <label className="flex items-center gap-2 text-[12px] font-semibold text-soil-900" title="advise: a person approves every change · auto: live loops write within the farm's bounds on their own · hold: niko writes nothing to this shed">
+              <div className="flex items-center gap-2 text-[12px] font-semibold text-soil-900" title="advise: a person approves every change · auto: live loops write within the farm's bounds on their own · hold: niko writes nothing to this shed">
                 {houseCode} mode
-                <select value={rules.mode} disabled={busy !== null} onChange={(e) => onMode(e.target.value as "advise" | "auto" | "hold")} className="rounded border border-soil-200 px-2 py-0.5 text-[12px]">
-                  <option value="advise">advise</option>
-                  <option value="auto">auto within bounds</option>
-                  <option value="hold">hold</option>
-                </select>
-              </label>
+                <SearchSelect
+                  value={rules.mode}
+                  disabled={busy !== null}
+                  onChange={(id) => {
+                    // Saves at once: re-picking the current mode must not save again.
+                    if (id && id !== rules.mode) onMode(id as "advise" | "auto" | "hold");
+                  }}
+                  options={[
+                    { id: "advise", label: "advise" },
+                    { id: "auto", label: "auto within bounds" },
+                    { id: "hold", label: "hold" },
+                  ]}
+                  allowClear={false}
+                  keepOrder
+                  className="w-40"
+                  buttonClassName="rounded border border-soil-200 px-2 py-0.5 text-[12px] font-normal"
+                />
+              </div>
             )}
             <label className="flex items-center gap-2 text-[12px] font-semibold text-soil-900">
               <input type="checkbox" checked={rules.farm.writesEnabled} disabled={busy !== null} onChange={(e) => onWrites(e.target.checked)} />

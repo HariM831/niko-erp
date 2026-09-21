@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
+import { SearchSelect } from "../components/search-select";
 import { Banner } from "../components/settings-ui";
 
 /** One page per module, the way Zoho splits its Module Settings. */
@@ -246,17 +247,13 @@ function PreferencesShell({ only }: { only: Module }) {
           <>
             <Group title="Set a decimal place for item quantities">
               <div className="w-32">
-                <select
+                <SearchSelect
+                  keepOrder
+                  allowClear={false}
                   value={String(form.quantityDecimals)}
-                  onChange={(e) => set({ quantityDecimals: Number(e.target.value) })}
-                  className="input"
-                >
-                  {[0, 1, 2, 3, 4].map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(v) => { if (v != null) set({ quantityDecimals: Number(v) }); }}
+                  options={[0, 1, 2, 3, 4].map((n) => ({ id: String(n), label: String(n) }))}
+                />
               </div>
             </Group>
 

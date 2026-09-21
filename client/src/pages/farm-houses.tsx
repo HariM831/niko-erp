@@ -156,17 +156,15 @@ export function FarmHousesSection() {
             </div>
             <div>
               <label className="label-required">Type *</label>
-              <select
+              <SearchSelect
                 value={form.purpose}
-                onChange={(e) => setForm((f) => ({ ...f, purpose: e.target.value as HousePurpose }))}
-                className="input"
-              >
-                {HOUSE_PURPOSES.map((p) => (
-                  <option key={p} value={p}>
-                    {HOUSE_PURPOSE_LABELS[p]}
-                  </option>
-                ))}
-              </select>
+                onChange={(id) => {
+                  if (id && id !== form.purpose) setForm((f) => ({ ...f, purpose: id as HousePurpose }));
+                }}
+                options={HOUSE_PURPOSES.map((p) => ({ id: p, label: HOUSE_PURPOSE_LABELS[p] }))}
+                allowClear={false}
+                keepOrder
+              />
             </div>
             <div>
               <label className="label">Controller</label>

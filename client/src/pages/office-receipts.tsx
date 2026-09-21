@@ -447,14 +447,18 @@ function ReceiptEditor({
         {!editing && (
           <div>
             <label className="label">Decision at the gate</label>
-            <select
+            <SearchSelect
               value={decision}
-              onChange={(e) => setDecision(e.target.value as "allow" | "turn_away")}
-              className="input"
-            >
-              <option value="allow">Allow in</option>
-              <option value="turn_away">Turn away</option>
-            </select>
+              onChange={(id) => {
+                if (id && id !== decision) setDecision(id as "allow" | "turn_away");
+              }}
+              options={[
+                { id: "allow", label: "Allow in" },
+                { id: "turn_away", label: "Turn away" },
+              ]}
+              allowClear={false}
+              keepOrder
+            />
           </div>
         )}
       </div>
@@ -564,15 +568,18 @@ function ReceiptEditor({
                     />
                   </td>
                   <td className="px-1 py-1">
-                    <select
-                      value={l.qcVerdict}
-                      onChange={(e) => setLine(i, { qcVerdict: e.target.value })}
-                      className="input"
-                    >
-                      <option value="">Not tested</option>
-                      <option value="pass">Accept</option>
-                      <option value="rejected">Reject</option>
-                    </select>
+                    <SearchSelect
+                      value={l.qcVerdict || null}
+                      onChange={(id) => {
+                        if ((id ?? "") !== l.qcVerdict) setLine(i, { qcVerdict: id ?? "" });
+                      }}
+                      options={[
+                        { id: "pass", label: "Accept" },
+                        { id: "rejected", label: "Reject" },
+                      ]}
+                      placeholder="Not tested"
+                      keepOrder
+                    />
                   </td>
                   <td className="px-1 py-1">
                     <input

@@ -384,16 +384,20 @@ export function DeductionRulesSection() {
                       buttonClassName="input h-8 py-0 text-[13px]"
                     />
                   </div>
-                  <div className="w-28">
-                    <select
-                      value={draft.direction}
-                      onChange={(e) => set({ direction: e.target.value as "max" | "min" })}
-                      className="input h-8 px-1 text-[12px]"
-                    >
-                      <option value="max">over</option>
-                      <option value="min">under</option>
-                    </select>
-                  </div>
+                  <SearchSelect
+                    value={draft.direction}
+                    onChange={(id) => {
+                      if (id && id !== draft.direction) set({ direction: id as "max" | "min" });
+                    }}
+                    options={[
+                      { id: "max", label: "over" },
+                      { id: "min", label: "under" },
+                    ]}
+                    allowClear={false}
+                    keepOrder
+                    className="w-28"
+                    buttonClassName="input h-8 px-1 py-0 text-[12px]"
+                  />
                   <div className="w-24">
                     <input
                       value={draft.threshold}
@@ -412,19 +416,17 @@ export function DeductionRulesSection() {
 
                 <div className="label">Charges</div>
                 <div className="mb-3 flex flex-wrap items-center gap-2">
-                  <div className="w-56">
-                    <select
-                      value={draft.basis}
-                      onChange={(e) => set({ basis: e.target.value as Basis })}
-                      className="input h-8 text-[13px]"
-                    >
-                      {BASES.map((b) => (
-                        <option key={b.key} value={b.key}>
-                          {b.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <SearchSelect
+                    value={draft.basis}
+                    onChange={(id) => {
+                      if (id && id !== draft.basis) set({ basis: id as Basis });
+                    }}
+                    options={BASES.map((b) => ({ id: b.key, label: b.label }))}
+                    allowClear={false}
+                    keepOrder
+                    className="w-56"
+                    buttonClassName="input h-8 py-0 text-[13px]"
+                  />
                   {basisNeeds === "ratePerPoint" && (
                     <div className="w-28">
                       <input
@@ -478,16 +480,20 @@ export function DeductionRulesSection() {
                       buttonClassName="input h-8 py-0 text-[13px]"
                     />
                   </div>
-                  <div className="w-36">
-                    <select
-                      value={draft.scope}
-                      onChange={(e) => set({ scope: e.target.value as "line" | "vehicle" })}
-                      className="input h-8 text-[12px]"
-                    >
-                      <option value="line">once per material</option>
-                      <option value="vehicle">once per truck</option>
-                    </select>
-                  </div>
+                  <SearchSelect
+                    value={draft.scope}
+                    onChange={(id) => {
+                      if (id && id !== draft.scope) set({ scope: id as "line" | "vehicle" });
+                    }}
+                    options={[
+                      { id: "line", label: "once per material" },
+                      { id: "vehicle", label: "once per truck" },
+                    ]}
+                    allowClear={false}
+                    keepOrder
+                    className="w-36"
+                    buttonClassName="input h-8 py-0 text-[12px]"
+                  />
                 </div>
                 {overlaps.length > 0 && (
                   <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">

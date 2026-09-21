@@ -14,6 +14,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FlaskConical } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
+import { SearchSelect } from "./search-select";
 import {
   NUTRIENTS,
   NUTRIENT_GROUPS,
@@ -187,17 +188,17 @@ export function ItemNutrientProfile({ itemId }: { itemId: string }) {
                               className="input h-8 text-right text-[13px]"
                             />
                             {d?.value.trim() ? (
-                              <select
+                              <SearchSelect
                                 value={d.source}
-                                onChange={(e) => set(n.key, { source: e.target.value as NutrientSource })}
-                                className="mt-0.5 w-full border-0 bg-transparent p-0 text-[10px] text-gray-400"
-                              >
-                                {Object.entries(NUTRIENT_SOURCE_LABELS).map(([k, v]) => (
-                                  <option key={k} value={k}>
-                                    {v}
-                                  </option>
-                                ))}
-                              </select>
+                                onChange={(id) => {
+                                  if (id && id !== d.source) set(n.key, { source: id as NutrientSource });
+                                }}
+                                options={Object.entries(NUTRIENT_SOURCE_LABELS).map(([k, v]) => ({ id: k, label: v }))}
+                                allowClear={false}
+                                keepOrder
+                                className="mt-0.5 w-full"
+                                buttonClassName="border-0 bg-transparent p-0 text-[10px] text-gray-400"
+                              />
                             ) : (
                               <div className="mt-0.5 text-[10px] text-gray-300">not measured</div>
                             )}

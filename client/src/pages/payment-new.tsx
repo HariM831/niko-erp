@@ -216,11 +216,13 @@ export function PaymentNewPage({ side, editId }: { side: "customer" | "vendor"; 
           )}
           <div>
             <label className="label">Mode</label>
-            <select value={mode} onChange={(e) => setMode(e.target.value)} className={inputCls}>
-              {MODES.map((m) => (
-                <option key={m} value={m}>{m.replace(/_/g, " ")}</option>
-              ))}
-            </select>
+            <SearchSelect
+              value={mode}
+              onChange={(id) => id && setMode(id)}
+              options={MODES.map((m) => ({ id: m, label: m.replace(/_/g, " ") }))}
+              allowClear={false}
+              keepOrder
+            />
           </div>
           <div>
             <label className="label-required">

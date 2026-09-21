@@ -20,6 +20,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
+import { SearchSelect } from "./search-select";
 import { QC_PARAMETERS, qcParameterDef } from "@shared/feed";
 
 interface SpecParam {
@@ -391,12 +392,14 @@ export function ItemQualitySpec({ itemId }: { itemId: string }) {
                       <div className="mb-1 flex flex-wrap items-center gap-2">
                         {d.isNew ? (
                           <div className="min-w-[140px] flex-1">
-                            <select
-                              value={d.key}
-                              onChange={(e) => {
-                                const def = qcParameterDef(e.target.value);
+                            <SearchSelect
+                              value={d.key || null}
+                              onChange={(id) => {
+                                const key = id ?? "";
+                                if (key === d.key) return;
+                                const def = qcParameterDef(key);
                                 patch(i, {
-                                  key: e.target.value,
+                                  key,
                                   label: def?.label ?? "",
                                   // The unit and the sensible sense of the test
                                   // come with the parameter; both stay editable.
@@ -404,17 +407,14 @@ export function ItemQualitySpec({ itemId }: { itemId: string }) {
                                   direction: def?.direction ?? d.direction,
                                 });
                               }}
-                              className="input h-8 w-full text-[13px] font-medium"
-                            >
-                              <option value="">Choose a parameter…</option>
-                              {QC_PARAMETERS.filter(
+                              options={QC_PARAMETERS.filter(
                                 (o) => o.key === d.key || !drafts.some((x) => x.key === o.key),
-                              ).map((o) => (
-                                <option key={o.key} value={o.key}>
-                                  {o.label}
-                                </option>
-                              ))}
-                            </select>
+                              ).map((o) => ({ id: o.key, label: o.label }))}
+                              placeholder="Choose a parameter…"
+                              keepOrder
+                              className="w-full"
+                              buttonClassName="input h-8 py-0 text-[13px] font-medium"
+                            />
                           </div>
                         ) : (
                           /* Frozen once saved: the key is what a lab reading and
@@ -437,16 +437,20 @@ export function ItemQualitySpec({ itemId }: { itemId: string }) {
                             className="input h-8 px-1 text-center text-[12px]"
                           />
                         </div>
-                        <div className="w-28 shrink-0">
-                          <select
-                            value={d.direction}
-                            onChange={(e) => patch(i, { direction: e.target.value as "max" | "min" })}
-                            className="input h-8 px-1 text-[12px]"
-                          >
-                            <option value="max">fails above</option>
-                            <option value="min">fails below</option>
-                          </select>
-                        </div>
+                        <SearchSelect
+                          value={d.direction}
+                          onChange={(id) => {
+                            if (id && id !== d.direction) patch(i, { direction: id as "max" | "min" });
+                          }}
+                          options={[
+                            { id: "max", label: "fails above" },
+                            { id: "min", label: "fails below" },
+                          ]}
+                          allowClear={false}
+                          keepOrder
+                          className="w-28 shrink-0"
+                          buttonClassName="input h-8 px-1 py-0 text-[12px]"
+                        />
                         <button
                           onClick={() => setDrafts((ds) => ds.filter((_, j) => j !== i))}
                           title="Remove parameter"

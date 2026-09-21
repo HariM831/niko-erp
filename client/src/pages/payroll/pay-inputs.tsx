@@ -14,6 +14,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { useLocalSearch } from "../../components/search-context";
+import { SearchSelect } from "../../components/search-select";
 import { matchesTerm } from "../../lib/utils";
 import { api, formatMoney } from "../../api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -129,17 +130,27 @@ export function PayrollPayInputsPage() {
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <MonthPicker year={year} month={month} onChange={(y, m) => { setYear(y); setMonth(m); }} />
-        <select value={kind} onChange={(e) => setKind(e.target.value)} className="input w-40">
-          <option value="">All kinds</option>
-          {KINDS.map((k) => <option key={k} value={k}>{KIND_LABEL[k]}</option>)}
-        </select>
-        <select value={status} onChange={(e) => setStatus(e.target.value)} className="input w-36">
-          <option value="">All statuses</option>
-          <option value="pending">Pending</option>
-          <option value="approved">Approved</option>
-          <option value="rejected">Rejected</option>
-          <option value="paid">Paid</option>
-        </select>
+        <SearchSelect
+          className="w-40"
+          keepOrder
+          value={kind || null}
+          onChange={(v) => setKind(v ?? "")}
+          placeholder="All kinds"
+          options={KINDS.map((k) => ({ id: k, label: KIND_LABEL[k] }))}
+        />
+        <SearchSelect
+          className="w-36"
+          keepOrder
+          value={status || null}
+          onChange={(v) => setStatus(v ?? "")}
+          placeholder="All statuses"
+          options={[
+            { id: "pending", label: "Pending" },
+            { id: "approved", label: "Approved" },
+            { id: "rejected", label: "Rejected" },
+            { id: "paid", label: "Paid" },
+          ]}
+        />
         <span className="ml-auto text-[12px] tabular-nums text-gray-500">
           Approved: +{formatMoney(totals.bonus + totals.overtime + totals.reimbursement + totals.arrears)} · −{formatMoney(totals.deduction)}
         </span>
@@ -412,10 +423,16 @@ function InputDialog({ year, month, existing, onClose, onSaved }: { year: number
           )}
           {(form.kind === "bonus" || form.kind === "reimbursement") && (
             <Field label="Category">
-              <select className="input capitalize" value={form.category} onChange={(e) => set("category", e.target.value)}>
-                <option value="">—</option>
-                {(form.kind === "bonus" ? BONUS_CATEGORIES : EXPENSE_CATEGORIES).map((c) => <option key={c} value={c} className="capitalize">{c}</option>)}
-              </select>
+              <SearchSelect
+                keepOrder
+                value={form.category || null}
+                onChange={(v) => set("category", v ?? "")}
+                placeholder="—"
+                options={(form.kind === "bonus" ? BONUS_CATEGORIES : EXPENSE_CATEGORIES).map((c) => ({
+                  id: c,
+                  label: c.charAt(0).toUpperCase() + c.slice(1),
+                }))}
+              />
             </Field>
           )}
           <Field label="Description">
@@ -460,12 +477,19 @@ function AdvancesSection({ term }: { term: string }) {
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <h2 className="text-[15px] font-semibold">Advances</h2>
         <span className="text-[12px] tabular-nums text-gray-500">outstanding {formatMoney(outstanding)}</span>
-        <select value={status} onChange={(e) => setStatus(e.target.value)} className="input ml-auto w-32">
-          <option value="active">Active</option>
-          <option value="closed">Closed</option>
-          <option value="cancelled">Cancelled</option>
-          <option value="">All</option>
-        </select>
+        <SearchSelect
+          className="ml-auto w-32"
+          keepOrder
+          allowClear={false}
+          value={status}
+          onChange={(v) => setStatus(v ?? "")}
+          options={[
+            { id: "active", label: "Active" },
+            { id: "closed", label: "Closed" },
+            { id: "cancelled", label: "Cancelled" },
+            { id: "", label: "All" },
+          ]}
+        />
         <button className="btn-secondary" onClick={() => setAddOpen(true)}><Plus size={14} /> Give advance</button>
       </div>
       <ErrorBanner message={err} onClose={() => setErr(null)} />
@@ -548,10 +572,16 @@ function GiveAdvanceDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
           <Field label="Employee" required><EmployeeSelect value={form.employeeId} onChange={(v) => setForm({ ...form, employeeId: v })} /></Field>
           <div className="grid grid-cols-2 gap-2">
             <Field label="Type">
-              <select className="input" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
-                <option value="salary_advance">Salary advance</option>
-                <option value="loan">Loan</option>
-              </select>
+              <SearchSelect
+                keepOrder
+                allowClear={false}
+                value={form.type}
+                onChange={(v) => { if (v) setForm({ ...form, type: v }); }}
+                options={[
+                  { id: "salary_advance", label: "Salary advance" },
+                  { id: "loan", label: "Loan" },
+                ]}
+              />
             </Field>
             <Field label="Given on" required><input type="date" className="input" value={form.givenOn} onChange={(e) => setForm({ ...form, givenOn: e.target.value })} /></Field>
             <Field label="Amount" required><input type="number" className="input tabular-nums" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>

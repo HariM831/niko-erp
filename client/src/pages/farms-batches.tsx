@@ -87,16 +87,17 @@ export function FarmsBatchesPage() {
         <div className="flex items-end gap-2">
           <div className="w-40">
             <label className="label">Showing</label>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value as typeof status)}
-              className="input"
-            >
-              <option value="all">All</option>
-              <option value="rearing">Rearing</option>
-              <option value="laying">Laying</option>
-              <option value="depleted">Depleted</option>
-            </select>
+            <SearchSelect
+              value={status === "all" ? null : status}
+              onChange={(id) => setStatus((id ?? "all") as typeof status)}
+              options={[
+                { id: "rearing", label: "Rearing" },
+                { id: "laying", label: "Laying" },
+                { id: "depleted", label: "Depleted" },
+              ]}
+              placeholder="All"
+              keepOrder
+            />
           </div>
           <button
             onClick={() => setAdding(true)}

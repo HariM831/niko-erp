@@ -418,14 +418,16 @@ export function InventoryAdjustmentNewPage() {
           </div>
           <div>
             <label className="label-required">Mode *</label>
-            <select
+            <SearchSelect
               value={mode}
-              onChange={(e) => setMode(e.target.value as "quantity" | "value")}
-              className="input"
-            >
-              <option value="quantity">Quantity</option>
-              <option value="value">Value only</option>
-            </select>
+              onChange={(id) => id && setMode(id as "quantity" | "value")}
+              options={[
+                { id: "quantity", label: "Quantity" },
+                { id: "value", label: "Value only" },
+              ]}
+              allowClear={false}
+              keepOrder
+            />
           </div>
           <div>
             <label className="label-required">Account *</label>

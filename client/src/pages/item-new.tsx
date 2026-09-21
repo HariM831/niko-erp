@@ -232,23 +232,26 @@ export function ItemNewPage({ editId }: { editId?: string }) {
                 {/* Fixed options, not a custom field: the formulator and the
                     Farm Store gate on these values. */}
                 <label className={label}>Category</label>
-                <select value={form.category} onChange={set("category")} className={inputCls}>
-                  <option value="">—</option>
-                  {ITEM_CATEGORIES.map((c) => (
-                    <option key={c} value={c}>{ITEM_CATEGORY_LABELS[c]}</option>
-                  ))}
-                </select>
+                <SearchSelect
+                  value={form.category || null}
+                  onChange={(id) => set("category")({ target: { value: id ?? "" } })}
+                  options={ITEM_CATEGORIES.map((c) => ({ id: c, label: ITEM_CATEGORY_LABELS[c] }))}
+                  placeholder="—"
+                  keepOrder
+                />
               </div>
               <div>
                 <label className={label}>Unit</label>
-                <select value={form.unit} onChange={set("unit")} className={inputCls}>
-                  {COMMON_UNITS.map((u) => (
-                    <option key={u} value={u}>{u}</option>
-                  ))}
-                  {!COMMON_UNITS.includes(form.unit) && form.unit && (
-                    <option value={form.unit}>{form.unit}</option>
-                  )}
-                </select>
+                <SearchSelect
+                  value={form.unit || null}
+                  onChange={(id) => id && set("unit")({ target: { value: id } })}
+                  options={[
+                    ...COMMON_UNITS.map((u) => ({ id: u, label: u })),
+                    ...(!COMMON_UNITS.includes(form.unit) && form.unit ? [{ id: form.unit, label: form.unit }] : []),
+                  ]}
+                  allowClear={false}
+                  keepOrder
+                />
               </div>
             </div>
 

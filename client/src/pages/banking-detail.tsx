@@ -1050,10 +1050,17 @@ function QuickEntryPanel({ bankAccountId, onDone, onCancel }: { bankAccountId: s
       <div className="flex flex-wrap items-end gap-3">
         <div>
           <label className="label">Direction</label>
-          <select value={direction} onChange={(e) => setDirection(e.target.value as "in" | "out")} className="input w-40">
-            <option value="in">Money In (Deposit)</option>
-            <option value="out">Money Out (Withdrawal)</option>
-          </select>
+          <SearchSelect
+            value={direction}
+            onChange={(id) => id && setDirection(id as "in" | "out")}
+            options={[
+              { id: "in", label: "Money In (Deposit)" },
+              { id: "out", label: "Money Out (Withdrawal)" },
+            ]}
+            allowClear={false}
+            keepOrder
+            className="w-56"
+          />
         </div>
         <div>
           <label className="label-required">Date *</label>
@@ -1224,11 +1231,17 @@ export function BankAccountNewPage({ editId }: { editId?: string }) {
           </div>
           <div>
             <label className={label}>Type</label>
-            <select value={form.kind} onChange={set("kind")} className={inputCls}>
-              <option value="bank">Bank</option>
-              <option value="cash">Cash</option>
-              <option value="card">Card</option>
-            </select>
+            <SearchSelect
+              value={form.kind}
+              onChange={(id) => id && set("kind")({ target: { value: id } })}
+              options={[
+                { id: "bank", label: "Bank" },
+                { id: "cash", label: "Cash" },
+                { id: "card", label: "Card" },
+              ]}
+              allowClear={false}
+              keepOrder
+            />
           </div>
           <div>
             <label className={label}>Bank Name</label>

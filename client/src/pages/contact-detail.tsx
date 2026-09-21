@@ -8,6 +8,7 @@ import { CommentsTimeline } from "../components/comments";
 import { AttachmentsButton } from "../components/attachments";
 import { billNo } from "../lib/utils";
 import { useSearchContext } from "../components/search-context";
+import { SearchSelect } from "../components/search-select";
 
 interface ContactRailRow {
   id: string;
@@ -563,14 +564,30 @@ export function IncomeChart({ contactId, label }: { contactId: string; label: st
       <div className="mb-1 flex items-center justify-between">
         <h3 className="text-sm font-semibold">{heading}</h3>
         <div className="flex items-center gap-2 text-[13px]">
-          <select value={basis} onChange={(e) => setBasis(e.target.value as "accrual" | "cash")} className="input w-auto py-1">
-            <option value="accrual">Accrual</option>
-            <option value="cash">Cash</option>
-          </select>
-          <select value={months} onChange={(e) => setMonths(Number(e.target.value))} className="input w-auto py-1">
-            <option value={6}>Last 6 Months</option>
-            <option value={12}>Last 12 Months</option>
-          </select>
+          <SearchSelect
+            value={basis}
+            onChange={(id) => id && id !== basis && setBasis(id as "accrual" | "cash")}
+            options={[
+              { id: "accrual", label: "Accrual" },
+              { id: "cash", label: "Cash" },
+            ]}
+            allowClear={false}
+            keepOrder
+            className="w-28"
+            buttonClassName="input h-8 py-0 text-[13px]"
+          />
+          <SearchSelect
+            value={String(months)}
+            onChange={(id) => id && Number(id) !== months && setMonths(Number(id))}
+            options={[
+              { id: "6", label: "Last 6 Months" },
+              { id: "12", label: "Last 12 Months" },
+            ]}
+            allowClear={false}
+            keepOrder
+            className="w-40"
+            buttonClassName="input h-8 py-0 text-[13px]"
+          />
         </div>
       </div>
 

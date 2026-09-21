@@ -15,6 +15,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { api, formatMoney } from "../../api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { SearchSelect } from "../../components/search-select";
 import {
   Badge, Empty, ErrorBanner, Field, Spinner, Td, Th, dmy, istToday, num, useErr,
 } from "../../components/payroll/ui";
@@ -291,11 +292,18 @@ export function HolidaysTab() {
         <Field label="Name"><input className="input w-52" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
         <Field label="Date"><input type="date" className="input" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></Field>
         <Field label="Type">
-          <select className="input" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as Holiday["type"] })}>
-            <option value="national">National</option>
-            <option value="regional">Regional</option>
-            <option value="company">Company</option>
-          </select>
+          <SearchSelect
+            className="w-32"
+            keepOrder
+            allowClear={false}
+            value={form.type}
+            onChange={(v) => { if (v) setForm({ ...form, type: v as Holiday["type"] }); }}
+            options={[
+              { id: "national", label: "National" },
+              { id: "regional", label: "Regional" },
+              { id: "company", label: "Company" },
+            ]}
+          />
         </Field>
         <label className="flex h-8 items-center gap-1.5 text-[13px]">
           <input type="checkbox" checked={form.isRecurring} onChange={(e) => setForm({ ...form, isRecurring: e.target.checked })} /> Every year

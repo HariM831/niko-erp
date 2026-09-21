@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SearchSelect } from "@/components/search-select";
 import { ArrowLeft, Plus, Bird, Calendar, Scale, Droplets, Wheat, AlertTriangle, Check, Trash2, Home, Egg, ArrowDownRight, ArrowUpRight, Scissors, Syringe, Upload, Edit, Eye, EyeOff } from "lucide-react";
 import { useApp } from "@/lib/store";
@@ -2345,19 +2344,21 @@ export function HouseDetailPage() {
             <div className="space-y-4 pt-4">
               <div>
                 <Label>Farm Name</Label>
-                <Select
-                  value={editShedForm.farmName}
-                  onValueChange={(value) => setEditShedForm(prev => ({ ...prev, farmName: value }))}
-                >
-                  <SelectTrigger className="min-h-[44px]" data-testid="select-edit-farm-name">
-                    <SelectValue placeholder="Select farm" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Amino">Amino</SelectItem>
-                    <SelectItem value="Nandamuri">Nandamuri</SelectItem>
-                    <SelectItem value="Luit Valley">Luit Valley</SelectItem>
-                  </SelectContent>
-                </Select>
+                <SearchSelect
+                  value={editShedForm.farmName || null}
+                  onChange={(id) => {
+                    if (id && id !== editShedForm.farmName) setEditShedForm(prev => ({ ...prev, farmName: id }));
+                  }}
+                  options={[
+                    { id: "Amino", label: "Amino" },
+                    { id: "Nandamuri", label: "Nandamuri" },
+                    { id: "Luit Valley", label: "Luit Valley" },
+                  ]}
+                  placeholder="Select farm"
+                  allowClear={false}
+                  keepOrder
+                  buttonClassName="input min-h-[44px]"
+                />
               </div>
               <div>
                 <Label>Shed Name</Label>
@@ -2371,18 +2372,20 @@ export function HouseDetailPage() {
               </div>
               <div>
                 <Label>Type</Label>
-                <Select
-                  value={editShedForm.type}
-                  onValueChange={(value) => setEditShedForm(prev => ({ ...prev, type: value as 'pullet' | 'layer' }))}
-                >
-                  <SelectTrigger className="min-h-[44px]" data-testid="select-edit-shed-type">
-                    <SelectValue placeholder="Select type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="pullet">Pullet</SelectItem>
-                    <SelectItem value="layer">Layer</SelectItem>
-                  </SelectContent>
-                </Select>
+                <SearchSelect
+                  value={editShedForm.type || null}
+                  onChange={(id) => {
+                    if (id && id !== editShedForm.type) setEditShedForm(prev => ({ ...prev, type: id as 'pullet' | 'layer' }));
+                  }}
+                  options={[
+                    { id: "pullet", label: "Pullet" },
+                    { id: "layer", label: "Layer" },
+                  ]}
+                  placeholder="Select type"
+                  allowClear={false}
+                  keepOrder
+                  buttonClassName="input min-h-[44px]"
+                />
               </div>
               <div>
                 <Label>Display Order</Label>

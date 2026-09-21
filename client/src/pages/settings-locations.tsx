@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
+import { SearchSelect } from "../components/search-select";
 import {
   Badge,
   Banner,
@@ -245,17 +246,13 @@ function LocationEditor({
 
         <div className="col-span-2">
           <label className="label-required">Type *</label>
-          <select
+          <SearchSelect
+            keepOrder
+            allowClear={false}
             value={form.type}
-            onChange={(e) => set({ type: e.target.value })}
-            className="input"
-          >
-            {TYPES.map((t) => (
-              <option key={t.key} value={t.key}>
-                {t.label}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => { if (v) set({ type: v }); }}
+            options={TYPES.map((t) => ({ id: t.key, label: t.label }))}
+          />
         </div>
         <div className="col-span-2">
           <label className="label">In Charge</label>

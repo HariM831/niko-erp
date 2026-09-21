@@ -15,6 +15,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { ApiError, api } from "../api";
+import { SearchSelect } from "../components/search-select";
 import { STANDARD_METRICS, STANDARD_SOURCES } from "@shared/schema/breeds";
 import {
   Banner,
@@ -320,17 +321,15 @@ function NewSet({
       </div>
       <div className="w-40">
         <label className="label">Source</label>
-        <select
+        <SearchSelect
           value={f.source}
-          onChange={(e) => setF((v) => ({ ...v, source: e.target.value }))}
-          className="input"
-        >
-          {STANDARD_SOURCES.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
+          onChange={(id) => {
+            if (id && id !== f.source) setF((v) => ({ ...v, source: id }));
+          }}
+          options={STANDARD_SOURCES.map((s) => ({ id: s, label: s }))}
+          allowClear={false}
+          keepOrder
+        />
       </div>
       <label className="flex items-center gap-1.5 pb-2 text-[12px] text-gray-600">
         <input

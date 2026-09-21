@@ -467,12 +467,19 @@ function LeaveTab({ term }: { term: string }) {
     <div>
       <ErrorBanner message={err} onClose={() => setErr(null)} />
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <select value={status} onChange={(e) => setStatus(e.target.value)} className="input w-36">
-          <option value="pending">Pending</option>
-          <option value="approved">Approved</option>
-          <option value="rejected">Rejected</option>
-          <option value="">All</option>
-        </select>
+        <SearchSelect
+          className="w-36"
+          keepOrder
+          allowClear={false}
+          value={status}
+          onChange={(v) => setStatus(v ?? "")}
+          options={[
+            { id: "pending", label: "Pending" },
+            { id: "approved", label: "Approved" },
+            { id: "rejected", label: "Rejected" },
+            { id: "", label: "All" },
+          ]}
+        />
         <button className="btn-primary ml-auto" onClick={() => setApplyOpen(true)}>Apply for leave</button>
       </div>
 
@@ -607,11 +614,17 @@ function ApplyLeaveDialog({ onClose, onSaved }: { onClose: () => void; onSaved: 
             </div>
           )}
           <Field label="Type" required>
-            <select className="input" value={form.leaveType} onChange={(e) => setForm({ ...form, leaveType: e.target.value as Leave["leaveType"] })}>
-              <option value="CL">Casual leave</option>
-              <option value="SL">Sick leave</option>
-              <option value="CompOff">Comp-off</option>
-            </select>
+            <SearchSelect
+              keepOrder
+              allowClear={false}
+              value={form.leaveType}
+              onChange={(v) => { if (v) setForm({ ...form, leaveType: v as Leave["leaveType"] }); }}
+              options={[
+                { id: "CL", label: "Casual leave" },
+                { id: "SL", label: "Sick leave" },
+                { id: "CompOff", label: "Comp-off" },
+              ]}
+            />
           </Field>
           {form.leaveType === "CompOff" && (
             <Field label="Worked on (holiday / weekly off)" required hint="Must be a past day worked, within validity">

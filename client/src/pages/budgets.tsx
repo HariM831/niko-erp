@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
+import { SearchSelect } from "../components/search-select";
 
 interface Budget {
   id: string;
@@ -258,22 +259,22 @@ export function BudgetNewPage() {
             <input value={name} onChange={(e) => setName(e.target.value)} className="input" autoFocus />
           </Field>
           <Field label="Fiscal Year" required>
-            <select value={fy.value} onChange={(e) => setFyValue(e.target.value)} className="input">
-              {fyOptions.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+            <SearchSelect
+              value={fy.value}
+              onChange={(id) => id && setFyValue(id)}
+              options={fyOptions.map((o) => ({ id: o.value, label: o.label }))}
+              allowClear={false}
+              keepOrder
+            />
           </Field>
           <Field label="Budget Period" required>
-            <select value={period} onChange={(e) => setPeriod(e.target.value)} className="input">
-              {Object.entries(PERIOD_LABEL).map(([v, l]) => (
-                <option key={v} value={v}>
-                  {l}
-                </option>
-              ))}
-            </select>
+            <SearchSelect
+              value={period}
+              onChange={(id) => id && setPeriod(id)}
+              options={Object.entries(PERIOD_LABEL).map(([v, l]) => ({ id: v, label: l }))}
+              allowClear={false}
+              keepOrder
+            />
           </Field>
 
           <h2 className="mb-4 mt-7 border-t pt-5 text-[11px] font-medium uppercase tracking-wide text-[#6c718a]">

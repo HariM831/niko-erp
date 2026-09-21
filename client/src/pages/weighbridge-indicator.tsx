@@ -21,6 +21,7 @@ import { Link } from "wouter";
 import { ArrowLeft, Copy, Download, Plug, Square } from "lucide-react";
 import { useAuth } from "../auth";
 import { WeighbridgeCamera } from "../components/weighbridge-camera";
+import { SearchSelect } from "../components/search-select";
 import {
   FrameSplitter,
   type Frame,
@@ -490,67 +491,71 @@ export function WeighbridgeIndicatorPage() {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
           <div>
             <label className="label">Baud</label>
-            <select
-              className="input"
-              value={settings.baudRate}
+            <SearchSelect
+              keepOrder
+              allowClear={false}
+              value={String(settings.baudRate)}
               disabled={connected}
-              onChange={(e) => set("baudRate", Number(e.target.value))}
-            >
-              {BAUD_RATES.map((b) => (
-                <option key={b} value={b}>
-                  {b}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => { if (v != null && Number(v) !== settings.baudRate) set("baudRate", Number(v)); }}
+              options={BAUD_RATES.map((b) => ({ id: String(b), label: String(b) }))}
+            />
           </div>
           <div>
             <label className="label">Data bits</label>
-            <select
-              className="input"
-              value={settings.dataBits}
+            <SearchSelect
+              keepOrder
+              allowClear={false}
+              value={String(settings.dataBits)}
               disabled={connected}
-              onChange={(e) => set("dataBits", Number(e.target.value))}
-            >
-              <option value={7}>7</option>
-              <option value={8}>8</option>
-            </select>
+              onChange={(v) => { if (v != null && Number(v) !== settings.dataBits) set("dataBits", Number(v)); }}
+              options={[
+                { id: "7", label: "7" },
+                { id: "8", label: "8" },
+              ]}
+            />
           </div>
           <div>
             <label className="label">Parity</label>
-            <select
-              className="input"
+            <SearchSelect
+              keepOrder
+              allowClear={false}
               value={settings.parity}
               disabled={connected}
-              onChange={(e) => set("parity", e.target.value as Settings["parity"])}
-            >
-              <option value="none">None</option>
-              <option value="even">Even</option>
-              <option value="odd">Odd</option>
-            </select>
+              onChange={(v) => { if (v && v !== settings.parity) set("parity", v as Settings["parity"]); }}
+              options={[
+                { id: "none", label: "None" },
+                { id: "even", label: "Even" },
+                { id: "odd", label: "Odd" },
+              ]}
+            />
           </div>
           <div>
             <label className="label">Stop bits</label>
-            <select
-              className="input"
-              value={settings.stopBits}
+            <SearchSelect
+              keepOrder
+              allowClear={false}
+              value={String(settings.stopBits)}
               disabled={connected}
-              onChange={(e) => set("stopBits", Number(e.target.value))}
-            >
-              <option value={1}>1</option>
-              <option value={2}>2</option>
-            </select>
+              onChange={(v) => { if (v != null && Number(v) !== settings.stopBits) set("stopBits", Number(v)); }}
+              options={[
+                { id: "1", label: "1" },
+                { id: "2", label: "2" },
+              ]}
+            />
           </div>
           <div>
             <label className="label">Flow control</label>
-            <select
-              className="input"
+            <SearchSelect
+              keepOrder
+              allowClear={false}
               value={settings.flowControl}
               disabled={connected}
-              onChange={(e) => set("flowControl", e.target.value as Settings["flowControl"])}
-            >
-              <option value="none">None</option>
-              <option value="hardware">Hardware</option>
-            </select>
+              onChange={(v) => { if (v && v !== settings.flowControl) set("flowControl", v as Settings["flowControl"]); }}
+              options={[
+                { id: "none", label: "None" },
+                { id: "hardware", label: "Hardware" },
+              ]}
+            />
           </div>
         </div>
 
