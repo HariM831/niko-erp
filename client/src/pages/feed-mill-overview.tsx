@@ -52,11 +52,14 @@ function Spot({
   hint,
   href,
   trucks,
+  of,
 }: {
   label: string;
   hint: string;
   href: string;
   trucks: Truck[];
+  /** While a search is on, how many stand here in all — so "1 of 3" is not read as a quiet spot. */
+  of?: number;
 }) {
   return (
     <div className="rounded-xl bg-white shadow-sm">
@@ -64,7 +67,9 @@ function Spot({
         <div className="cursor-pointer border-b border-yolk-200/60 bg-gradient-to-r from-yolk-100 via-yolk-50 to-transparent px-3 py-2">
           <div className="flex items-baseline justify-between gap-2">
             <span className="text-[12px] font-semibold uppercase tracking-wide text-soil-700">{label}</span>
-            <span className="text-[13px] font-semibold tabular-nums text-soil-800">{trucks.length}</span>
+            <span className="text-[13px] font-semibold tabular-nums text-soil-800">
+              {of != null ? `${trucks.length} of ${of}` : trucks.length}
+            </span>
           </div>
           <div className="text-[11px] text-gray-500">{hint}</div>
         </div>
@@ -145,7 +150,7 @@ export function FeedMillOverviewPage() {
           {shown.length > 0 && (
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {shown.map((s) => (
-                <Spot key={s.key} label={s.label} hint={s.hint} href={s.href} trucks={find(data![s.key] ?? [])} />
+                <Spot key={s.key} label={s.label} hint={s.hint} href={s.href} trucks={find(data![s.key] ?? [])} of={term.trim() ? (data![s.key] ?? []).length : undefined} />
               ))}
             </div>
           )}
