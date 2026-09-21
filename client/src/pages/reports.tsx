@@ -393,7 +393,9 @@ export function ReportViewPage({ reportKey }: { reportKey: string }) {
 
       <div className="flex flex-wrap items-center gap-2 border-t bg-white px-6 py-2.5">
         <span className="mr-1 text-[13px] text-gray-500">Filters :</span>
-        <label className="flex h-8 items-center gap-2 rounded-md border px-3 text-[13px]">
+        {/* A div, not a label: a label forwards clicks to the picker's first
+            button and can snap its list shut again. */}
+        <div className="flex h-8 items-center gap-2 rounded-md border px-3 text-[13px]">
           <span className="text-gray-500">Date Range :</span>
           <SearchSelect
             value={preset}
@@ -404,7 +406,7 @@ export function ReportViewPage({ reportKey }: { reportKey: string }) {
             className="w-36"
             buttonClassName="bg-transparent outline-none text-[13px]"
           />
-        </label>
+        </div>
 
         {/* niko posts on accrual only, so the basis is stated rather than
             offered as a one-option dropdown. */}
