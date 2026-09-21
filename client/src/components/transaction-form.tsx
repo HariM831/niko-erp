@@ -17,6 +17,8 @@ interface Item {
   name: string;
   unit: string;
   category?: string | null;
+  isSold?: boolean;
+  isPurchased?: boolean;
   sellingPrice?: string;
   costPrice?: string;
   taxId?: string;
@@ -198,16 +200,19 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
   });
   /**
    * Only the items this side of the business deals in: an invoice offers what
-   * niko sells, a bill what it buys (shared/item-categories). An item already
-   * on a line is always kept in its own list, so opening an old document never
-   * loses what it says.
+   * niko sells, a bill what it buys. Two tests, both needed: the category says
+   * what kind of thing it is (shared/item-categories), and the item's own
+   * Sales / Purchase flag says which way it moves — chick feed is poultry feed
+   * but is only ever bought, Layer 1 Feed is made and never bought. An item
+   * already on a line is always kept in its own list, so opening an old
+   * document never loses what it says.
    */
   const offered = useMemo(() => {
     const sell = config.contactType === "customer";
     return (items ?? []).filter((it) =>
       sell
-        ? !!it.category && (SALE_CATEGORIES as readonly string[]).includes(it.category)
-        : !it.category || (PURCHASE_CATEGORIES as readonly string[]).includes(it.category),
+        ? it.isSold !== false && !!it.category && (SALE_CATEGORIES as readonly string[]).includes(it.category)
+        : it.isPurchased !== false && (!it.category || (PURCHASE_CATEGORIES as readonly string[]).includes(it.category)),
     );
   }, [items, config.contactType]);
   const itemOptions = (current?: string) => {
