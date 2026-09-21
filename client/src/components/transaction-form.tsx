@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError, formatMoney } from "../api";
 import { PendingAttachments, uploadPending } from "./pending-attachments";
 import { CustomFieldsBlock, type CustomFieldValues } from "./custom-fields";
+import { AccountSelect, type AccountNode } from "./account-select";
 
 interface Contact {
   id: string;
@@ -24,14 +25,7 @@ interface Tax {
   name: string;
   rate: string;
 }
-interface Account {
-  id: string;
-  code: string;
-  name: string;
-  type: string;
-  isGroup: boolean;
-  isActive: boolean;
-}
+type Account = AccountNode;
 
 export interface FormLine {
   itemId?: string;
@@ -233,13 +227,10 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
 
   // A sale credits income; a purchase debits an expense or capitalises an asset.
   // Headings can't be posted to, so they never appear here.
-  const lineAccounts = useMemo(() => {
-    const wanted =
-      config.contactType === "customer" ? ["income"] : ["expense", "asset"];
-    return (accounts ?? []).filter(
-      (a) => a.isActive && !a.isGroup && wanted.includes(a.type),
-    );
-  }, [accounts, config.contactType]);
+  // Header accounts stay in: the picker draws them for the tree's shape and
+  // will not let one be chosen.
+  const lineWanted = config.contactType === "customer" ? ["income"] : ["expense", "asset"];
+  const lineInclude = (a: AccountNode) => lineWanted.includes(a.type);
 
   const taxRate = (id?: string) => Number(taxes?.find((t) => t.id === id)?.rate ?? 0);
 
@@ -463,20 +454,12 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                   </div>
                   <div>
                     <label className="label-required">Freight Expense Account *</label>
-                    <select
+                    <AccountSelect
                       value={freightAccountId}
-                      onChange={(e) => setFreightAccountId(e.target.value)}
-                      className={inputCls}
-                    >
-                      <option value="">Select account…</option>
-                      {accounts
-                        ?.filter((a) => a.type === "expense")
-                        .map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {a.code} · {a.name}
-                          </option>
-                        ))}
-                    </select>
+                      onChange={setFreightAccountId}
+                      accounts={accounts}
+                      include={(a) => a.type === "expense"}
+                    />
                   </div>
                 </>
               )}
@@ -536,18 +519,14 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                   </td>
                   {config.withAccountColumn && (
                     <td className="border border-[#ece3d5] px-1 py-1">
-                      <select
+                      <AccountSelect
                         value={l.accountId ?? ""}
-                        onChange={(e) => updateLine(i, { accountId: e.target.value || undefined })}
-                        className={inputCls}
-                      >
-                        <option value="">Item default</option>
-                        {lineAccounts.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {a.code} · {a.name}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(id) => updateLine(i, { accountId: id || undefined })}
+                        accounts={accounts}
+                        include={lineInclude}
+                        placeholder="Item default"
+                        allowClear
+                      />
                     </td>
                   )}
                   <td className="border border-[#ece3d5] px-1 py-1">
@@ -661,18 +640,15 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                 {config.withAccountColumn && (
                   <>
                     <label className="label">Account</label>
-                    <select
+                    <AccountSelect
                       value={l.accountId ?? ""}
-                      onChange={(e) => updateLine(i, { accountId: e.target.value || undefined })}
-                      className={`${inputCls} mb-2`}
-                    >
-                      <option value="">Item default</option>
-                      {lineAccounts.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.code} · {a.name}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(id) => updateLine(i, { accountId: id || undefined })}
+                      accounts={accounts}
+                      include={lineInclude}
+                      placeholder="Item default"
+                      allowClear
+                      className="mb-2"
+                    />
                   </>
                 )}
 
@@ -783,18 +759,15 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                 placeholder="Adjustment"
                 className="w-24 border-b border-dashed border-gray-300 bg-transparent text-[13px] outline-none focus:border-brand-400"
               />
-              <select
+              <AccountSelect
                 value={adjustment.accountId}
-                onChange={(e) => setAdjustment((a) => ({ ...a, accountId: e.target.value }))}
-                className="min-w-0 flex-1 border-b border-dashed border-gray-300 bg-transparent text-[12px] text-gray-500 outline-none focus:border-brand-400"
-              >
-                <option value="">account…</option>
-                {(accounts ?? []).map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.code} · {a.name}
-                  </option>
-                ))}
-              </select>
+                onChange={(id) => setAdjustment((a) => ({ ...a, accountId: id }))}
+                accounts={accounts}
+                include={() => true}
+                placeholder="account…"
+                className="min-w-0 flex-1"
+                buttonClassName="border-b border-dashed border-gray-300 bg-transparent py-0.5 text-[12px] text-gray-500 outline-none focus:border-brand-400"
+              />
               <input
                 value={adjustment.amount}
                 onChange={(e) => setAdjustment((a) => ({ ...a, amount: e.target.value }))}

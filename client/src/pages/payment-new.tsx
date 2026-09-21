@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
+import { AccountSelect, bankNodes } from "../components/account-select";
 
 interface Contact {
   id: string;
@@ -16,6 +17,9 @@ interface OpenDoc {
 interface BankAccount {
   id: string;
   name: string;
+  kind?: string | null;
+  accountNumber?: string | null;
+  isActive?: boolean;
 }
 
 const MODES = ["bank_transfer", "cash", "upi", "cheque", "card"] as const;
@@ -221,12 +225,12 @@ export function PaymentNewPage({ side, editId }: { side: "customer" | "vendor"; 
             <label className="label-required">
               {isCustomer ? "Deposit To" : "Paid Through"} *
             </label>
-            <select value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)} className={inputCls}>
-              <option value="">Select account…</option>
-              {banks?.map((b) => (
-                <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
-            </select>
+            <AccountSelect
+              value={bankAccountId}
+              onChange={setBankAccountId}
+              accounts={bankNodes(banks)}
+              include={() => true}
+            />
           </div>
           <div>
             <label className="label">Reference #</label>

@@ -6,6 +6,7 @@ import { SummaryBanner } from "../components/summary-banner";
 import { shortDate } from "./documents";
 import { useLocalSearch } from "../components/search-context";
 import { matchesTerm } from "../lib/utils";
+import { AccountSelect, bankNodes } from "../components/account-select";
 
 /**
  * Vendor Sheet — the one screen that answers "what do we owe, and what goes to
@@ -419,19 +420,12 @@ function SendToBankDialog({
             <div className="mt-4 grid gap-3">
               <div>
                 <label className="label-required">Pay from *</label>
-                <select
+                <AccountSelect
                   value={bankAccountId}
-                  onChange={(e) => setBankAccountId(e.target.value)}
-                  className="input"
-                >
-                  <option value="">Select account…</option>
-                  {accounts?.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                      {a.bankName ? ` · ${a.bankName}` : ""}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setBankAccountId}
+                  accounts={bankNodes(accounts)}
+                  include={() => true}
+                />
                 {account && !account.bankCustomerCode && (
                   <p className="mt-1 text-[12px] text-amber-700">
                     This account has no customer code from the bank. Add it under Banking, or the

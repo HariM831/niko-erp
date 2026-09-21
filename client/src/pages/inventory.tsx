@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
+import { AccountSelect, type AccountNode } from "../components/account-select";
 
 /** Current on-hand, for the adjustment form's "quantity now" column. */
 interface StockLevel {
@@ -36,14 +37,7 @@ interface AdjustmentRow {
   accountName: string | null;
 }
 
-interface Account {
-  id: string;
-  code: string;
-  name: string;
-  type: string;
-  isGroup: boolean;
-  isActive: boolean;
-}
+type Account = AccountNode;
 
 const today = () => new Date().toISOString().slice(0, 10);
 const qty = (v: string) => Number(v).toLocaleString("en-IN", { maximumFractionDigits: 3 });
@@ -353,13 +347,7 @@ export function InventoryAdjustmentNewPage() {
     queryKey: ["accounts-all"],
     queryFn: () => api<Account[]>("/api/accounting/accounts"),
   });
-  const postable = useMemo(
-    () =>
-      (accounts ?? []).filter(
-        (a) => !a.isGroup && a.isActive && (a.type === "expense" || a.type === "income"),
-      ),
-    [accounts],
-  );
+
   const levelOf = (itemId: string) => (levels ?? []).find((l) => l.itemId === itemId);
 
   const update = (i: number, patch: Partial<AdjLine>) =>
@@ -440,18 +428,12 @@ export function InventoryAdjustmentNewPage() {
           </div>
           <div>
             <label className="label-required">Account *</label>
-            <select
+            <AccountSelect
               value={adjustmentAccountId}
-              onChange={(e) => setAccount(e.target.value)}
-              className="input"
-            >
-              <option value="">Select account…</option>
-              {postable.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.code} · {a.name}
-                </option>
-              ))}
-            </select>
+              onChange={setAccount}
+              accounts={accounts}
+              include={(a) => a.type === "expense" || a.type === "income"}
+            />
           </div>
           <div className="col-span-2">
             <label className="label-required">Reason *</label>

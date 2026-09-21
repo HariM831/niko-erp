@@ -4,12 +4,15 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { PendingAttachments, uploadPending } from "../components/pending-attachments";
 import { CustomFieldsBlock, type CustomFieldValues } from "../components/custom-fields";
-import { AccountSelect, type AccountNode } from "../components/account-select";
+import { AccountSelect, bankNodes, type AccountNode } from "../components/account-select";
 
 type Account = AccountNode;
 interface BankAccount {
   id: string;
   name: string;
+  kind?: string | null;
+  accountNumber?: string | null;
+  isActive?: boolean;
 }
 interface Contact {
   id: string;
@@ -187,17 +190,13 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
             <label className={unpaid ? label : "label-required"}>
               Paid Through {unpaid ? "" : "*"}
             </label>
-            <select
+            <AccountSelect
               value={unpaid ? "" : form.paidThroughId}
-              onChange={set("paidThroughId")}
+              onChange={(id) => setForm((f) => ({ ...f, paidThroughId: id }))}
+              accounts={bankNodes(banks)}
+              include={() => true}
               disabled={unpaid}
-              className={`${inputCls} disabled:bg-gray-50 disabled:text-gray-400`}
-            >
-              <option value="">Select account…</option>
-              {banks?.map((b) => (
-                <option key={b.id} value={b.id}>{b.name}</option>
-              ))}
-            </select>
+            />
             <label className="mt-1.5 flex items-center gap-1.5 text-[12px] text-gray-600">
               <input
                 type="checkbox"

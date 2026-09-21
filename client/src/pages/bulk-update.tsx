@@ -1,27 +1,8 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
+import { AccountSelect } from "../components/account-select";
 
-const SUBTYPE_LABEL: Record<string, string> = {
-  other_current_asset: "Other Current Asset",
-  cash: "Cash",
-  bank: "Bank",
-  accounts_receivable: "Accounts Receivable",
-  stock: "Stock",
-  fixed_asset: "Fixed Asset",
-  other_asset: "Other Asset",
-  other_current_liability: "Other Current Liability",
-  accounts_payable: "Accounts Payable",
-  credit_card: "Credit Card",
-  non_current_liability: "Non Current Liability",
-  other_liability: "Other Liability",
-  equity: "Equity",
-  income: "Income",
-  other_income: "Other Income",
-  expense: "Expense",
-  cost_of_goods_sold: "Cost Of Goods Sold",
-  other_expense: "Other Expense",
-};
 
 interface Account {
   id: string;
@@ -72,34 +53,23 @@ function toPayload(f: Filters) {
   return out;
 }
 
-/** Accounts grouped under their subtype heading, the way Zoho's picker reads. */
-function AccountSelect({
-  accounts, value, onChange, placeholder,
-}: { accounts: Account[]; value: string; onChange: (v: string) => void; placeholder: string }) {
-  const grouped = useMemo(() => {
-    const g = new Map<string, Account[]>();
-    for (const a of accounts) {
-      const key = a.subtype ?? a.type;
-      const list = g.get(key) ?? [];
-      list.push(a);
-      g.set(key, list);
-    }
-    return [...g.entries()];
-  }, [accounts]);
-
+/**
+ * The shared account picker — the chart as a searchable tree, as everywhere
+ * else in niko. Handed the whole chart so header accounts keep the tree's
+ * shape (the picker will not let one be chosen); `exclude` drops one account,
+ * the one transactions are being moved away from.
+ */
+function AccountPicker({
+  accounts, value, onChange, placeholder, exclude,
+}: { accounts: Account[]; value: string; onChange: (v: string) => void; placeholder: string; exclude?: string }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} className="input">
-      <option value="">{placeholder}</option>
-      {grouped.map(([key, list]) => (
-        <optgroup key={key} label={SUBTYPE_LABEL[key] ?? key}>
-          {list.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.code} · {a.name}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-    </select>
+    <AccountSelect
+      accounts={accounts}
+      include={(a) => a.id !== exclude}
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+    />
   );
 }
 
@@ -132,7 +102,7 @@ function FilterModal({
           <div className="mb-3 flex items-start gap-4">
             <label className="w-36 shrink-0 pt-1.5 text-[13px] text-[#e02b2b]">Account*</label>
             <div className="flex-1">
-              <AccountSelect
+              <AccountPicker
                 accounts={accounts}
                 value={f.accountId}
                 onChange={(v) => set({ accountId: v })}
@@ -317,7 +287,7 @@ export function BulkUpdatePage() {
         {filtering && (
           <FilterModal
             initial={filters}
-            accounts={postable}
+            accounts={accounts ?? []}
             contacts={contacts ?? []}
             onCancel={() => setFiltering(false)}
             onSearch={(f) => void search(f)}
@@ -443,8 +413,9 @@ export function BulkUpdatePage() {
       <footer className="flex items-center gap-3 border-t bg-white px-6 py-3">
         <label className="text-[13px] text-gray-600">Move to</label>
         <div className="w-80">
-          <AccountSelect
-            accounts={postable.filter((a) => a.id !== result.account.id)}
+          <AccountPicker
+            accounts={accounts ?? []}
+            exclude={result.account.id}
             value={target}
             onChange={setTarget}
             placeholder="Select the new account"
@@ -465,7 +436,7 @@ export function BulkUpdatePage() {
       {filtering && (
         <FilterModal
           initial={filters}
-          accounts={postable}
+          accounts={accounts ?? []}
           contacts={contacts ?? []}
           onCancel={() => setFiltering(false)}
           onSearch={(f) => void search(f)}

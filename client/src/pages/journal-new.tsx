@@ -2,13 +2,9 @@ import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatMoney } from "../api";
+import { AccountSelect, type AccountNode } from "../components/account-select";
 
-interface Account {
-  id: string;
-  code: string;
-  name: string;
-  isActive: boolean;
-}
+type Account = AccountNode;
 
 interface TagOption {
   id: string;
@@ -176,16 +172,12 @@ export function JournalNewPage() {
             {lines.map((l, i) => (
               <tr key={i}>
                 <td className="border border-[#ece3d5] px-1 py-1">
-                  <select value={l.accountId} onChange={(e) => update(i, { accountId: e.target.value })} className={inputCls}>
-                    <option value="">Select account…</option>
-                    {accounts
-                      ?.filter((a) => a.isActive)
-                      .map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.code} · {a.name}
-                        </option>
-                      ))}
-                  </select>
+                  <AccountSelect
+                    value={l.accountId}
+                    onChange={(id) => update(i, { accountId: id })}
+                    accounts={accounts}
+                    include={() => true}
+                  />
                 </td>
                 <td className="border border-[#ece3d5] px-1 py-1">
                   <input

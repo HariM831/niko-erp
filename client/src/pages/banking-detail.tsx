@@ -6,6 +6,7 @@ import { api, formatDate, formatMoney } from "../api";
 import { StatusBadge } from "../components/list-page";
 import { useLocalSearch } from "../components/search-context";
 import { matchesTerm } from "../lib/utils";
+import { AccountSelect, bankNodes, type AccountNode } from "../components/account-select";
 
 interface BankTxn {
   id: string;
@@ -17,12 +18,7 @@ interface BankTxn {
   counterparty?: string;
   matchStatus: string;
 }
-interface Account {
-  id: string;
-  code: string;
-  name: string;
-  isActive: boolean;
-}
+type Account = AccountNode;
 interface Journal {
   id: string;
   entryNumber: string;
@@ -942,12 +938,7 @@ function UncategorizedTab({
                         <div className="flex flex-wrap items-end gap-3">
                           <div className="w-72">
                             <label className="label">Categorize to account</label>
-                            <select value={catAccount} onChange={(e) => setCatAccount(e.target.value)} className="input">
-                              <option value="">Select account…</option>
-                              {accounts?.filter((a) => a.isActive).map((a) => (
-                                <option key={a.id} value={a.id}>{a.code} · {a.name}</option>
-                              ))}
-                            </select>
+                            <AccountSelect value={catAccount} onChange={setCatAccount} accounts={accounts} include={() => true} />
                           </div>
                           <div className="w-72">
                             <label className="label">Narration</label>
@@ -1073,12 +1064,7 @@ function QuickEntryPanel({ bankAccountId, onDone, onCancel }: { bankAccountId: s
         </div>
         <div className="w-64">
           <label className="label-required">{direction === "in" ? "From Account" : "To Account"} *</label>
-          <select value={contraAccountId} onChange={(e) => setContraAccountId(e.target.value)} className="input">
-            <option value="">Select account…</option>
-            {accounts?.filter((a) => a.isActive).map((a) => (
-              <option key={a.id} value={a.id}>{a.code} · {a.name}</option>
-            ))}
-          </select>
+          <AccountSelect value={contraAccountId} onChange={setContraAccountId} accounts={accounts} include={() => true} />
         </div>
         <div className="w-64">
           <label className="label">Description</label>
@@ -1132,12 +1118,7 @@ function TransferPanel({ bankAccountId, onDone, onCancel }: { bankAccountId: str
       <div className="flex flex-wrap items-end gap-3">
         <div className="w-64">
           <label className="label-required">To Account *</label>
-          <select value={toAccountId} onChange={(e) => setToAccountId(e.target.value)} className="input">
-            <option value="">Select account…</option>
-            {others.map((a) => (
-              <option key={a.id} value={a.id}>{a.name}</option>
-            ))}
-          </select>
+          <AccountSelect value={toAccountId} onChange={setToAccountId} accounts={bankNodes(others)} include={() => true} />
         </div>
         <div>
           <label className="label-required">Date *</label>

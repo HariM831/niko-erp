@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
+import { AccountSelect, type AccountNode } from "./account-select";
 
 interface FieldOption {
   id: string;
@@ -55,6 +56,19 @@ function LookupSelect({
     enabled: !!source,
   });
   if (!source) return <p className="text-[12px] text-red-600">Misconfigured lookup</p>;
+  // An account is picked from the chart's tree, as everywhere else.
+  if (field.lookupEntity === "account") {
+    return (
+      <AccountSelect
+        value={(value as string) ?? ""}
+        onChange={(id) => onChange(id || undefined)}
+        accounts={data as unknown as AccountNode[] | undefined}
+        include={() => true}
+        placeholder="—"
+        allowClear
+      />
+    );
+  }
   return (
     <select
       value={(value as string) ?? ""}

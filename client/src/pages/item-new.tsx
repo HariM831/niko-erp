@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api } from "../api";
+import { AccountSelect, type AccountNode } from "../components/account-select";
 import {
   ITEM_CATEGORIES,
   ITEM_CATEGORY_LABELS,
@@ -10,12 +11,7 @@ import {
 import { uploadPending } from "../components/pending-attachments";
 import { ImagePlus, Search, X } from "lucide-react";
 
-interface Account {
-  id: string;
-  code: string;
-  name: string;
-  type: string;
-}
+type Account = AccountNode;
 interface Tax {
   id: string;
   name: string;
@@ -358,14 +354,14 @@ export function ItemNewPage({ editId }: { editId?: string }) {
               </div>
               <div>
                 <label className="label-required">Account *</label>
-                <select value={form.salesAccountId} onChange={set("salesAccountId")} className={inputCls}>
-                  <option value="">Sales (default)</option>
-                  {accounts
-                    ?.filter((a) => a.type === "income")
-                    .map((a) => (
-                      <option key={a.id} value={a.id}>{a.code} · {a.name}</option>
-                    ))}
-                </select>
+                <AccountSelect
+                  value={form.salesAccountId}
+                  onChange={(id) => setForm((f) => ({ ...f, salesAccountId: id }))}
+                  accounts={accounts}
+                  include={(a) => a.type === "income"}
+                  placeholder="Sales (default)"
+                  allowClear
+                />
               </div>
               <div className="col-span-2">
                 <label className={label}>Description</label>
@@ -402,14 +398,14 @@ export function ItemNewPage({ editId }: { editId?: string }) {
               </div>
               <div>
                 <label className="label-required">Account *</label>
-                <select value={form.purchaseAccountId} onChange={set("purchaseAccountId")} className={inputCls}>
-                  <option value="">Cost of Goods Sold (default)</option>
-                  {accounts
-                    ?.filter((a) => a.type === "expense" || a.type === "asset")
-                    .map((a) => (
-                      <option key={a.id} value={a.id}>{a.code} · {a.name}</option>
-                    ))}
-                </select>
+                <AccountSelect
+                  value={form.purchaseAccountId}
+                  onChange={(id) => setForm((f) => ({ ...f, purchaseAccountId: id }))}
+                  accounts={accounts}
+                  include={(a) => a.type === "expense" || a.type === "asset"}
+                  placeholder="Cost of Goods Sold (default)"
+                  allowClear
+                />
               </div>
               <div>
                 <label className={label}>Description</label>
@@ -446,14 +442,12 @@ export function ItemNewPage({ editId }: { editId?: string }) {
             <div className="ml-6 mt-3 grid grid-cols-3 gap-4">
               <div>
                 <label className="label-required">Inventory Account *</label>
-                <select value={form.inventoryAccountId} onChange={set("inventoryAccountId")} className={inputCls}>
-                  <option value="">Select an account</option>
-                  {accounts
-                    ?.filter((a) => a.type === "asset")
-                    .map((a) => (
-                      <option key={a.id} value={a.id}>{a.code} · {a.name}</option>
-                    ))}
-                </select>
+                <AccountSelect
+                  value={form.inventoryAccountId}
+                  onChange={(id) => setForm((f) => ({ ...f, inventoryAccountId: id }))}
+                  accounts={accounts}
+                  include={(a) => a.type === "asset"}
+                />
               </div>
               <div>
                 <label className="label">Opening Stock</label>

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
+import { AccountSelect, type AccountNode } from "../components/account-select";
 
 interface AssetRow {
   id: string;
@@ -18,15 +19,7 @@ interface AssetRow {
   accountName: string | null;
 }
 
-interface Account {
-  id: string;
-  code: string;
-  name: string;
-  type: string;
-  subtype: string | null;
-  isGroup: boolean;
-  isActive: boolean;
-}
+type Account = AccountNode;
 
 interface Summary {
   count: number;
@@ -339,10 +332,6 @@ export function FixedAssetNewPage() {
     queryKey: ["accounts-all"],
     queryFn: () => api<Account[]>("/api/accounting/accounts"),
   });
-  const assetAccounts = useMemo(
-    () => (accounts ?? []).filter((a) => a.subtype === "fixed_asset" && !a.isGroup && a.isActive),
-    [accounts],
-  );
 
   const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
 
@@ -411,18 +400,12 @@ export function FixedAssetNewPage() {
 
           <div className="col-span-2">
             <label className="label-required">Asset Account *</label>
-            <select
+            <AccountSelect
               value={form.assetAccountId}
-              onChange={(e) => set({ assetAccountId: e.target.value })}
-              className="input"
-            >
-              <option value="">Select account…</option>
-              {assetAccounts.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.code} · {a.name}
-                </option>
-              ))}
-            </select>
+              onChange={(id) => set({ assetAccountId: id })}
+              accounts={accounts}
+              include={(a) => a.subtype === "fixed_asset"}
+            />
           </div>
           <div>
             <label className="label">Location</label>
@@ -696,13 +679,7 @@ function DisposeDialog({
     queryKey: ["accounts-all"],
     queryFn: () => api<Account[]>("/api/accounting/accounts"),
   });
-  const cashAccounts = useMemo(
-    () =>
-      (accounts ?? []).filter(
-        (a) => (a.subtype === "bank" || a.subtype === "cash") && !a.isGroup && a.isActive,
-      ),
-    [accounts],
-  );
+
 
   const gain = Number(proceeds || 0) - Number(asset.netBookValue);
 
@@ -757,18 +734,12 @@ function DisposeDialog({
             {Number(proceeds) > 0 && (
               <div className="col-span-2">
                 <label className="label-required">Received Into *</label>
-                <select
+                <AccountSelect
                   value={proceedsAccountId}
-                  onChange={(e) => setProceedsAccountId(e.target.value)}
-                  className="input"
-                >
-                  <option value="">Select account…</option>
-                  {cashAccounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.code} · {a.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setProceedsAccountId}
+                  accounts={accounts}
+                  include={(a) => a.subtype === "bank" || a.subtype === "cash"}
+                />
               </div>
             )}
           </div>

@@ -66,6 +66,24 @@ const kindRank = (k: string) => {
   return i < 0 ? KIND_ORDER.length : i;
 };
 
+/**
+ * A bank register row as the picker reads it. Paid Through and Deposit To
+ * choose from niko's bank and cash accounts rather than the chart, and are
+ * grouped the way Zoho groups them: Cash, Bank, Credit Card.
+ */
+export function bankNodes(
+  banks: Array<{ id: string; name: string; kind?: string | null; accountNumber?: string | null; isActive?: boolean }> | undefined,
+): AccountNode[] {
+  return (banks ?? []).map((b) => ({
+    id: b.id,
+    code: b.accountNumber ?? "",
+    name: b.name,
+    type: "asset",
+    subtype: b.kind === "cash" ? "cash" : b.kind === "card" ? "credit_card" : "bank",
+    isActive: b.isActive,
+  }));
+}
+
 type Row =
   | { kind: "heading"; key: string; label: string }
   | {
@@ -87,6 +105,7 @@ export function AccountSelect({
   disabled,
   allowClear = false,
   className,
+  buttonClassName,
 }: {
   value: string;
   onChange: (id: string) => void;
@@ -97,6 +116,8 @@ export function AccountSelect({
   disabled?: boolean;
   allowClear?: boolean;
   className?: string;
+  /** Replaces the usual input look — for a picker set inline in a line of text. */
+  buttonClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -200,6 +221,8 @@ export function AccountSelect({
     listRef.current?.querySelector<HTMLElement>(`[data-row="${cursor}"]`)?.scrollIntoView({ block: "nearest" });
   }, [cursor]);
 
+  // The panel is at least 18rem wide (min-w below): in a table cell the box is
+  // narrow, and a tree needs room to indent.
   const pick = (id: string) => {
     onChange(id);
     setOpen(false);
@@ -217,8 +240,8 @@ export function AccountSelect({
         type="button"
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
-        className={`input flex w-full items-center justify-between gap-2 text-left disabled:bg-gray-50 disabled:text-gray-400 ${
-          open ? "border-brand-500" : ""
+        className={`flex w-full items-center justify-between gap-2 text-left disabled:bg-gray-50 disabled:text-gray-400 ${
+          buttonClassName ?? `input ${open ? "border-brand-500" : ""}`
         }`}
       >
         <span className={`truncate ${selected ? "text-gray-900" : "text-gray-400"}`}>
@@ -239,7 +262,7 @@ export function AccountSelect({
       </button>
 
       {open && (
-        <div className="absolute z-30 mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg">
+        <div className="absolute z-30 mt-1 w-full min-w-[18rem] rounded-lg border border-gray-200 bg-white shadow-lg">
           <div className="p-2">
             <div className="flex items-center gap-2 rounded-md border border-gray-300 px-2 focus-within:border-brand-500">
               <Search className="h-3.5 w-3.5 shrink-0 text-gray-400" />
