@@ -45,6 +45,7 @@ export function SearchSelect({
   keepOrder = false,
   pinned,
   className,
+  buttonClassName,
 }: {
   value: string | null;
   onChange: (id: string | null) => void;
@@ -56,6 +57,8 @@ export function SearchSelect({
   keepOrder?: boolean;
   pinned?: PinnedGroup;
   className?: string;
+  /** Replaces the usual input look — for a picker sitting bare in a table cell. */
+  buttonClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -108,7 +111,7 @@ export function SearchSelect({
         type="button"
         disabled={disabled}
         onClick={() => setOpen((o) => !o)}
-        className="input flex items-center justify-between gap-2 text-left disabled:bg-gray-50"
+        className={`flex w-full items-center justify-between gap-2 text-left disabled:bg-gray-50 ${buttonClassName ?? "input"}`}
       >
         <span className={`truncate ${selected ? "text-gray-900" : "text-gray-400"}`}>
           {selected?.label ?? placeholder}
@@ -128,7 +131,7 @@ export function SearchSelect({
       </button>
 
       {open && (
-        <div className="absolute z-30 mt-1 w-full rounded-lg border border-gray-200 bg-white shadow-lg">
+        <div className="absolute z-30 mt-1 w-full min-w-[18rem] rounded-lg border border-gray-200 bg-white shadow-lg">
           <input
             ref={inputRef}
             value={query}

@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api } from "../api";
 import { AccountSelect, type AccountNode } from "../components/account-select";
+import { SearchSelect } from "../components/search-select";
 import {
   ITEM_CATEGORIES,
   ITEM_CATEGORY_LABELS,
@@ -413,12 +414,12 @@ export function ItemNewPage({ editId }: { editId?: string }) {
               </div>
               <div>
                 <label className={label}>Preferred Vendor</label>
-                <select value={form.preferredVendorId} onChange={set("preferredVendorId")} className={inputCls}>
-                  <option value="">None</option>
-                  {vendors?.map((v) => (
-                    <option key={v.id} value={v.id}>{v.displayName}</option>
-                  ))}
-                </select>
+                <SearchSelect
+                  value={form.preferredVendorId || null}
+                  onChange={(id) => setForm((f) => ({ ...f, preferredVendorId: id ?? "" }))}
+                  options={(vendors ?? []).map((v) => ({ id: v.id, label: v.displayName }))}
+                  placeholder="None"
+                />
               </div>
             </div>
           )}

@@ -3,6 +3,7 @@ import { useLocation, useSearch } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
 import { AccountSelect, bankNodes } from "../components/account-select";
+import { SearchSelect } from "../components/search-select";
 
 interface Contact {
   id: string;
@@ -192,12 +193,12 @@ export function PaymentNewPage({ side, editId }: { side: "customer" | "vendor"; 
             <label className="label-required">
               {isCustomer ? "Customer" : "Vendor"} *
             </label>
-            <select value={contactId} onChange={(e) => setContactId(e.target.value)} className={inputCls}>
-              <option value="">Select…</option>
-              {contacts?.map((c) => (
-                <option key={c.id} value={c.id}>{c.displayName}</option>
-              ))}
-            </select>
+            <SearchSelect
+              value={contactId || null}
+              onChange={(id) => setContactId(id ?? "")}
+              options={(contacts ?? []).map((c) => ({ id: c.id, label: c.displayName }))}
+              placeholder={`Select ${isCustomer ? "customer" : "vendor"}…`}
+            />
           </div>
           <div>
             <label className="label-required">Payment Date *</label>

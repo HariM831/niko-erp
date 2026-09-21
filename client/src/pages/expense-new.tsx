@@ -5,6 +5,7 @@ import { api } from "../api";
 import { PendingAttachments, uploadPending } from "../components/pending-attachments";
 import { CustomFieldsBlock, type CustomFieldValues } from "../components/custom-fields";
 import { AccountSelect, bankNodes, type AccountNode } from "../components/account-select";
+import { SearchSelect } from "../components/search-select";
 
 type Account = AccountNode;
 interface BankAccount {
@@ -211,12 +212,12 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
             <label className={unpaid ? "label-required" : label}>
               Vendor {unpaid ? "*" : ""}
             </label>
-            <select value={form.vendorId} onChange={set("vendorId")} className={inputCls}>
-              <option value="">None</option>
-              {vendors?.map((v) => (
-                <option key={v.id} value={v.id}>{v.displayName}</option>
-              ))}
-            </select>
+            <SearchSelect
+              value={form.vendorId || null}
+              onChange={(id) => setForm((f) => ({ ...f, vendorId: id ?? "" }))}
+              options={(vendors ?? []).map((v) => ({ id: v.id, label: v.displayName }))}
+              placeholder="None"
+            />
             {unpaid && !form.vendorId && (
               <p className="mt-1 text-[11px] text-amber-700">
                 An unpaid expense has to say who it is owed to.

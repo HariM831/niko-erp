@@ -5,11 +5,13 @@ import { api, ApiError, formatMoney } from "../api";
 import { PendingAttachments, uploadPending } from "./pending-attachments";
 import { CustomFieldsBlock, type CustomFieldValues } from "./custom-fields";
 import { AccountSelect, type AccountNode } from "./account-select";
+import { SearchSelect, type Choice } from "./search-select";
 import { PURCHASE_CATEGORIES, SALE_CATEGORIES } from "@shared/item-categories";
 
 interface Contact {
   id: string;
   displayName: string;
+  companyName?: string | null;
   paymentTermsDays: number;
 }
 interface Item {
@@ -220,6 +222,18 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
     const kept = items?.find((it) => it.id === current);
     return kept ? [kept, ...offered] : offered;
   };
+  /** The same lists as choices for the searchable picker: name, and the unit beneath. */
+  const itemChoices = (current?: string): Choice[] =>
+    itemOptions(current).map((it) => ({ id: it.id, label: it.name, sub: it.unit }));
+  const contactChoices = useMemo<Choice[]>(
+    () =>
+      (contacts ?? []).map((c) => ({
+        id: c.id,
+        label: c.displayName,
+        sub: c.companyName && c.companyName !== c.displayName ? c.companyName : null,
+      })),
+    [contacts],
+  );
   const { data: taxes } = useQuery({
     queryKey: ["taxes"],
     queryFn: () => api<Tax[]>("/api/taxes"),
@@ -399,14 +413,12 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
             <label className="label-required">
               {config.contactLabel} *
             </label>
-            <select value={contactId} onChange={(e) => setContactId(e.target.value)} className={inputCls}>
-              <option value="">Select {config.contactLabel.toLowerCase()}…</option>
-              {contacts?.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.displayName}
-                </option>
-              ))}
-            </select>
+            <SearchSelect
+              value={contactId || null}
+              onChange={(id) => setContactId(id ?? "")}
+              options={contactChoices}
+              placeholder={`Select ${config.contactLabel.toLowerCase()}…`}
+            />
           </div>
           <div>
             <label className="label-required">{config.dateLabel} *</label>
@@ -465,18 +477,12 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                 <>
                   <div>
                     <label className="label">Transporter</label>
-                    <select
-                      value={freightVendorId}
-                      onChange={(e) => setFreightVendorId(e.target.value)}
-                      className={inputCls}
-                    >
-                      <option value="">Select transporter…</option>
-                      {contacts?.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.displayName}
-                        </option>
-                      ))}
-                    </select>
+                    <SearchSelect
+                      value={freightVendorId || null}
+                      onChange={(id) => setFreightVendorId(id ?? "")}
+                      options={contactChoices}
+                      placeholder="Select transporter…"
+                    />
                   </div>
                   <div>
                     <label className="label-required">Freight Expense Account *</label>
@@ -526,14 +532,12 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
               return (
                 <tr key={i}>
                   <td className="border border-[#ece3d5] px-1 py-1">
-                    <select value={l.itemId ?? ""} onChange={(e) => pickItem(i, e.target.value)} className={inputCls}>
-                      <option value="">— manual —</option>
-                      {itemOptions(l.itemId).map((it) => (
-                        <option key={it.id} value={it.id}>
-                          {it.name}
-                        </option>
-                      ))}
-                    </select>
+                    <SearchSelect
+                      value={l.itemId ?? null}
+                      onChange={(id) => pickItem(i, id ?? "")}
+                      options={itemChoices(l.itemId)}
+                      placeholder="— manual —"
+                    />
                   </td>
                   <td className="border border-[#ece3d5] px-1 py-1">
                     <input
@@ -646,14 +650,13 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                 </div>
 
                 <label className="label">Item</label>
-                <select value={l.itemId ?? ""} onChange={(e) => pickItem(i, e.target.value)} className={`${inputCls} mb-2`}>
-                  <option value="">— manual —</option>
-                  {itemOptions(l.itemId).map((it) => (
-                    <option key={it.id} value={it.id}>
-                      {it.name}
-                    </option>
-                  ))}
-                </select>
+                <SearchSelect
+                  value={l.itemId ?? null}
+                  onChange={(id) => pickItem(i, id ?? "")}
+                  options={itemChoices(l.itemId)}
+                  placeholder="— manual —"
+                  className="mb-2"
+                />
 
                 <label className="label">Details</label>
                 <input

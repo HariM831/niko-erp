@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
 import { AccountSelect, type AccountNode } from "../components/account-select";
+import { SearchSelect } from "../components/search-select";
 
 /** Current on-hand, for the adjustment form's "quantity now" column. */
 interface StockLevel {
@@ -471,18 +472,13 @@ export function InventoryAdjustmentNewPage() {
               return (
                 <tr key={i}>
                   <td className="border border-[#ece3d5] px-2 py-1">
-                    <select
-                      value={l.itemId}
-                      onChange={(e) => update(i, { itemId: e.target.value })}
-                      className="w-full bg-transparent outline-none"
-                    >
-                      <option value="">Select item…</option>
-                      {levels?.map((lv) => (
-                        <option key={lv.itemId} value={lv.itemId}>
-                          {lv.name}
-                        </option>
-                      ))}
-                    </select>
+                    <SearchSelect
+                      value={l.itemId || null}
+                      onChange={(id) => update(i, { itemId: id ?? "" })}
+                      options={(levels ?? []).map((lv) => ({ id: lv.itemId, label: lv.name, sub: lv.unit }))}
+                      placeholder="Select item…"
+                      buttonClassName="bg-transparent py-0.5 outline-none"
+                    />
                   </td>
                   <td className="border border-[#ece3d5] px-2 py-1 text-right tabular-nums text-gray-500">
                     {level ? `${qty(level.quantity)} ${level.unit}` : "—"}
