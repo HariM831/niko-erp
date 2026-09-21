@@ -7,10 +7,9 @@
  * would overdraw it is refused by the ledger, so it is refused here first.
  */
 import { useEffect, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Send } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
-import { matchesTerm } from "../lib/utils";
 import { StatusBadge } from "../components/status-badge";
 import { PlatformWeight } from "./platform-weight";
 
@@ -72,9 +71,14 @@ export function FeedTransferForm({ term = "" }: { term?: string }) {
     queryKey: ["feed-transfer-context"],
     queryFn: () => api("/api/feed/production/transfers/context"),
   });
+  // The search is answered by the server, which reaches every transfer ever
+  // made, not only the newest hundred loaded to browse.
+  const q = term.trim();
   const { data: rows } = useQuery<TransferRow[]>({
-    queryKey: ["feed-transfers"],
-    queryFn: () => api("/api/feed/production/transfers"),
+    queryKey: ["feed-transfers", q],
+    queryFn: () =>
+      api(q ? `/api/feed/production/transfers?search=${encodeURIComponent(q)}` : "/api/feed/production/transfers"),
+    placeholderData: keepPreviousData,
   });
 
   useEffect(() => {
@@ -115,10 +119,10 @@ export function FeedTransferForm({ term = "" }: { term?: string }) {
 
   /**
    * The last three days that saw transfers, newest first, with day totals.
-   * A search looks through every transfer loaded (the newest hundred), not
-   * just three days of them; the totals are then of what matched.
+   * While searching, every matching day is shown, and the totals are of what
+   * matched.
    */
-  const found = (rows ?? []).filter((r) => matchesTerm(term, [r.number, r.itemName, r.toLocationName]));
+  const found = rows ?? [];
   const byDay = (() => {
     const all = [...new Set(found.map((r) => r.transferDate))].sort().reverse();
     const days = term.trim() ? all : all.slice(0, 3);

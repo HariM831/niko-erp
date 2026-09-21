@@ -23,7 +23,8 @@
  * remainder, and raw materials stay periodic — office moves no stock.
  */
 import { Router } from "express";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, or } from "drizzle-orm";
+import { matches } from "../services/document-search";
 import { z } from "zod";
 import {
   accounts,
@@ -79,7 +80,10 @@ function fail(err: unknown, res: { status: (n: number) => { json: (b: unknown) =
 
 // ───────────────────────────── Production ─────────────────────────────
 
-feedProductionRouter.get("/orders", requirePermission("feed_mill", "view"), async (_req, res) => {
+feedProductionRouter.get("/orders", requirePermission("feed_mill", "view"), async (req, res) => {
+  // The top-bar search, by the rule every list follows. Browsing shows the
+  // newest hundred runs; a search reaches all of them, so it is not capped.
+  const term = typeof req.query.search === "string" ? req.query.search.trim() : "";
   const orders = await db
     .select({
       id: productionOrders.id,
@@ -99,8 +103,18 @@ feedProductionRouter.get("/orders", requirePermission("feed_mill", "view"), asyn
     .from(productionOrders)
     .innerJoin(formulas, eq(formulas.id, productionOrders.formulaId))
     .leftJoin(locations, eq(locations.id, productionOrders.locationId))
+    .where(
+      term
+        ? or(
+            matches(productionOrders.number, term),
+            matches(formulas.name, term),
+            matches(productionOrders.voidReason, term),
+            matches(locations.name, term),
+          )
+        : undefined,
+    )
     .orderBy(desc(productionOrders.orderDate), desc(productionOrders.createdAt))
-    .limit(100);
+    .limit(term ? 100_000 : 100);
   res.json(orders);
 });
 
@@ -477,7 +491,10 @@ feedProductionRouter.post(
 
 // ─────────────────────────── Feed transfers ───────────────────────────
 
-feedProductionRouter.get("/transfers", requirePermission("feed_mill", "view"), async (_req, res) => {
+feedProductionRouter.get("/transfers", requirePermission("feed_mill", "view"), async (req, res) => {
+  // The top-bar search, as on production runs: uncapped, since a search has
+  // to reach past the newest hundred.
+  const term = typeof req.query.search === "string" ? req.query.search.trim() : "";
   const rows = await db
     .select({
       id: feedTransfers.id,
@@ -496,8 +513,20 @@ feedProductionRouter.get("/transfers", requirePermission("feed_mill", "view"), a
     .innerJoin(items, eq(items.id, feedTransfers.itemId))
     // Left: the rows written before houses existed have no house to join to.
     .leftJoin(houses, eq(houses.id, feedTransfers.toHouseId))
+    // The site, for the older rows that went to one rather than a house.
+    .leftJoin(locations, eq(locations.id, feedTransfers.toLocationId))
+    .where(
+      term
+        ? or(
+            matches(feedTransfers.number, term),
+            matches(items.name, term),
+            matches(houses.code, term),
+            matches(locations.name, term),
+          )
+        : undefined,
+    )
     .orderBy(desc(feedTransfers.transferDate))
-    .limit(100);
+    .limit(term ? 100_000 : 100);
   const locs = await db.select({ id: locations.id, name: locations.name }).from(locations);
   const byId = new Map(locs.map((l) => [l.id, l.name]));
   // The house is the answer where there is one; the site is what the older

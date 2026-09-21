@@ -8,12 +8,11 @@
  * real run.
  */
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Factory, Plus, X } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
 import { StatusBadge } from "../components/status-badge";
 import { useLocalSearch } from "../components/search-context";
-import { matchesTerm } from "../lib/utils";
 
 interface FormulaGroup {
   name: string;
@@ -62,9 +61,14 @@ export function FeedProductionPage() {
     queryKey: ["feed-formula-picker"],
     queryFn: () => api("/api/feed/formulas/picker"),
   });
+  // "Search in Production" is answered by the server, which looks through
+  // every run ever made, not just the newest hundred this page loads to browse.
+  const term = useLocalSearch("Production", "feed-mill:production").trim();
   const { data: rows } = useQuery<ProductionRow[]>({
-    queryKey: ["feed-production"],
-    queryFn: () => api("/api/feed/production/orders"),
+    queryKey: ["feed-production", term],
+    queryFn: () =>
+      api(term ? `/api/feed/production/orders?search=${encodeURIComponent(term)}` : "/api/feed/production/orders"),
+    placeholderData: keepPreviousData,
   });
 
   const refresh = () => {
@@ -125,11 +129,9 @@ export function FeedProductionPage() {
    * total. Three DATES WITH DATA rather than three calendar days, so a quiet
    * weekend does not blank the screen.
    */
-  // "Search in Production" looks through every run loaded (the newest
-  // hundred), not only three days of them; the day totals are then of what
-  // matched.
-  const term = useLocalSearch("Production", "feed-mill:production");
-  const found = (rows ?? []).filter((r) => matchesTerm(term, [r.number, r.formulaName, r.voidReason]));
+  // While searching, every matching day is shown, not three; the day totals
+  // are then of what matched.
+  const found = rows ?? [];
   const byDay = (() => {
     const all = [...new Set(found.map((r) => r.orderDate))].sort().reverse();
     const days = term.trim() ? all : all.slice(0, 3);
