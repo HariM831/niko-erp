@@ -44,6 +44,7 @@ import {
   setFlockTransfers,
   startLay,
 } from "../services/flocks";
+import { istDate } from "../services/day-resolution";
 
 export const farmsFlockRouter = Router();
 
@@ -480,7 +481,7 @@ farmsFlockRouter.get("/flocks/:id", view, async (req, res) => {
       hatchSpread: hatchProfile(hatches),
       // Age runs off the weighted average, so a batch spread over a week is the
       // age most of its birds actually are.
-      age: ageOn(flock.hatchDate, new Date().toISOString().slice(0, 10)),
+      age: ageOn(flock.hatchDate, istDate()),
       placements: placements.map((p) => ({ ...p, birds: counts.get(p.id) ?? 0 })),
       movements,
     };
@@ -555,7 +556,7 @@ farmsFlockRouter.post(
  * handed over, and after it as the record of what was.
  */
 farmsFlockRouter.get("/flocks/:id/handover", view, async (req, res) => {
-  const on = (req.query.on as string) || new Date().toISOString().slice(0, 10);
+  const on = (req.query.on as string) || istDate();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(on)) {
     return res.status(422).json({ error: "Use a YYYY-MM-DD date" });
   }
@@ -655,7 +656,7 @@ farmsFlockRouter.post(
  * old dashboard ended up making 28.
  */
 farmsFlockRouter.get("/board", view, async (req, res) => {
-  const on = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+  const on = (req.query.date as string) || istDate();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(on)) {
     return res.status(422).json({ error: "Use a YYYY-MM-DD date" });
   }
@@ -700,7 +701,7 @@ farmsFlockRouter.get("/board", view, async (req, res) => {
  * reason for looking.
  */
 farmsFlockRouter.get("/daily", view, async (req, res) => {
-  const day = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+  const day = (req.query.date as string) || istDate();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) {
     return res.status(422).json({ error: "Use a YYYY-MM-DD date" });
   }
@@ -904,7 +905,7 @@ farmsFlockRouter.get("/daily/sensor", view, async (req, res) => {
   res.json({
     available: true,
     // Today's totals are still climbing; yesterday's are final.
-    partial: day >= new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10),
+    partial: day >= istDate(),
     at: r!.updated_at,
     feedConsumedKg: feedOk ? feedKg : null,
     feedClosingKg: siloOk ? siloKg : null,

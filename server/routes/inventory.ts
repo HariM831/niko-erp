@@ -21,6 +21,7 @@ import {
   reverseStock,
   stockOnHand,
 } from "../services/inventory";
+import { istDate } from "../services/day-resolution";
 
 export const inventoryRouter = Router();
 
@@ -70,7 +71,7 @@ inventoryRouter.get("/stock", requirePermission("items", "view"), async (_req, r
 inventoryRouter.get("/stock/period", requirePermission("items", "view"), async (req, res) => {
   const q = req.query as Record<string, string | undefined>;
   const iso = /^\d{4}-\d{2}-\d{2}$/;
-  const to = q.to && iso.test(q.to) ? q.to : new Date().toISOString().slice(0, 10);
+  const to = q.to && iso.test(q.to) ? q.to : istDate();
   const from = q.from && iso.test(q.from) ? q.from : to;
   if (from > to) return res.status(422).json({ error: "The period starts after it ends" });
   res.json(await stockLedger(db, { from, to, category: q.category || undefined }));

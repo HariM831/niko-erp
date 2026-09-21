@@ -14,6 +14,7 @@ import { ApiError, api, formatDate } from "../api";
 import { StatusBadge } from "../components/status-badge";
 import { useLocalSearch } from "../components/search-context";
 import { SearchSelect } from "../components/search-select";
+import { localYmd } from "../lib/utils";
 
 interface FormulaGroup {
   name: string;
@@ -88,7 +89,7 @@ export function FeedProductionPage() {
               formulaId: r.formulaId,
               batchCount: Number(r.batchCount),
             })),
-            orderDate: new Date().toISOString().slice(0, 10),
+            orderDate: localYmd(),
           },
         },
       ),

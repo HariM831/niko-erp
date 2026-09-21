@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
 import { AccountSelect, bankNodes } from "../components/account-select";
 import { SearchSelect } from "../components/search-select";
+import { localYmd } from "../lib/utils";
 
 interface Contact {
   id: string;
@@ -42,7 +43,7 @@ export function PaymentNewPage({ side, editId }: { side: "customer" | "vendor"; 
   const endpoint = isCustomer ? "/api/sales/payments" : "/api/purchases/payments";
 
   const [contactId, setContactId] = useState(presetContactId);
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(localYmd());
   const [amount, setAmount] = useState("");
   const [tds, setTds] = useState("");
   const [mode, setMode] = useState<string>("bank_transfer");

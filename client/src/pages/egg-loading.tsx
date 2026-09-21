@@ -15,6 +15,7 @@ import { api, formatMoney } from "../api";
 import { SearchSelect } from "../components/search-select";
 import { EggOrdersTable, isStruck, type OrderLine } from "../components/egg-orders-table";
 import { EGG_SIZE_LABEL, VISIBLE_EGG_SIZES, isDirectRate } from "@shared/egg-sizes";
+import { localYmd } from "../lib/utils";
 
 type DayLine = OrderLine;
 
@@ -77,7 +78,7 @@ const SIZE_LABEL: Record<string, string> = EGG_SIZE_LABEL;
 const inputCls = "h-9 w-full rounded-md border border-border bg-background px-2 text-sm";
 
 export function EggLoadingPage() {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localYmd();
   const [date, setDate] = useState(today);
   const [data, setData] = useState<DayData | null>(null);
   const [dispatches, setDispatches] = useState<Dispatch[]>([]);

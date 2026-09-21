@@ -45,6 +45,7 @@ import { applyDefaultSalesAccounts, computeDocumentTotals, fromPaise, toPaise, t
 import { nextDocumentNumber } from "../lib/numbering";
 import { computeDueDate, loadCustomer, postInvoiceJournal } from "../routes/sales";
 import { mainStore, moveStock } from "./inventory";
+import { istDate } from "./day-resolution";
 
 type Tx = Parameters<Parameters<typeof Db.transaction>[0]>[0];
 type Conn = Tx | typeof Db;
@@ -423,7 +424,7 @@ export interface SupplyDay {
 }
 
 export async function supplyCascade(tx: Conn, from: string, to: string): Promise<SupplyDay[]> {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = istDate();
   const graded = await gradedBoxesByDay(tx, from, to);
   const expected = await expectedGradedBoxesPerDay(tx);
   const held = await stockBySize(tx);

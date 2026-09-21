@@ -6,6 +6,7 @@ import { CommentsTimeline } from "../components/comments";
 import { AttachmentsButton } from "../components/attachments";
 import { SearchSelect } from "../components/search-select";
 import { OverviewTab, StatementTab, TransactionsTab } from "./contact-detail";
+import { localYmd } from "../lib/utils";
 
 /**
  * A shed owner's account.
@@ -117,7 +118,7 @@ const monthLabel = (p: string) =>
 function lastMonth() {
   const d = new Date();
   d.setDate(0);
-  return d.toISOString().slice(0, 7);
+  return localYmd(d).slice(0, 7);
 }
 
 export function OwnerBillingPage() {

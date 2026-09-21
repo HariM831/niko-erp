@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { api, formatDate } from "../api";
 import { DIRECT_RATE_SIZES, EGG_SIZE_LABEL, VISIBLE_EGG_SIZES, isDirectRate, type EggSize } from "@shared/egg-sizes";
+import { localYmd } from "../lib/utils";
 
 interface BenchmarkRow {
   id: string;
@@ -37,7 +38,7 @@ const SIZE_LABEL: Record<string, string> = EGG_SIZE_LABEL;
 const tomorrow = () => {
   const d = new Date();
   d.setDate(d.getDate() + 1);
-  return d.toISOString().slice(0, 10);
+  return localYmd(d);
 };
 
 const inputCls = "h-9 w-full rounded-md border border-border bg-background px-2 text-sm";
@@ -133,7 +134,7 @@ export function EggBenchmarkPage() {
       await api("/api/sales/eggs/size-offsets", {
         method: "POST",
         body: {
-          effectiveFrom: new Date().toISOString().slice(0, 10),
+          effectiveFrom: localYmd(),
           ...Object.fromEntries(SIZES.map((s) => [s, Number(offsetForm[s] ?? 0)])),
         },
       });
@@ -152,7 +153,7 @@ export function EggBenchmarkPage() {
     for (let i = 0; i < 7; i++) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      const s = d.toISOString().slice(0, 10);
+      const s = localYmd(d);
       if (!have.has(s)) out.push(s);
     }
     return out;

@@ -11,6 +11,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, formatDate } from "../api";
 import { Banner, SettingsHeader } from "../components/settings-ui";
 import { LIFE_STAGES, LIFE_STAGE_LABELS, NUTRIENTS, nutrientLabel, type LifeStage } from "@shared/feed";
+import { localYmd } from "../lib/utils";
 
 interface StageRow {
   stage: LifeStage;
@@ -71,7 +72,7 @@ export function FeedStandardsSection() {
       });
       return api<{ savedVersion: number }>(`/api/feed/standards/${stage}`, {
         method: "POST",
-        body: { effectiveFrom: new Date().toISOString().slice(0, 10), params },
+        body: { effectiveFrom: localYmd(), params },
       });
     },
     onSuccess: (r) => {

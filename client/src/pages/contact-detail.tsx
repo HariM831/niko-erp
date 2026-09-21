@@ -6,7 +6,7 @@ import { CustomFieldsDisplay } from "../components/custom-fields";
 import { StatusBadge } from "../components/list-page";
 import { CommentsTimeline } from "../components/comments";
 import { AttachmentsButton } from "../components/attachments";
-import { billNo } from "../lib/utils";
+import { billNo, localYmd } from "../lib/utils";
 import { useSearchContext } from "../components/search-context";
 import { SearchSelect } from "../components/search-select";
 
@@ -793,7 +793,7 @@ export function StatementTab({ id }: { id: string }) {
     return `${year}-04-01`;
   };
   const [from, setFrom] = useState(fyStart());
-  const [to, setTo] = useState(new Date().toISOString().slice(0, 10));
+  const [to, setTo] = useState(localYmd());
 
   const { data } = useQuery({
     queryKey: ["contact-statement", id, from, to],

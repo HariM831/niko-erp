@@ -5,7 +5,7 @@ import { api, formatMoney } from "../api";
 import { SummaryBanner } from "../components/summary-banner";
 import { shortDate } from "./documents";
 import { useLocalSearch } from "../components/search-context";
-import { matchesTerm } from "../lib/utils";
+import { matchesTerm, localYmd } from "../lib/utils";
 import { AccountSelect, bankNodes } from "../components/account-select";
 
 /**
@@ -62,7 +62,7 @@ const hasBank = (r: Payable) => !!(r.beneficiaryName && r.bankAccountNumber && r
 const docPath = (r: Payable) =>
   r.kind === "bill" ? `/purchases/bills/${r.id}` : `/purchases/expenses/${r.id}`;
 
-const today = () => new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10);
+const today = () => localYmd();
 
 export function VendorSheetPage() {
   const [, navigate] = useLocation();

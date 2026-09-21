@@ -6,6 +6,7 @@ import { PendingAttachments, uploadPending } from "../components/pending-attachm
 import { CustomFieldsBlock, type CustomFieldValues } from "../components/custom-fields";
 import { AccountSelect, bankNodes, type AccountNode } from "../components/account-select";
 import { SearchSelect } from "../components/search-select";
+import { localYmd } from "../lib/utils";
 
 type Account = AccountNode;
 interface BankAccount {
@@ -37,7 +38,7 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
   const presetBankAccountId = new URLSearchParams(search).get("bankAccountId") ?? "";
   const qc = useQueryClient();
   const [form, setForm] = useState({
-    expenseDate: new Date().toISOString().slice(0, 10),
+    expenseDate: localYmd(),
     expenseAccountId: "",
     paidThroughId: presetBankAccountId,
     vendorId: "",

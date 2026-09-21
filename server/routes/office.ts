@@ -1731,7 +1731,7 @@ officeRouter.post(
         }
 
         const vendor = await loadVendor(tx, receipt.vendorId);
-        const billDate = receipt.vendorBillDate ?? new Date().toISOString().slice(0, 10);
+        const billDate = receipt.vendorBillDate ?? istDate();
         await assertPeriodOpen(tx, billDate, "bill");
 
         // What the rules proposed, overlaid with whatever was approved on

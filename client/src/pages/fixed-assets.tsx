@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
 import { AccountSelect, type AccountNode } from "../components/account-select";
 import { SearchSelect } from "../components/search-select";
+import { localYmd } from "../lib/utils";
 
 interface AssetRow {
   id: string;
@@ -42,7 +43,7 @@ const STATUS_CLASS: Record<string, string> = {
   disposed: "bg-gray-100 text-gray-500",
 };
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => localYmd();
 
 const Badge = ({ status }: { status: string }) => (
   <span className={`rounded px-2 py-0.5 text-[11px] font-medium ${STATUS_CLASS[status] ?? "bg-gray-100 text-gray-600"}`}>

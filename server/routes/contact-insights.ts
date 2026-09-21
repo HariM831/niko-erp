@@ -11,6 +11,7 @@ import {
 } from "@shared/schema";
 import { db } from "../db";
 import { allowContact } from "../lib/contact-access";
+import { istDate } from "../services/day-resolution";
 
 export const contactInsightsRouter = Router();
 
@@ -140,9 +141,10 @@ contactInsightsRouter.get(
     const months = Math.min(Math.max(Number(req.query.months) || 6, 1), 24);
     const basis = req.query.basis === "cash" ? "cash" : "accrual";
 
-    const start = new Date();
-    start.setDate(1);
-    start.setMonth(start.getMonth() - (months - 1));
+    // Months counted back from the farm's today, in UTC arithmetic on the
+    // string — the server's own clock would start the 1st at 5:30 am IST.
+    const start = new Date(`${istDate().slice(0, 7)}-01T00:00:00Z`);
+    start.setUTCMonth(start.getUTCMonth() - (months - 1));
     const startStr = start.toISOString().slice(0, 10);
 
     /**
@@ -202,7 +204,7 @@ contactInsightsRouter.get(
       const c = credit.get(key) ?? 0;
       // `total` keeps its old meaning so the single-series chart is undisturbed.
       periods.push({ month: key, total: contact.type === "customer" ? d : c, debit: d, credit: c });
-      cursor.setMonth(cursor.getMonth() + 1);
+      cursor.setUTCMonth(cursor.getUTCMonth() + 1);
     }
 
     const sum = (pick: (p: (typeof periods)[number]) => number) =>

@@ -13,6 +13,7 @@ import { ApiError, api, formatDate } from "../api";
 import { StatusBadge } from "../components/status-badge";
 import { PlatformWeight } from "./platform-weight";
 import { SearchSelect } from "./search-select";
+import { localYmd } from "../lib/utils";
 
 interface Context {
   feeds: Array<{ itemId: string; formulaName: string; itemName: string; quantity: number; value: number }>;
@@ -103,7 +104,7 @@ export function FeedTransferForm({ term = "" }: { term?: string }) {
           quantityKg: quantity.trim(),
           fromLocationId: fromId,
           toHouseId: toId,
-          transferDate: new Date().toISOString().slice(0, 10),
+          transferDate: localYmd(),
         },
       }),
     onSuccess: (r) => {

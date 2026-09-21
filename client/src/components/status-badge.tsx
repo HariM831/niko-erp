@@ -4,6 +4,7 @@
  * Its own module so the quick-search dropdown can show a status without
  * importing the list page that renders the dropdown.
  */
+import { localYmd } from "../lib/utils";
 const STATUS_TEXT: Record<string, string> = {
   draft: "text-gray-500",
   sent: "text-blue-600",
@@ -43,7 +44,7 @@ export function StatusBadge({ status, dueDate }: { status: string; dueDate?: str
   let label = status.replace(/_/g, " ");
   let cls = STATUS_TEXT[status] ?? "text-gray-500";
   if ((status === "sent" || status === "open") && dueDate) {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localYmd();
     if (dueDate < today) {
       label = "overdue";
       cls = STATUS_TEXT.overdue!;

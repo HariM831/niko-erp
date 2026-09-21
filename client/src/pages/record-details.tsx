@@ -7,6 +7,7 @@ import { AttachmentsButton } from "../components/attachments";
 import { CommentsButton } from "../components/comments";
 import { JournalSection } from "../components/journal-section";
 import { shortDate } from "./documents";
+import { localYmd } from "../lib/utils";
 
 const slashDate = (d: string | null | undefined) => {
   if (!d) return "—";
@@ -485,7 +486,7 @@ export function AccountLedgerPage({ id }: { id: string }) {
   // window the figure was clicked in rather than resetting to the year.
   const search = new URLSearchParams(useSearch());
   const [from, setFrom] = useState(search.get("from") ?? fyStart());
-  const [to, setTo] = useState(search.get("to") ?? new Date().toISOString().slice(0, 10));
+  const [to, setTo] = useState(search.get("to") ?? localYmd());
 
   const { data: accounts } = useQuery({
     queryKey: ["accounts-all"],

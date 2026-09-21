@@ -13,6 +13,7 @@ import { StatusBadge } from "../components/status-badge";
 import type { LineMatch } from "@shared/po-match-types";
 import { Modal } from "../components/settings-ui";
 import { SearchSelect, type Choice } from "../components/search-select";
+import { localYmd } from "../lib/utils";
 
 interface ReceiptRow {
   id: string;
@@ -150,7 +151,7 @@ function ReceiptEditor({
   const [vendorId, setVendorId] = useState("");
   const [vehicleNumber, setVehicleNumber] = useState("");
   const [billNumber, setBillNumber] = useState("");
-  const [billDate, setBillDate] = useState(new Date().toISOString().slice(0, 10));
+  const [billDate, setBillDate] = useState(localYmd());
   const [billTotal, setBillTotal] = useState("");
   const [billTax, setBillTax] = useState("");
   const [decision, setDecision] = useState<"allow" | "turn_away">("allow");
@@ -170,7 +171,7 @@ function ReceiptEditor({
     setVendorId(existing.vendorId ?? "");
     setVehicleNumber(existing.vehicleNumber ?? "");
     setBillNumber(existing.vendorBillNumber ?? "");
-    setBillDate(existing.vendorBillDate ?? new Date().toISOString().slice(0, 10));
+    setBillDate(existing.vendorBillDate ?? localYmd());
     setBillTotal(existing.billTotalAmount ?? "");
     setBillTax(existing.billTaxAmount ?? "");
     setSlipGross(existing.vendorSlipGrossKg ?? "");

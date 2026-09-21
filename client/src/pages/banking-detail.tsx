@@ -5,7 +5,7 @@ import { ChevronDown, Landmark, SlidersHorizontal, UploadCloud, Wallet } from "l
 import { api, formatDate, formatMoney } from "../api";
 import { StatusBadge } from "../components/list-page";
 import { useLocalSearch } from "../components/search-context";
-import { matchesTerm } from "../lib/utils";
+import { matchesTerm, localYmd } from "../lib/utils";
 import { AccountSelect, bankNodes, type AccountNode } from "../components/account-select";
 import { SearchSelect } from "../components/search-select";
 
@@ -219,7 +219,7 @@ function buildDailySeries(rows: RegisterRow[], days: number) {
   const end = new Date();
   const start = new Date();
   start.setDate(end.getDate() - (days - 1));
-  const startKey = start.toISOString().slice(0, 10);
+  const startKey = localYmd(start);
 
   const byDate = new Map<string, number>();
   for (const r of rows) byDate.set(r.entryDate, Number(r.running));
@@ -233,7 +233,7 @@ function buildDailySeries(rows: RegisterRow[], days: number) {
   const series: Array<{ date: string; value: number }> = [];
   const cursor = new Date(start);
   while (cursor <= end) {
-    const key = cursor.toISOString().slice(0, 10);
+    const key = localYmd(cursor);
     if (byDate.has(key)) carry = byDate.get(key)!;
     series.push({ date: key, value: carry });
     cursor.setDate(cursor.getDate() + 1);
@@ -1016,7 +1016,7 @@ function UncategorizedTab({
 
 function QuickEntryPanel({ bankAccountId, onDone, onCancel }: { bankAccountId: string; onDone: () => void; onCancel: () => void }) {
   const [direction, setDirection] = useState<"in" | "out">("in");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(localYmd());
   const [amount, setAmount] = useState("");
   const [contraAccountId, setContraAccountId] = useState("");
   const [description, setDescription] = useState("");
@@ -1092,7 +1092,7 @@ function QuickEntryPanel({ bankAccountId, onDone, onCancel }: { bankAccountId: s
 
 function TransferPanel({ bankAccountId, onDone, onCancel }: { bankAccountId: string; onDone: () => void; onCancel: () => void }) {
   const [toAccountId, setToAccountId] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(localYmd());
   const [amount, setAmount] = useState("");
   const [reference, setReference] = useState("");
   const [error, setError] = useState<string | null>(null);

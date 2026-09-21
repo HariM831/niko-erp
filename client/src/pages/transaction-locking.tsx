@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate } from "../api";
+import { localYmd } from "../lib/utils";
 
 interface Lock {
   module: string;
@@ -59,7 +60,7 @@ export function TransactionLockingPage() {
 
   const startEdit = (lock: Lock) => {
     setEditing(lock.module);
-    setDate(lock.lockedThrough ?? new Date().toISOString().slice(0, 10));
+    setDate(lock.lockedThrough ?? localYmd());
     setReason(lock.reason ?? "");
     setApplyToAll(false);
     setError(null);

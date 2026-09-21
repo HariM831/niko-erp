@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatMoney } from "../api";
 import { AccountSelect, type AccountNode } from "../components/account-select";
 import { SearchSelect } from "../components/search-select";
+import { localYmd } from "../lib/utils";
 
 type Account = AccountNode;
 
@@ -40,7 +41,7 @@ const emptyLine = (): JLine => ({
 export function JournalNewPage() {
   const [, navigate] = useLocation();
   const qc = useQueryClient();
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(localYmd());
   const [narration, setNarration] = useState("");
   const [reference, setReference] = useState("");
   const [seriesId, setSeriesId] = useState("");

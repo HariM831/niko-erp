@@ -37,6 +37,7 @@ import { fanEnergyToday, ladderPower, pumpMinutesToday } from "../services/iot/c
 import { outsideChangesSince } from "../services/iot/watch";
 import { outsideWeather } from "../services/iot/weather";
 import { fansInGroup, houseFeelsLike, velocity, zoneFeelsLike, type LevelName } from "../services/iot/feels-like";
+import { istDaysAgo } from "../services/day-resolution";
 
 export const iotRouter = Router();
 
@@ -470,7 +471,7 @@ iotRouter.get("/house/:id/samples", requirePermission("farms", "view"), async (r
 /** A house's day summaries, for its own page. */
 iotRouter.get("/house/:id/days", requirePermission("farms", "view"), async (req, res) => {
   const days = Math.min(Number(req.query.days ?? 60), 400);
-  const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+  const since = istDaysAgo(days);
   const rows = await db
     .select()
     .from(iotHouseDay)

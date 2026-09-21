@@ -29,6 +29,7 @@ import { db } from "../db";
 import { buildTree, pruneEmpty } from "../services/report-tree";
 import { requirePermission } from "../lib/rbac";
 import { weeklySummary } from "../services/rollup";
+import { istDate } from "../services/day-resolution";
 
 export const reportsRouter = Router();
 
@@ -340,7 +341,7 @@ async function balanceSheetSections(asOf?: string) {
   // Derived and posted amounts add rather than compete, so a real closing entry
   // posted later is not double-counted: it moves the same figure out of the
   // prior-year profit and loss and onto the account, leaving the line unchanged.
-  const today = new Date().toISOString().slice(0, 10);
+  const today = istDate();
   const priorRows = await accountMovements(undefined, priorYearsEnd(asOf ?? today));
   const priorYearsResult = pnlNet(priorRows);
 
@@ -508,7 +509,7 @@ function bucketFor(daysOverdue: number): string {
 }
 
 reportsRouter.get("/ar-aging", requirePermission("reports", "view"), async (req, res) => {
-  const asOf = (req.query.asOf as string | undefined) ?? new Date().toISOString().slice(0, 10);
+  const asOf = (req.query.asOf as string | undefined) ?? istDate();
   const open = await db
     .select({
       invoiceId: invoices.id,
@@ -548,7 +549,7 @@ reportsRouter.get("/ar-aging", requirePermission("reports", "view"), async (req,
 });
 
 reportsRouter.get("/ap-aging", requirePermission("reports", "view"), async (req, res) => {
-  const asOf = (req.query.asOf as string | undefined) ?? new Date().toISOString().slice(0, 10);
+  const asOf = (req.query.asOf as string | undefined) ?? istDate();
   const open = await db
     .select({
       billId: bills.id,

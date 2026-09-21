@@ -24,6 +24,7 @@
  * spending an API call.
  */
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { istDate } from "./day-resolution";
 
 /**
  * A floating alias, deliberately. Pinned versions rot: gemini-2.5-flash is
@@ -793,7 +794,7 @@ export async function extractBillWith(
   });
 
   const result = await model.generateContent([
-    buildPrompt(new Date().toISOString().slice(0, 10)),
+    buildPrompt(istDate()),
     ...images.map((i) => ({ inlineData: { data: i.data, mimeType: i.mimeType } })),
   ]);
   const rawBill = parseModelJson(result.response.text());

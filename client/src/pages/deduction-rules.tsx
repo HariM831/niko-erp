@@ -23,6 +23,7 @@ import { Plus } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
 import { Banner, EmptyRow, SettingsHeader, SettingsTable } from "../components/settings-ui";
 import { SearchSelect } from "../components/search-select";
+import { localYmd } from "../lib/utils";
 
 type Basis = "pct_of_value" | "per_point_per_kg" | "shortfall_value" | "flat";
 
@@ -84,7 +85,7 @@ const BASES: Array<{ key: Basis; label: string; needs: keyof Draft | null }> = [
   { key: "flat", label: "a flat amount", needs: "flatAmount" },
 ];
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => localYmd();
 
 const blank = (): Draft => ({
   id: null,

@@ -11,6 +11,7 @@ import { Camera, Egg, Loader2 } from "lucide-react";
 import { api } from "../api";
 import { asDataUrl, shrink } from "../lib/image";
 import { EGG_SIZE_LABEL, EGG_SIZE_SHORT, VISIBLE_EGG_SIZES, type EggSize } from "@shared/egg-sizes";
+import { localYmd } from "../lib/utils";
 
 /** The grades this screen shows — the shared list less the hidden ones. */
 const SIZES = VISIBLE_EGG_SIZES;
@@ -94,7 +95,7 @@ const inputCls =
   "h-8 w-full rounded-md border border-border bg-background px-1.5 text-right text-sm tabular-nums";
 
 export function EggGradingPage() {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localYmd();
   const [date, setDate] = useState(today);
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [draft, setDraft] = useState<Record<string, Record<Size, string>>>({});

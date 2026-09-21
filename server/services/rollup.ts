@@ -26,6 +26,7 @@ import {
   standardPoints,
 } from "@shared/schema";
 import type { db as Db } from "../db";
+import { istDate } from "./day-resolution";
 
 type Tx = Parameters<Parameters<typeof Db.transaction>[0]>[0];
 
@@ -160,7 +161,7 @@ export async function refreshFlockDay(tx: Tx, flockId: string): Promise<number> 
   // Cumulative figures run over the FLOCK, so they are carried between
   // placements rather than restarting — the break that made the old lifetime
   // numbers useless at exactly the moment a batch was housed.
-  const today = new Date().toISOString().slice(0, 10);
+  const today = istDate();
   const closingOf = new Map<string, number>();
   let cumEggs = 0;
   let cumFeed = 0;

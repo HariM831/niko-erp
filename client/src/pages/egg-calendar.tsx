@@ -15,6 +15,7 @@ import { ChevronLeft, ChevronRight, Loader2, Pencil, Plus, Trash2, X } from "luc
 import { api } from "../api";
 import { SearchSelect } from "../components/search-select";
 import { EggOrdersTable, EGG_SIZES as SIZES, EGG_SIZE_LABEL as SIZE_LABEL, isStruck, type EggSize as Size, type OrderLine } from "../components/egg-orders-table";
+import { localYmd } from "../lib/utils";
 
 interface CalDay {
   date: string;
@@ -49,7 +50,7 @@ const shiftMonth = (ym: string, by: number) => {
 
 export function EggCalendarPage() {
   const [, setLocation] = useLocation();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localYmd();
   const [month, setMonth] = useState(today.slice(0, 7));
   const [days, setDays] = useState<CalDay[]>([]);
   const [loading, setLoading] = useState(true);
@@ -192,7 +193,7 @@ function DayDrawer({
   onChanged: () => void;
   goLoad: () => void;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localYmd();
   const past = date < today;
   const [lines, setLines] = useState<DayLine[]>([]);
   const [capacity, setCapacity] = useState<Capacity | null>(null);

@@ -7,7 +7,7 @@ import { AttachmentsButton } from "../components/attachments";
 import { CommentsButton } from "../components/comments";
 import { JournalSection } from "../components/journal-section";
 import { CustomFieldsDisplay } from "../components/custom-fields";
-import { billNo } from "../lib/utils";
+import { billNo, localYmd } from "../lib/utils";
 
 /** A vendor credit applied to the bill being viewed. */
 interface AppliedCredit {
@@ -96,7 +96,7 @@ interface DetailConfig {
   actions: ActionDef[];
 }
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => localYmd();
 
 /** Integer paise, so money comparisons never hit float drift. */
 const toPaise = (v: unknown) => Math.round(Number(v ?? 0) * 100);

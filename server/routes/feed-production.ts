@@ -45,6 +45,7 @@ import { PostingError, assertPeriodOpen, reverseJournal } from "../services/post
 import { mainStore, moveStock, postInventoryMovement, stockOnHand } from "../services/inventory";
 import { getPreferences } from "../services/preferences";
 import { refreshHouse } from "../services/rollup";
+import { istDate } from "../services/day-resolution";
 
 export const feedProductionRouter = Router();
 
@@ -427,7 +428,7 @@ feedProductionRouter.post(
           await reverseJournal(
             tx,
             order.journalEntryId,
-            new Date().toISOString().slice(0, 10),
+            istDate(),
             req.session.user!.id,
           );
         }
@@ -470,7 +471,7 @@ feedProductionRouter.post(
                 notes: `Void ${order.number}: returned to stock`,
               })),
           ],
-          transactionDate: new Date().toISOString().slice(0, 10),
+          transactionDate: istDate(),
           sourceType: "feed_mill_void",
           sourceId: order.id,
           stockLocationId: await mainStore(tx, order.locationId),
@@ -719,7 +720,7 @@ feedProductionRouter.post(
           await reverseJournal(
             tx,
             transfer.journalEntryId,
-            new Date().toISOString().slice(0, 10),
+            istDate(),
             req.session.user!.id,
           );
         }
@@ -733,7 +734,7 @@ feedProductionRouter.post(
             },
           ],
           stockLocationId: await mainStore(tx, transfer.fromLocationId),
-          transactionDate: new Date().toISOString().slice(0, 10),
+          transactionDate: istDate(),
           sourceType: "feed_transfer_void",
           sourceId: transfer.id,
         });

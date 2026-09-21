@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
 import { AccountSelect, type AccountNode } from "../components/account-select";
 import { SearchSelect } from "../components/search-select";
+import { localYmd } from "../lib/utils";
 
 /** Current on-hand, for the adjustment form's "quantity now" column. */
 interface StockLevel {
@@ -40,7 +41,7 @@ interface AdjustmentRow {
 
 type Account = AccountNode;
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => localYmd();
 const qty = (v: string) => Number(v).toLocaleString("en-IN", { maximumFractionDigits: 3 });
 
 /**
@@ -85,8 +86,8 @@ export function StockPage() {
   const preset = (days: number) => {
     const start = new Date();
     start.setDate(start.getDate() - days);
-    setFrom(start.toISOString().slice(0, 10));
-    setTo(new Date().toISOString().slice(0, 10));
+    setFrom(localYmd(start));
+    setTo(localYmd());
   };
 
   return (

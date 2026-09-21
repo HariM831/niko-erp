@@ -26,6 +26,7 @@ import { Calculator, Plus, X } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
 import { SearchSelect } from "./search-select";
 import { LIFE_STAGES, LIFE_STAGE_LABELS, nutrientLabel, type LifeStage } from "@shared/feed";
+import { localYmd } from "../lib/utils";
 
 interface Material {
   id: string;
@@ -638,7 +639,7 @@ function SaveDialog({
           outputItemId,
           stage,
           batchSizeKg: target.toFixed(3),
-          effectiveFrom: new Date().toISOString().slice(0, 10),
+          effectiveFrom: localYmd(),
           lines: rows
             .filter((r) => r.kg > 0)
             .map((r) => ({

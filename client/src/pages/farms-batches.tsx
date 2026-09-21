@@ -18,11 +18,11 @@ import { Layers, Plus, X } from "lucide-react";
 import { ApiError, api } from "../api";
 import { useLocalSearch } from "../components/search-context";
 import { SearchSelect } from "../components/search-select";
-import { matchesTerm } from "../lib/utils";
+import { matchesTerm, localYmd } from "../lib/utils";
 import { FLOCK_STATUS_LABELS, hatchProfile, type FlockStatus } from "@shared/schema/flocks";
 import { HOUSE_PURPOSE_LABELS, type HousePurpose } from "@shared/schema/farms";
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => localYmd();
 const n = (v: number) => v.toLocaleString("en-IN");
 const day = (d: string | null) =>
   d

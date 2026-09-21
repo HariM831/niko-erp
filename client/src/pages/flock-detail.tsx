@@ -30,8 +30,9 @@ import {
 } from "@shared/schema/flocks";
 import { LineSet, type Column } from "../components/line-set";
 import { SearchSelect } from "../components/search-select";
+import { localYmd } from "../lib/utils";
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => localYmd();
 const n = (v: number) => v.toLocaleString("en-IN");
 const day = (d: string | null) =>
   d
@@ -600,7 +601,7 @@ function RecordMovement({ flock, onSaved }: { flock: Flock; onSaved: () => void 
   const [kind, setKind] = useState<"adjustment" | "cull" | "male_removal">("adjustment");
   const [sign, setSign] = useState<-1 | 1>(-1);
   const [qty, setQty] = useState("");
-  const [eventDate, setEventDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [eventDate, setEventDate] = useState(() => localYmd());
   const [causeCode, setCauseCode] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState<string | null>(null);

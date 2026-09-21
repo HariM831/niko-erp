@@ -7,6 +7,7 @@ import { CustomFieldsBlock, type CustomFieldValues } from "./custom-fields";
 import { AccountSelect, type AccountNode } from "./account-select";
 import { SearchSelect, type Choice } from "./search-select";
 import { PURCHASE_CATEGORIES, SALE_CATEGORIES } from "@shared/item-categories";
+import { localYmd } from "../lib/utils";
 
 interface Contact {
   id: string;
@@ -103,7 +104,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
   const [, navigate] = useLocation();
   const qc = useQueryClient();
   const [contactId, setContactId] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(localYmd());
   const [reference, setReference] = useState("");
   const [seriesId, setSeriesId] = useState("");
   const [vendorBillNumber, setVendorBillNumber] = useState("");

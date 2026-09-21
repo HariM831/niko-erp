@@ -74,6 +74,7 @@ import {
   type PaymentFilePayer,
 } from "../services/payment-file";
 import { syncPurchaseRates } from "../services/purchases";
+import { istDate } from "../services/day-resolution";
 
 export const purchasesRouter = Router();
 
@@ -2375,7 +2376,7 @@ purchasesRouter.post(
           );
         }
 
-        const batchDate = body.batchDate ?? todayInIndia();
+        const batchDate = body.batchDate ?? istDate();
         const number = await nextDocumentNumber(tx, "payment_batch", body.seriesId);
         const totalP = resolved.reduce((sum, r) => sum + (r?.amountP ?? 0), 0);
 
@@ -2430,11 +2431,6 @@ purchasesRouter.post(
     }
   },
 );
-
-/** Today, where the farm is — the same clock every other date on this screen uses. */
-function todayInIndia(): string {
-  return new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10);
-}
 
 /**
  * Who the bank is debiting, as their file wants it named: our customer code and

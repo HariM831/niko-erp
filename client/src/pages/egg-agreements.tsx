@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { Loader2, Pencil, Plus } from "lucide-react";
 import { api, formatDate } from "../api";
 import { SearchSelect } from "../components/search-select";
+import { localYmd } from "../lib/utils";
 
 interface Agreement {
   id: string;
@@ -153,7 +154,7 @@ function AgreementDialog({
   const [days, setDays] = useState<number[]>(agreement?.daysOfWeek ?? []);
   const [boxes, setBoxes] = useState(agreement ? String(agreement.boxes) : "");
   const [spread, setSpread] = useState(agreement ? Number(agreement.spreadPerEgg).toFixed(2) : "0");
-  const [startDate, setStartDate] = useState(agreement?.startDate ?? new Date().toISOString().slice(0, 10));
+  const [startDate, setStartDate] = useState(agreement?.startDate ?? localYmd());
   const [endDate, setEndDate] = useState(agreement?.endDate ?? "");
   const [status, setStatus] = useState(agreement?.status ?? "active");
   const [notes, setNotes] = useState(agreement?.notes ?? "");

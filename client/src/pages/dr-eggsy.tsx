@@ -16,7 +16,7 @@ import { api } from "../api";
 import { useApp } from "../lib/store";
 import { useLocalSearch } from "../components/search-context";
 import { SearchSelect } from "../components/search-select";
-import { matchesTerm } from "../lib/utils";
+import { matchesTerm, localYmd } from "../lib/utils";
 
 interface ObsImage {
   id: string;
@@ -361,7 +361,7 @@ function NewObservation({
   onCreated: () => void;
 }) {
   const [houseId, setHouseId] = useState(houses[0]?.houseId ?? "");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(localYmd());
   const [note, setNote] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);

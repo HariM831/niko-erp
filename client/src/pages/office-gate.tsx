@@ -16,6 +16,7 @@ import { ApiError, api } from "../api";
 import { shrink } from "../lib/image";
 import { SearchSelect, type Choice } from "../components/search-select";
 import type { LineMatch } from "@shared/po-match-types";
+import { localYmd } from "../lib/utils";
 
 interface Context {
   locations: Array<{ id: string; name: string; code: string }>;
@@ -203,7 +204,7 @@ export function GateInPage() {
   const [vendorId, setVendorId] = useState("");
   const [vehicleNumber, setVehicleNumber] = useState("");
   const [billNumber, setBillNumber] = useState("");
-  const [billDate, setBillDate] = useState(new Date().toISOString().slice(0, 10));
+  const [billDate, setBillDate] = useState(localYmd());
   /**
    * What the vendor printed at the foot of their bill.
    *

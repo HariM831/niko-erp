@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { api } from "../api";
 import { SearchSelect } from "../components/search-select";
+import { localYmd } from "../lib/utils";
 
 /**
  * Reports, laid out the way Zoho Books lays them out.
@@ -96,14 +97,12 @@ const REPORTS: ReportDef[] = [
 const CATEGORIES = [...new Set(REPORTS.map((r) => r.category))];
 
 /**
- * A date as YYYY-MM-DD in the viewer's own calendar. toISOString() reads the
- * date in UTC, and India is five and a half hours ahead: local midnight on the
- * 1st is still the 31st in UTC, so every preset came out a day early —
- * "Previous Month" ran 31 Jul–30 Aug — and "Today" was yesterday until 5:30 am.
+ * Presets in the viewer's own calendar. Read in UTC, every one came out a day
+ * early — "Previous Month" ran 31 Jul–30 Aug — and "Today" was yesterday
+ * until 5:30 am.
  */
-const ymd = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-const today = () => ymd(new Date());
+const ymd = localYmd;
+const today = () => localYmd();
 const monthStart = () => `${today().slice(0, 8)}01`;
 
 /** Zoho prints report periods as dd/MM/yyyy, not the ISO the inputs use. */
@@ -165,7 +164,7 @@ function markVisited(key: string) {
 const visitedLabel = (iso: string | undefined) => {
   if (!iso) return "-";
   const d = new Date(iso);
-  return `${dmy(d.toISOString().slice(0, 10))} ${d.toLocaleTimeString("en-IN", {
+  return `${dmy(localYmd(d))} ${d.toLocaleTimeString("en-IN", {
     hour: "2-digit",
     minute: "2-digit",
   })}`;

@@ -12,7 +12,7 @@ import { ArrowDownToLine, ArrowUpFromLine, Loader2, PackageOpen } from "lucide-r
 import { api } from "../api";
 import { useLocalSearch } from "../components/search-context";
 import { SearchSelect } from "../components/search-select";
-import { matchesTerm } from "../lib/utils";
+import { matchesTerm, localYmd } from "../lib/utils";
 
 interface Store {
   id: string;
@@ -366,7 +366,7 @@ function MoveDialog({
 
   const [itemId, setItemId] = useState(options[0]?.id ?? "");
   const [quantity, setQuantity] = useState("");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(localYmd());
   const [rate, setRate] = useState("");
   const [lotNo, setLotNo] = useState("");
   const [expiry, setExpiry] = useState("");

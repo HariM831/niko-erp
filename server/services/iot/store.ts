@@ -35,6 +35,7 @@ import {
   type BhTagValue,
 } from "./bhfarm";
 import { climbSince, type CounterSample } from "./counters";
+import { istDate, istDaysAgo } from "../day-resolution";
 
 /** Houses that name a controller, by device id. */
 export async function housesByDevice(): Promise<Map<string, { id: string; code: string }>> {
@@ -494,8 +495,7 @@ export async function writeDay(
 }
 
 /** The day a reading belongs to, in the farm's own timezone rather than UTC. */
-const dayOf = (at: Date) =>
-  new Date(at.getTime() + 5.5 * 3_600_000).toISOString().slice(0, 10);
+const dayOf = (at: Date) => istDate(at);
 
 export interface PollResult {
   houses: number;
@@ -848,7 +848,7 @@ export async function houseSamples(houseId: string, from: Date, to = new Date())
 
 /** The day summaries, newest first. */
 export async function houseDays(houseId: string | null, days = 90) {
-  const since = new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10);
+  const since = istDaysAgo(days);
   return db
     .select()
     .from(iotHouseDay)

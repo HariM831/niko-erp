@@ -22,6 +22,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
 import { SearchSelect } from "./search-select";
 import { QC_PARAMETERS, qcParameterDef } from "@shared/feed";
+import { localYmd } from "../lib/utils";
 
 interface SpecParam {
   parameter: string;
@@ -217,7 +218,7 @@ export function ItemQualitySpec({ itemId }: { itemId: string }) {
   const selected = itemId;
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [sampleCount, setSampleCount] = useState("3");
-  const [effectiveFrom, setEffectiveFrom] = useState(() => new Date().toISOString().slice(0, 10));
+  const [effectiveFrom, setEffectiveFrom] = useState(() => localYmd());
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -237,7 +238,7 @@ export function ItemQualitySpec({ itemId }: { itemId: string }) {
     // Today, not the live spec's date: this field says when the version about
     // to be saved takes effect. Carrying the old date forward would date every
     // successor to whenever its ancestor started, which is never what is meant.
-    setEffectiveFrom(new Date().toISOString().slice(0, 10));
+    setEffectiveFrom(localYmd());
     setNotes(detail.spec?.notes ?? "");
     setError(null);
   }, [detail]);

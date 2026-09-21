@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
 import { Banner, SettingsHeader } from "../components/settings-ui";
+import { localYmd } from "../lib/utils";
 
 interface OpeningAccount {
   id: string;
@@ -54,7 +55,7 @@ export function OpeningBalancesSection() {
 
   useEffect(() => {
     if (!data) return;
-    setMigrationDate(data.migrationDate ?? new Date().toISOString().slice(0, 10));
+    setMigrationDate(data.migrationDate ?? localYmd());
     const next: Record<string, { debit: string; credit: string }> = {};
     for (const a of data.accounts) {
       if (a.derived) continue;
