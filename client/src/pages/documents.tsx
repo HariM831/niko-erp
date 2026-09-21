@@ -6,6 +6,7 @@ import type { SearchField } from "../components/advanced-search";
 import { AttachmentsButton } from "../components/attachments";
 import { api, formatMoney } from "../api";
 import { LogoMark } from "../components/logo";
+import { billNo } from "../lib/utils";
 
 export interface DocRow {
   id: string;
@@ -101,9 +102,10 @@ const dated = (label: string): SearchField[] => [
 ];
 
 export const BILL_SEARCH: SearchField[] = [
-  { key: "number", label: "Bill#", kind: "text" },
-  { key: "vendorBillNumber", label: "Vendor Bill#", kind: "text" },
+  // Bill# is the vendor's number, as on the list; niko's counter is Internal#.
+  { key: "vendorBillNumber", label: "Bill#", kind: "text" },
   { key: "reference", label: "Reference#", kind: "text" },
+  { key: "number", label: "Internal#", kind: "text" },
   { key: "vendorId", label: "Vendor", kind: "contact", contactType: "vendor" },
   { key: "vendorPan", label: "Vendor PAN", kind: "text" },
   { key: "status", label: "Status", kind: "select", options: ["open", "partially_paid", "paid", "void"] },
@@ -211,11 +213,19 @@ const dateTime = (v: unknown) =>
       })
     : "—";
 
-/** Zoho Bills list: Date | Bill# | Reference Number | Vendor | Status | Due Date | Amount | Balance Due | Created By | Created Time */
+/**
+ * Zoho Bills list: Date | Bill# | Reference Number | Vendor | Status | Due Date | Amount | Balance Due | Created By | Created Time
+ *
+ * Bill# is the vendor's own number, as in Zoho — it is what the vendor quotes
+ * and what is printed on the paper. niko's counter has no Zoho counterpart and
+ * sits in its own column, after the vendor's; a bill entered without a vendor
+ * number falls back to the counter so the column is never blank.
+ */
 export const BILL_COLUMNS: Column<DocRow>[] = [
   { key: "date", header: "Date", portrait: true, render: (r) => shortDate(r.billDate as string) },
-  { key: "number", header: "Bill#", portrait: true, render: (r) => <span className="font-medium text-brand-600">{r.number}</span> },
+  { key: "number", header: "Bill#", portrait: true, render: (r) => <span className="font-medium text-brand-600">{billNo(r)}</span> },
   { key: "reference", header: "Reference Number", render: (r) => <span className="text-gray-600">{(r.reference as string) || "—"}</span> },
+  { key: "internal", header: "Internal#", render: (r) => <span className="text-gray-600">{r.number}</span> },
   { key: "contact", header: "Vendor Name", portrait: true, render: (r) => <span className="text-gray-800">{r.contactName ?? "—"}</span> },
   { key: "status", header: "Status", render: (r) => <StatusBadge status={r.status} dueDate={r.dueDate} /> },
   { key: "due", header: "Due Date", render: (r) => shortDate(r.dueDate) },

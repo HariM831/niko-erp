@@ -7,6 +7,7 @@ import { AttachmentsButton } from "../components/attachments";
 import { CommentsButton } from "../components/comments";
 import { JournalSection } from "../components/journal-section";
 import { CustomFieldsDisplay } from "../components/custom-fields";
+import { billNo } from "../lib/utils";
 
 /** A vendor credit applied to the bill being viewed. */
 interface AppliedCredit {
@@ -457,6 +458,9 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
   const deductionTotal = deductionLines.reduce((s, l) => s - Number(l.amount), 0);
   const goodsSubTotal = (Number(doc.subTotal) + deductionTotal).toFixed(2);
 
+  // A bill goes by the vendor's own number, as in Zoho; niko's counter is shown beneath it.
+  const shownNumber = kind === "bill" ? billNo(doc) : doc.number;
+
   const addressLines = (a?: { line1?: string; line2?: string; city?: string; state?: string; pincode?: string }) =>
     a ? [a.line1, a.line2, a.city, [a.pincode, a.state].filter(Boolean).join(" "), "India"].filter(Boolean) as string[] : [];
 
@@ -467,7 +471,7 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
           <button onClick={() => navigate(config.listPath)} className="text-gray-400 hover:text-gray-700">
             ←
           </button>
-          <h1 className="text-base font-semibold">{doc.number}</h1>
+          <h1 className="text-base font-semibold">{shownNumber}</h1>
           <StatusBadge status={doc.status} />
         </div>
         <div className="flex items-center gap-1 text-[13px]">
@@ -586,8 +590,14 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
               <div className="w-1/2 space-y-0.5 border-r border-[#9e9e9e] px-2.5 pb-2.5 pt-1.5">
                 <div className="flex">
                   <span className="w-24 shrink-0 text-[#333]">#</span>
-                  <span className="font-semibold">: {doc.number}</span>
+                  <span className="font-semibold">: {shownNumber}</span>
                 </div>
+                {shownNumber !== doc.number && (
+                  <div className="flex">
+                    <span className="w-24 shrink-0 text-[#333]">Internal#</span>
+                    <span className="font-semibold">: {doc.number}</span>
+                  </div>
+                )}
                 <div className="flex">
                   <span className="w-24 shrink-0 text-[#333]">{config.titlePrefix} Date</span>
                   <span className="font-semibold">: {slashDate(doc[config.dateField] as string)}</span>

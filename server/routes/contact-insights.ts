@@ -281,7 +281,7 @@ contactInsightsRouter.get(
         .from(bills)
         .where(and(eq(bills.vendorId, contact.id), inArray(bills.status, ["open", "partially_paid", "paid"])))
         .orderBy(asc(bills.billDate));
-      for (const r of billRows) rows.push({ id: r.id, date: r.billDate, type: "Bill", number: r.number, credit: Number(r.total), debit: 0 });
+      for (const r of billRows) rows.push({ id: r.id, date: r.billDate, type: "Bill", number: r.vendorBillNumber?.trim() || r.number, credit: Number(r.total), debit: 0 });
       const pay = await db.select().from(vendorPayments).where(eq(vendorPayments.vendorId, contact.id));
       for (const r of pay) rows.push({ id: r.id, date: r.paymentDate, type: "Payment Made", number: r.number, credit: 0, debit: Number(r.amount) });
       const vc = await db

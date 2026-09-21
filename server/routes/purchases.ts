@@ -77,6 +77,13 @@ import { syncPurchaseRates } from "../services/purchases";
 
 export const purchasesRouter = Router();
 
+/**
+ * The number a bill goes by wherever a person reads it: the vendor's own, as
+ * Zoho shows it, else niko's counter for a bill entered without one. Postings
+ * and error messages keep the counter — it is unique, the vendor's is not.
+ */
+const billNoSql = sql<string>`COALESCE(NULLIF(TRIM(${bills.vendorBillNumber}), ''), ${bills.number})`;
+
 const money = z.string().regex(/^\d+(\.\d{1,2})?$/);
 /**
  * A rate is not an amount. Money lands in the ledger at two decimals, but a
@@ -969,7 +976,7 @@ purchasesRouter.get("/payments", requirePermission("purchases", "view"), async (
   const billNumbers = await db
     .select({
       paymentId: vendorPaymentApplications.paymentId,
-      numbers: sql<string>`STRING_AGG(${bills.number}, ', ' ORDER BY ${bills.number})`,
+      numbers: sql<string>`STRING_AGG(${billNoSql}, ', ' ORDER BY ${billNoSql})`,
     })
     .from(vendorPaymentApplications)
     .innerJoin(bills, eq(bills.id, vendorPaymentApplications.billId))
@@ -993,7 +1000,7 @@ purchasesRouter.get("/payments/:id", requirePermission("purchases", "view"), asy
     .select({
       billId: vendorPaymentApplications.billId,
       amountApplied: vendorPaymentApplications.amountApplied,
-      billNumber: bills.number,
+      billNumber: billNoSql,
       billDate: bills.billDate,
       billTotal: bills.total,
     })
@@ -1328,7 +1335,7 @@ purchasesRouter.get(
         .select({
           billId: vendorCreditApplications.billId,
           amountApplied: vendorCreditApplications.amountApplied,
-          billNumber: bills.number,
+          billNumber: billNoSql,
           billDate: bills.billDate,
         })
         .from(vendorCreditApplications)
@@ -2202,7 +2209,7 @@ purchasesRouter.get(
       .select({
         ...getTableColumns(paymentBatchLines),
         vendorName: contacts.displayName,
-        billNumber: bills.number,
+        billNumber: billNoSql,
         expenseNumber: expenses.number,
       })
       .from(paymentBatchLines)

@@ -6,6 +6,7 @@ import { CustomFieldsDisplay } from "../components/custom-fields";
 import { StatusBadge } from "../components/list-page";
 import { CommentsTimeline } from "../components/comments";
 import { AttachmentsButton } from "../components/attachments";
+import { billNo } from "../lib/utils";
 
 interface ContactRailRow {
   id: string;
@@ -617,7 +618,16 @@ export function IncomeChart({ contactId, label }: { contactId: string; label: st
 
 const TXN_SECTIONS: Record<
   string,
-  Array<{ key: string; label: string; dateKey: string; basePath: string; balanceKey?: string; amountKey?: string }>
+  Array<{
+    key: string;
+    label: string;
+    dateKey: string;
+    basePath: string;
+    balanceKey?: string;
+    amountKey?: string;
+    /** Bills: Bill# is the vendor's own number and the reference sits beside it, as in Zoho. */
+    isBill?: boolean;
+  }>
 > = {
   customer: [
     { key: "invoices", label: "Invoices", dateKey: "invoiceDate", basePath: "/sales/invoices", balanceKey: "balanceDue" },
@@ -625,7 +635,7 @@ const TXN_SECTIONS: Record<
     { key: "creditNotes", label: "Credit Notes", dateKey: "creditNoteDate", basePath: "/sales/credit-notes", balanceKey: "balance" },
   ],
   vendor: [
-    { key: "bills", label: "Bills", dateKey: "billDate", basePath: "/purchases/bills", balanceKey: "balanceDue" },
+    { key: "bills", label: "Bills", dateKey: "billDate", basePath: "/purchases/bills", balanceKey: "balanceDue", isBill: true },
     { key: "payments", label: "Payments Made", dateKey: "paymentDate", basePath: "/purchases/payments", amountKey: "amount" },
     { key: "vendorCredits", label: "Vendor Credits", dateKey: "creditDate", basePath: "/purchases/vendor-credits", balanceKey: "balance" },
   ],
@@ -638,7 +648,7 @@ const TXN_SECTIONS: Record<
     { key: "invoices", label: "Invoices", dateKey: "invoiceDate", basePath: "/sales/invoices", balanceKey: "balanceDue" },
     { key: "customerPayments", label: "Payments Received", dateKey: "paymentDate", basePath: "/sales/payments", amountKey: "amount" },
     { key: "creditNotes", label: "Credit Notes", dateKey: "creditNoteDate", basePath: "/sales/credit-notes", balanceKey: "balance" },
-    { key: "bills", label: "Bills", dateKey: "billDate", basePath: "/purchases/bills", balanceKey: "balanceDue" },
+    { key: "bills", label: "Bills", dateKey: "billDate", basePath: "/purchases/bills", balanceKey: "balanceDue", isBill: true },
     { key: "vendorPayments", label: "Payments Made", dateKey: "paymentDate", basePath: "/purchases/payments", amountKey: "amount" },
     { key: "vendorCredits", label: "Vendor Credits", dateKey: "creditDate", basePath: "/purchases/vendor-credits", balanceKey: "balance" },
   ],
@@ -676,7 +686,8 @@ export function TransactionsTab({
                 <thead className="table-head">
                   <tr>
                     <th className="border-b border-[#ece3d5] px-3 py-2">Date</th>
-                    <th className="border-b border-[#ece3d5] px-3 py-2">Number</th>
+                    <th className="border-b border-[#ece3d5] px-3 py-2">{s.isBill ? "Bill#" : "Number"}</th>
+                    {s.isBill && <th className="border-b border-[#ece3d5] px-3 py-2">Reference Number</th>}
                     <th className="border-b border-[#ece3d5] px-3 py-2">Status</th>
                     <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Amount</th>
                     {s.balanceKey && <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Balance</th>}
@@ -690,7 +701,8 @@ export function TransactionsTab({
                       className="cursor-pointer border-b border-[#ece3d5] hover:bg-gray-50"
                     >
                       <td className="px-3 py-2">{formatDate(r[s.dateKey] as string)}</td>
-                      <td className="px-3 py-2 font-medium text-brand-600">{r.number}</td>
+                      <td className="px-3 py-2 font-medium text-brand-600">{s.isBill ? billNo(r) : r.number}</td>
+                      {s.isBill && <td className="px-3 py-2 text-gray-600">{(r.reference as string) || "—"}</td>}
                       <td className="px-3 py-2">
                         {r.status ? <StatusBadge status={r.status} /> : "—"}
                       </td>
