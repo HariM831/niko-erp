@@ -20,7 +20,7 @@ import { z } from "zod";
 import { formulaLines, formulas, itemNutrients, items, lifeStage, productionOrders, users } from "@shared/schema";
 import { NUTRIENTS } from "@shared/feed";
 import { db } from "../db";
-import { requirePermission } from "../lib/rbac";
+import { holds, requirePermission } from "../lib/rbac";
 import { nonBlank, validateBody } from "../lib/validate";
 import { getPreferences } from "../services/preferences";
 
@@ -161,7 +161,7 @@ feedFormulasRouter.get("/picker", requirePermission("feed_mill", "view"), async 
   );
 });
 
-feedFormulasRouter.get("/matrix", requirePermission("feed_mill", "formulas"), async (_req, res) => {
+feedFormulasRouter.get("/matrix", requirePermission("feed_mill", "formulas"), async (req, res) => {
   const live = await db
     .select({
       id: formulas.id,
@@ -385,7 +385,20 @@ feedFormulasRouter.get("/matrix", requirePermission("feed_mill", "formulas"), as
     return { key: def.key, label: def.label, unit: def.unit, group: def.group, values, blindKg };
   }).filter((n) => live.some((f) => n.values[f.id] !== 0 || n.blindKg[f.id]! > 0));
 
-  res.json({ formulas: heads, ingredients, nutrients, withoutLive });
+  // Costs go only to those who hold feed_mill.costs. Left out of the reply
+  // rather than hidden on the screen, so a curious look at the network tab
+  // shows nothing either. The recipe and its nutrients stay for everyone.
+  if (!holds(req.session.user?.permissions, "feed_mill", "costs")) {
+    res.json({
+      costs: false,
+      formulas: heads.map(({ materialCost, overhead, costPerFinishedKg, unpricedKg, ...h }) => h),
+      ingredients: ingredients.map(({ ratePerKg, priceBasis, pricedOn, packKg, ...i }) => i),
+      nutrients,
+      withoutLive,
+    });
+    return;
+  }
+  res.json({ costs: true, formulas: heads, ingredients, nutrients, withoutLive });
 });
 
 feedFormulasRouter.get("/", requirePermission("feed_mill", "formulas"), async (_req, res) => {

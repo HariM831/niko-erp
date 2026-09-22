@@ -17,6 +17,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { api } from "../api";
+import { useAuth } from "../auth";
 import { useLocalSearch } from "../components/search-context";
 import { matchesTerm } from "../lib/utils";
 import { FormulaMatrix } from "../components/formula-matrix";
@@ -32,6 +33,7 @@ const kg = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 3 }
 export function FeedFormulasPage() {
   /** null = the comparison. "" = a formula that does not exist yet. */
   const [selected, setSelected] = useState<string | null>(null);
+  const { can } = useAuth();
 
   const { data: groups } = useQuery<FormulaGroup[]>({
     queryKey: ["feed-formulas"],
@@ -68,7 +70,7 @@ export function FeedFormulasPage() {
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         <aside className="flex shrink-0 gap-2 overflow-x-auto border-b bg-white p-2 lg:w-56 lg:flex-col lg:gap-0 lg:overflow-x-visible lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-0">
-          {entry(null, "All formulas", "Side by side, with cost per kg")}
+          {entry(null, "All formulas", can("feed_mill", "costs") ? "Side by side, with cost per kg" : "Side by side")}
           {shownGroups?.map((g) => (
             <div key={g.name}>
               {entry(

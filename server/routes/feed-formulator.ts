@@ -13,7 +13,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { feedStandardParams, feedStandards, itemNutrients, items, lifeStage } from "@shared/schema";
 import { db } from "../db";
-import { requirePermission } from "../lib/rbac";
+import { holds, requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { getPreferences } from "../services/preferences";
 import { stockOnHand } from "../services/inventory";
@@ -149,8 +149,14 @@ feedFormulatorRouter.post(
       overheadPerKg: Number(prefs.millOverheadPerKg),
     });
 
+    // The solve runs on prices either way — it is a least-cost mix — but what
+    // things cost is shown only to those who hold feed_mill.costs.
+    const costs = holds(req.session.user?.permissions, "feed_mill", "costs");
+    const { rawCostPerKg, costPerKg, shadowPrices, ...mix } = result;
     res.json({
-      ...result,
+      ...mix,
+      ...(costs ? { rawCostPerKg, costPerKg, shadowPrices } : {}),
+      costs,
       standardVersion: standard.version,
       /**
        * The bounds the solve was held to, returned with it.
@@ -164,7 +170,7 @@ feedFormulatorRouter.post(
         minValue: p.minValue == null ? null : Number(p.minValue),
         maxValue: p.maxValue == null ? null : Number(p.maxValue),
       })),
-      prices: Object.fromEntries(materialRows.map((m) => [m.id, priceOf(m)])),
+      ...(costs ? { prices: Object.fromEntries(materialRows.map((m) => [m.id, priceOf(m)])) } : {}),
       unpriced: materialRows.filter((m) => priceOf(m) == null).map((m) => m.name),
     });
   },

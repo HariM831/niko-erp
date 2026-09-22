@@ -22,23 +22,24 @@ interface Head {
   outputItemName: string | null;
   effectiveFrom: string;
   totalKg: number;
-  materialCost: number;
   outputKg: number;
-  overhead: number;
-  costPerFinishedKg: number;
+  // The cost fields come only to those who hold feed_mill.costs.
+  materialCost?: number;
+  overhead?: number;
+  costPerFinishedKg?: number;
   /** Weight in the mix whose price is a guess — see priceBasis. */
-  unpricedKg: number;
+  unpricedKg?: number;
   thinAnalysis: Array<{ name: string; kg: number; measured: number }>;
 }
 type PriceBasis = "delivered" | "last bill" | "standing price" | "never bought" | "not per kg";
 interface Ingredient {
   itemId: string;
   name: string;
-  ratePerKg: number;
-  priceBasis: PriceBasis;
-  pricedOn: string | null;
+  ratePerKg?: number;
+  priceBasis?: PriceBasis;
+  pricedOn?: string | null;
   /** Bought by the pack: the rate shown is per kg, divided by this. */
-  packKg: number | null;
+  packKg?: number | null;
   qty: Record<string, number>;
 }
 
@@ -64,6 +65,8 @@ interface Nutrient {
   blindKg: Record<string, number>;
 }
 interface Matrix {
+  /** Whether this viewer may see costs; the server leaves them out otherwise. */
+  costs: boolean;
   formulas: Head[];
   ingredients: Ingredient[];
   nutrients: Nutrient[];
@@ -98,6 +101,7 @@ export function FormulaMatrix({ onPick }: { onPick?: (name: string) => void }) {
   }
 
   const f = data.formulas;
+  const costs = data.costs;
   const col = "w-[86px] px-2 py-1.5 text-right tabular-nums";
   const head = "px-2 py-1.5 text-right text-[12px] font-medium text-gray-500";
 
@@ -115,7 +119,7 @@ export function FormulaMatrix({ onPick }: { onPick?: (name: string) => void }) {
                 <th className="px-3 py-1.5 text-left text-[12px] font-medium text-gray-500">
                   Ingredient
                 </th>
-                <th className={`col-portrait-hide ${head} w-[70px]`}>₹/kg</th>
+                {costs && <th className={`col-portrait-hide ${head} w-[70px]`}>₹/kg</th>}
                 {f.map((x) => (
                   <th key={x.id} className={`${head} w-[86px]`}>
                     <button
@@ -134,17 +138,19 @@ export function FormulaMatrix({ onPick }: { onPick?: (name: string) => void }) {
               {data.ingredients.map((ing) => (
                 <tr key={ing.itemId} className="border-b border-gray-100">
                   <td className="whitespace-nowrap px-3 py-1.5">{ing.name}</td>
-                  <td
-                    className={`col-portrait-hide ${col} w-[70px] ${BASIS_NOTE[ing.priceBasis].tone}`}
-                    title={
-                      BASIS_NOTE[ing.priceBasis].title +
-                      (ing.pricedOn ? ` (${ing.pricedOn})` : "") +
-                      (ing.packKg ? `, bought by the ${ing.packKg} kg pack` : "")
-                    }
-                  >
-                    {ing.ratePerKg ? money(ing.ratePerKg) : "—"}
-                    {BASIS_NOTE[ing.priceBasis].mark}
-                  </td>
+                  {costs && ing.priceBasis && (
+                    <td
+                      className={`col-portrait-hide ${col} w-[70px] ${BASIS_NOTE[ing.priceBasis].tone}`}
+                      title={
+                        BASIS_NOTE[ing.priceBasis].title +
+                        (ing.pricedOn ? ` (${ing.pricedOn})` : "") +
+                        (ing.packKg ? `, bought by the ${ing.packKg} kg pack` : "")
+                      }
+                    >
+                      {ing.ratePerKg ? money(ing.ratePerKg) : "—"}
+                      {BASIS_NOTE[ing.priceBasis].mark}
+                    </td>
+                  )}
                   {f.map((x) => (
                     <td
                       key={x.id}
@@ -159,25 +165,26 @@ export function FormulaMatrix({ onPick }: { onPick?: (name: string) => void }) {
             <tfoot className="text-gray-700">
               <tr className="border-t border-gray-200 font-semibold">
                 <td className="px-3 py-2">Batch total, kg</td>
-                <td className="col-portrait-hide" />
+                {costs && <td className="col-portrait-hide" />}
                 {f.map((x) => (
                   <td key={x.id} className={col}>
                     {kgs(x.totalKg)}
                   </td>
                 ))}
               </tr>
+              {costs && (
               <tr className="text-gray-500">
                 <td className="px-3 py-1">Material cost</td>
-                <td className="col-portrait-hide" />
+                {costs && <td className="col-portrait-hide" />}
                 {f.map((x) => (
                   <td key={x.id} className={col}>
-                    {money(x.materialCost)}
+                    {money(x.materialCost ?? 0)}
                     {/* A mix with unpriced weight in it is costed low, and by
                         exactly the amount nobody can see. Say how much. */}
-                    {x.unpricedKg > 0 && (
+                    {(x.unpricedKg ?? 0) > 0 && (
                       <span
                         className="ml-1 text-amber-700"
-                        title={`${kgs(x.unpricedKg)} kg of this batch has no price from a purchase, so the cost is understated`}
+                        title={`${kgs(x.unpricedKg ?? 0)} kg of this batch has no price from a purchase, so the cost is understated`}
                       >
                         !
                       </span>
@@ -185,37 +192,42 @@ export function FormulaMatrix({ onPick }: { onPick?: (name: string) => void }) {
                   </td>
                 ))}
               </tr>
+              )}
               {/* Named rather than folded into the rate, because a mill that
                   changes its overhead should see which figure moved. */}
+              {costs && (
               <tr className="text-gray-500">
                 <td className="px-3 py-1">Milling overhead</td>
-                <td className="col-portrait-hide" />
+                {costs && <td className="col-portrait-hide" />}
                 {f.map((x) => (
                   <td key={x.id} className={col}>
-                    {money(x.overhead)}
+                    {money(x.overhead ?? 0)}
                   </td>
                 ))}
               </tr>
+              )}
               <tr className="text-gray-500">
                 <td className="px-3 py-1">Yield after moisture, kg</td>
-                <td className="col-portrait-hide" />
+                {costs && <td className="col-portrait-hide" />}
                 {f.map((x) => (
                   <td key={x.id} className={col}>
                     {kgs(x.outputKg)}
                   </td>
                 ))}
               </tr>
+              {costs && (
               <tr className="border-t border-gray-200">
                 <td className="px-3 py-2.5 text-[14px] font-semibold text-gray-900">
                   Cost per finished kg
                 </td>
-                <td className="col-portrait-hide" />
+                {costs && <td className="col-portrait-hide" />}
                 {f.map((x) => (
                   <td key={x.id} className={`${col} text-[15px] font-semibold text-gray-900`}>
-                    ₹{money(x.costPerFinishedKg)}
+                    ₹{money(x.costPerFinishedKg ?? 0)}
                   </td>
                 ))}
               </tr>
+              )}
             </tfoot>
           </table>
         </div>

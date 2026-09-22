@@ -69,11 +69,13 @@ interface SolveResponse {
   message?: string;
   blockers?: Blocker[];
   solution: Record<string, number>;
-  rawCostPerKg: number;
-  costPerKg: number;
+  /** Whether this viewer may see costs; the cost fields are absent otherwise. */
+  costs: boolean;
+  rawCostPerKg?: number;
+  costPerKg?: number;
   nutritionAnalysis: Record<string, number>;
   unmeasured: Array<{ ingredientName: string; nutrients: string[] }>;
-  shadowPrices: Array<{
+  shadowPrices?: Array<{
     ingredientId: string;
     ingredientName: string;
     currentPrice: number;
@@ -83,7 +85,7 @@ interface SolveResponse {
   }>;
   standardVersion: number;
   standard: Array<{ nutrient: string; minValue: number | null; maxValue: number | null }>;
-  prices: Record<string, number | null>;
+  prices?: Record<string, number | null>;
   unpriced: string[];
 }
 
@@ -437,7 +439,7 @@ export function FormulaSolver({
                       <div className="flex items-baseline justify-between border-b border-gray-100 px-3 py-2">
                         <span className="text-[13px] font-semibold">Solved mix — 100 kg</span>
                         <span className="text-[12px] text-gray-500">
-                          raw {inr(result.rawCostPerKg)}/kg · standard v{result.standardVersion}
+                          {result.costs && <>raw {inr(result.rawCostPerKg ?? 0)}/kg · </>}standard v{result.standardVersion}
                         </span>
                       </div>
                       <table className="w-full text-[13px]">
@@ -445,9 +447,11 @@ export function FormulaSolver({
                           {Object.keys(result.solution).map((id) => (
                             <tr key={id} className="border-b border-gray-100">
                               <td className="px-3 py-1">{nameOf(id)}</td>
-                              <td className="w-[70px] px-2 py-1 text-right text-[12px] text-gray-500">
-                                {result.prices[id] == null ? "—" : inr(result.prices[id]!)}
-                              </td>
+                              {result.prices && (
+                                <td className="w-[70px] px-2 py-1 text-right text-[12px] text-gray-500">
+                                  {result.prices[id] == null ? "—" : inr(result.prices[id]!)}
+                                </td>
+                              )}
                               <td className="w-[86px] px-2 py-0.5">
                                 <input
                                   value={edited[id] ?? ""}
@@ -464,7 +468,7 @@ export function FormulaSolver({
                         <tfoot>
                           <tr className="border-t border-gray-200">
                             <td className="px-3 py-2 font-semibold">Total</td>
-                            <td />
+                            {result.costs && <td />}
                             <td
                               className={`px-2 py-2 text-right font-semibold tabular-nums ${
                                 Math.abs(mixTotal - 100) < 0.05 ? "text-gray-900" : "text-red-600"
@@ -473,15 +477,17 @@ export function FormulaSolver({
                               {mixTotal.toFixed(2)}%
                             </td>
                           </tr>
-                          <tr>
-                            <td className="px-3 py-2 text-[14px] font-semibold">
-                              Cost per finished kg
-                            </td>
-                            <td />
-                            <td className="px-2 py-2 text-right text-[15px] font-semibold">
-                              {inr(result.costPerKg)}
-                            </td>
-                          </tr>
+                          {result.costs && (
+                            <tr>
+                              <td className="px-3 py-2 text-[14px] font-semibold">
+                                Cost per finished kg
+                              </td>
+                              <td />
+                              <td className="px-2 py-2 text-right text-[15px] font-semibold">
+                                {inr(result.costPerKg ?? 0)}
+                              </td>
+                            </tr>
+                          )}
                         </tfoot>
                       </table>
                       <div className="flex items-center gap-2 border-t border-gray-100 p-2.5">
@@ -509,6 +515,7 @@ export function FormulaSolver({
                       </p>
                     )}
 
+                    {result.shadowPrices && (
                     <div className="card mt-3 overflow-hidden">
                       <div className="border-b border-gray-100 px-3 py-2">
                         <div className="text-[13px] font-semibold">
@@ -542,6 +549,7 @@ export function FormulaSolver({
                         </tbody>
                       </table>
                     </div>
+                    )}
                   </>
                 )}
               </>

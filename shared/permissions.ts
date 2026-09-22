@@ -119,6 +119,11 @@ export const PERMISSION_MODULES: PermissionModule[] = [
       // Writing a recipe is not the same as running one. The floor produces to
       // a formula; changing the formula is a different authority.
       { key: "manage_formulas", label: "Write formulas" },
+      // What a batch costs to make is the mill's margin, and it is read off
+      // every material's purchase price. Seeing a formula does not include
+      // seeing that — a nutritionist balancing a ration needs the recipe, not
+      // the buying book.
+      { key: "costs", label: "See formula costs" },
       { key: "produce", label: "Issue and complete production" },
       { key: "transfer", label: "Transfer feed to a shed" },
     ],

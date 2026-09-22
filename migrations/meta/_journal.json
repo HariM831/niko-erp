@@ -694,6 +694,13 @@
       "when": 1789989918995,
       "tag": "0098_item_packaging",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1790058916726,
+      "tag": "0099_feed_formula_costs",
+      "breakpoints": true
     }
   ]
 }
