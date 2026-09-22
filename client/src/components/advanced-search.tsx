@@ -354,23 +354,25 @@ export function criteriaCount(c: Criteria): number {
 }
 
 /**
- * Advanced search's mark: a bold magnifier with a magic star in its lens and a
- * twinkle above — search, with something extra. Drawn here rather than taken
- * from the icon set, which has no such glyph.
+ * Advanced search's mark: a thin-lined magnifier with a solid four-point
+ * sparkle in its lens and another above — search, with something extra. Drawn
+ * on the 20px grid it is shown at, with fine strokes, so it stays sharp at
+ * button size; at heavier weights the lens sparkle filled the glass into a
+ * blot. Drawn here because the icon set has no such glyph.
  */
-export function AdvancedSearchIcon({ className = "h-[18px] w-[18px]" }: { className?: string }) {
+export function AdvancedSearchIcon({ className = "h-5 w-5" }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-      <circle cx="10" cy="10" r="6" />
-      <path d="M14.5 14.5 21 21" />
-      <path d="M18.5 2.5v3M17 4h3" strokeWidth={2} />
-      <path d="M8 7.5l.6 1.4 1.4.6-1.4.6L8 11.5l-.6-1.4-1.4-.6 1.4-.6z" fill="currentColor" strokeWidth={1} />
+    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth={1.25} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <circle cx="8" cy="9" r="5.5" />
+      <path d="M12 13l5.5 5.5" />
+      <path d="M8 6.4Q8.3 8.7 10.6 9Q8.3 9.3 8 11.6Q7.7 9.3 5.4 9Q7.7 8.7 8 6.4Z" fill="currentColor" strokeWidth={0.5} />
+      <path d="M16 0.8Q16.4 3.1 18.7 3.5Q16.4 3.9 16 6.2Q15.6 3.9 13.3 3.5Q15.6 3.1 16 0.8Z" fill="currentColor" strokeWidth={0.5} />
     </svg>
   );
 }
 
 /**
- * The header button that opens the dialog: the mark alone, bold black, named
+ * The header button that opens the dialog: the mark alone, in black, named
  * "Advanced search" for the tooltip and screen readers. Once criteria are
  * applied it is tinted with a count beside it, and an × drops them all.
  */
