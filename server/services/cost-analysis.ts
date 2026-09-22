@@ -207,7 +207,42 @@ export async function costAnalysis(db: Conn, from: string, to: string) {
     add(section, r, inRange);
   }
 
+  // ---- eggs sold and the realised price, from egg invoice lines ----
+  //
+  // Income is divided by eggs SOLD, not produced: a price is per egg that
+  // left, and a month whose late-month lay is invoiced in the next month would
+  // otherwise print a rate nobody was ever paid. Costs stay per egg produced.
+  const ep = await eggPrefs(db);
+  const sizeRows = await db.select().from(eggSizeItems);
+  const perBox = new Map(sizeRows.map((s) => [s.itemId, eggsInBox(s.size as EggSize, ep)]));
+  const sold = await db
+    .select({
+      itemId: invoiceLines.itemId,
+      boxes: sql<string>`coalesce(sum(${invoiceLines.quantity}), 0)`,
+      amount: sql<string>`coalesce(sum(${invoiceLines.amount}), 0)`,
+    })
+    .from(invoiceLines)
+    .innerJoin(invoices, eq(invoices.id, invoiceLines.invoiceId))
+    .where(
+      and(
+        inArray(invoiceLines.itemId, [...perBox.keys()]),
+        sql`${invoices.status} not in ('draft', 'void')`,
+        gte(invoices.invoiceDate, from),
+        lte(invoices.invoiceDate, to),
+      ),
+    )
+    .groupBy(invoiceLines.itemId);
+  let eggsSold = 0;
+  let eggSales = 0;
+  for (const s of sold) {
+    eggsSold += Number(s.boxes) * (perBox.get(s.itemId!) ?? ep.eggsPerBox);
+    eggSales += Number(s.amount);
+  }
+  eggsSold = Math.round(eggsSold);
+  const perSold = (amount: number) => (eggsSold > 0 ? d3(amount / eggsSold) : "0.000");
+
   const sectionOut = (section: CostSection, extra: CostLine[] = []): CostSectionOut => {
+    const divide = section === "income" ? perSold : per;
     const accs = [...(bySection.get(section)?.values() ?? [])]
       .filter((a) => Math.abs(a.amount) >= 0.005)
       .sort((a, b) => b.amount - a.amount);
@@ -218,11 +253,11 @@ export async function costAnalysis(db: Conn, from: string, to: string) {
         code: a.code,
         name: a.name,
         amount: d2(a.amount),
-        perEgg: per(a.amount),
+        perEgg: divide(a.amount),
       })),
     ];
     const total = lines.reduce((n, l) => n + Number(l.amount), 0);
-    return { lines, total: d2(total), perEgg: per(total) };
+    return { lines, total: d2(total), perEgg: divide(total) };
   };
 
   const pulletAmount = pulletPerEgg * eggs;
@@ -255,35 +290,14 @@ export async function costAnalysis(db: Conn, from: string, to: string) {
   const operatingProfit = grossProfit - operatingTotal;
   const netProfit = operatingProfit - Number(finance.total);
 
-  const money = (n: number) => ({ amount: d2(n), perEgg: per(n) });
-
-  // ---- memo: eggs sold and the realised price, from egg invoice lines ----
-  const ep = await eggPrefs(db);
-  const sizeRows = await db.select().from(eggSizeItems);
-  const perBox = new Map(sizeRows.map((s) => [s.itemId, eggsInBox(s.size as EggSize, ep)]));
-  const sold = await db
-    .select({
-      itemId: invoiceLines.itemId,
-      boxes: sql<string>`coalesce(sum(${invoiceLines.quantity}), 0)`,
-      amount: sql<string>`coalesce(sum(${invoiceLines.amount}), 0)`,
-    })
-    .from(invoiceLines)
-    .innerJoin(invoices, eq(invoices.id, invoiceLines.invoiceId))
-    .where(
-      and(
-        inArray(invoiceLines.itemId, [...perBox.keys()]),
-        sql`${invoices.status} not in ('draft', 'void')`,
-        gte(invoices.invoiceDate, from),
-        lte(invoices.invoiceDate, to),
-      ),
-    )
-    .groupBy(invoiceLines.itemId);
-  let eggsSold = 0;
-  let eggSales = 0;
-  for (const s of sold) {
-    eggsSold += Number(s.boxes) * (perBox.get(s.itemId!) ?? ep.eggsPerBox);
-    eggSales += Number(s.amount);
-  }
+  // The profit lines mix the two denominators on purpose: income per egg sold
+  // less cost per egg produced is the margin on an egg, which is what a reader
+  // wants from a profit line. The rupee totals are the period's, as posted.
+  const grossProfitPerEgg = Number(income.perEgg) - Number(cogs.perEgg);
+  const operatingPerEgg = Number(per(operatingTotal));
+  const operatingProfitPerEgg = grossProfitPerEgg - operatingPerEgg;
+  const netProfitPerEgg = operatingProfitPerEgg - Number(finance.perEgg);
+  const money = (n: number, perEggValue: number) => ({ amount: d2(n), perEgg: d3(perEggValue) });
 
   const unassigned = [...(bySection.get("unassigned")?.values() ?? [])]
     .filter((a) => Math.abs(a.amount) >= 0.005)
@@ -300,7 +314,7 @@ export async function costAnalysis(db: Conn, from: string, to: string) {
     basis: "Accrual",
     eggs: {
       produced: eggs,
-      sold: Math.round(eggsSold),
+      sold: eggsSold,
       eggSales: d2(eggSales),
       realisedPerEggSold: eggsSold > 0 ? d3(eggSales / eggsSold) : null,
       months: months.map((m) => ({
@@ -329,15 +343,15 @@ export async function costAnalysis(db: Conn, from: string, to: string) {
     pullet: { perBird: d2(pulletPerBird), eggsPerLife, perEgg: d3(pulletPerEgg), amount: d2(pulletAmount) },
     income,
     costOfGoodsSold: cogs,
-    grossProfit: money(grossProfit),
+    grossProfit: money(grossProfit, grossProfitPerEgg),
     farm,
     mill,
     packing,
     admin,
-    operatingTotal: money(operatingTotal),
-    operatingProfit: money(operatingProfit),
+    operatingTotal: money(operatingTotal, operatingPerEgg),
+    operatingProfit: money(operatingProfit, operatingProfitPerEgg),
     finance,
-    netProfit: money(netProfit),
+    netProfit: money(netProfit, netProfitPerEgg),
     costPerEgg: {
       cogs: cogs.perEgg,
       afterOperating: per(Number(cogs.total) + operatingTotal),

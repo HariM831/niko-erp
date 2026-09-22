@@ -1612,13 +1612,21 @@ function CostAnalysis({ data }: { data: CostAnalysisData }) {
             </tr>
           </thead>
           <tbody>
+            {/*
+              Two denominators, stated up front. A price is per egg that was
+              sold; a cost is per egg that was laid. A month whose last week is
+              invoiced in the next month would otherwise print a price nobody
+              was paid, against costs for eggs still in the store.
+            */}
             <tr>
               <td className="px-2 pb-1 pl-5 pt-2 text-[13px] text-gray-500" colSpan={4}>
-                Eggs produced in the period: <span className="text-gray-800">{eggs}</span>. Every
-                per-egg figure is the line divided by this number.
+                Eggs produced <span className="text-gray-800">{eggs}</span> (Farms daily records, every
+                house) &middot; eggs sold <span className="text-gray-800">{data.eggs.sold.toLocaleString("en-IN")}</span>{" "}
+                (egg invoices). Income lines are per egg sold; cost lines are per egg produced; the profit
+                lines are the difference.
               </td>
             </tr>
-            <Block label="Income" section={data.income} />
+            <Block label="Income (per egg sold)" section={data.income} />
             <Block label="Cost of Goods Sold" section={data.costOfGoodsSold} />
             <Key label="Gross Profit" value={data.grossProfit} />
             <Block label="Operating Expense - Farm" section={data.farm} />
@@ -1698,7 +1706,8 @@ function CostAnalysis({ data }: { data: CostAnalysisData }) {
               {data.eggs.realisedPerEggSold && (
                 <> &mdash; realised {perEgg(data.eggs.realisedPerEggSold)} per egg sold</>
               )}
-              . The difference between produced and sold is stock and breakage.
+              . Produced and sold differ by what was still in the store at either end of the period, by
+              breakage, and by dispatches invoiced later than they left.
             </li>
             <li>
               Feed is the actual FIFO cost of feed eaten in the laying houses, by day
