@@ -688,7 +688,7 @@ function slipFields(ctx: SlipContext | undefined): SearchField[] {
 }
 
 /** Which feed went to which shed, when, and how much. */
-function transferFields(ctx: TransferContext | undefined): SearchField[] {
+function transferFields(ctx: TransferContext | undefined, costs: boolean): SearchField[] {
   return [
     { key: "number", label: "Transfer#", kind: "text" },
     { key: "date", label: "Date Range", kind: "dateRange" },
@@ -701,7 +701,8 @@ function transferFields(ctx: TransferContext | undefined): SearchField[] {
     },
     { key: "status", label: "Status", kind: "select", options: ["completed", "void"] },
     { key: "quantity", label: "Quantity Range (kg)", kind: "numberRange" },
-    { key: "value", label: "Value Range", kind: "numberRange" },
+    // A transfer's value is its production cost; offered only to who may see that.
+    ...(costs ? [{ key: "value", label: "Value Range", kind: "numberRange" as const }] : []),
   ];
 }
 
@@ -744,9 +745,11 @@ export function StationPage({ station }: { station: Station }) {
     queryFn: () => api("/api/feed/production/transfers/context"),
     enabled: station === "transfer",
   });
+  const { can } = useAuth();
+  const costs = can("feed_mill", "costs");
   const fields = useMemo(
-    () => (station === "slips" ? slipFields(slipCtx) : station === "transfer" ? transferFields(transferCtx) : []),
-    [station, slipCtx, transferCtx],
+    () => (station === "slips" ? slipFields(slipCtx) : station === "transfer" ? transferFields(transferCtx, costs) : []),
+    [station, slipCtx, transferCtx, costs],
   );
   const adv = useAdvancedSearch(station === "slips" ? "Past Weighments" : "Feed Transfers", fields);
   // Each tab searches a different record, so criteria do not follow a tab

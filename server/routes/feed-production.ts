@@ -39,7 +39,7 @@ import {
   productionOrders,
 } from "@shared/schema";
 import { db, type Tx } from "../db";
-import { requirePermission } from "../lib/rbac";
+import { holds, requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, assertPeriodOpen, reverseJournal } from "../services/posting";
@@ -49,6 +49,40 @@ import { refreshHouse } from "../services/rollup";
 import { istDate } from "../services/day-resolution";
 
 export const feedProductionRouter = Router();
+
+/**
+ * What a run cost, and so what its feed is worth, is for those who hold
+ * feed_mill.costs. A transfer's rate per kg is the production cost carried
+ * forward and its value is kilos times that, so the transfers hide the same
+ * figures — otherwise the cost is one division away on the next screen.
+ *
+ * Done once for the whole router rather than per handler: every reply is
+ * passed through stripCosts on its way out, and the range filters on those
+ * figures are dropped from the query, so a search cannot probe for them
+ * either. The mill hand still sees what was made, how much, and where it went.
+ */
+const COST_KEYS = new Set(["costPerKg", "inputValue", "overheadValue", "ratePerKg", "value"]);
+const COST_FILTERS = ["costPerKgMin", "costPerKgMax", "valueMin", "valueMax"];
+
+function stripCosts(body: unknown): unknown {
+  if (Array.isArray(body)) return body.map(stripCosts);
+  if (body && typeof body === "object" && !(body instanceof Date)) {
+    return Object.fromEntries(
+      Object.entries(body as Record<string, unknown>)
+        .filter(([k]) => !COST_KEYS.has(k))
+        .map(([k, v]) => [k, stripCosts(v)]),
+    );
+  }
+  return body;
+}
+
+feedProductionRouter.use((req, res, next) => {
+  if (holds(req.session.user?.permissions, "feed_mill", "costs")) return next();
+  for (const k of COST_FILTERS) delete (req.query as Record<string, unknown>)[k];
+  const send = res.json.bind(res);
+  res.json = (body: unknown) => send(stripCosts(body));
+  next();
+});
 
 const qtyStr = z.string().regex(/^\d+(\.\d{1,3})?$/, "Enter a quantity");
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);

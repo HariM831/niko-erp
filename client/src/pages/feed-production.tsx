@@ -11,6 +11,7 @@ import { useMemo, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Factory, Plus, X } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
+import { useAuth } from "../auth";
 import { StatusBadge } from "../components/status-badge";
 import { useLocalSearch } from "../components/search-context";
 import { SearchSelect } from "../components/search-select";
@@ -48,7 +49,7 @@ const inr = (n: number) =>
  * runs that consumed it. Pending is left out of Status: it was the printed
  * slip, which is retired, so no run is ever in it now.
  */
-function productionFields(groups: FormulaGroup[] | undefined): SearchField[] {
+function productionFields(groups: FormulaGroup[] | undefined, costs: boolean): SearchField[] {
   return [
     { key: "number", label: "Production#", kind: "text" },
     { key: "date", label: "Date Range", kind: "dateRange" },
@@ -57,7 +58,8 @@ function productionFields(groups: FormulaGroup[] | undefined): SearchField[] {
     { key: "status", label: "Status", kind: "select", options: ["completed", "void"] },
     { key: "batches", label: "Batches Range", kind: "numberRange" },
     { key: "output", label: "Output Range (kg)", kind: "numberRange" },
-    { key: "costPerKg", label: "Cost per kg Range", kind: "numberRange" },
+    // Cost is for those who hold feed_mill.costs; the server drops it for the rest.
+    ...(costs ? [{ key: "costPerKg", label: "Cost per kg Range", kind: "numberRange" as const }] : []),
   ];
 }
 
@@ -87,7 +89,9 @@ export function FeedProductionPage() {
   // every run ever made, not just the newest hundred this page loads to browse.
   // The advanced criteria travel with it and combine with the top-bar term.
   const term = useLocalSearch("Production", "feed-mill:production").trim();
-  const fields = useMemo(() => productionFields(groups), [groups]);
+  const { can } = useAuth();
+  const costs = can("feed_mill", "costs");
+  const fields = useMemo(() => productionFields(groups, costs), [groups, costs]);
   const adv = useAdvancedSearch("Production", fields);
   const searching = !!term || adv.active;
   const params = new URLSearchParams({ ...(term ? { search: term } : {}), ...adv.criteria }).toString();
@@ -120,7 +124,7 @@ export function FeedProductionPage() {
     onSuccess: (made) => {
       setDone(
         made.length === 1
-          ? `${made[0]!.number} — ${kg(made[0]!.actualOutputKg)} produced at ${inr(Number(made[0]!.costPerKg))}/kg, in stock and ready to transfer`
+          ? `${made[0]!.number} — ${kg(made[0]!.actualOutputKg)} produced${made[0]!.costPerKg != null ? ` at ${inr(Number(made[0]!.costPerKg))}/kg` : ""}, in stock and ready to transfer`
           : `${made.length} runs produced — ${kg(made.reduce((s, m) => s + Number(m.actualOutputKg), 0))} in stock and ready to transfer`,
       );
       setRuns([{ formulaId: "", batchCount: "1" }]);
@@ -290,7 +294,8 @@ export function FeedProductionPage() {
               <div className="flex items-baseline justify-between border-b bg-gray-50 px-4 py-1.5">
                 <span className="text-[12px] font-semibold text-gray-700">{formatDate(day)}</span>
                 <span className="text-[11px] tabular-nums text-gray-500">
-                  {kg(totalKg)} · {inr(totalValue)}
+                  {kg(totalKg)}
+                  {costs && <> · {inr(totalValue)}</>}
                 </span>
               </div>
               {dayRows.map((r) => (
@@ -305,9 +310,11 @@ export function FeedProductionPage() {
                     {r.status === "void" && <StatusBadge status="void" />}
                   </div>
                   <div className="flex shrink-0 items-center gap-3 pl-3">
-                    <span className="text-[12px] tabular-nums text-gray-500">
-                      {r.costPerKg == null ? "—" : `${inr(Number(r.costPerKg))}/kg`}
-                    </span>
+                    {costs && (
+                      <span className="text-[12px] tabular-nums text-gray-500">
+                        {r.costPerKg == null ? "—" : `${inr(Number(r.costPerKg))}/kg`}
+                      </span>
+                    )}
                     {r.status === "completed" && (
                       <button
                         onClick={() => {

@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Send } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
+import { useAuth } from "../auth";
 import { StatusBadge } from "../components/status-badge";
 import { PlatformWeight } from "./platform-weight";
 import { SearchSelect } from "./search-select";
@@ -45,6 +46,9 @@ const kg = (v: string | number | null | undefined) =>
 const inr = (n: number) => `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export function FeedTransferForm({ term = "", criteria = {} }: { term?: string; criteria?: Criteria }) {
+  // What the feed is worth is its production cost — for feed_mill.costs only.
+  // The server leaves the figures out for everyone else; this drops the gaps.
+  const costs = useAuth().can("feed_mill", "costs");
   const qc = useQueryClient();
   const [itemId, setItemId] = useState("");
   const [fromId, setFromId] = useState("");
@@ -283,7 +287,8 @@ export function FeedTransferForm({ term = "", criteria = {} }: { term?: string; 
               <div className="flex items-baseline justify-between border-b bg-gray-50 px-4 py-1.5">
                 <span className="text-[12px] font-semibold text-gray-700">{formatDate(day)}</span>
                 <span className="text-[11px] tabular-nums text-gray-500">
-                  {kg(totalKg)} · {inr(totalValue)}
+                  {kg(totalKg)}
+                  {costs && <> · {inr(totalValue)}</>}
                 </span>
               </div>
               {dayRows.map((r) => (
@@ -295,9 +300,11 @@ export function FeedTransferForm({ term = "", criteria = {} }: { term?: string; 
                   </span>
                   {r.status === "void" && <StatusBadge status="void" />}
                 </div>
-                <span className="shrink-0 pl-3 text-[12px] tabular-nums text-gray-500">
-                  {r.value == null ? "—" : inr(Number(r.value))}
-                </span>
+                {costs && (
+                  <span className="shrink-0 pl-3 text-[12px] tabular-nums text-gray-500">
+                    {r.value == null ? "—" : inr(Number(r.value))}
+                  </span>
+                )}
               </div>
               ))}
             </div>
