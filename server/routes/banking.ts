@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { createHash } from "node:crypto";
 import { and, asc, desc, eq, gte, inArray, lte, or, sql } from "drizzle-orm";
-import { matches } from "../services/document-search";
+import { type DocumentSearch, advancedSearch, matches } from "../services/document-search";
 import { z } from "zod";
 import {
   accounts,
@@ -16,6 +16,7 @@ import {
   invoices,
   journalEntries,
   journalEntryLines,
+  journalSourceType,
   vendorCredits,
   vendorPayments,
 } from "@shared/schema";
@@ -325,6 +326,9 @@ bankingRouter.get("/accounts/:id/register", requirePermission("banking", "view")
       credit: r.credit,
       running: r.running,
       typeLabel: SOURCE_LABEL[r.sourceType] ?? r.sourceType,
+      // The raw kind as well as its label, so the page's advanced search can
+      // filter by Transaction Type without matching on display text.
+      sourceType: r.sourceType,
       party,
       status,
       docPath,
@@ -497,11 +501,71 @@ bankingRouter.post(
   },
 );
 
+/**
+ * The statement side of the account page's advanced search — Zoho's "Search
+ * In: Statement". It searches the lines imported from the bank, whatever became
+ * of them, with the same boxes the Transactions side offers:
+ *
+ * - Status: a line still waiting is Uncategorized; one turned into its own
+ *   journal here is Categorized; one paired with a document already in the
+ *   books is Matched; Excluded is excluded. "Manually Added" describes an entry
+ *   typed into the books without a statement line, so no line ever is one.
+ * - Transaction Type: Deposit and Withdrawal read the line's direction; the
+ *   document kinds read the journal the line was matched to, so "Vendor
+ *   Payment" finds the statement lines that paid a vendor.
+ */
+const statementSearch: DocumentSearch = {
+  advanced: {
+    date: { kind: "dateRange", col: bankTransactions.txnDate },
+    total: { kind: "numberRange", col: bankTransactions.amount },
+    reference: { kind: "text", col: bankTransactions.utr },
+    status: {
+      kind: "custom",
+      build: (get) => {
+        const v = get("status");
+        if (!v) return undefined;
+        if (v === "uncategorized") return eq(bankTransactions.matchStatus, "unmatched");
+        if (v === "excluded") return eq(bankTransactions.matchStatus, "excluded");
+        if (v === "categorized" || v === "matched") {
+          // Categorizing posts a banking journal whose sourceId is the line
+          // itself. Asked as a pair IN an uncorrelated list rather than a
+          // correlated subquery: drizzle can render the outer column unqualified
+          // there, and it then resolves against the subquery's own table.
+          const own = sql`(${bankTransactions.matchedJournalEntryId}, ${bankTransactions.id}) IN (
+            SELECT id, source_id FROM journal_entries WHERE source_type = 'banking' AND source_id IS NOT NULL
+          )`;
+          return and(eq(bankTransactions.matchStatus, "matched"), v === "categorized" ? own : sql`NOT ${own}`);
+        }
+        return sql`false`;
+      },
+    },
+    type: {
+      kind: "custom",
+      build: (get) => {
+        const v = get("type");
+        if (!v) return undefined;
+        if (v === "deposit") return eq(bankTransactions.direction, "credit");
+        if (v === "withdrawal") return eq(bankTransactions.direction, "debit");
+        const journals = db.select({ id: journalEntries.id }).from(journalEntries);
+        if (v === "transfer") {
+          return inArray(
+            bankTransactions.matchedJournalEntryId,
+            journals.where(and(eq(journalEntries.sourceType, "banking"), sql`${journalEntries.narration} LIKE 'Transfer: %'`)),
+          );
+        }
+        if (!(journalSourceType.enumValues as readonly string[]).includes(v)) return sql`false`;
+        return inArray(bankTransactions.matchedJournalEntryId, journals.where(sql`${journalEntries.sourceType} = ${v}`));
+      },
+    },
+  },
+};
+
 bankingRouter.get(
   "/transactions",
   requirePermission("banking", "view"),
   async (req, res) => {
-    const { bankAccountId, matchStatus, from, to } = req.query as Record<string, string | undefined>;
+    const query = req.query as Record<string, string | undefined>;
+    const { bankAccountId, matchStatus, from, to } = query;
     const conditions = [];
     if (bankAccountId) conditions.push(eq(bankTransactions.bankAccountId, bankAccountId));
     if (matchStatus) {
@@ -511,13 +575,16 @@ bankingRouter.get(
     }
     if (from) conditions.push(gte(bankTransactions.txnDate, from));
     if (to) conditions.push(lte(bankTransactions.txnDate, to));
-    const rows = await db
+    const advanced = advancedSearch(statementSearch, query);
+    conditions.push(...advanced);
+    const rows = db
       .select()
       .from(bankTransactions)
       .where(conditions.length ? and(...conditions) : undefined)
-      .orderBy(desc(bankTransactions.txnDate))
-      .limit(500);
-    res.json(rows);
+      .orderBy(desc(bankTransactions.txnDate));
+    // A search is not capped, for the reason listLimit gives: a truncated
+    // result answers "no such line" when the line exists.
+    res.json(advanced.length ? await rows : await rows.limit(500));
   },
 );
 

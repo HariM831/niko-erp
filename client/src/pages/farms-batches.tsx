@@ -11,11 +11,12 @@
  * what actually arrives — and the flock's age counts from their bird-weighted
  * average, which is the age most of its birds really are.
  */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Layers, Plus, X } from "lucide-react";
 import { ApiError, api } from "../api";
+import { filterRows, useAdvancedSearch, type SearchField } from "../components/advanced-search";
 import { useLocalSearch } from "../components/search-context";
 import { SearchSelect } from "../components/search-select";
 import { matchesTerm, localYmd } from "../lib/utils";
@@ -60,6 +61,18 @@ interface Context {
   }>;
 }
 
+/**
+ * A batch's age in whole weeks, as the farm says it ("a 42-week flock"):
+ * today's for a standing batch, the age it left at for a depleted one — a
+ * flock culled last year is not still getting older. Days are counted between
+ * local calendar dates, so the week turns over at the farm's midnight.
+ */
+function ageWeeks(f: Flock): number {
+  const from = new Date(`${f.hatchDate}T00:00:00`);
+  const to = f.depletedOn ? new Date(`${f.depletedOn}T00:00:00`) : new Date();
+  return Math.floor((to.getTime() - from.getTime()) / (7 * 86_400_000));
+}
+
 export function FarmsBatchesPage() {
   const qc = useQueryClient();
   const [adding, setAdding] = useState(false);
@@ -71,7 +84,64 @@ export function FarmsBatchesPage() {
   });
   // "Search in Batches": by batch code, house, breed or site, within the status chosen.
   const term = useLocalSearch("Batches", "farms:batches");
-  const flocks = allFlocks?.filter((f) => matchesTerm(term, [f.code, f.houseCodes, f.breedName, f.locationName]));
+
+  /**
+   * Advanced search, on the client: the list arrives whole. House, breed and
+   * site are offered from the batches loaded, so no choice finds nothing.
+   * Status stays with the "Showing" picker in the header, which asks the server
+   * for it; a second status box here could only contradict that one.
+   */
+  const searchFields = useMemo<SearchField[]>(() => {
+    const distinct = (vals: string[]) => [...new Set(vals.filter((v) => v && v !== "—"))].sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true }),
+    );
+    return [
+      {
+        key: "house",
+        label: "House",
+        kind: "select",
+        options: distinct((allFlocks ?? []).flatMap((f) => f.houseCodes.split(", "))),
+      },
+      { key: "breed", label: "Breed", kind: "select", options: distinct((allFlocks ?? []).map((f) => f.breedName)) },
+      { key: "site", label: "Site", kind: "select", options: distinct((allFlocks ?? []).map((f) => f.locationName)) },
+      { key: "hatch", label: "Hatch Date", kind: "dateRange" },
+      { key: "layStart", label: "Lay Start Date", kind: "dateRange" },
+      { key: "depleted", label: "Depleted Date", kind: "dateRange" },
+      { key: "age", label: "Age (weeks)", kind: "numberRange" },
+      { key: "birds", label: "Birds Range", kind: "numberRange" },
+      { key: "placed", label: "Placed Range", kind: "numberRange" },
+    ];
+  }, [allFlocks]);
+  const adv = useAdvancedSearch("Batches", searchFields);
+  const flocks =
+    allFlocks &&
+    filterRows(
+      allFlocks.filter((f) => matchesTerm(term, [f.code, f.houseCodes, f.breedName, f.locationName])),
+      searchFields,
+      adv.criteria,
+      (f, key) => {
+        switch (key) {
+          case "house":
+            return f.houseCodes.split(", ");
+          case "breed":
+            return f.breedName;
+          case "site":
+            return f.locationName;
+          case "hatch":
+            return f.hatchDate;
+          case "layStart":
+            return f.layStartDate;
+          case "depleted":
+            return f.depletedOn;
+          case "age":
+            return ageWeeks(f);
+          case "birds":
+            return f.birds;
+          case "placed":
+            return f.placedCount;
+        }
+      },
+    );
 
   return (
     <div className="min-h-full bg-soil-50 p-4 md:p-6">
@@ -85,6 +155,7 @@ export function FarmsBatchesPage() {
             </div>
         </div>
         <div className="flex items-end gap-2">
+          {adv.button}
           <div className="w-40">
             <label className="label">Showing</label>
             <SearchSelect
@@ -111,7 +182,9 @@ export function FarmsBatchesPage() {
       {isLoading && <p className="text-[13px] text-gray-500">Loading…</p>}
 
       {!!allFlocks?.length && !flocks?.length && (
-        <p className="p-4 text-center text-[13px] text-soil-400">No batch matches “{term.trim()}”.</p>
+        <p className="p-4 text-center text-[13px] text-soil-400">
+          {term.trim() ? `No batch matches “${term.trim()}”.` : "No batch matches the search."}
+        </p>
       )}
 
       {allFlocks && !allFlocks.length && (
@@ -177,6 +250,7 @@ export function FarmsBatchesPage() {
         </div>
       )}
 
+      {adv.dialog}
       {adding && (
         <NewBatchDialog
           onClose={() => setAdding(false)}

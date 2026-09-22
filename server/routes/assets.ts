@@ -62,6 +62,10 @@ assetsRouter.get("/", requirePermission("accounting", "view"), async (req, res) 
       openingAccumulated: fixedAssets.openingAccumulated,
       method: fixedAssets.method,
       usefulLifeMonths: fixedAssets.usefulLifeMonths,
+      // For the register's advanced search, which filters the list it holds.
+      assetAccountId: fixedAssets.assetAccountId,
+      serialNumber: fixedAssets.serialNumber,
+      location: fixedAssets.location,
       accountName: accounts.name,
       accountCode: accounts.code,
       // Joined, not a correlated subquery — drizzle emits bare column names

@@ -214,8 +214,16 @@ export function advancedSearch(
         // "YYYY-MM-DD" string this field is fed — Postgres itself casts a
         // date-shaped string against either a `date` or `timestamp` column
         // without trouble, so letting it do that sidesteps the mismatch.
-        if (from) out.push(sql`${field.col} >= ${from}`);
-        if (to) out.push(sql`${field.col} <= ${to}`);
+        //
+        // A timestamp column (createdAt) is compared by its IST day: compared
+        // raw, "<= 2026-09-22" stops at midnight and leaves out the whole of
+        // the 22nd. They hold UTC without a zone, hence the double AT TIME ZONE.
+        const day =
+          field.col.columnType === "PgTimestamp" || field.col.columnType === "PgTimestampString"
+            ? sql`((${field.col} AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Kolkata')::date`
+            : sql`${field.col}`;
+        if (from && /^\d{4}-\d{2}-\d{2}$/.test(from)) out.push(sql`${day} >= ${from}::date`);
+        if (to && /^\d{4}-\d{2}-\d{2}$/.test(to)) out.push(sql`${day} <= ${to}::date`);
         break;
       }
       case "numberRange": {
@@ -223,8 +231,10 @@ export function advancedSearch(
         const max = value(`${key}Max`);
         // Compared as numbers, not as the strings numeric columns come back as,
         // or "9" would sort above "10".
-        if (min) out.push(gte(field.col, min));
-        if (max) out.push(lte(field.col, max));
+        // Anything that is not a number is dropped rather than handed to
+        // Postgres, where it would fail the whole list.
+        if (min && Number.isFinite(Number(min))) out.push(gte(field.col, min));
+        if (max && Number.isFinite(Number(max))) out.push(lte(field.col, max));
         break;
       }
       case "contactText": {

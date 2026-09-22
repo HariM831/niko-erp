@@ -10,10 +10,11 @@
  * The remark is a first opinion from a model, not a diagnosis; the page says
  * so on its face. It is stored verbatim with the model's name.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Camera, Loader2, Plus, Stethoscope, Trash2, X } from "lucide-react";
 import { api } from "../api";
 import { useApp } from "../lib/store";
+import { filterRows, useAdvancedSearch, type SearchField } from "../components/advanced-search";
 import { useLocalSearch } from "../components/search-context";
 import { SearchSelect } from "../components/search-select";
 import { matchesTerm, localYmd } from "../lib/utils";
@@ -50,17 +51,19 @@ const fmtDate = (d: string) =>
     year: "numeric",
   });
 
+/** The code on a remark's **Category:** line, e.g. CRITICAL_INFECTIOUS. */
+const categoryCode = (remark: string | null) => remark?.match(/\*\*Category:\*\*\s*\[?([A-Z_]+)\]?/)?.[1] ?? null;
+
 /** The **Category:** line of a remark, as a chip. */
 function categoryOf(remark: string | null): { label: string; cls: string } | null {
-  if (!remark) return null;
-  const m = remark.match(/\*\*Category:\*\*\s*\[?([A-Z_]+)\]?/);
-  if (!m) return null;
+  const code = categoryCode(remark);
+  if (!code) return null;
   const map: Record<string, { label: string; cls: string }> = {
     CRITICAL_INFECTIOUS: { label: "Critical · infectious", cls: "bg-destructive/10 text-destructive" },
     WARNING_MANAGEMENT: { label: "Warning · management", cls: "bg-warning/10 text-warning" },
     INFO_NUTRITIONAL: { label: "Info · nutritional", cls: "bg-info/10 text-info" },
   };
-  return map[m[1]!] ?? { label: m[1]!, cls: "bg-muted text-muted-foreground" };
+  return map[code] ?? { label: code, cls: "bg-muted text-muted-foreground" };
 }
 
 /** The one-sentence clinical remark, for the card. */
@@ -128,7 +131,66 @@ export function DrEggsyPage() {
   const [error, setError] = useState<string | null>(null);
   // "Search in Dr niko": by house, by what was noted, or by what the model said.
   const term = useLocalSearch("Dr niko", "farms:dr-eggsy");
-  const shown = observations.filter((o) => matchesTerm(term, [o.houseCode, o.note, o.aiRemark]));
+  // The whole list is here (the server sends every observation), so the
+  // advanced search filters on the client. House is offered from the houses
+  // that have observations, not the board, so every choice finds something.
+  const searchFields = useMemo<SearchField[]>(
+    () => [
+      {
+        key: "house",
+        label: "House",
+        kind: "select",
+        options: [...new Map(observations.map((o) => [o.houseId, o.houseCode])).entries()]
+          .sort((a, b) => a[1].localeCompare(b[1], undefined, { numeric: true }))
+          .map(([value, label]) => ({ value, label })),
+      },
+      { key: "date", label: "Date Range", kind: "dateRange" },
+      {
+        key: "category",
+        label: "Category",
+        kind: "select",
+        options: [
+          { value: "CRITICAL_INFECTIOUS", label: "Critical · infectious" },
+          { value: "WARNING_MANAGEMENT", label: "Warning · management" },
+          { value: "INFO_NUTRITIONAL", label: "Info · nutritional" },
+        ],
+      },
+      {
+        key: "analysed",
+        label: "Analysed",
+        kind: "select",
+        options: [
+          { value: "yes", label: "Analysed" },
+          { value: "no", label: "Not analysed yet" },
+        ],
+      },
+      { key: "note", label: "Note", kind: "text" },
+      { key: "remark", label: "Remark", kind: "text" },
+    ],
+    [observations],
+  );
+  const adv = useAdvancedSearch("Dr niko", searchFields);
+  const shown = filterRows(
+    observations.filter((o) => matchesTerm(term, [o.houseCode, o.note, o.aiRemark])),
+    searchFields,
+    adv.criteria,
+    (o, key) => {
+      switch (key) {
+        case "house":
+          return o.houseId;
+        case "date":
+          return o.observedOn;
+        case "category":
+          return categoryCode(o.aiRemark);
+        case "analysed":
+          return o.aiRemark ? "yes" : "no";
+        case "note":
+          return o.note;
+        case "remark":
+          return o.aiRemark;
+      }
+    },
+  );
 
   const load = () =>
     api<{ observations: Observation[] }>("/api/farms/dr-eggsy")
@@ -176,13 +238,17 @@ export function DrEggsyPage() {
             <h1 className="text-2xl font-extrabold tracking-tight text-soil-900">Dr niko</h1>
             </div>
         </div>
-        <button
-          onClick={() => setShowNew(true)}
-          className="inline-flex items-center gap-1.5 rounded-md bg-yolk-500 px-3 py-2 text-sm font-medium text-white hover:bg-yolk-600"
-        >
-          <Plus className="h-4 w-4" /> New observation
-        </button>
+        <div className="flex items-center gap-2">
+          {adv.button}
+          <button
+            onClick={() => setShowNew(true)}
+            className="inline-flex items-center gap-1.5 rounded-md bg-yolk-500 px-3 py-2 text-sm font-medium text-white hover:bg-yolk-600"
+          >
+            <Plus className="h-4 w-4" /> New observation
+          </button>
+        </div>
       </div>
+      {adv.dialog}
 
       {error && (
         <div className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -197,7 +263,9 @@ export function DrEggsyPage() {
           Nothing observed yet. Photograph what you found and send it in.
         </div>
       ) : !shown.length ? (
-        <div className="py-16 text-center text-sm text-muted-foreground">Nothing observed matches “{term.trim()}”.</div>
+        <div className="py-16 text-center text-sm text-muted-foreground">
+          {term.trim() ? `Nothing observed matches “${term.trim()}”.` : "Nothing observed matches the search."}
+        </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {shown.map((o) => {

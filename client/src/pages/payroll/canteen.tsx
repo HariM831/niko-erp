@@ -9,7 +9,8 @@
  *   Canteens & windows   the rooms and their meal timings
  *   Eligibility          who gets breakfast / dinner
  */
-import { SERVING_STATE_LABEL, type ServingState } from "@shared/canteen";
+import { SERVING_STATES, SERVING_STATE_LABEL, type ServingState } from "@shared/canteen";
+import { filterRows, useAdvancedSearch, type Criteria, type SearchField } from "../../components/advanced-search";
 import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearch } from "../../components/search-context";
@@ -70,6 +71,46 @@ const STATE_TONE: Record<Serving["state"], "green" | "gray" | "amber" | "red" | 
 
 type Tab = "today" | "exceptions" | "report" | "setup" | "eligibility";
 
+const MEAL_OPTIONS = MEALS.map((m) => ({ value: m, label: m.charAt(0).toUpperCase() + m.slice(1) }));
+const FLAG_OPTIONS = [
+  { value: "outside_window", label: "Outside window" },
+  { value: "second_plate", label: "Second plate" },
+  { value: "extra_plate", label: "Any extra plate" },
+  { value: "no_punch", label: "Not at gate" },
+];
+
+/**
+ * One advanced search per list. Plates served are paged on the server, so
+ * that tab's criteria go there; exceptions and eligibility arrive whole and
+ * are filtered here. Canteen and meal stay the Today tab's own pickers.
+ */
+const SERVING_SEARCH: SearchField[] = [
+  { key: "employee", label: "Employee", kind: "employee" },
+  // Replaces the tab's single day when given.
+  { key: "mealDate", label: "Date Range", kind: "dateRange" },
+  {
+    key: "state",
+    label: "State",
+    kind: "select",
+    options: SERVING_STATES.map((s) => ({ value: s, label: SERVING_STATE_LABEL[s] })),
+  },
+  { key: "flag", label: "Flag", kind: "select", options: [...FLAG_OPTIONS, { value: "not_on_list", label: "Not on the list" }] },
+  { key: "token", label: "Token", kind: "text" },
+  { key: "guestParty", label: "Guest Party", kind: "text" },
+];
+const EXCEPTION_SEARCH: SearchField[] = [
+  { key: "employee", label: "Employee", kind: "employee" },
+  { key: "meal", label: "Meal", kind: "select", options: MEAL_OPTIONS },
+  { key: "flag", label: "Flag", kind: "select", options: [...FLAG_OPTIONS, { value: "guest", label: "Guest" }, { value: "override", label: "Override" }] },
+  { key: "reason", label: "Reason Given", kind: "text" },
+];
+const ELIGIBILITY_SEARCH: SearchField[] = [
+  { key: "employee", label: "Employee", kind: "employee" },
+  { key: "breakfast", label: "Breakfast", kind: "select", options: [{ value: "yes", label: "Gets breakfast" }, { value: "no", label: "No breakfast" }] },
+  { key: "dinner", label: "Dinner", kind: "select", options: [{ value: "yes", label: "Gets dinner" }, { value: "no", label: "No dinner" }] },
+  { key: "payType", label: "Pay Type", kind: "select", options: [{ value: "salaried", label: "Salaried" }, { value: "daily_wage", label: "Daily wage" }] },
+];
+
 export function PayrollCanteenPage() {
   const [tab, setTab] = useState<Tab>("today");
   // One "Search in Canteen" for the tabs that list people; the report and the
@@ -77,9 +118,16 @@ export function PayrollCanteenPage() {
   // lists does.
   const peopleTab = tab === "today" || tab === "exceptions" || tab === "eligibility";
   const term = useLocalSearch("Canteen", peopleTab ? `payroll:canteen:${tab}` : null);
+  const advToday = useAdvancedSearch("Plates served", SERVING_SEARCH);
+  const advExceptions = useAdvancedSearch("Exceptions", EXCEPTION_SEARCH);
+  const advEligibility = useAdvancedSearch("Eligibility", ELIGIBILITY_SEARCH);
+  const adv = tab === "today" ? advToday : tab === "exceptions" ? advExceptions : tab === "eligibility" ? advEligibility : null;
   return (
     <div className="p-4 md:p-6">
-      <PageHeader title="Canteen" sub="Plates served on the devices, reconciled against the gate's attendance." />
+      <PageHeader title="Canteen" sub="Plates served on the devices, reconciled against the gate's attendance.">
+        {adv?.button}
+      </PageHeader>
+      {adv?.dialog}
       <PillTabs
         tabs={[
           { key: "today", label: "Today" },
@@ -91,11 +139,11 @@ export function PayrollCanteenPage() {
         value={tab}
         onChange={setTab}
       />
-      {tab === "today" && <TodayTab term={term} />}
-      {tab === "exceptions" && <ExceptionsTab term={term} />}
+      {tab === "today" && <TodayTab term={term} criteria={advToday.criteria} />}
+      {tab === "exceptions" && <ExceptionsTab term={term} criteria={advExceptions.criteria} />}
       {tab === "report" && <ReportTab />}
       {tab === "setup" && <SetupTab />}
-      {tab === "eligibility" && <EligibilityTab term={term} />}
+      {tab === "eligibility" && <EligibilityTab term={term} criteria={advEligibility.criteria} />}
     </div>
   );
 }
@@ -105,23 +153,26 @@ function useCanteens() {
 }
 
 /* ── Today ─────────────────────────────────────────────────────────────── */
-function TodayTab({ term }: { term: string }) {
+function TodayTab({ term, criteria }: { term: string; criteria: Criteria }) {
   const [date, setDate] = useState(istToday());
   const [canteenId, setCanteenId] = useState("");
   const [meal, setMeal] = useState("");
   const [offset, setOffset] = useState(0);
 
   const canteensQ = useCanteens();
+  const advanced = new URLSearchParams(criteria).toString();
+  // A date range in the advanced search replaces the day picked here.
+  const ranged = !!(criteria.mealDateFrom || criteria.mealDateTo);
   const servingsQ = useQuery({
-    queryKey: ["canteen", "servings", date, canteenId, meal, offset, term.trim()],
+    queryKey: ["canteen", "servings", date, canteenId, meal, offset, term.trim(), advanced],
     queryFn: () =>
       api<{ rows: Serving[]; total: number }>(
-        `/api/canteen/servings?date=${date}${canteenId ? `&canteenId=${canteenId}` : ""}${meal ? `&meal=${meal}` : ""}${term.trim() ? `&search=${encodeURIComponent(term.trim())}` : ""}&limit=${PAGE_SIZE}&offset=${offset}`,
+        `/api/canteen/servings?date=${date}${canteenId ? `&canteenId=${canteenId}` : ""}${meal ? `&meal=${meal}` : ""}${term.trim() ? `&search=${encodeURIComponent(term.trim())}` : ""}${advanced ? `&${advanced}` : ""}&limit=${PAGE_SIZE}&offset=${offset}`,
       ),
     placeholderData: keepPreviousData,
   });
-  // A new term starts from the first page; page 4 of the old one may not exist.
-  useEffect(() => setOffset(0), [term]);
+  // A new term or search starts from the first page; page 4 of the old one may not exist.
+  useEffect(() => setOffset(0), [term, advanced]);
 
   const rows = servingsQ.data?.rows ?? [];
   const counts = useMemo(() => {
@@ -134,7 +185,14 @@ function TodayTab({ term }: { term: string }) {
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <input type="date" className="input w-auto" value={date} onChange={(e) => { setDate(e.target.value); setOffset(0); }} />
+        <input
+          type="date"
+          className="input w-auto disabled:opacity-50"
+          value={date}
+          disabled={ranged}
+          title={ranged ? "The advanced search's date range is in force" : undefined}
+          onChange={(e) => { setDate(e.target.value); setOffset(0); }}
+        />
         <SearchSelect
           className="w-44"
           value={canteenId || null}
@@ -169,7 +227,7 @@ function TodayTab({ term }: { term: string }) {
                   <Td className="font-medium">{r.personName}{r.guestParty && <span className="ml-1 text-[11px] text-gray-400">({r.guestParty})</span>}</Td>
                   <Td>{canteenName(r)}</Td>
                   <Td className="capitalize">{r.meal}</Td>
-                  <Td className="tabular-nums">{fmtTime(r.servedAt)}</Td>
+                  <Td className="tabular-nums">{ranged && `${dmy(r.mealDate)} `}{fmtTime(r.servedAt)}</Td>
                   <Td><Badge tone={STATE_TONE[r.state]}>{SERVING_STATE_LABEL[r.state as ServingState] ?? r.state}</Badge></Td>
                   <Td>
                     <span className="flex flex-wrap gap-1">
@@ -191,14 +249,41 @@ function TodayTab({ term }: { term: string }) {
 }
 
 /* ── Exceptions ────────────────────────────────────────────────────────── */
-function ExceptionsTab({ term }: { term: string }) {
+function ExceptionsTab({ term, criteria }: { term: string; criteria: Criteria }) {
   const [date, setDate] = useState(istToday());
   const exQ = useQuery({
     queryKey: ["canteen", "exceptions", date],
-    queryFn: () => api<Serving[] | { rows: Serving[] }>(`/api/canteen/exceptions?date=${date}`),
-    select: (d) => (Array.isArray(d) ? d : d.rows),
+    // The server answers { date, exceptions }; reading only `rows` left this
+    // tab empty whatever was flagged.
+    queryFn: () => api<Serving[] | { rows?: Serving[]; exceptions?: Serving[] }>(`/api/canteen/exceptions?date=${date}`),
+    select: (d) => (Array.isArray(d) ? d : (d.exceptions ?? d.rows ?? [])),
   });
-  const rows = (exQ.data ?? []).filter((r) => matchesTerm(term, [r.personName, r.guestParty, r.tokenNumber]));
+  const rows = filterRows(
+    (exQ.data ?? []).filter((r) => matchesTerm(term, [r.personName, r.guestParty, r.tokenNumber])),
+    EXCEPTION_SEARCH,
+    criteria,
+    (r, key) => {
+      switch (key) {
+        case "employee":
+          return r.employeeId;
+        case "meal":
+          return r.meal;
+        case "flag": {
+          // The same reasons the "Why flagged" column gives, as keys.
+          const flags: string[] = [];
+          if (r.outsideWindow) flags.push("outside_window");
+          if (r.extraPlateKind) flags.push("extra_plate");
+          if (r.extraPlateKind === "second_plate") flags.push("second_plate");
+          if (r.attendancePresent === false) flags.push("no_punch");
+          if (r.state === "guest" || r.extraPlateKind === "guest") flags.push("guest");
+          if (r.state === "override" || r.extraPlateKind === "override") flags.push("override");
+          return flags;
+        }
+        case "reason":
+          return [r.reasonCode, r.reasonText];
+      }
+    },
+  );
   const paged = usePaged(rows);
 
   const why = (r: Serving): string[] => {
@@ -517,7 +602,7 @@ function SetupTab() {
 }
 
 /* ── Eligibility ───────────────────────────────────────────────────────── */
-function EligibilityTab({ term }: { term: string }) {
+function EligibilityTab({ term, criteria }: { term: string; criteria: Criteria }) {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
   const empQ = useEmployees();
@@ -525,8 +610,27 @@ function EligibilityTab({ term }: { term: string }) {
 
   const byId = useMemo(() => new Map((eligQ.data ?? []).map((e) => [e.employeeId, e])), [eligQ.data]);
   const rows = useMemo(
-    () => (empQ.data ?? []).filter((e) => matchesTerm(term, [e.name, e.empCode, e.department])),
-    [empQ.data, term],
+    () =>
+      filterRows(
+        (empQ.data ?? []).filter((e) => matchesTerm(term, [e.name, e.empCode, e.department])),
+        ELIGIBILITY_SEARCH,
+        criteria,
+        (e, key) => {
+          const el = byId.get(e.id);
+          switch (key) {
+            case "employee":
+              return e.id;
+            // Breakfast granted for a night shift counts: the plate is theirs either way.
+            case "breakfast":
+              return el?.breakfast || el?.breakfastAuto ? "yes" : "no";
+            case "dinner":
+              return el?.dinner ? "yes" : "no";
+            case "payType":
+              return e.payType;
+          }
+        },
+      ),
+    [empQ.data, term, criteria, byId],
   );
   const paged = usePaged(rows);
 

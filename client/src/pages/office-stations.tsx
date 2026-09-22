@@ -16,7 +16,7 @@
  * in a weighbridge cabin and at an NIR bench, but they are the same components
  * as the rest of niko — no second design system.
  */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useLocalSearch } from "../components/search-context";
 import { matchesTerm } from "../lib/utils";
@@ -27,6 +27,7 @@ import { StatusBadge } from "../components/status-badge";
 import { FeedTransferForm } from "../components/feed-transfer-form";
 import { PlatformWeight } from "../components/platform-weight";
 import { WeighbridgeSlips } from "../components/weighbridge-slips";
+import { type SearchField, useAdvancedSearch } from "../components/advanced-search";
 
 export type Station = "weighbridge" | "qc" | "weigh-out" | "transfer" | "slips";
 
@@ -645,6 +646,65 @@ function Err({ msg }: { msg: string }) {
   );
 }
 
+/*
+ * Advanced search is offered on the two tabs that keep history: finished weigh
+ * slips and feed transfers. The three queues hold only the trucks in the yard
+ * right now — a handful, which the top-bar search already narrows — and a
+ * truck that has moved on is found under Goods Receipts.
+ */
+interface SlipContext {
+  parties: Array<{ id: string; name: string }>;
+  items: Array<{ id: string; name: string }>;
+}
+interface TransferContext {
+  houses: Array<{ id: string; code: string; farmName: string }>;
+}
+
+/** What a driver back for a copy of his slip can say about the load. */
+function slipFields(ctx: SlipContext | undefined): SearchField[] {
+  return [
+    { key: "number", label: "Slip#", kind: "text" },
+    { key: "date", label: "Date Range", kind: "dateRange" },
+    { key: "vehicleNumber", label: "Vehicle Number", kind: "text" },
+    // Any contact, not a vendor or customer picker: a slip is as often a sale
+    // as a purchase, so the party is whoever the platform recorded.
+    {
+      key: "partyId",
+      label: "Party",
+      kind: "select",
+      options: (ctx?.parties ?? []).map((p) => ({ value: p.id, label: p.name })),
+    },
+    {
+      key: "itemId",
+      label: "Item Name",
+      kind: "select",
+      options: (ctx?.items ?? []).map((i) => ({ value: i.id, label: i.name })),
+    },
+    { key: "netWeight", label: "Net Weight Range (kg)", kind: "numberRange" },
+    { key: "grossWeight", label: "Gross Weight Range (kg)", kind: "numberRange" },
+    { key: "tareWeight", label: "Tare Weight Range (kg)", kind: "numberRange" },
+    { key: "notes", label: "Notes", kind: "text" },
+  ];
+}
+
+/** Which feed went to which shed, when, and how much. */
+function transferFields(ctx: TransferContext | undefined): SearchField[] {
+  return [
+    { key: "number", label: "Transfer#", kind: "text" },
+    { key: "date", label: "Date Range", kind: "dateRange" },
+    { key: "itemId", label: "Item Name", kind: "item", itemCategories: ["poultry_feed"] },
+    {
+      key: "houseId",
+      label: "Shed",
+      kind: "select",
+      options: (ctx?.houses ?? []).map((h) => ({ value: h.id, label: `${h.code} · ${h.farmName}` })),
+    },
+    { key: "status", label: "Status", kind: "select", options: ["completed", "void"] },
+    { key: "quantity", label: "Quantity Range (kg)", kind: "numberRange" },
+    { key: "value", label: "Value Range", kind: "numberRange" },
+  ];
+}
+
 /** One station's queue. Called once per tab so every tab can show its count. */
 function useQueue(station: Station) {
   return useQuery<QueueRow[]>({
@@ -671,6 +731,32 @@ export function StationPage({ station }: { station: Station }) {
   // or the day's transfers. A new tab is a new list, and starts clear.
   const term = useLocalSearch("Weighment", `office:station:${station}`);
   const queue = allQueued?.filter((r) => matchesTerm(term, [r.vehicleNumber, r.number, r.vendorName, r.lineSummary]));
+
+  // The pickers' choices come from the same context the tab's own form loads,
+  // so these share its cache rather than asking twice.
+  const { data: slipCtx } = useQuery<SlipContext>({
+    queryKey: ["weigh-context"],
+    queryFn: () => api("/api/weigh-tickets/context"),
+    enabled: station === "slips",
+  });
+  const { data: transferCtx } = useQuery<TransferContext>({
+    queryKey: ["feed-transfer-context"],
+    queryFn: () => api("/api/feed/production/transfers/context"),
+    enabled: station === "transfer",
+  });
+  const fields = useMemo(
+    () => (station === "slips" ? slipFields(slipCtx) : station === "transfer" ? transferFields(transferCtx) : []),
+    [station, slipCtx, transferCtx],
+  );
+  const adv = useAdvancedSearch(station === "slips" ? "Past Weighments" : "Feed Transfers", fields);
+  // Each tab searches a different record, so criteria do not follow a tab
+  // change. Dropped during render rather than in an effect, so the new tab
+  // never fetches once with the old tab's criteria.
+  const [criteriaFor, setCriteriaFor] = useState(station);
+  if (criteriaFor !== station) {
+    setCriteriaFor(station);
+    adv.setCriteria({});
+  }
 
   const { data: receipt } = useQuery<Receipt>({
     queryKey: ["office", "receipt", selected],
@@ -703,6 +789,7 @@ export function StationPage({ station }: { station: Station }) {
             it is a diagnostic for a platform that has stopped making sense,
             not something a shift needs in front of it. */}
         {(station === "weighbridge" || station === "weigh-out") && <PlatformWeight compact />}
+        {QUEUELESS.includes(station) && adv.button}
       </div>
       <div className="mb-4 flex gap-1 border-b border-gray-200" role="tablist">
         {STATION_ORDER.map((s) => {
@@ -739,10 +826,11 @@ export function StationPage({ station }: { station: Station }) {
         <div className="mb-3 text-right text-[13px] text-gray-400">{term.trim() ? `${queue?.length ?? 0} of ${allQueued?.length ?? 0}` : (queue?.length ?? 0)} waiting</div>
       )}
 
+      {adv.dialog}
       {station === "slips" ? (
-        <WeighbridgeSlips term={term} />
+        <WeighbridgeSlips term={term} criteria={adv.criteria} />
       ) : QUEUELESS.includes(station) ? (
-        <FeedTransferForm term={term} />
+        <FeedTransferForm term={term} criteria={adv.criteria} />
       ) : (
       <div className="grid gap-4 md:grid-cols-2">
         <div className="card overflow-hidden">

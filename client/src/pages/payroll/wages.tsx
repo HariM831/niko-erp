@@ -15,7 +15,20 @@ import { api, formatMoney } from "../../api";
 import { SearchSelect } from "../../components/search-select";
 import { useLocalSearch } from "../../components/search-context";
 import { matchesTerm } from "../../lib/utils";
+import { filterRows, useAdvancedSearch, type Criteria, type SearchField } from "../../components/advanced-search";
 import { Badge, Empty, PageHeader, Pager, Spinner, Td, Th, istToday, num, usePaged } from "../../components/payroll/ui";
+
+/**
+ * Advanced search per view. Dates and role already sit in the header for the
+ * month, so its search is the rest: who, and how much. The day view asks who
+ * was in the yard and what they were put to.
+ */
+const MONTH_SEARCH: SearchField[] = [
+  { key: "employee", label: "Employee", kind: "employee" },
+  { key: "paidDays", label: "Paid Days", kind: "numberRange" },
+  { key: "rate", label: "Daily Rate Range", kind: "numberRange" },
+  { key: "amount", label: "Amount Range", kind: "numberRange" },
+];
 
 interface WageRow {
   id: string;
@@ -65,7 +78,59 @@ export function PayrollWagesPage() {
     () => [...(reportQ.data?.rows ?? [])].sort((a, b) => a.empCode.localeCompare(b.empCode, undefined, { numeric: true })),
     [reportQ.data],
   );
-  const paged = usePaged(rows.filter((r) => matchesTerm(term, [r.name, r.empCode, r.role])));
+  const daySearch = useMemo<SearchField[]>(
+    () => [
+      { key: "employee", label: "Employee", kind: "employee" },
+      {
+        key: "status",
+        label: "Status",
+        kind: "select",
+        options: [
+          { value: "in", label: "In the yard (present or half)" },
+          { value: "P", label: "Present" },
+          { value: "H", label: "Half day" },
+          { value: "out", label: "Not in the yard" },
+        ],
+      },
+      {
+        key: "role",
+        label: "Role Worked",
+        kind: "select",
+        options: (rolesQ.data ?? []).map((r) => ({ value: r.id, label: r.name })),
+      },
+      {
+        key: "reassigned",
+        label: "Reassigned",
+        kind: "select",
+        options: [
+          { value: "yes", label: "Worked another role" },
+          { value: "no", label: "Usual role" },
+        ],
+      },
+    ],
+    [rolesQ.data],
+  );
+  const advMonth = useAdvancedSearch("Wages", MONTH_SEARCH);
+  const advDay = useAdvancedSearch("Day roles", daySearch);
+  const adv = view === "month" ? advMonth : advDay;
+  const shown = filterRows(
+    rows.filter((r) => matchesTerm(term, [r.name, r.empCode, r.role])),
+    MONTH_SEARCH,
+    advMonth.criteria,
+    (r, key) => {
+      switch (key) {
+        case "employee":
+          return r.id;
+        case "paidDays":
+          return r.presentDays + r.halfDays * 0.5;
+        case "rate":
+          return Number(r.dailyRate);
+        case "amount":
+          return Number(r.amount);
+      }
+    },
+  );
+  const paged = usePaged(shown);
   const grand = reportQ.data?.total != null
     ? Number(reportQ.data.total)
     : rows.reduce((a, r) => a + Number(r.amount), 0);
@@ -100,10 +165,12 @@ export function PayrollWagesPage() {
         ) : (
           <input type="date" className="input w-auto" value={day} onChange={(e) => setDay(e.target.value)} />
         )}
+        {adv.button}
       </PageHeader>
+      {adv.dialog}
 
       {view === "day" ? (
-        <DayRoles day={day} roles={rolesQ.data ?? []} term={term} />
+        <DayRoles day={day} roles={rolesQ.data ?? []} term={term} fields={daySearch} criteria={advDay.criteria} />
       ) : (
         <>
           {/* Totals by role */}
@@ -146,7 +213,7 @@ export function PayrollWagesPage() {
                       <Td right className="font-semibold">{formatMoney(r.amount)}</Td>
                     </tr>
                   ))}
-                  {!paged.page.length && <tr><Td colSpan={7}><Empty>{term.trim() && rows.length ? "Nobody matches." : "No daily-wage attendance in this range."}</Empty></Td></tr>}
+                  {!paged.page.length && <tr><Td colSpan={7}><Empty>{(term.trim() || advMonth.active) && rows.length ? "Nobody matches." : "No daily-wage attendance in this range."}</Empty></Td></tr>}
                   {paged.page.length > 0 && (
                     <tr className="bg-gray-50 font-semibold">
                       <Td colSpan={6}>Total ({rows.length} workers)</Td>
@@ -165,7 +232,13 @@ export function PayrollWagesPage() {
 }
 
 /** One day of the yard: everyone on the wage roll, and what they did that day. */
-function DayRoles({ day, roles, term }: { day: string; roles: WageRole[]; term: string }) {
+function DayRoles({ day, roles, term, fields, criteria }: {
+  day: string;
+  roles: WageRole[];
+  term: string;
+  fields: SearchField[];
+  criteria: Criteria;
+}) {
   const qc = useQueryClient();
   const dayQ = useQuery({
     queryKey: ["payroll", "wages-day", day],
@@ -185,7 +258,28 @@ function DayRoles({ day, roles, term }: { day: string; roles: WageRole[]; term: 
   });
 
   const rows = dayQ.data ?? [];
-  const paged = usePaged(rows.filter((r) => matchesTerm(term, [r.name, r.empCode, r.defaultRoleName])));
+  const paged = usePaged(
+    filterRows(
+      rows.filter((r) => matchesTerm(term, [r.name, r.empCode, r.defaultRoleName])),
+      fields,
+      criteria,
+      (r, key) => {
+        const inYard = r.status === "P" || r.status === "H";
+        switch (key) {
+          case "employee":
+            return r.id;
+          // "In" and "out" are the yard's two answers; P and H are the day's own.
+          case "status":
+            return [r.status, inYard ? "in" : "out"];
+          // The role actually worked: the day's, or the usual one when none was set.
+          case "role":
+            return r.dayRoleId ?? r.defaultRoleId;
+          case "reassigned":
+            return r.dayRoleId && r.dayRoleId !== r.defaultRoleId ? "yes" : "no";
+        }
+      },
+    ),
+  );
   const present = rows.filter((r) => r.status === "P" || r.status === "H").length;
   const reassigned = rows.filter((r) => r.dayRoleId && r.dayRoleId !== r.defaultRoleId).length;
 
@@ -251,7 +345,7 @@ function DayRoles({ day, roles, term }: { day: string; roles: WageRole[]; term: 
                   </tr>
                 );
               })}
-              {!paged.page.length && <tr><Td colSpan={3}><Empty>{term.trim() && rows.length ? "Nobody matches." : "Nobody on the wage roll."}</Empty></Td></tr>}
+              {!paged.page.length && <tr><Td colSpan={3}><Empty>{(term.trim() || Object.keys(criteria).length) && rows.length ? "Nobody matches." : "Nobody on the wage roll."}</Empty></Td></tr>}
             </tbody>
           </table>
         )}

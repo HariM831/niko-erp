@@ -15,6 +15,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import { useLocalSearch } from "../../components/search-context";
+import { filterRows, useAdvancedSearch, type Criteria, type SearchField } from "../../components/advanced-search";
 import { matchesTerm } from "../../lib/utils";
 import { api } from "../../api";
 import { SearchSelect } from "../../components/search-select";
@@ -57,11 +58,84 @@ const leaveName = (l: Leave) => l.name ?? "—";
 
 type Tab = "calendar" | "grid" | "leave" | "exceptions" | "roster";
 
+const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+/** A timestamp's calendar day in IST, as "YYYY-MM-DD". */
+const istYmd = (iso: string) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date(iso));
+const STATUS_OPTIONS = ALL_STATUSES.map((s) => ({ value: s, label: STATUS_LABEL[s] }));
+
+/**
+ * Each tab lists something different, so each has its own advanced search.
+ * All four are held by the page so the one button sits in the page header, as
+ * on every other list, and a tab's criteria survive a look at another tab.
+ */
+const GRID_SEARCH: SearchField[] = [
+  { key: "employee", label: "Employee", kind: "employee" },
+  // Read together: "absent on any day between the 1st and the 10th".
+  { key: "status", label: "Status", kind: "select", options: STATUS_OPTIONS },
+  { key: "day", label: "Date Range", kind: "dateRange" },
+  { key: "present", label: "Present Days", kind: "numberRange" },
+  { key: "absent", label: "Absent Days", kind: "numberRange" },
+  { key: "paid", label: "Paid Days", kind: "numberRange" },
+];
+const LEAVE_SEARCH: SearchField[] = [
+  { key: "employee", label: "Employee", kind: "employee" },
+  {
+    key: "leaveType",
+    label: "Leave Type",
+    kind: "select",
+    options: [
+      { value: "CL", label: "Casual leave" },
+      { value: "SL", label: "Sick leave" },
+      { value: "CompOff", label: "Comp-off" },
+    ],
+  },
+  { key: "date", label: "Date Range", kind: "dateRange" },
+  { key: "applied", label: "Applied Date", kind: "dateRange" },
+  { key: "days", label: "Days Range", kind: "numberRange" },
+  { key: "reason", label: "Reason", kind: "text" },
+];
+const EXCEPTION_SEARCH: SearchField[] = [
+  { key: "employee", label: "Employee", kind: "employee" },
+  { key: "date", label: "Date Range", kind: "dateRange" },
+];
+
 export function PayrollTimePage() {
   const [tab, setTab] = useState<Tab>("calendar");
   // "Search in Time" narrows the tabs that list people. The calendar is one
   // person's month, picked from its own selector, so it offers no box.
   const term = useLocalSearch("Time", tab === "calendar" ? null : `payroll:time:${tab}`);
+
+  // The roster's shift and department choices come from what is on file.
+  const shiftsQ = useQuery({ queryKey: ["payroll", "shifts"], queryFn: () => api<Shift[]>("/api/payroll/shifts") });
+  const empQ = useEmployees();
+  const rosterSearch = useMemo<SearchField[]>(
+    () => [
+      { key: "employee", label: "Employee", kind: "employee" },
+      {
+        key: "department",
+        label: "Department",
+        kind: "select",
+        options: [...new Set((empQ.data ?? []).map((e) => e.department).filter((d): d is string => !!d))].sort(),
+      },
+      {
+        key: "shift",
+        label: "Shift",
+        kind: "select",
+        options: [
+          ...(shiftsQ.data ?? []).map((s) => ({ value: s.id, label: s.name })),
+          { value: "none", label: "Unassigned" },
+        ],
+      },
+      { key: "off", label: "Weekly Off", kind: "select", options: DOW.map((label, i) => ({ value: String(i), label })) },
+      { key: "since", label: "Since", kind: "dateRange" },
+    ],
+    [shiftsQ.data, empQ.data],
+  );
+  const advGrid = useAdvancedSearch("Team grid", GRID_SEARCH);
+  const advLeave = useAdvancedSearch("Leave", LEAVE_SEARCH);
+  const advExceptions = useAdvancedSearch("Exceptions", EXCEPTION_SEARCH);
+  const advRoster = useAdvancedSearch("Roster", rosterSearch);
+  const adv = { grid: advGrid, leave: advLeave, exceptions: advExceptions, roster: advRoster, calendar: null }[tab];
   const openQ = useQuery({
     queryKey: ["payroll", "punches-open"],
     queryFn: () => api<OpenPunch[] | { rows: OpenPunch[] }>("/api/payroll/punches/open"),
@@ -71,7 +145,10 @@ export function PayrollTimePage() {
 
   return (
     <div className="p-4 md:p-6">
-      <PageHeader title="Time" sub="Attendance, leave and shifts — resolved as punch > holiday > leave > weekly off > absent." />
+      <PageHeader title="Time" sub="Attendance, leave and shifts — resolved as punch > holiday > leave > weekly off > absent.">
+        {adv?.button}
+      </PageHeader>
+      {adv?.dialog}
       <PillTabs
         tabs={[
           { key: "calendar", label: "Calendar" },
@@ -84,10 +161,10 @@ export function PayrollTimePage() {
         onChange={setTab}
       />
       {tab === "calendar" && <CalendarTab />}
-      {tab === "grid" && <TeamGridTab term={term} />}
-      {tab === "leave" && <LeaveTab term={term} />}
-      {tab === "exceptions" && <ExceptionsTab term={term} />}
-      {tab === "roster" && <RosterTab term={term} />}
+      {tab === "grid" && <TeamGridTab term={term} criteria={advGrid.criteria} />}
+      {tab === "leave" && <LeaveTab term={term} criteria={advLeave.criteria} />}
+      {tab === "exceptions" && <ExceptionsTab term={term} criteria={advExceptions.criteria} />}
+      {tab === "roster" && <RosterTab term={term} criteria={advRoster.criteria} fields={rosterSearch} />}
     </div>
   );
 }
@@ -283,7 +360,7 @@ function DayDialog({ employeeId, employeeName, day, cell, onClose, onChanged }: 
 }
 
 /* ── Team grid ─────────────────────────────────────────────────────────── */
-function TeamGridTab({ term }: { term: string }) {
+function TeamGridTab({ term, criteria }: { term: string; criteria: Criteria }) {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
   const { year, month, setYear, setMonth } = useMonth();
@@ -300,13 +377,38 @@ function TeamGridTab({ term }: { term: string }) {
     queryFn: () => api<MonthGrid>(`/api/payroll/attendance/month?year=${year}&month=${month}${department ? `&department=${encodeURIComponent(department)}` : ""}`),
   });
 
-  const employees = useMemo(
-    () =>
-      [...(gridQ.data?.employees ?? [])]
-        .filter((e) => matchesTerm(term, [e.name, e.empCode, e.department]))
-        .sort((a, b) => a.empCode.localeCompare(b.empCode, undefined, { numeric: true })),
-    [gridQ.data, term],
-  );
+  const employees = useMemo(() => {
+    // Status and Date Range are one question — did this person have that day
+    // status within those dates — so they are answered together here, and
+    // filterRows handles the rest. A range alone narrows nothing: every day
+    // has some status.
+    const from = criteria.dayFrom ?? "";
+    const to = criteria.dayTo ?? "";
+    const want = criteria.status;
+    const rows = [...(gridQ.data?.employees ?? [])]
+      .filter((e) => matchesTerm(term, [e.name, e.empCode, e.department]))
+      .filter(
+        (e) =>
+          !want ||
+          (gridQ.data?.days ?? []).some((d) => {
+            const iso = ymd(year, month, d);
+            return (!from || iso >= from) && (!to || iso <= to) && e.days[String(d)]?.status === want;
+          }),
+      )
+      .sort((a, b) => a.empCode.localeCompare(b.empCode, undefined, { numeric: true }));
+    return filterRows(rows, GRID_SEARCH, criteria, (e, key) => {
+      switch (key) {
+        case "employee":
+          return e.id;
+        case "present":
+          return e.totals.P;
+        case "absent":
+          return e.totals.A;
+        case "paid":
+          return e.totals.paid;
+      }
+    });
+  }, [gridQ.data, term, criteria, year, month]);
   const paged = usePaged(employees);
   const days = gridQ.data?.days ?? [];
   const today = istToday();
@@ -424,7 +526,7 @@ function TeamGridTab({ term }: { term: string }) {
 }
 
 /* ── Leave ─────────────────────────────────────────────────────────────── */
-function LeaveTab({ term }: { term: string }) {
+function LeaveTab({ term, criteria }: { term: string; criteria: Criteria }) {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
   const year = Number(istToday().slice(0, 4));
@@ -433,9 +535,17 @@ function LeaveTab({ term }: { term: string }) {
   const [decide, setDecide] = useState<{ leave: Leave; action: "approve" | "reject" } | null>(null);
   const [remarks, setRemarks] = useState("");
 
+  // The list is this year's. A date asked for in the advanced search may be
+  // last year's, so a search with dates in it loads every year instead.
+  const allYears = !!(criteria.dateFrom || criteria.dateTo || criteria.appliedFrom || criteria.appliedTo);
   const listQ = useQuery({
-    queryKey: ["payroll", "leave", status, year],
-    queryFn: () => api<Leave[]>(`/api/payroll/leave?year=${year}${status ? `&status=${status}` : ""}`),
+    queryKey: ["payroll", "leave", status, allYears ? "all" : year],
+    queryFn: () => {
+      const qs = new URLSearchParams();
+      if (!allYears) qs.set("year", String(year));
+      if (status) qs.set("status", status);
+      return api<Leave[]>(`/api/payroll/leave?${qs}`);
+    },
   });
   const balQ = useQuery({
     queryKey: ["payroll", "leave-balance", decide?.leave.employeeId, year],
@@ -460,7 +570,34 @@ function LeaveTab({ term }: { term: string }) {
     onError: fail,
   });
 
-  const rows = (listQ.data ?? []).filter((l) => matchesTerm(term, [l.name, l.empCode, l.reason]));
+  const rows = useMemo(() => {
+    // Date Range finds leave that touches the range at all: a week off that
+    // began on the 28th is still leave in the first days of the next month.
+    const from = criteria.dateFrom ?? "";
+    const to = criteria.dateTo ?? "";
+    const overlapping = (listQ.data ?? []).filter((l) => (!from || l.toDate >= from) && (!to || l.fromDate <= to));
+    return filterRows(
+      overlapping.filter((l) => matchesTerm(term, [l.name, l.empCode, l.reason])),
+      LEAVE_SEARCH,
+      criteria,
+      (l, key) => {
+        switch (key) {
+          case "employee":
+            return l.employeeId;
+          case "leaveType":
+            return l.leaveType;
+          // Applied on the IST calendar day, not the UTC one the timestamp's
+          // first ten characters would give.
+          case "applied":
+            return istYmd(l.appliedAt);
+          case "days":
+            return l.days;
+          case "reason":
+            return l.reason;
+        }
+      },
+    );
+  }, [listQ.data, term, criteria]);
   const paged = usePaged(rows);
 
   return (
@@ -660,7 +797,7 @@ function ApplyLeaveDialog({ onClose, onSaved }: { onClose: () => void; onSaved: 
 }
 
 /* ── Exceptions ────────────────────────────────────────────────────────── */
-function ExceptionsTab({ term }: { term: string }) {
+function ExceptionsTab({ term, criteria }: { term: string; criteria: Criteria }) {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
   const [resolving, setResolving] = useState<OpenPunch | null>(null);
@@ -709,7 +846,12 @@ function ExceptionsTab({ term }: { term: string }) {
     onError: fail,
   });
 
-  const rows = (openQ.data ?? []).filter((p) => matchesTerm(term, [p.name, p.empCode]));
+  const rows = filterRows(
+    (openQ.data ?? []).filter((p) => matchesTerm(term, [p.name, p.empCode])),
+    EXCEPTION_SEARCH,
+    criteria,
+    (p, key) => (key === "employee" ? p.employeeId : key === "date" ? p.punchDate : undefined),
+  );
   return (
     <div>
       <ErrorBanner message={err} onClose={() => setErr(null)} />
@@ -794,7 +936,7 @@ function ExceptionsTab({ term }: { term: string }) {
 }
 
 /* ── Roster ────────────────────────────────────────────────────────────── */
-function RosterTab({ term }: { term: string }) {
+function RosterTab({ term, criteria, fields }: { term: string; criteria: Criteria; fields: SearchField[] }) {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
   const empQ = useEmployees();
@@ -829,11 +971,30 @@ function RosterTab({ term }: { term: string }) {
 
   const byEmp = new Map((listQ.data ?? []).map((a) => [a.employeeId, a]));
   const shiftById = new Map((shiftsQ.data ?? []).map((s) => [s.id, s]));
-  const rows = (empQ.data ?? [])
-    .filter((e) => matchesTerm(term, [e.name, e.empCode, e.department]))
-    .map((e) => ({ emp: e, a: byEmp.get(e.id) ?? null }));
+  const rows = filterRows(
+    (empQ.data ?? [])
+      .filter((e) => matchesTerm(term, [e.name, e.empCode, e.department]))
+      .map((e) => ({ emp: e, a: byEmp.get(e.id) ?? null })),
+    fields,
+    criteria,
+    ({ emp, a }, key) => {
+      switch (key) {
+        case "employee":
+          return emp.id;
+        case "department":
+          return emp.department;
+        case "shift":
+          return a?.shiftId ?? "none";
+        case "off":
+          // The person's own off days where set, the shift's otherwise — the
+          // same days the Weekly off column shows.
+          return (a ? (a.weeklyOffDays ?? shiftById.get(a.shiftId)?.weeklyOffDays ?? []) : []).map(String);
+        case "since":
+          return a?.effectiveFrom ?? null;
+      }
+    },
+  );
   const paged = usePaged(rows);
-  const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
   return (
     <div>

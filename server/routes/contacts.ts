@@ -16,7 +16,8 @@ import {
   mayAccessContact,
   requireContactPermission,
 } from "../lib/contact-access";
-import { contains, matches } from "../services/document-search";
+import { advancedSearch, contains, matches } from "../services/document-search";
+import { contactSearch } from "../services/search-specs-masters";
 import { gstStateCode, nonBlank, validateBody } from "../lib/validate";
 import { getPreferences } from "../services/preferences";
 import { readCustomFieldValues, saveCustomFieldValues } from "../services/custom-fields";
@@ -195,19 +196,24 @@ contactsRouter.get("/", async (req, res) => {
       ),
     );
   }
+  const advanced = advancedSearch(contactSearch, req.query as Record<string, string | undefined>);
+  conditions.push(...advanced);
   // The quick-search dropdown asks for a handful; the list itself takes the lot.
   // While searching, names that begin with the term lead — "ag" puts Agarwal
-  // and Agro before Ajmer Agro — and the rest follow alphabetically.
+  // and Agro before Ajmer Agro — and the rest follow alphabetically. Browsing
+  // stops at 500; an advanced search does not, or a match past the cap would
+  // read as "no such contact".
   const asked = Number((req.query as Record<string, string | undefined>).limit);
-  const rows = await db
+  const limit = Number.isFinite(asked) && asked > 0 ? asked : advanced.length ? undefined : 500;
+  const listed = db
     .select()
     .from(contacts)
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(
       ...(q ? [sql`${contacts.displayName} NOT ILIKE ${contains(q).slice(1)}`] : []),
       asc(contacts.displayName),
-    )
-    .limit(Number.isFinite(asked) && asked > 0 ? asked : 500);
+    );
+  const rows = limit === undefined ? await listed : await listed.limit(limit);
 
   // "Receivables (BCY)" for customers / "Payables (BCY)" for vendors, Zoho's list-view balance column.
   // Fetched separately and joined in JS: a correlated ${contacts.id} subquery inside .select() renders

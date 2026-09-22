@@ -5,6 +5,7 @@ import { api, formatDate, formatMoney } from "../api";
 import { AccountSelect, type AccountNode } from "../components/account-select";
 import { SearchSelect } from "../components/search-select";
 import { localYmd } from "../lib/utils";
+import { filterRows, useAdvancedSearch, type SearchField } from "../components/advanced-search";
 
 interface AssetRow {
   id: string;
@@ -17,6 +18,9 @@ interface AssetRow {
   netBookValue: string;
   method: string;
   usefulLifeMonths: number;
+  assetAccountId: string;
+  serialNumber: string | null;
+  location: string | null;
   accountCode: string | null;
   accountName: string | null;
 }
@@ -58,6 +62,32 @@ const Stat = ({ label, value }: { label: string; value: string }) => (
   </div>
 );
 
+/**
+ * The register arrives whole, so its advanced search filters on the client.
+ * Status stays the header's picker; these are what an accountant otherwise
+ * looks an asset up by — the account it sits in, when it was bought, what it
+ * cost and is worth now, and where it physically is.
+ */
+const SEARCH_FIELDS: SearchField[] = [
+  { key: "name", label: "Asset Name", kind: "text" },
+  { key: "number", label: "Asset#", kind: "text" },
+  { key: "account", label: "Asset Account", kind: "account", accountTypes: ["fixed_asset"] },
+  {
+    key: "method",
+    label: "Method",
+    kind: "select",
+    options: [
+      { value: "straight_line", label: "Straight line" },
+      { value: "written_down_value", label: "Written down value" },
+    ],
+  },
+  { key: "acquired", label: "Acquisition Date", kind: "dateRange" },
+  { key: "cost", label: "Cost Range", kind: "numberRange" },
+  { key: "bookValue", label: "Book Value Range", kind: "numberRange" },
+  { key: "serial", label: "Serial Number", kind: "text" },
+  { key: "location", label: "Location", kind: "text" },
+];
+
 export function FixedAssetsPage() {
   const [, navigate] = useLocation();
   const qc = useQueryClient();
@@ -68,6 +98,31 @@ export function FixedAssetsPage() {
     queryKey: ["assets", view],
     queryFn: () => api<AssetRow[]>(`/api/assets${view ? `?status=${view}` : ""}`),
   });
+  const adv = useAdvancedSearch("Fixed Assets", SEARCH_FIELDS);
+  const shown =
+    assets &&
+    filterRows(assets, SEARCH_FIELDS, adv.criteria, (a, key) => {
+      switch (key) {
+        case "name":
+          return a.name;
+        case "number":
+          return a.number;
+        case "account":
+          return a.assetAccountId;
+        case "method":
+          return a.method;
+        case "acquired":
+          return a.acquisitionDate;
+        case "cost":
+          return Number(a.cost);
+        case "bookValue":
+          return Number(a.netBookValue);
+        case "serial":
+          return a.serialNumber;
+        case "location":
+          return a.location;
+      }
+    });
   const { data: summary } = useQuery({
     queryKey: ["assets-summary"],
     queryFn: () => api<Summary>("/api/assets/summary"),
@@ -93,6 +148,7 @@ export function FixedAssetsPage() {
           />
         </div>
         <div className="flex gap-2">
+          {adv.button}
           <button onClick={() => setRunOpen(true)} className="btn-secondary">
             Run Depreciation
           </button>
@@ -102,6 +158,7 @@ export function FixedAssetsPage() {
         </div>
       </header>
 
+      {adv.dialog}
       <div className="flex-1 overflow-y-auto p-6">
         {summary && (
           <div className="mb-5 grid max-w-4xl grid-cols-2 gap-3 lg:grid-cols-4">
@@ -144,7 +201,14 @@ export function FixedAssetsPage() {
                 </td>
               </tr>
             )}
-            {assets?.map((a) => (
+            {!!assets?.length && shown?.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-3 py-10 text-center text-gray-500">
+                  No asset matches the search.
+                </td>
+              </tr>
+            )}
+            {shown?.map((a) => (
               <tr
                 key={a.id}
                 onClick={() => navigate(`/accountant/assets/${a.id}`)}

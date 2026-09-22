@@ -485,7 +485,7 @@ purchasesRouter.get("/bills/summary", requirePermission("purchases", "view"), as
 
 purchasesRouter.get("/bills", requirePermission("purchases", "view"), async (req, res) => {
   const query = req.query as Record<string, string | undefined>;
-  const { vendorId, status, from, to, search } = query;
+  const { vendorId, from, to, search } = query;
   const conditions = [];
   if (vendorId) conditions.push(eq(bills.vendorId, vendorId));
   /**
@@ -500,7 +500,8 @@ purchasesRouter.get("/bills", requirePermission("purchases", "view"), async (req
    * request, and a drill-down that silently returned nothing is its own bug.
    */
   else conditions.push(sql`COALESCE(${contacts.isGroupCompany}, FALSE) = FALSE`);
-  if (status) conditions.push(eq(bills.status, status as typeof bills.$inferSelect.status));
+  // Status is read by billSearch, which also knows Zoho's "Overdue" and
+  // "Unpaid" — readings of a bill, not values of the column.
   if (from) conditions.push(gte(bills.billDate, from));
   if (to) conditions.push(lte(bills.billDate, to));
   const quick = quickSearch(billSearch, search);

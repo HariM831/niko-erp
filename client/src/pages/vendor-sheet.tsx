@@ -7,6 +7,7 @@ import { shortDate } from "./documents";
 import { useLocalSearch } from "../components/search-context";
 import { matchesTerm, localYmd } from "../lib/utils";
 import { AccountSelect, bankNodes } from "../components/account-select";
+import { type SearchField, filterRows, useAdvancedSearch } from "../components/advanced-search";
 
 /**
  * Vendor Sheet — the one screen that answers "what do we owe, and what goes to
@@ -63,6 +64,71 @@ const docPath = (r: Payable) =>
   r.kind === "bill" ? `/purchases/bills/${r.id}` : `/purchases/expenses/${r.id}`;
 
 const today = () => localYmd();
+/**
+ * What the person paying asks of the sheet: one vendor's dues, what falls due
+ * this week, what is badly overdue, what cannot go because the bank details
+ * are missing, and — on the Sent tab — what went in which batch. The sheet is
+ * loaded whole, so these filter on the client.
+ */
+const SHEET_SEARCH: SearchField[] = [
+  { key: "vendorId", label: "Vendor", kind: "contact", contactType: "vendor" },
+  {
+    key: "kind",
+    label: "Document Type",
+    kind: "select",
+    options: [
+      { value: "bill", label: "Bill" },
+      { value: "expense", label: "Expense" },
+    ],
+  },
+  { key: "billNumber", label: "Bill#", kind: "text" },
+  { key: "description", label: "Item & Description", kind: "text" },
+  { key: "dueDate", label: "Due Date Range", kind: "dateRange" },
+  { key: "deliveryDate", label: "Delivery Date Range", kind: "dateRange" },
+  { key: "amount", label: "Amount Range", kind: "numberRange" },
+  { key: "overdueDays", label: "Overdue Days Range", kind: "numberRange" },
+  {
+    key: "bank",
+    label: "Bank Details",
+    kind: "select",
+    options: [
+      { value: "yes", label: "On file" },
+      { value: "no", label: "Missing" },
+    ],
+  },
+  { key: "batch", label: "Batch#", kind: "text" },
+  { key: "sentDate", label: "Sent Date Range", kind: "dateRange" },
+];
+
+const sheetValue = (r: Payable, key: string) => {
+  switch (key) {
+    case "vendorId":
+      return r.vendorId;
+    case "kind":
+      return r.kind;
+    // A bill is known by the vendor's number and ours; an expense by its own.
+    case "billNumber":
+      return [r.billNumber, r.number];
+    case "description":
+      return r.description;
+    case "dueDate":
+      return r.dueDate;
+    case "deliveryDate":
+      return r.deliveryDate;
+    case "amount":
+      return Number(r.amount);
+    case "overdueDays":
+      return r.overdueDays;
+    case "bank":
+      return hasBank(r) ? "yes" : "no";
+    case "batch":
+      return r.sentBatchNumber;
+    case "sentDate":
+      return r.sentBatchDate;
+  }
+  return undefined;
+};
+
 
 export function VendorSheetPage() {
   const [, navigate] = useLocation();
@@ -86,8 +152,14 @@ export function VendorSheetPage() {
   // the search hides — the file is built from every tick, and the dialog lists
   // each one before anything is sent — and the banner still sums the sheet.
   const term = useLocalSearch("Vendor Sheet", "vendor-sheet");
-  const shown = rows.filter((r) =>
-    matchesTerm(term, [r.vendorName, r.billNumber, r.number, r.description, r.notes, r.beneficiaryName]),
+  const adv = useAdvancedSearch("Vendor Sheet", SHEET_SEARCH);
+  const shown = filterRows(
+    rows.filter((r) =>
+      matchesTerm(term, [r.vendorName, r.billNumber, r.number, r.description, r.notes, r.beneficiaryName]),
+    ),
+    SHEET_SEARCH,
+    adv.criteria,
+    sheetValue,
   );
 
   const chosen = useMemo(
@@ -153,6 +225,7 @@ export function VendorSheetPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {adv.button}
           {selected.size > 0 && (
             <span className="text-[13px] text-gray-500">
               {selected.size} selected · {formatMoney(selectedTotal)}
@@ -192,7 +265,9 @@ export function VendorSheetPage() {
             {showSent ? "Nothing has been sent to the bank yet." : "Nothing is unpaid."}
           </div>
         ) : !shown.length ? (
-          <div className="p-12 text-center text-sm text-gray-500">Nothing matches “{term.trim()}”.</div>
+          <div className="p-12 text-center text-sm text-gray-500">
+            {term.trim() ? <>Nothing matches “{term.trim()}”.</> : "Nothing matches the search."}
+          </div>
         ) : (
           <table className="list-table w-full border-separate border-spacing-0 text-[13px]">
             <thead className="table-head sticky top-0 z-10">
@@ -295,6 +370,7 @@ export function VendorSheetPage() {
         )}
       </div>
 
+      {adv.dialog}
       {dialogOpen && (
         <SendToBankDialog
           rows={chosen}

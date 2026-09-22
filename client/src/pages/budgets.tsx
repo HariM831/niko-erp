@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
 import { SearchSelect } from "../components/search-select";
+import { filterRows, useAdvancedSearch, type SearchField } from "../components/advanced-search";
 
 interface Budget {
   id: string;
@@ -11,6 +12,9 @@ interface Budget {
   endDate: string;
   period: string;
   includeBalanceSheet: boolean;
+  /** Only on the list: the accounts it covers and the sum of its lines. */
+  accountIds?: string[];
+  total?: string;
 }
 interface Account {
   id: string;
@@ -45,25 +49,74 @@ function periodLabel(start: string, period: string) {
 
 // ============================ List ============================
 
+/**
+ * Every budget is on the list already, so the search filters it here. Date
+ * Range finds the budgets whose period touches the range — "what was planned
+ * for August" — rather than those that start inside it.
+ */
+const SEARCH_FIELDS: SearchField[] = [
+  { key: "name", label: "Budget Name", kind: "text" },
+  { key: "period", label: "Period", kind: "select", options: Object.entries(PERIOD_LABEL).map(([value, label]) => ({ value, label })) },
+  { key: "date", label: "Date Range", kind: "dateRange" },
+  { key: "account", label: "Account", kind: "account" },
+  { key: "total", label: "Amount Range", kind: "numberRange" },
+  {
+    key: "balanceSheet",
+    label: "Balance Sheet",
+    kind: "select",
+    options: [
+      { value: "yes", label: "Included" },
+      { value: "no", label: "Profit and loss only" },
+    ],
+  },
+];
+
 export function BudgetsPage() {
   const [, navigate] = useLocation();
-  const { data: rows, isLoading } = useQuery({
+  const { data: allRows, isLoading } = useQuery({
     queryKey: ["budgets"],
     queryFn: () => api<Budget[]>("/api/budgets"),
   });
+  const adv = useAdvancedSearch("Budgets", SEARCH_FIELDS);
+  const rows = useMemo(() => {
+    if (!allRows) return allRows;
+    const from = adv.criteria.dateFrom ?? "";
+    const to = adv.criteria.dateTo ?? "";
+    const touching = allRows.filter((b) => (!from || b.endDate >= from) && (!to || b.startDate <= to));
+    return filterRows(touching, SEARCH_FIELDS, adv.criteria, (b, key) => {
+      switch (key) {
+        case "name":
+          return b.name;
+        case "period":
+          return b.period;
+        case "account":
+          return b.accountIds ?? [];
+        case "total":
+          return Number(b.total ?? 0);
+        case "balanceSheet":
+          return b.includeBalanceSheet ? "yes" : "no";
+      }
+    });
+  }, [allRows, adv.criteria]);
 
   return (
     <div className="flex h-full flex-col">
       <header className="page-header flex flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-5">
         <h1 className="text-lg font-semibold">Budgets</h1>
-        <button onClick={() => navigate("/accountant/budgets/new")} className="btn-primary">
-          + New
-        </button>
+        <div className="flex items-center gap-2">
+          {adv.button}
+          <button onClick={() => navigate("/accountant/budgets/new")} className="btn-primary">
+            + New
+          </button>
+        </div>
       </header>
+      {adv.dialog}
 
       <div className="flex-1 overflow-auto">
         {isLoading ? (
           <div className="p-8 text-center text-sm text-gray-500">Loading…</div>
+        ) : !!allRows?.length && !rows?.length ? (
+          <div className="p-8 text-center text-sm text-gray-500">No budget matches the search.</div>
         ) : !rows?.length ? (
           <div className="mx-auto mt-20 max-w-xl px-6 text-center">
             <h2 className="text-xl font-medium text-gray-800">

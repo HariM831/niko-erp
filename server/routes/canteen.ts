@@ -8,7 +8,7 @@
  */
 import { Router } from "express";
 import { and, asc, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
-import { matches } from "../services/document-search";
+import { advancedSearch, matches, type DocumentSearch } from "../services/document-search";
 import { z } from "zod";
 import {
   accounts,
@@ -238,10 +238,45 @@ const servingsFrom = (conn: Conn) =>
     .leftJoin(devices, eq(devices.id, canteenServings.deviceId))
     .leftJoin(employees, eq(employees.id, canteenServings.employeeId));
 
+/**
+ * The Today tab's advanced search. Canteen and meal are the tab's own
+ * pickers; this is the rest — whose plates, how they were let through, and
+ * the flags a supervisor looks for. A date range, when given, replaces the
+ * tab's single day, so "every second plate this month" is one search.
+ */
+const servingSearch: DocumentSearch = {
+  advanced: {
+    mealDate: { kind: "dateRange", col: canteenServings.mealDate },
+    employee: { kind: "eq", col: canteenServings.employeeId },
+    state: { kind: "eq", col: canteenServings.state },
+    token: { kind: "text", col: canteenServings.tokenNumber },
+    guestParty: { kind: "text", col: canteenServings.guestParty },
+    flag: {
+      kind: "custom",
+      build: (get) => {
+        switch (get("flag")) {
+          case "outside_window":
+            return eq(canteenServings.outsideWindow, true);
+          case "second_plate":
+            return eq(canteenServings.extraPlateKind, "second_plate");
+          case "extra_plate":
+            return sql`${canteenServings.extraPlateKind} IS NOT NULL`;
+          case "no_punch":
+            return eq(canteenServings.attendancePresent, false);
+          case "not_on_list":
+            return eq(canteenServings.ineligible, true);
+        }
+      },
+    },
+  },
+};
+
 canteenRouter.get("/servings", view, async (req, res) => {
   const q = req.query;
   const date = typeof q.date === "string" && DATE_RE.test(q.date) ? q.date : istToday();
-  const conds = [eq(canteenServings.mealDate, date)];
+  const advanced = advancedSearch(servingSearch, q as Record<string, string | undefined>);
+  const ranged = [q.mealDateFrom, q.mealDateTo].some((v) => typeof v === "string" && DATE_RE.test(v));
+  const conds = [...(ranged ? [] : [eq(canteenServings.mealDate, date)]), ...advanced];
   if (typeof q.canteenId === "string" && q.canteenId) conds.push(eq(canteenServings.canteenId, q.canteenId));
   if (typeof q.meal === "string" && (MEALS as readonly string[]).includes(q.meal)) conds.push(eq(canteenServings.meal, q.meal as (typeof MEALS)[number]));
   if (typeof q.state === "string" && (SERVING_STATES as readonly string[]).includes(q.state)) conds.push(eq(canteenServings.state, q.state as (typeof SERVING_STATES)[number]));

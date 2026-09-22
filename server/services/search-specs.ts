@@ -8,9 +8,18 @@
  * The quick search matches text only. Amounts are a range in the advanced
  * search: "36841" is not a sensible substring match against 36,841.00, and
  * Zoho does not treat it as one either.
+ *
+ * The keys here are the ones the client's field sets send (client/src/pages/
+ * documents.tsx). A few older keys are kept alongside the new ones — `account`
+ * as a typed account name, for instance, now that the dialog offers a picker
+ * under `accountId` — so a bookmarked search keeps working.
  */
+import { type SQL, and, ilike, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
+import type { PgColumn } from "drizzle-orm/pg-core";
 import {
+  accounts,
   billLines,
+  billStatus,
   bills,
   contacts,
   creditNoteLines,
@@ -18,6 +27,7 @@ import {
   customerPayments,
   expenses,
   invoiceLines,
+  invoiceStatus,
   invoices,
   journalEntries,
   journalEntryLines,
@@ -27,7 +37,31 @@ import {
   vendorCredits,
   vendorPayments,
 } from "@shared/schema";
-import type { DocumentSearch } from "./document-search";
+import { db } from "../db";
+import { type DocumentSearch, type Field, contains } from "./document-search";
+
+const IST_TODAY = sql`(NOW() AT TIME ZONE 'Asia/Kolkata')::date`;
+
+/**
+ * Status as Zoho offers it, which is more than the column holds: "Overdue" and
+ * "Unpaid" are not states a document is saved in but readings of it — still
+ * owed, and (for overdue) past its due date in India today. Anything else is
+ * the stored status, checked against the enum first so a mistyped value finds
+ * nothing rather than making Postgres reject the whole query.
+ */
+function payableStatus(status: PgColumn, dueDate: PgColumn, stored: readonly string[], owing: string[]): Field {
+  return {
+    kind: "custom",
+    build: (get) => {
+      const v = get("status");
+      if (!v) return undefined;
+      const unpaid = inArray(status, owing);
+      if (v === "unpaid") return unpaid;
+      if (v === "overdue") return and(unpaid, sql`${dueDate} < ${IST_TODAY}`);
+      return stored.includes(v) ? sql`${status} = ${v}` : sql`false`;
+    },
+  };
+}
 
 export const billSearch: DocumentSearch = {
   id: bills.id,
@@ -44,8 +78,28 @@ export const billSearch: DocumentSearch = {
     number: { kind: "text", col: bills.number },
     vendorBillNumber: { kind: "text", col: bills.vendorBillNumber },
     reference: { kind: "text", col: bills.reference },
+    /**
+     * The order the bill was raised against. A bill converted from a niko PO
+     * links to it; one brought over from Zoho carries the order number in its
+     * reference instead (Zoho's bill form calls that field "Order Number"), so
+     * both are looked at.
+     */
+    purchaseOrderNumber: {
+      kind: "custom",
+      build: (get) => {
+        const v = get("purchaseOrderNumber");
+        if (!v) return undefined;
+        return or(
+          inArray(
+            bills.purchaseOrderId,
+            db.select({ id: purchaseOrders.id }).from(purchaseOrders).where(ilike(purchaseOrders.number, contains(v))),
+          ),
+          ilike(bills.reference, contains(v)),
+        );
+      },
+    },
     notes: { kind: "text", col: bills.notes },
-    status: { kind: "eq", col: bills.status },
+    status: payableStatus(bills.status, bills.dueDate, billStatus.enumValues, ["open", "partially_paid"]),
     vendorId: { kind: "eq", col: bills.vendorId },
     vendorPan: { kind: "contactText", on: contacts.pan },
     date: { kind: "dateRange", col: bills.billDate },
@@ -56,6 +110,7 @@ export const billSearch: DocumentSearch = {
     vendorBillTotal: { kind: "numberRange", col: bills.vendorBillTotal },
     itemId: { kind: "lineItem" },
     itemDescription: { kind: "lineText", on: billLines.description },
+    accountId: { kind: "accountId" },
     account: { kind: "accountName" },
   },
 };
@@ -73,9 +128,10 @@ export const invoiceSearch: DocumentSearch = {
   },
   advanced: {
     number: { kind: "text", col: invoices.number },
+    /** Zoho's "Order Number" on an invoice is this reference. */
     reference: { kind: "text", col: invoices.reference },
     notes: { kind: "text", col: invoices.customerNotes },
-    status: { kind: "eq", col: invoices.status },
+    status: payableStatus(invoices.status, invoices.dueDate, invoiceStatus.enumValues, ["sent", "partially_paid"]),
     customerId: { kind: "eq", col: invoices.customerId },
     customerGstin: { kind: "contactText", on: contacts.gstin },
     date: { kind: "dateRange", col: invoices.invoiceDate },
@@ -84,13 +140,14 @@ export const invoiceSearch: DocumentSearch = {
     total: { kind: "numberRange", col: invoices.total },
     itemId: { kind: "lineItem" },
     itemDescription: { kind: "lineText", on: invoiceLines.description },
+    accountId: { kind: "accountId" },
     account: { kind: "accountName" },
   },
 };
 
 /**
- * An expense has no lines — it posts to a single account — so the account name
- * is searched on the document itself rather than through a line.
+ * An expense has no lines — it posts to a single account — so the account is
+ * searched on the document itself rather than through a line.
  */
 export const expenseSearch: DocumentSearch = {
   id: expenses.id,
@@ -102,9 +159,24 @@ export const expenseSearch: DocumentSearch = {
     reference: { kind: "text", col: expenses.reference },
     notes: { kind: "text", col: expenses.notes },
     vendorId: { kind: "eq", col: expenses.vendorId },
+    paidThroughId: { kind: "eq", col: expenses.paidThroughId },
+    /**
+     * niko's expense has two states, and the list shows them: paid, once the
+     * account the money left is known, and unpaid while it is still owed.
+     */
+    status: {
+      kind: "custom",
+      build: (get) => {
+        const v = get("status");
+        if (v === "paid") return isNotNull(expenses.paidThroughId);
+        if (v === "unpaid") return isNull(expenses.paidThroughId);
+        return undefined;
+      },
+    },
     date: { kind: "dateRange", col: expenses.expenseDate },
     created: { kind: "dateRange", col: expenses.createdAt },
     total: { kind: "numberRange", col: expenses.amount },
+    accountId: { kind: "accountId" },
     account: { kind: "accountName" },
   },
 };
@@ -125,9 +197,13 @@ export const purchaseOrderSearch: DocumentSearch = {
     reference: { kind: "text", col: purchaseOrders.reference },
     status: { kind: "eq", col: purchaseOrders.status },
     vendorId: { kind: "eq", col: purchaseOrders.vendorId },
+    date: { kind: "dateRange", col: purchaseOrders.orderDate },
+    expectedDeliveryDate: { kind: "dateRange", col: purchaseOrders.expectedDeliveryDate },
     created: { kind: "dateRange", col: purchaseOrders.createdAt },
     total: { kind: "numberRange", col: purchaseOrders.total },
     itemId: { kind: "lineItem" },
+    itemDescription: { kind: "lineText", on: purchaseOrderLines.description },
+    accountId: { kind: "accountId" },
     account: { kind: "accountName" },
   },
 };
@@ -153,6 +229,8 @@ export const vendorCreditSearch: DocumentSearch = {
     created: { kind: "dateRange", col: vendorCredits.createdAt },
     total: { kind: "numberRange", col: vendorCredits.total },
     itemId: { kind: "lineItem" },
+    itemDescription: { kind: "lineText", on: vendorCreditLines.description },
+    accountId: { kind: "accountId" },
     account: { kind: "accountName" },
   },
 };
@@ -178,6 +256,8 @@ export const creditNoteSearch: DocumentSearch = {
     created: { kind: "dateRange", col: creditNotes.createdAt },
     total: { kind: "numberRange", col: creditNotes.total },
     itemId: { kind: "lineItem" },
+    itemDescription: { kind: "lineText", on: creditNoteLines.description },
+    accountId: { kind: "accountId" },
     account: { kind: "accountName" },
   },
 };
@@ -214,9 +294,17 @@ export const vendorPaymentSearch: DocumentSearch = {
   },
 };
 
+/** Entries with at least one line meeting `where` — asked once, uncorrelated, as the helpers in document-search do. */
+const journalWithLine = (where: SQL) =>
+  inArray(journalEntries.id, db.select({ id: journalEntryLines.entryId }).from(journalEntryLines).where(where));
+
 /**
  * A journal has no contact. Its lines carry the narration's detail, so the line
  * description and the account posted to are what make it findable.
+ *
+ * Zoho's "Notes" on a manual journal is niko's narration, and its total is the
+ * debit side — a balanced entry's two sides are equal, which is also how the
+ * list's Amount column is worked out.
  */
 export const journalSearch: DocumentSearch = {
   id: journalEntries.id,
@@ -235,6 +323,38 @@ export const journalSearch: DocumentSearch = {
     sourceType: { kind: "eq", col: journalEntries.sourceType },
     date: { kind: "dateRange", col: journalEntries.entryDate },
     created: { kind: "dateRange", col: journalEntries.postedAt },
+    accountId: { kind: "accountId" },
     account: { kind: "accountName" },
+    accountCode: {
+      kind: "custom",
+      build: (get) => {
+        const v = get("accountCode");
+        if (!v) return undefined;
+        return journalWithLine(
+          inArray(
+            journalEntryLines.accountId,
+            db.select({ id: accounts.id }).from(accounts).where(ilike(accounts.code, contains(v))),
+          ),
+        );
+      },
+    },
+    total: {
+      kind: "custom",
+      build: (get) => {
+        const min = get("totalMin");
+        const max = get("totalMax");
+        if (!min && !max) return undefined;
+        const sum = sql`SUM(${journalEntryLines.debit})`;
+        const having = [min ? sql`${sum} >= ${min}` : undefined, max ? sql`${sum} <= ${max}` : undefined];
+        return inArray(
+          journalEntries.id,
+          db
+            .select({ id: journalEntryLines.entryId })
+            .from(journalEntryLines)
+            .groupBy(journalEntryLines.entryId)
+            .having(and(...having)),
+        );
+      },
+    },
   },
 };

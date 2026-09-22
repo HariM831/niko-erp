@@ -1,9 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { ListPage, StatusBadge, type ListView } from "../components/list-page";
+import type { SearchField } from "../components/advanced-search";
 import { AttachmentsButton } from "../components/attachments";
 import { SummaryBanner } from "../components/summary-banner";
 import { Package } from "lucide-react";
 import { api, formatDate, formatMoney } from "../api";
+import { JOURNAL_SEARCH } from "./documents";
 import { ITEM_CATEGORIES, ITEM_CATEGORY_LABELS, type ItemCategory } from "@shared/item-categories";
 
 const activeViews: ListView[] = [
@@ -74,6 +76,30 @@ const contactColumns = (balanceHeader: string) => [
   },
 ];
 
+const STATUS_OPTIONS = [
+  { value: "active", label: "Active" },
+  { value: "inactive", label: "Inactive" },
+];
+
+/**
+ * Zoho's contact search, as far as niko keeps the data. Customer Type and
+ * MSME Registered? are left out: niko records neither, so a box for them would
+ * filter nothing. First and Last Name are the contact persons', as in Zoho.
+ * Customers and Vendors ask the same questions, so they share the one set.
+ */
+const CONTACT_SEARCH: SearchField[] = [
+  { key: "displayName", label: "Display Name", kind: "text" },
+  { key: "companyName", label: "Company Name", kind: "text" },
+  { key: "firstName", label: "First Name", kind: "text" },
+  { key: "lastName", label: "Last Name", kind: "text" },
+  { key: "email", label: "Email", kind: "text" },
+  { key: "status", label: "Status", kind: "select", options: STATUS_OPTIONS },
+  { key: "phone", label: "Phone", kind: "text" },
+  { key: "address", label: "Address", kind: "text" },
+  { key: "pan", label: "PAN", kind: "text" },
+  { key: "notes", label: "Notes", kind: "text" },
+];
+
 /** The Customers / Vendors lists' own hero — total outstanding leads, matching the "Receivables/Payables (BCY)" column each row already shows. */
 function ContactSummaryBanner({ type }: { type: "customer" | "vendor" }) {
   const { data } = useQuery({
@@ -108,6 +134,7 @@ export const CustomersPage = () => (
     rowPath={(r) => `/sales/customers/${r.id}`}
     columns={contactColumns("Receivables (BCY)")}
     views={activeViews}
+    searchFields={CONTACT_SEARCH}
     banner={<ContactSummaryBanner type="customer" />}
   />
 );
@@ -122,6 +149,7 @@ export const VendorsPage = () => (
     rowPath={(r) => `/purchases/vendors/${r.id}`}
     columns={contactColumns("Payables (BCY)")}
     views={activeViews}
+    searchFields={CONTACT_SEARCH}
     banner={<ContactSummaryBanner type="vendor" />}
   />
 );
@@ -152,6 +180,31 @@ const itemViews: ListView[] = [
   { label: "Uncategorised", params: { category: "none" } },
 ];
 
+/**
+ * Zoho's item search, plus the two things niko's items carry that Zoho's
+ * dialog lacks: SKU and category. Category is keyed apart from the views'
+ * `category` so the two narrow together instead of one overwriting the other.
+ */
+const ITEM_SEARCH: SearchField[] = [
+  { key: "name", label: "Item Name", kind: "text" },
+  { key: "sku", label: "SKU", kind: "text" },
+  { key: "description", label: "Description", kind: "text" },
+  {
+    key: "itemCategory",
+    label: "Category",
+    kind: "select",
+    options: [
+      ...ITEM_CATEGORIES.map((c) => ({ value: c, label: ITEM_CATEGORY_LABELS[c] })),
+      { value: "none", label: "Uncategorised" },
+    ],
+  },
+  { key: "rate", label: "Rate", kind: "numberRange" },
+  { key: "purchaseRate", label: "Purchase Rate", kind: "numberRange" },
+  { key: "status", label: "Status", kind: "select", options: STATUS_OPTIONS },
+  { key: "salesAccountId", label: "Sales Account", kind: "account", accountTypes: ["income"] },
+  { key: "purchaseAccountId", label: "Purchase Account", kind: "account" },
+];
+
 /** The Items list's own hero — stock value leads, below-reorder is the one alert. */
 function ItemSummaryBanner() {
   const { data } = useQuery({
@@ -178,6 +231,7 @@ export const ItemsPage = () => (
     endpoint="/api/items"
     rowKey={(r) => r.id}
     views={itemViews}
+    searchFields={ITEM_SEARCH}
     groupBy={(r) => (r.category ? ITEM_CATEGORY_LABELS[r.category] : "Uncategorised")}
     groupOrder={[...ITEM_CATEGORIES.map((c) => ITEM_CATEGORY_LABELS[c]), "Uncategorised"]}
     newLabel="New Item"
@@ -297,6 +351,7 @@ export const JournalsPage = () => (
   <ListPage<JournalRow>
     title="Manual Journals"
     endpoint="/api/accounting/journals"
+    searchFields={JOURNAL_SEARCH}
     rowKey={(r) => r.id}
     newLabel="New Journal"
     newPath="/accountant/journals/new"

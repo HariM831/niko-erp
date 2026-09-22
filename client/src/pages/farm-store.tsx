@@ -7,9 +7,10 @@
  * farm gate's two moves — receive without a bill in hand, issue to a shed —
  * both of which write the core ledger, never a private one.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownToLine, ArrowUpFromLine, Loader2, PackageOpen } from "lucide-react";
 import { api } from "../api";
+import { filterRows, useAdvancedSearch, type SearchField } from "../components/advanced-search";
 import { useLocalSearch } from "../components/search-context";
 import { SearchSelect } from "../components/search-select";
 import { matchesTerm, localYmd } from "../lib/utils";
@@ -102,24 +103,69 @@ export function FarmStorePage() {
       .catch(() => setHouses([]));
   }, []);
 
+  /**
+   * Advanced search. Item and category narrow both tables, as the top-bar box
+   * does; the rest describe a movement, so they narrow the ledger alone. The
+   * ledger is capped at the last hundred on the server, which is why its
+   * criteria go there rather than being applied to the hundred already here.
+   */
+  const searchFields = useMemo<SearchField[]>(
+    () => [
+      { key: "item", label: "Item", kind: "item" },
+      {
+        key: "category",
+        label: "Category",
+        kind: "select",
+        options: [...new Set(stock.map((r) => r.category).filter((c): c is string => !!c))].sort(),
+      },
+      { key: "date", label: "Date Range", kind: "dateRange" },
+      {
+        key: "kind",
+        label: "Kind",
+        kind: "select",
+        options: Object.entries(SOURCE_LABEL).map(([value, label]) => ({ value, label })),
+      },
+      {
+        key: "store",
+        label: "Store",
+        kind: "select",
+        options: stores.map((s) => ({ value: s.id, label: s.name })),
+      },
+      { key: "quantity", label: "Quantity Range", kind: "numberRange" },
+    ],
+    [stock, stores],
+  );
+  const adv = useAdvancedSearch("Farm Store", searchFields);
+  const criteriaQs = new URLSearchParams(adv.criteria).toString();
+
+  const loadStock = () =>
+    api<{ stores: Store[]; stock: StockRow[]; catalogue: CatalogueItem[] }>(
+      `/api/farms/store/${locationId}/stock`,
+    ).then((s) => {
+      setStores(s.stores);
+      setStock(s.stock);
+      setCatalogue(s.catalogue);
+    });
+  const loadEntries = () =>
+    api<{ entries: Entry[] }>(
+      `/api/farms/store/${locationId}/entries${criteriaQs ? `?${criteriaQs}` : ""}`,
+    ).then((e) => setEntries(e.entries));
   const load = () => {
     if (!locationId) return;
     setLoading(true);
-    Promise.all([
-      api<{ stores: Store[]; stock: StockRow[]; catalogue: CatalogueItem[] }>(
-        `/api/farms/store/${locationId}/stock`,
-      ),
-      api<{ entries: Entry[] }>(`/api/farms/store/${locationId}/entries`),
-    ])
-      .then(([s, e]) => {
-        setStores(s.stores);
-        setStock(s.stock);
-        setCatalogue(s.catalogue);
-        setEntries(e.entries);
-      })
-      .finally(() => setLoading(false));
+    Promise.all([loadStock(), loadEntries()]).finally(() => setLoading(false));
   };
   useEffect(load, [locationId]);
+  // A new search asks again for the movements only; the shelf is unchanged.
+  const firstSearch = useRef(true);
+  useEffect(() => {
+    if (firstSearch.current) {
+      firstSearch.current = false;
+      return;
+    }
+    if (locationId) void loadEntries();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [criteriaQs]);
 
   /**
    * One row per item, houses' feed holdings folded in as their own column
@@ -154,7 +200,12 @@ export function FarmStorePage() {
   // "Search in Farm Store" narrows both tables to the item looked for — what
   // is on the shelf, and how it came and went.
   const term = useLocalSearch("Farm Store", "farms:store");
-  const shownItems = byItem.filter((r) => matchesTerm(term, [r.name, r.category]));
+  const shownItems = filterRows(
+    byItem.filter((r) => matchesTerm(term, [r.name, r.category])),
+    searchFields,
+    adv.criteria,
+    (r, key) => (key === "item" ? r.itemId : key === "category" ? r.category : undefined),
+  );
   const shownEntries = entries.filter((e) => matchesTerm(term, [e.itemName, e.storeName, e.sourceType, e.notes]));
 
   return (
@@ -169,6 +220,7 @@ export function FarmStorePage() {
             </div>
         </div>
         <div className="flex items-center gap-2">
+          {adv.button}
           {farms.length > 1 && (
             <SearchSelect
               value={locationId || null}
@@ -208,7 +260,7 @@ export function FarmStorePage() {
           </div>
           {!!byItem.length && !shownItems.length ? (
             <div className="rounded-2xl bg-white px-4 py-6 text-center text-sm text-muted-foreground shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
-              Nothing on hand matches “{term.trim()}”.
+              {term.trim() ? `Nothing on hand matches “${term.trim()}”.` : "Nothing on hand matches the search."}
             </div>
           ) : !byItem.length ? (
             <div className="flex items-center gap-3 rounded-2xl bg-white px-4 py-6 text-sm text-muted-foreground shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
@@ -300,7 +352,11 @@ export function FarmStorePage() {
                 {!shownEntries.length && (
                   <tr>
                     <td colSpan={6} className="px-3 py-6 text-center text-muted-foreground">
-                      {entries.length ? `No movement matches “${term.trim()}”.` : "No movements yet."}
+                      {term.trim() && entries.length
+                        ? `No movement matches “${term.trim()}”.`
+                        : adv.active
+                          ? "No movement matches the search."
+                          : "No movements yet."}
                     </td>
                   </tr>
                 )}
@@ -310,6 +366,7 @@ export function FarmStorePage() {
         </>
       )}
 
+      {adv.dialog}
       {dialog && (
         <MoveDialog
           kind={dialog}

@@ -32,6 +32,7 @@ import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { looseNumber, validateBody } from "../lib/validate";
 import { mainStore, moveStock } from "../services/inventory";
+import { advancedSearch, type DocumentSearch } from "../services/document-search";
 
 export const farmStoreRouter = Router();
 
@@ -105,6 +106,36 @@ farmStoreRouter.get("/:locationId/stock", requirePermission("farms", "view"), as
   res.json({ stores, stock: rows, catalogue });
 });
 
+/**
+ * The movements' advanced search. The list is capped at the last hundred, so
+ * "every vaccine issued in August" has to be asked of the server — filtering
+ * the hundred on the client would silently miss the older ones.
+ */
+const entrySearch: DocumentSearch = {
+  advanced: {
+    item: { kind: "eq", col: inventoryTransactions.itemId },
+    category: { kind: "eq", col: items.category },
+    kind: { kind: "eq", col: inventoryTransactions.sourceType },
+    store: { kind: "eq", col: inventoryTransactions.stockLocationId },
+    date: { kind: "dateRange", col: inventoryTransactions.transactionDate },
+    quantity: {
+      // Received and issued are both "how much": an issue of 20 is stored as
+      // -20, and whoever asks for 10 to 50 means either way.
+      kind: "custom",
+      build: (get) => {
+        // Anything that is not a number is dropped, as the shared ranges do,
+        // rather than handed to Postgres to fail the whole list.
+        const num = (v: string | undefined) => (v && Number.isFinite(Number(v)) ? v : undefined);
+        const min = num(get("quantityMin"));
+        const max = num(get("quantityMax"));
+        if (!min && !max) return undefined;
+        const q = sql`abs(${inventoryTransactions.quantity})`;
+        return and(min ? sql`${q} >= ${min}` : undefined, max ? sql`${q} <= ${max}` : undefined);
+      },
+    },
+  },
+};
+
 /** Recent movements at this farm's stores, the ledger the screen shows. */
 farmStoreRouter.get("/:locationId/entries", requirePermission("farms", "view"), async (req, res) => {
   const stores = await db
@@ -113,8 +144,9 @@ farmStoreRouter.get("/:locationId/entries", requirePermission("farms", "view"), 
     .where(eq(stockLocations.locationId, req.params.locationId!));
   const ids = stores.map((s) => s.id);
   if (!ids.length) return res.json({ entries: [] });
+  const advanced = advancedSearch(entrySearch, req.query as Record<string, string | undefined>);
 
-  const rows = await db
+  const rows = db
     .select({
       id: inventoryTransactions.id,
       date: inventoryTransactions.transactionDate,
@@ -130,10 +162,11 @@ farmStoreRouter.get("/:locationId/entries", requirePermission("farms", "view"), 
     .from(inventoryTransactions)
     .innerJoin(items, eq(items.id, inventoryTransactions.itemId))
     .innerJoin(stockLocations, eq(stockLocations.id, inventoryTransactions.stockLocationId))
-    .where(inArray(inventoryTransactions.stockLocationId, ids))
-    .orderBy(desc(inventoryTransactions.transactionDate), desc(inventoryTransactions.createdAt))
-    .limit(100);
-  res.json({ entries: rows });
+    .where(and(inArray(inventoryTransactions.stockLocationId, ids), ...advanced))
+    .orderBy(desc(inventoryTransactions.transactionDate), desc(inventoryTransactions.createdAt));
+  // Browsing shows the last hundred; a search reaches the whole ledger, since
+  // the rows it is looking for are usually the ones the cap hides.
+  res.json({ entries: advanced.length ? await rows : await rows.limit(100) });
 });
 
 const receiveSchema = z.object({

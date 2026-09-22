@@ -20,7 +20,8 @@ import { db } from "../db";
 import { stockOnHand } from "../services/inventory";
 import { requirePermission } from "../lib/rbac";
 import { requireReferenceRead } from "../lib/reference-access";
-import { matches } from "../services/document-search";
+import { advancedSearch, matches } from "../services/document-search";
+import { itemSearch } from "../services/search-specs-masters";
 import { nonBlank, validateBody } from "../lib/validate";
 import { getPreferences } from "../services/preferences";
 import { findNameHolder, mergeItems } from "../services/item-names";
@@ -104,14 +105,19 @@ itemsRouter.get("/", requireReferenceRead, async (req, res) => {
     // The rule every list follows: words from their start, numbers anywhere.
     conditions.push(or(matches(items.name, search), matches(items.sku, search)));
   }
+  const advanced = advancedSearch(itemSearch, req.query as Record<string, string | undefined>);
+  conditions.push(...advanced);
+  // Browsing stops at 500; an advanced search does not — the point of it is to
+  // reach rows the cap hides. An explicit limit (the pickers ask) still wins.
   const asked = Number((req.query as Record<string, string | undefined>).limit);
-  const rows = await db
+  const limit = Number.isFinite(asked) && asked > 0 ? asked : advanced.length ? undefined : 500;
+  const listed = db
     .select({ ...getTableColumns(items), preferredVendorName: contacts.displayName })
     .from(items)
     .leftJoin(contacts, eq(contacts.id, items.preferredVendorId))
     .where(conditions.length ? and(...conditions) : undefined)
-    .orderBy(asc(items.name))
-    .limit(Number.isFinite(asked) && asked > 0 ? asked : 500);
+    .orderBy(asc(items.name));
+  const rows = limit === undefined ? await listed : await listed.limit(limit);
 
   // Latest image attachment per item, used as the list thumbnail.
   const images = await db

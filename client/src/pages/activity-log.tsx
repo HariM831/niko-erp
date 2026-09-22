@@ -1,6 +1,8 @@
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ShieldCheck } from "lucide-react";
 import { api } from "../api";
+import { useAdvancedSearch, type SearchField } from "../components/advanced-search";
 
 interface ActivityRow {
   id: string;
@@ -29,9 +31,37 @@ function humanResource(path: string): string {
 }
 
 export function ActivityLogPage() {
+  // Every user on file, departed ones too: the log outlives the accounts.
+  const { data: users } = useQuery({
+    queryKey: ["users"],
+    queryFn: () => api<{ id: string; name: string; username: string }[]>("/api/users"),
+  });
+  const fields = useMemo<SearchField[]>(
+    () => [
+      { key: "userId", label: "User", kind: "select", options: (users ?? []).map((u) => ({ value: u.id, label: u.name })) },
+      {
+        key: "action",
+        label: "Action",
+        kind: "select",
+        options: [
+          { value: "POST", label: "Created (POST)" },
+          { value: "PATCH", label: "Edited (PATCH)" },
+          { value: "PUT", label: "Replaced (PUT)" },
+          { value: "DELETE", label: "Deleted (DELETE)" },
+        ],
+      },
+      { key: "date", label: "Date Range", kind: "dateRange" },
+      { key: "resource", label: "Resource", kind: "text" },
+      { key: "ip", label: "IP Address", kind: "text" },
+    ],
+    [users],
+  );
+  // The log is capped at the latest 300, so the search is the server's.
+  const adv = useAdvancedSearch("Activity Log", fields);
+  const qs = new URLSearchParams(adv.criteria).toString();
   const { data: rows, error } = useQuery({
-    queryKey: ["activity-log"],
-    queryFn: () => api<ActivityRow[]>("/api/activity-log"),
+    queryKey: ["activity-log", qs],
+    queryFn: () => api<ActivityRow[]>(`/api/activity-log${qs ? `?${qs}` : ""}`),
   });
 
   return (
@@ -43,14 +73,18 @@ export function ActivityLogPage() {
         <div>
           <h1 className="text-lg font-semibold leading-tight">Activity Log</h1>
           </div>
+        <div className="ml-auto">{adv.button}</div>
       </header>
+      {adv.dialog}
       <div className="flex-1 overflow-auto border-t">
         {error ? (
           <div className="p-8 text-center text-sm text-red-600">
             {error instanceof Error ? error.message : "Failed to load"}
           </div>
         ) : !rows?.length ? (
-          <div className="p-12 text-center text-sm text-gray-500">No activity recorded yet.</div>
+          <div className="p-12 text-center text-sm text-gray-500">
+            {adv.active ? "No activity matches the search." : "No activity recorded yet."}
+          </div>
         ) : (
           <table className="w-full text-[13px]">
             <thead className="table-head sticky top-0 z-10">

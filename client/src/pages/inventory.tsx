@@ -5,6 +5,7 @@ import { api, formatDate, formatMoney } from "../api";
 import { AccountSelect, type AccountNode } from "../components/account-select";
 import { SearchSelect } from "../components/search-select";
 import { localYmd } from "../lib/utils";
+import { useAdvancedSearch, type SearchField } from "../components/advanced-search";
 
 /** Current on-hand, for the adjustment form's "quantity now" column. */
 interface StockLevel {
@@ -249,20 +250,57 @@ export function StockPage() {
   );
 }
 
+/**
+ * Zoho's adjustment search. Reference# is the adjustment's number — niko has
+ * no separate reference — and Account and Status are added because the list
+ * shows both. Filtered on the server, like the documents' searches.
+ */
+const ADJUSTMENT_SEARCH: SearchField[] = [
+  { key: "itemId", label: "Item Name", kind: "item" },
+  { key: "itemDescription", label: "Item Description", kind: "text" },
+  { key: "reference", label: "Reference#", kind: "text" },
+  {
+    key: "mode",
+    label: "Adjustment Type",
+    kind: "select",
+    options: [
+      { value: "quantity", label: "Quantity" },
+      { value: "value", label: "Value" },
+    ],
+  },
+  { key: "reason", label: "Reason", kind: "text" },
+  { key: "date", label: "Date Range", kind: "dateRange" },
+  { key: "accountId", label: "Account", kind: "account" },
+  {
+    key: "status",
+    label: "Status",
+    kind: "select",
+    options: [
+      { value: "adjusted", label: "Adjusted" },
+      { value: "void", label: "Void" },
+    ],
+  },
+];
+
 export function InventoryAdjustmentsPage() {
   const [, navigate] = useLocation();
+  const adv = useAdvancedSearch("Inventory Adjustments", ADJUSTMENT_SEARCH);
+  const qs = new URLSearchParams(adv.criteria).toString();
   const { data: rows, isLoading } = useQuery({
-    queryKey: ["inventory-adjustments"],
-    queryFn: () => api<AdjustmentRow[]>("/api/inventory/adjustments"),
+    queryKey: ["inventory-adjustments", adv.criteria],
+    queryFn: () => api<AdjustmentRow[]>(`/api/inventory/adjustments${qs ? `?${qs}` : ""}`),
   });
 
   return (
     <div className="flex h-full flex-col">
       <header className="page-header flex flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-6">
         <h1 className="text-lg font-semibold">Inventory Adjustments</h1>
-        <button onClick={() => navigate("/inventory/adjustments/new")} className="btn-primary">
-          + New Adjustment
-        </button>
+        <div className="flex items-center gap-2">
+          {adv.button}
+          <button onClick={() => navigate("/inventory/adjustments/new")} className="btn-primary">
+            + New Adjustment
+          </button>
+        </div>
       </header>
       <div className="flex-1 overflow-y-auto p-6">
         <table className="w-full text-[13px]">
@@ -287,7 +325,7 @@ export function InventoryAdjustmentsPage() {
             {rows?.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-3 py-10 text-center text-gray-500">
-                  No adjustments yet.
+                  {adv.active ? "No adjustments match this search." : "No adjustments yet."}
                 </td>
               </tr>
             )}
@@ -316,6 +354,7 @@ export function InventoryAdjustmentsPage() {
           </tbody>
         </table>
       </div>
+      {adv.dialog}
     </div>
   );
 }

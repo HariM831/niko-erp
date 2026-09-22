@@ -23,7 +23,8 @@ import { db } from "../db";
 import { nextDocumentNumber } from "../lib/numbering";
 import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
-import { matches } from "../services/document-search";
+import { type DocumentSearch, advancedSearch, matches } from "../services/document-search";
+import { amountRange, dayRange, istDay, plate } from "../services/yard-search";
 
 export const weighTicketsRouter = Router();
 
@@ -88,6 +89,29 @@ const withNames = () =>
  */
 const isOpen = or(isNull(weighTickets.grossWeightKg), isNull(weighTickets.tareWeightKg));
 
+/**
+ * The advanced search over past weighments — what a driver back for a copy of
+ * his slip can tell you: the plate, the day, whose load it was and what was on
+ * it, roughly how heavy.
+ *
+ * A slip's day is the day it was finished, the later of its two weighments:
+ * a tanker weighed empty on Monday evening and loaded on Tuesday is Tuesday's
+ * load, which is the date the slip prints.
+ */
+const slipSearch: DocumentSearch = {
+  advanced: {
+    number: { kind: "text", col: weighTickets.number },
+    vehicleNumber: plate("vehicleNumber", weighTickets.vehicleNumber),
+    partyId: { kind: "eq", col: weighTickets.partyId },
+    itemId: { kind: "eq", col: weighTickets.itemId },
+    date: dayRange("date", istDay(sql`GREATEST(${weighTickets.grossAt}, ${weighTickets.tareAt})`)),
+    netWeight: amountRange("netWeight", weighTickets.netWeightKg),
+    grossWeight: amountRange("grossWeight", weighTickets.grossWeightKg),
+    tareWeight: amountRange("tareWeight", weighTickets.tareWeightKg),
+    notes: { kind: "text", col: weighTickets.notes },
+  },
+};
+
 weighTicketsRouter.get(
   "/",
   requirePermission("office", "weighbridge"),
@@ -111,10 +135,13 @@ weighTicketsRouter.get(
           matches(weighTickets.notes, term),
         )
       : undefined;
-    const where = and(byStatus, bySearch);
+    // The advanced fields combine with the quick search, and lift the cap the
+    // same way: a search that stops at fifty answers "no such slip" wrongly.
+    const advanced = advancedSearch(slipSearch, req.query as Record<string, string | undefined>);
+    const where = and(byStatus, bySearch, ...advanced);
     const rows = await (where ? withNames().where(where) : withNames())
       .orderBy(desc(weighTickets.createdAt))
-      .limit(term ? 100_000 : status === "open" ? 100 : 50);
+      .limit(term || advanced.length ? 100_000 : status === "open" ? 100 : 50);
     res.json(rows);
   },
 );

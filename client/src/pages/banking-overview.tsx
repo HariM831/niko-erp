@@ -4,6 +4,7 @@ import { Landmark, Wallet } from "lucide-react";
 import { api, formatMoney } from "../api";
 import { useLocalSearch } from "../components/search-context";
 import { matchesTerm } from "../lib/utils";
+import { filterRows, useAdvancedSearch, type SearchField } from "../components/advanced-search";
 
 interface AccountSummary {
   id: string;
@@ -20,6 +21,25 @@ interface Summary {
   accounts: AccountSummary[];
 }
 
+/**
+ * The overview's own search: which account, what kind, how much is in it. The
+ * list is small and already on the page, so it is filtered here.
+ */
+const ACCOUNTS_SEARCH: SearchField[] = [
+  { key: "name", label: "Account Name", kind: "text" },
+  {
+    key: "kind",
+    label: "Account Type",
+    kind: "select",
+    options: [
+      { value: "bank", label: "Bank" },
+      { value: "cash", label: "Cash" },
+      { value: "card", label: "Card" },
+    ],
+  },
+  { key: "balance", label: "Amount in Books", kind: "numberRange" },
+];
+
 /** Zoho-style Banking Overview: summary tiles + an Active Accounts register list. */
 export function BankingOverviewPage() {
   const [, navigate] = useLocation();
@@ -28,8 +48,13 @@ export function BankingOverviewPage() {
     queryFn: () => api<Summary>("/api/banking/summary"),
   });
   const term = useLocalSearch("Banking", "banking:accounts");
-  const accounts = (data?.accounts ?? []).filter((a) =>
-    matchesTerm(term, [a.name, a.bankName, a.accountNumber]),
+  const adv = useAdvancedSearch("Banking", ACCOUNTS_SEARCH);
+  const accounts = filterRows(
+    (data?.accounts ?? []).filter((a) => matchesTerm(term, [a.name, a.bankName, a.accountNumber])),
+    ACCOUNTS_SEARCH,
+    adv.criteria,
+    (a, key) =>
+      key === "name" ? [a.name, a.bankName, a.accountNumber] : key === "kind" ? a.kind : key === "balance" ? a.amountInBooks : undefined,
   );
 
   return (
@@ -37,6 +62,7 @@ export function BankingOverviewPage() {
       <header className="page-header flex flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-6 sm:py-3.5">
         <h1 className="text-lg font-semibold">Banking Overview</h1>
         <div className="flex items-center gap-2">
+          {adv.button}
           <button onClick={() => navigate("/banking/new")} className="btn-primary">
             + Add Bank or Cash Account
           </button>
@@ -69,6 +95,8 @@ export function BankingOverviewPage() {
         <div className="card overflow-hidden">
           {isLoading ? (
             <div className="p-8 text-center text-sm text-gray-500">Loading…</div>
+          ) : !accounts.length && adv.active ? (
+            <div className="p-10 text-center text-sm text-gray-500">No accounts match the search.</div>
           ) : !accounts.length && term.trim() ? (
             <div className="p-10 text-center text-sm text-gray-500">No accounts match “{term.trim()}”.</div>
           ) : !accounts.length ? (
@@ -128,6 +156,7 @@ export function BankingOverviewPage() {
           )}
         </div>
       </div>
+      {adv.dialog}
     </div>
   );
 }

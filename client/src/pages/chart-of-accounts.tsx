@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
+import { filterRows, useAdvancedSearch, type SearchField } from "../components/advanced-search";
 
 interface Account {
   id: string;
@@ -40,6 +41,45 @@ const SUBTYPE_LABEL: Record<string, string> = {
 type View = "active" | "inactive" | "all";
 
 /**
+ * Zoho's chart search asks only for name and code. Type and status are added
+ * because the chart is read by them — "which bank accounts are there",
+ * "what did we retire" — and both are columns on the list already.
+ */
+const ACCOUNT_SEARCH: SearchField[] = [
+  { key: "name", label: "Account Name", kind: "text" },
+  { key: "code", label: "Account Code", kind: "text" },
+  {
+    key: "subtype",
+    label: "Account Type",
+    kind: "select",
+    options: Object.entries(SUBTYPE_LABEL).map(([value, label]) => ({ value, label })),
+  },
+  {
+    key: "status",
+    label: "Status",
+    kind: "select",
+    options: [
+      { value: "active", label: "Active" },
+      { value: "inactive", label: "Inactive" },
+    ],
+  },
+];
+
+const accountValue = (a: Account, key: string) => {
+  switch (key) {
+    case "name":
+      return a.name;
+    case "code":
+      return a.code;
+    case "subtype":
+      return a.subtype;
+    case "status":
+      return a.isActive ? "active" : "inactive";
+  }
+  return undefined;
+};
+
+/**
  * Chart of accounts as a tree. Children are nested under their parent and the
  * whole branch keeps its shape when filtering, so an inactive child never makes
  * its parent disappear.
@@ -48,6 +88,7 @@ export function ChartOfAccountsPage() {
   const [, navigate] = useLocation();
   const [view, setView] = useState<View>("active");
   const [viewsOpen, setViewsOpen] = useState(false);
+  const adv = useAdvancedSearch("Chart of Accounts", ACCOUNT_SEARCH);
 
   const { data: accounts, isLoading } = useQuery({
     queryKey: ["accounts-all"],
@@ -66,8 +107,14 @@ export function ChartOfAccountsPage() {
     }
     for (const list of childrenOf.values()) list.sort((a, b) => a.code.localeCompare(b.code));
 
+    // A search reaches the whole chart, the way Zoho's results replace the
+    // view: Status is one of its fields, and asking for inactive accounts
+    // inside the Active view would answer nothing.
+    const hits = adv.active
+      ? new Set(filterRows(all, ACCOUNT_SEARCH, adv.criteria, accountValue).map((a) => a.id))
+      : null;
     const visible = (a: Account) =>
-      view === "all" || (view === "active" ? a.isActive : !a.isActive);
+      hits ? hits.has(a.id) : view === "all" || (view === "active" ? a.isActive : !a.isActive);
 
     // Keep a branch if the account itself matches or any descendant does.
     const matches = (a: Account): boolean =>
@@ -83,9 +130,11 @@ export function ChartOfAccountsPage() {
     };
     walk(null, 0);
     return { rows, byId };
-  }, [accounts, view]);
+  }, [accounts, view, adv.active, adv.criteria]);
 
-  const viewLabel = view === "active" ? "Active Accounts" : view === "inactive" ? "Inactive Accounts" : "All Accounts";
+  const viewLabel = adv.active
+    ? "Search Results"
+    : view === "active" ? "Active Accounts" : view === "inactive" ? "Inactive Accounts" : "All Accounts";
 
   return (
     <div className="flex h-full flex-col">
@@ -105,7 +154,9 @@ export function ChartOfAccountsPage() {
                 <button
                   key={v}
                   onClick={() => {
+                    // Picking a view leaves the search, as it does in Zoho.
                     setView(v);
+                    adv.setCriteria({});
                     setViewsOpen(false);
                   }}
                   className={`block w-full px-3 py-1.5 text-left text-[13px] capitalize hover:bg-brand-50 ${
@@ -118,9 +169,12 @@ export function ChartOfAccountsPage() {
             </div>
           )}
         </div>
-        <button onClick={() => navigate("/accountant/accounts/new")} className="btn-primary">
-          + New Account
-        </button>
+        <div className="flex items-center gap-2">
+          {adv.button}
+          <button onClick={() => navigate("/accountant/accounts/new")} className="btn-primary">
+            + New Account
+          </button>
+        </div>
       </header>
 
       <div className="flex-1 overflow-auto">
@@ -138,6 +192,13 @@ export function ChartOfAccountsPage() {
               </tr>
             </thead>
             <tbody>
+              {adv.active && rows.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-10 text-center text-gray-500">
+                    No accounts match this search.
+                  </td>
+                </tr>
+              )}
               {rows.map((a) => (
                 <tr
                   key={a.id}
@@ -172,6 +233,7 @@ export function ChartOfAccountsPage() {
           </table>
         )}
       </div>
+      {adv.dialog}
     </div>
   );
 }

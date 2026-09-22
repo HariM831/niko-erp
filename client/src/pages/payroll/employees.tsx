@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearch } from "../../components/search-context";
+import { useAdvancedSearch, type SearchField } from "../../components/advanced-search";
 import { Link } from "wouter";
 import { Plus, ScanFace, Upload } from "lucide-react";
 import { ApiError, api, formatMoney } from "../../api";
@@ -155,7 +156,58 @@ export function PayrollEmployeesPage() {
   const [editing, setEditing] = useState<"new" | string | null>(null);
   const [importOpen, setImportOpen] = useState(false);
 
-  const params = new URLSearchParams();
+  // Advanced search, asked of the server with the rest of the filters. The
+  // pickers list every designation, role and site, active or not: a search
+  // reaches people who have left, and they may hold a retired one.
+  const rolesQ = useQuery({ queryKey: ["payroll", "wage-roles"], queryFn: () => api<WageRole[]>("/api/payroll/wage-roles") });
+  const locQ = useQuery({ queryKey: ["locations"], queryFn: () => api<Location[]>("/api/locations") });
+  const deptQ = useQuery({ queryKey: ["payroll", "departments"], queryFn: () => api<Department[]>("/api/payroll/departments") });
+  const searchFields = useMemo<SearchField[]>(
+    () => [
+      {
+        key: "designation",
+        label: "Designation",
+        kind: "select",
+        options: (deptQ.data ?? []).flatMap((d) =>
+          d.designations.map((x) => ({ value: x.id, label: `${x.name} (${d.name})` })),
+        ),
+      },
+      {
+        key: "wageRole",
+        label: "Wage Role",
+        kind: "select",
+        options: (rolesQ.data ?? []).map((r) => ({ value: r.id, label: r.name })),
+      },
+      {
+        key: "location",
+        label: "Location",
+        kind: "select",
+        options: (locQ.data ?? []).map((l) => ({ value: l.id, label: l.name })),
+      },
+      { key: "reportingTo", label: "Reports To", kind: "employee" },
+      { key: "joined", label: "Joining Date", kind: "dateRange" },
+      { key: "left", label: "Leaving Date", kind: "dateRange" },
+      { key: "dailyRate", label: "Daily Rate Range", kind: "numberRange" },
+      { key: "gross", label: "Monthly Gross Range", kind: "numberRange" },
+      {
+        key: "face",
+        label: "Face",
+        kind: "select",
+        options: [
+          { value: "enrolled", label: "Enrolled" },
+          { value: "photo", label: "Photo only" },
+          { value: "none", label: "None" },
+        ],
+      },
+      { key: "pf", label: "PF", kind: "select", options: [{ value: "yes", label: "Enabled" }, { value: "no", label: "Not enabled" }] },
+      { key: "esi", label: "ESI", kind: "select", options: [{ value: "yes", label: "Enabled" }, { value: "no", label: "Not enabled" }] },
+      { key: "phone", label: "Phone", kind: "text" },
+    ],
+    [deptQ.data, rolesQ.data, locQ.data],
+  );
+  const adv = useAdvancedSearch("Employees", searchFields);
+
+  const params = new URLSearchParams(adv.criteria);
   if (q) params.set("q", q);
   if (dept) params.set("department", dept);
   if (payType) params.set("payType", payType);
@@ -165,7 +217,6 @@ export function PayrollEmployeesPage() {
     queryFn: () => api<EmployeeRow[]>(`/api/payroll/employees?${params}`),
     placeholderData: keepPreviousData,
   });
-  const deptQ = useQuery({ queryKey: ["payroll", "departments"], queryFn: () => api<Department[]>("/api/payroll/departments") });
 
   const rows = useMemo(
     () => [...(listQ.data ?? [])].sort((a, b) => a.empCode.localeCompare(b.empCode, undefined, { numeric: true })),
@@ -192,6 +243,7 @@ export function PayrollEmployeesPage() {
   return (
     <div className="p-4 md:p-6">
       <PageHeader title="Employees" sub={`${rows.length} listed · ${counts.salaried} salaried · ${counts.wage} daily wage · ${counts.faces} with a face`}>
+        {adv.button}
         <Link href="/payroll/face-enrollment" className="btn-secondary"><ScanFace size={14} /> Face enrolment</Link>
         <button className="btn-secondary" onClick={() => setImportOpen(true)}><Upload size={14} /> Import CSV</button>
         <button className="btn-primary" onClick={() => setEditing("new")}><Plus size={14} /> New employee</button>
@@ -277,6 +329,7 @@ export function PayrollEmployeesPage() {
         <Pager total={paged.total} offset={paged.offset} onChange={paged.setOffset} />
       </div>
 
+      {adv.dialog}
       {editing && (
         <EmployeeEditor
           id={editing === "new" ? null : editing}

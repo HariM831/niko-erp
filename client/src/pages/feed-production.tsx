@@ -7,7 +7,7 @@
  * VOID — journal reversed, feed withdrawn — not a draft stage in front of every
  * real run.
  */
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Factory, Plus, X } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
@@ -15,6 +15,8 @@ import { StatusBadge } from "../components/status-badge";
 import { useLocalSearch } from "../components/search-context";
 import { SearchSelect } from "../components/search-select";
 import { localYmd } from "../lib/utils";
+import { type SearchField, useAdvancedSearch } from "../components/advanced-search";
+import { FORMULATION_CATEGORIES } from "@shared/item-categories";
 
 interface FormulaGroup {
   name: string;
@@ -41,6 +43,24 @@ const kg = (v: string | number | null | undefined) =>
 const inr = (n: number) =>
   `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+/**
+ * A formula by name, so a search spans its versions; an ingredient finds the
+ * runs that consumed it. Pending is left out of Status: it was the printed
+ * slip, which is retired, so no run is ever in it now.
+ */
+function productionFields(groups: FormulaGroup[] | undefined): SearchField[] {
+  return [
+    { key: "number", label: "Production#", kind: "text" },
+    { key: "date", label: "Date Range", kind: "dateRange" },
+    { key: "formula", label: "Formula", kind: "select", options: (groups ?? []).map((g) => g.name) },
+    { key: "materialId", label: "Ingredient", kind: "item", itemCategories: FORMULATION_CATEGORIES },
+    { key: "status", label: "Status", kind: "select", options: ["completed", "void"] },
+    { key: "batches", label: "Batches Range", kind: "numberRange" },
+    { key: "output", label: "Output Range (kg)", kind: "numberRange" },
+    { key: "costPerKg", label: "Cost per kg Range", kind: "numberRange" },
+  ];
+}
+
 export function FeedProductionPage() {
   const qc = useQueryClient();
   /**
@@ -65,11 +85,15 @@ export function FeedProductionPage() {
   });
   // "Search in Production" is answered by the server, which looks through
   // every run ever made, not just the newest hundred this page loads to browse.
+  // The advanced criteria travel with it and combine with the top-bar term.
   const term = useLocalSearch("Production", "feed-mill:production").trim();
+  const fields = useMemo(() => productionFields(groups), [groups]);
+  const adv = useAdvancedSearch("Production", fields);
+  const searching = !!term || adv.active;
+  const params = new URLSearchParams({ ...(term ? { search: term } : {}), ...adv.criteria }).toString();
   const { data: rows } = useQuery<ProductionRow[]>({
-    queryKey: ["feed-production", term],
-    queryFn: () =>
-      api(term ? `/api/feed/production/orders?search=${encodeURIComponent(term)}` : "/api/feed/production/orders"),
+    queryKey: ["feed-production", term, adv.criteria],
+    queryFn: () => api(`/api/feed/production/orders${params ? `?${params}` : ""}`),
     placeholderData: keepPreviousData,
   });
 
@@ -136,7 +160,7 @@ export function FeedProductionPage() {
   const found = rows ?? [];
   const byDay = (() => {
     const all = [...new Set(found.map((r) => r.orderDate))].sort().reverse();
-    const days = term.trim() ? all : all.slice(0, 3);
+    const days = searching ? all : all.slice(0, 3);
     return days.map((day) => {
       const dayRows = found.filter((r) => r.orderDate === day);
       const live = dayRows.filter((r) => r.status !== "void");
@@ -154,9 +178,10 @@ export function FeedProductionPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="page-header px-6 py-3">
+      <header className="page-header flex items-center justify-between gap-2 px-6 py-3">
         <h1 className="text-lg font-semibold">Production</h1>
-        </header>
+        {adv.button}
+      </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto bg-surface p-3 lg:p-6">
         <div className="mx-auto max-w-2xl">
@@ -254,10 +279,10 @@ export function FeedProductionPage() {
             </div>
           </div>
 
-          {term.trim() && !byDay.length && (
-
-            <p className="p-4 text-center text-[13px] text-gray-400">No run matches “{term.trim()}”.</p>
-
+          {searching && !byDay.length && (
+            <p className="p-4 text-center text-[13px] text-gray-400">
+              {term ? <>No run matches “{term}”.</> : "No run matches the search."}
+            </p>
           )}
 
           {byDay.map(({ day, rows: dayRows, totalKg, totalValue }) => (
@@ -322,12 +347,13 @@ export function FeedProductionPage() {
             </div>
           ))}
           <div>
-            {rows && !rows.length && (
+            {!searching && rows && !rows.length && (
               <p className="card p-4 text-center text-[13px] text-gray-400">Nothing produced yet.</p>
             )}
           </div>
         </div>
       </div>
+      {adv.dialog}
     </div>
   );
 }

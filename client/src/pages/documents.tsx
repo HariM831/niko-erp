@@ -88,114 +88,187 @@ const statusViews = (statuses: string[]): ListView[] => [
 /**
  * Advanced-search fields per module.
  *
- * These mirror Zoho's Advanced Search, minus the fields niko has no equivalent
- * for — GST treatment, place of supply, TCS, tax exemptions and projects are
- * absent by design, and offering them as boxes that filter nothing would be
- * worse than not offering them.
+ * These follow Zoho's Advanced Search box for box and in Zoho's order, minus
+ * the fields niko has no data for — GST treatment, place of supply, TCS, tax
+ * exemptions, projects, salesperson and addresses are absent by design, and
+ * offering them as boxes that filter nothing would be worse than not offering
+ * them. A few of niko's own follow Zoho's set (Internal#, Vendor Bill Total,
+ * Due Date on invoices): they were here before and still answer questions.
  *
  * The keys must match what the module declares in server/services/search-specs;
  * a key with no counterpart there is read by nothing.
  */
-const dated = (label: string): SearchField[] => [
-  { key: "date", label, kind: "dateRange" },
-  { key: "created", label: "Created Between", kind: "dateRange" },
+const itemFields: SearchField[] = [
+  { key: "itemId", label: "Item Name", kind: "item" },
+  { key: "itemDescription", label: "Item Description", kind: "text" },
 ];
+const ACCOUNT: SearchField = { key: "accountId", label: "Account", kind: "account" };
+const TOTAL: SearchField = { key: "total", label: "Total Range", kind: "numberRange" };
+const DATE: SearchField = { key: "date", label: "Date Range", kind: "dateRange" };
+const CREATED: SearchField = { key: "created", label: "Created Between", kind: "dateRange" };
+const NOTES: SearchField = { key: "notes", label: "Notes", kind: "text" };
+const REFERENCE: SearchField = { key: "reference", label: "Reference#", kind: "text" };
+const VENDOR: SearchField = { key: "vendorId", label: "Vendor", kind: "contact", contactType: "vendor" };
+const CUSTOMER: SearchField = { key: "customerId", label: "Customer Name", kind: "contact", contactType: "customer" };
+/** Status choices in Zoho's casing: "partially_paid" reads "Partially Paid". */
+const status = (options: (string | { value: string; label: string })[]): SearchField => ({
+  key: "status",
+  label: "Status",
+  kind: "select",
+  options: options.map((o) =>
+    typeof o === "string" ? { value: o, label: o.replace(/_/g, " ").replace(/(^| )\w/g, (c) => c.toUpperCase()) } : o,
+  ),
+});
+const CREDIT_STATUS = status(["draft", "open", "closed", "void"]);
+const PAYMENT_METHOD: SearchField = {
+  key: "mode",
+  label: "Payment Method",
+  kind: "select",
+  options: [
+    { value: "cash", label: "Cash" },
+    { value: "bank_transfer", label: "Bank Transfer" },
+    { value: "upi", label: "UPI" },
+    { value: "cheque", label: "Cheque" },
+    { value: "card", label: "Card" },
+  ],
+};
 
 export const BILL_SEARCH: SearchField[] = [
   // Bill# is the vendor's number, as on the list; niko's counter is Internal#.
   { key: "vendorBillNumber", label: "Bill#", kind: "text" },
-  { key: "reference", label: "Reference#", kind: "text" },
-  { key: "number", label: "Internal#", kind: "text" },
-  { key: "vendorId", label: "Vendor", kind: "contact", contactType: "vendor" },
-  { key: "vendorPan", label: "Vendor PAN", kind: "text" },
-  { key: "status", label: "Status", kind: "select", options: ["open", "partially_paid", "paid", "void"] },
-  ...dated("Bill Date"),
+  // The linked purchase order's number, or the order number a Zoho bill kept in its reference.
+  { key: "purchaseOrderNumber", label: "P.O#", kind: "text" },
+  DATE,
   { key: "dueDate", label: "Due Date", kind: "dateRange" },
-  { key: "total", label: "Total", kind: "numberRange" },
+  CREATED,
+  // Overdue and Unpaid are readings of an owed bill, worked out on the server.
+  status(["draft", "open", "overdue", "unpaid", "partially_paid", "paid", "void"]),
+  ...itemFields,
+  TOTAL,
+  NOTES,
+  VENDOR,
+  { key: "vendorPan", label: "Vendor PAN", kind: "text" },
+  ACCOUNT,
+  { key: "number", label: "Internal#", kind: "text" },
+  REFERENCE,
   // What the vendor printed, before our deductions — the figure they quote on
   // the phone, which our own total never equals on a truck that ran short.
   { key: "vendorBillTotal", label: "Vendor Bill Total", kind: "numberRange" },
-  { key: "itemDescription", label: "Item Description", kind: "text" },
-  { key: "account", label: "Account", kind: "account" },
-  { key: "notes", label: "Notes", kind: "text" },
 ];
 
 export const INVOICE_SEARCH: SearchField[] = [
   { key: "number", label: "Invoice#", kind: "text" },
-  { key: "reference", label: "Reference#", kind: "text" },
-  { key: "customerId", label: "Customer", kind: "contact", contactType: "customer" },
-  { key: "customerGstin", label: "Customer GSTIN", kind: "text" },
-  { key: "status", label: "Status", kind: "select", options: ["draft", "sent", "partially_paid", "paid", "void"] },
-  ...dated("Invoice Date"),
+  // Zoho's "Order Number" on an invoice is its reference.
+  { key: "reference", label: "Order Number", kind: "text" },
+  DATE,
+  CREATED,
+  status(["draft", "sent", "overdue", "unpaid", "partially_paid", "paid", "void"]),
+  ...itemFields,
+  ACCOUNT,
+  TOTAL,
+  CUSTOMER,
   { key: "dueDate", label: "Due Date", kind: "dateRange" },
-  { key: "total", label: "Total", kind: "numberRange" },
-  { key: "itemDescription", label: "Item Description", kind: "text" },
-  { key: "account", label: "Account", kind: "account" },
-  { key: "notes", label: "Notes", kind: "text" },
+  { key: "customerGstin", label: "Customer GSTIN", kind: "text" },
+  NOTES,
 ];
 
+/**
+ * Zoho's Source, Customer Name and Employee are left out: a niko expense is
+ * typed in by hand, is never billed on to a customer and carries no employee.
+ */
 export const EXPENSE_SEARCH: SearchField[] = [
+  { key: "accountId", label: "Expense Account", kind: "account" },
+  { key: "paidThroughId", label: "Paid Through", kind: "account", accountSource: "bank" },
+  NOTES,
+  REFERENCE,
+  DATE,
+  // The two states the list shows: paid, or still owed with no paid-through account.
+  status(["paid", "unpaid"]),
+  TOTAL,
+  VENDOR,
   { key: "number", label: "Expense#", kind: "text" },
-  { key: "reference", label: "Reference#", kind: "text" },
-  { key: "vendorId", label: "Vendor", kind: "contact", contactType: "vendor" },
-  ...dated("Expense Date"),
-  { key: "total", label: "Amount", kind: "numberRange" },
-  { key: "account", label: "Expense Account", kind: "account" },
-  { key: "notes", label: "Notes", kind: "text" },
 ];
 
-const paymentSearch = (side: "customer" | "vendor"): SearchField[] => [
-  { key: "number", label: "Payment#", kind: "text" },
-  { key: "reference", label: "Reference#", kind: "text" },
-  {
-    key: side === "customer" ? "customerId" : "vendorId",
-    label: side === "customer" ? "Customer" : "Vendor",
-    kind: "contact",
-    contactType: side,
-  },
-  { key: "mode", label: "Mode", kind: "select", options: ["cash", "bank_transfer", "upi", "cheque", "card"] },
-  ...dated("Payment Date"),
-  { key: "total", label: "Amount", kind: "numberRange" },
-  { key: "notes", label: "Notes", kind: "text" },
+/**
+ * Zoho's Status is left out — a niko payment is recorded once, paid, with no
+ * draft or void state to tell apart — and so is Payments Made's Bank Reference#,
+ * which would be the same Reference# column a second time.
+ */
+export const CUSTOMER_PAYMENT_SEARCH: SearchField[] = [
+  CUSTOMER,
+  { key: "number", label: "Payment #", kind: "text" },
+  REFERENCE,
+  DATE,
+  TOTAL,
+  PAYMENT_METHOD,
+  NOTES,
 ];
-export const CUSTOMER_PAYMENT_SEARCH = paymentSearch("customer");
-export const VENDOR_PAYMENT_SEARCH = paymentSearch("vendor");
+export const VENDOR_PAYMENT_SEARCH: SearchField[] = [
+  VENDOR,
+  { key: "number", label: "Payment #", kind: "text" },
+  REFERENCE,
+  DATE,
+  TOTAL,
+  PAYMENT_METHOD,
+  NOTES,
+];
 
 export const VENDOR_CREDIT_SEARCH: SearchField[] = [
   { key: "number", label: "Credit Note#", kind: "text" },
-  { key: "reference", label: "Reference#", kind: "text" },
-  { key: "vendorId", label: "Vendor", kind: "contact", contactType: "vendor" },
-  { key: "status", label: "Status", kind: "select", options: ["open", "closed", "void"] },
-  ...dated("Credit Date"),
-  { key: "total", label: "Total", kind: "numberRange" },
-  { key: "account", label: "Account", kind: "account" },
-  { key: "notes", label: "Notes", kind: "text" },
+  REFERENCE,
+  DATE,
+  CREDIT_STATUS,
+  ...itemFields,
+  TOTAL,
+  NOTES,
+  ACCOUNT,
+  VENDOR,
 ];
 
 export const CREDIT_NOTE_SEARCH: SearchField[] = [
   { key: "number", label: "Credit Note#", kind: "text" },
-  { key: "reference", label: "Reference#", kind: "text" },
-  { key: "customerId", label: "Customer", kind: "contact", contactType: "customer" },
-  { key: "status", label: "Status", kind: "select", options: ["open", "closed", "void"] },
-  ...dated("Credit Note Date"),
-  { key: "total", label: "Total", kind: "numberRange" },
-  { key: "account", label: "Account", kind: "account" },
-  { key: "notes", label: "Notes", kind: "text" },
+  REFERENCE,
+  DATE,
+  CREDIT_STATUS,
+  ...itemFields,
+  ACCOUNT,
+  TOTAL,
+  NOTES,
+  CUSTOMER,
 ];
 
 export const PURCHASE_ORDER_SEARCH: SearchField[] = [
-  { key: "number", label: "Order#", kind: "text" },
-  { key: "reference", label: "Reference#", kind: "text" },
-  { key: "vendorId", label: "Vendor", kind: "contact", contactType: "vendor" },
-  {
-    key: "status",
-    label: "Status",
-    kind: "select",
-    options: ["draft", "issued", "partially_billed", "billed", "closed", "cancelled"],
-  },
-  { key: "created", label: "Created Between", kind: "dateRange" },
-  { key: "total", label: "Total", kind: "numberRange" },
-  { key: "account", label: "Account", kind: "account" },
+  { key: "number", label: "Purchase Order#", kind: "text" },
+  REFERENCE,
+  DATE,
+  { key: "expectedDeliveryDate", label: "Expected Delivery Date", kind: "dateRange" },
+  CREATED,
+  status(["draft", "issued", "partially_billed", "billed", "closed", "cancelled"]),
+  ...itemFields,
+  TOTAL,
+  VENDOR,
+  ACCOUNT,
+];
+
+/**
+ * Manual Journals. Zoho's "Notes" is niko's narration, and "Published" is what
+ * Zoho calls a posted entry. Customer Name and Vendor Name are left out because
+ * a niko journal line carries no contact; Reporting Method and Journal Type
+ * because niko keeps one set of books, with no cash-basis-only entries.
+ */
+export const JOURNAL_SEARCH: SearchField[] = [
+  { key: "number", label: "Journal#", kind: "text" },
+  REFERENCE,
+  DATE,
+  status([
+    { value: "draft", label: "Draft" },
+    { value: "posted", label: "Published" },
+    { value: "reversed", label: "Reversed" },
+  ]),
+  ACCOUNT,
+  { key: "accountCode", label: "Account Code", kind: "text" },
+  { key: "narration", label: "Notes", kind: "text" },
+  TOTAL,
 ];
 
 export const INVOICE_VIEWS = statusViews(["draft", "sent", "partially_paid", "paid", "void"]);

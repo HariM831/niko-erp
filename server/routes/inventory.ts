@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
   accounts,
@@ -14,6 +14,7 @@ import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, reverseJournal } from "../services/posting";
+import { advancedSearch, type DocumentSearch } from "../services/document-search";
 import {
   mainStore,
   postInventoryMovement,
@@ -94,7 +95,44 @@ inventoryRouter.get(
   },
 );
 
-inventoryRouter.get("/adjustments", requirePermission("items", "view"), async (_req, res) => {
+/**
+ * Zoho's adjustment search, less what niko does not keep. Zoho's Reference# is
+ * the adjustment's own identifier; niko's is its number, so that is what the
+ * box matches. Item Description reads the line's notes, which is where an
+ * adjustment line's description is typed.
+ */
+const adjustmentSearch: DocumentSearch = {
+  id: inventoryAdjustments.id,
+  accountId: inventoryAdjustments.adjustmentAccountId,
+  lines: {
+    table: inventoryAdjustmentLines,
+    documentId: inventoryAdjustmentLines.adjustmentId,
+    text: [inventoryAdjustmentLines.notes],
+    itemId: inventoryAdjustmentLines.itemId,
+  },
+  advanced: {
+    itemId: { kind: "lineItem" },
+    itemDescription: { kind: "lineText", on: inventoryAdjustmentLines.notes },
+    reference: { kind: "text", col: inventoryAdjustments.number },
+    mode: { kind: "eq", col: inventoryAdjustments.mode },
+    reason: { kind: "text", col: inventoryAdjustments.reason },
+    date: { kind: "dateRange", col: inventoryAdjustments.adjustmentDate },
+    accountId: { kind: "accountId" },
+    // The list shows "Adjusted" or "Void"; the column underneath is a flag.
+    status: {
+      kind: "custom",
+      build: (get) => {
+        const v = get("status");
+        if (v === "void") return eq(inventoryAdjustments.isVoid, true);
+        if (v === "adjusted") return eq(inventoryAdjustments.isVoid, false);
+        return undefined;
+      },
+    },
+  },
+};
+
+inventoryRouter.get("/adjustments", requirePermission("items", "view"), async (req, res) => {
+  const conditions = advancedSearch(adjustmentSearch, req.query as Record<string, string | undefined>);
   const rows = await db
     .select({
       id: inventoryAdjustments.id,
@@ -107,6 +145,7 @@ inventoryRouter.get("/adjustments", requirePermission("items", "view"), async (_
     })
     .from(inventoryAdjustments)
     .leftJoin(accounts, eq(accounts.id, inventoryAdjustments.adjustmentAccountId))
+    .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(desc(inventoryAdjustments.adjustmentDate));
   res.json(rows.map((r) => ({ ...r, status: r.isVoid ? "void" : "adjusted" })));
 });

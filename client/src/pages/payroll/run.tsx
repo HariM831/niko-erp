@@ -9,6 +9,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Download, Printer } from "lucide-react";
 import { useLocalSearch } from "../../components/search-context";
+import { filterRows, useAdvancedSearch, type SearchField } from "../../components/advanced-search";
 import { matchesTerm } from "../../lib/utils";
 import { api, formatMoney } from "../../api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -79,6 +80,49 @@ interface RunDetail {
 
 const slipName = (s: Slip) => s.name ?? "—";
 
+/**
+ * Finding slips within the month's run: whose, which kind of pay, and the
+ * ones worth a second look before confirming — loss of pay, an advance being
+ * recovered, a net pay out of line. Bank details matter too: a slip with no
+ * account number is a line the bank file cannot pay.
+ */
+const searchFields = (departments: string[]): SearchField[] => [
+  { key: "employee", label: "Employee", kind: "employee" },
+  {
+    key: "payType",
+    label: "Pay Type",
+    kind: "select",
+    options: [
+      { value: "salaried", label: "Salaried" },
+      { value: "daily_wage", label: "Daily wage" },
+    ],
+  },
+  { key: "department", label: "Department", kind: "select", options: departments },
+  { key: "paidDays", label: "Paid Days", kind: "numberRange" },
+  { key: "lopDays", label: "LOP Days", kind: "numberRange" },
+  { key: "gross", label: "Earned Gross Range", kind: "numberRange" },
+  { key: "deductions", label: "Deductions Range", kind: "numberRange" },
+  { key: "net", label: "Net Pay Range", kind: "numberRange" },
+  {
+    key: "advance",
+    label: "Advance Recovery",
+    kind: "select",
+    options: [
+      { value: "yes", label: "Recovering an advance" },
+      { value: "no", label: "No recovery" },
+    ],
+  },
+  {
+    key: "bank",
+    label: "Bank Account",
+    kind: "select",
+    options: [
+      { value: "yes", label: "On file" },
+      { value: "no", label: "Missing" },
+    ],
+  },
+];
+
 export function PayrollRunPage() {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
@@ -124,16 +168,54 @@ export function PayrollRunPage() {
   // "Search in Payroll Run" finds a person's slip; the run's totals are the
   // server's and still cover everyone.
   const term = useLocalSearch("Payroll Run", "payroll:run");
-  const paged = usePaged(slips.filter((sl) => matchesTerm(term, [sl.name, sl.empCode, sl.department])));
+  // Departments offered are the ones on this run's slips.
+  const fields = useMemo(
+    () => searchFields([...new Set(slips.map((sl) => sl.department).filter((d): d is string => !!d))].sort()),
+    [slips],
+  );
+  const adv = useAdvancedSearch("Payroll run", fields);
+  const paged = usePaged(
+    filterRows(
+      slips.filter((sl) => matchesTerm(term, [sl.name, sl.empCode, sl.department])),
+      fields,
+      adv.criteria,
+      (sl, key) => {
+        switch (key) {
+          case "employee":
+            return sl.employeeId;
+          case "payType":
+            return sl.payType;
+          case "department":
+            return sl.department;
+          case "paidDays":
+            return Number(sl.paidDays);
+          case "lopDays":
+            return Number(sl.lopDays);
+          case "gross":
+            return Number(sl.earnedGross);
+          case "deductions":
+            return Number(sl.totalDeductions);
+          case "net":
+            return Number(sl.netPay);
+          case "advance":
+            return Number(sl.advanceRecovery) > 0 ? "yes" : "no";
+          case "bank":
+            return sl.bankAccountNumber?.trim() ? "yes" : "no";
+        }
+      },
+    ),
+  );
 
   return (
     <div className="p-4 md:p-6">
       <PageHeader title="Payroll run" sub="Process a month, review every slip, then confirm — one journal, dated the last day of the month.">
+        {run && adv.button}
         <MonthPicker year={year} month={month} onChange={(y, m) => { setYear(y); setMonth(m); setOpenRunId(null); }} />
         <button className="btn-primary" disabled={processM.isPending || monthRun?.status === "confirmed"} onClick={() => processM.mutate()}>
           {processM.isPending ? "Processing…" : monthRun ? "Re-process" : "Process"} {MONTHS_LONG[month - 1]}
         </button>
       </PageHeader>
+      {adv.dialog}
       <ErrorBanner message={err} onClose={() => setErr(null)} />
 
       {run && (
@@ -225,7 +307,7 @@ export function PayrollRunPage() {
                       <Td right className="font-semibold">{formatMoney(s.netPay)}</Td>
                     </tr>
                   ))}
-                  {!paged.page.length && <tr><Td colSpan={12}><Empty>{term.trim() && slips.length ? "No slips match." : "No slips."}</Empty></Td></tr>}
+                  {!paged.page.length && <tr><Td colSpan={12}><Empty>{(term.trim() || adv.active) && slips.length ? "No slips match." : "No slips."}</Empty></Td></tr>}
                 </tbody>
               </table>
             )}

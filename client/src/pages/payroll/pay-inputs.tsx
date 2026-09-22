@@ -14,6 +14,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { useLocalSearch } from "../../components/search-context";
+import { filterRows, useAdvancedSearch, type Criteria, type SearchField } from "../../components/advanced-search";
 import { SearchSelect } from "../../components/search-select";
 import { matchesTerm } from "../../lib/utils";
 import { api, formatMoney } from "../../api";
@@ -77,6 +78,34 @@ interface Advance {
   repayments: { id: string; amount: number | string; month: number; year: number; notes: string | null; payrollRunId: string | null }[];
 }
 
+/**
+ * One advanced search for the page's two lists, as the top-bar box is one.
+ * Employee and Amount Range narrow both; the rest belong to one list and
+ * leave the other alone. Month, kind and status stay the lists' own pickers.
+ */
+const SEARCH_FIELDS: SearchField[] = [
+  { key: "employee", label: "Employee", kind: "employee" },
+  { key: "amount", label: "Amount Range", kind: "numberRange" },
+  {
+    key: "category",
+    label: "Category",
+    kind: "select",
+    options: [...new Set([...BONUS_CATEGORIES, ...EXPENSE_CATEGORIES])],
+  },
+  { key: "description", label: "Description", kind: "text" },
+  {
+    key: "advanceType",
+    label: "Advance Type",
+    kind: "select",
+    options: [
+      { value: "salary_advance", label: "Salary advance" },
+      { value: "loan", label: "Loan" },
+    ],
+  },
+  { key: "givenOn", label: "Advance Given On", kind: "dateRange" },
+  { key: "outstanding", label: "Outstanding Range", kind: "numberRange" },
+];
+
 /** The routes join the employee in flat: `name` and `empCode` on the row. */
 const who = (r: { name?: string; empCode?: string }) => r.name ?? "—";
 const whoCode = (r: { empCode?: string }) => r.empCode ?? "";
@@ -94,6 +123,7 @@ export function PayrollPayInputsPage() {
   // "Search in Pay Inputs" narrows both lists on the page to the people named;
   // the month's totals above them still count everyone.
   const term = useLocalSearch("Pay Inputs", "payroll:pay-inputs");
+  const adv = useAdvancedSearch("Pay inputs", SEARCH_FIELDS);
 
   const listQ = useQuery({
     queryKey: ["payroll", "pay-inputs", year, month, kind, status],
@@ -114,7 +144,25 @@ export function PayrollPayInputsPage() {
   });
 
   const rows = listQ.data ?? [];
-  const paged = usePaged(rows.filter((r) => matchesTerm(term, [r.name, r.empCode])));
+  const paged = usePaged(
+    filterRows(
+      rows.filter((r) => matchesTerm(term, [r.name, r.empCode])),
+      SEARCH_FIELDS,
+      adv.criteria,
+      (r, key) => {
+        switch (key) {
+          case "employee":
+            return r.employeeId;
+          case "amount":
+            return Number(r.amount);
+          case "category":
+            return r.category;
+          case "description":
+            return r.description;
+        }
+      },
+    ),
+  );
   const totals = useMemo(() => {
     const t: Record<Kind, number> = { bonus: 0, overtime: 0, reimbursement: 0, deduction: 0, arrears: 0 };
     for (const r of rows) if (r.status === "approved" || r.status === "paid") t[r.kind] += Number(r.approvedAmount ?? r.amount);
@@ -124,8 +172,10 @@ export function PayrollPayInputsPage() {
   return (
     <div className="p-4 md:p-6">
       <PageHeader title="Pay inputs" sub="Bonus, overtime, reimbursement, deduction and arrears — approved rows flow into the month's run.">
+        {adv.button}
         <button className="btn-primary" onClick={() => setAddOpen(true)}><Plus size={14} /> Add input</button>
       </PageHeader>
+      {adv.dialog}
       <ErrorBanner message={err} onClose={() => setErr(null)} />
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -199,14 +249,14 @@ export function PayrollPayInputsPage() {
                   </Td>
                 </tr>
               ))}
-              {!paged.page.length && <tr><Td colSpan={7}><Empty>{term.trim() && rows.length ? "No pay inputs match." : "No pay inputs for this month."}</Empty></Td></tr>}
+              {!paged.page.length && <tr><Td colSpan={7}><Empty>{(term.trim() || adv.active) && rows.length ? "No pay inputs match." : "No pay inputs for this month."}</Empty></Td></tr>}
             </tbody>
           </table>
         )}
         <Pager total={paged.total} offset={paged.offset} onChange={paged.setOffset} />
       </div>
 
-      <AdvancesSection term={term} />
+      <AdvancesSection term={term} criteria={adv.criteria} />
 
       {addOpen && <InputDialog year={year} month={month} onClose={() => setAddOpen(false)} onSaved={invalidate} />}
       {editing && <InputDialog year={editing.year} month={editing.month} existing={editing} onClose={() => setEditing(null)} onSaved={invalidate} />}
@@ -449,7 +499,7 @@ function InputDialog({ year, month, existing, onClose, onSaved }: { year: number
 }
 
 /* ── Advances ──────────────────────────────────────────────────────────── */
-function AdvancesSection({ term }: { term: string }) {
+function AdvancesSection({ term, criteria }: { term: string; criteria: Criteria }) {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
   const [status, setStatus] = useState("active");
@@ -470,7 +520,25 @@ function AdvancesSection({ term }: { term: string }) {
 
   const rows = listQ.data ?? [];
   const outstanding = rows.reduce((a, r) => a + Number(r.outstanding), 0);
-  const shown = rows.filter((r) => matchesTerm(term, [r.name, r.empCode]));
+  const shown = filterRows(
+    rows.filter((r) => matchesTerm(term, [r.name, r.empCode])),
+    SEARCH_FIELDS,
+    criteria,
+    (r, key) => {
+      switch (key) {
+        case "employee":
+          return r.employeeId;
+        case "amount":
+          return Number(r.amount);
+        case "advanceType":
+          return r.type;
+        case "givenOn":
+          return r.givenOn;
+        case "outstanding":
+          return Number(r.outstanding);
+      }
+    },
+  );
 
   return (
     <div className="mt-6">

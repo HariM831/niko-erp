@@ -8,6 +8,7 @@ import { useLocalSearch } from "../components/search-context";
 import { matchesTerm, localYmd } from "../lib/utils";
 import { AccountSelect, bankNodes, type AccountNode } from "../components/account-select";
 import { SearchSelect } from "../components/search-select";
+import { filterRows, useAdvancedSearch, type SearchField } from "../components/advanced-search";
 
 interface BankTxn {
   id: string;
@@ -18,6 +19,7 @@ interface BankTxn {
   description?: string;
   counterparty?: string;
   matchStatus: string;
+  matchedJournalEntryId?: string | null;
 }
 type Account = AccountNode;
 interface Journal {
@@ -43,12 +45,102 @@ interface RegisterRow {
   credit: string;
   running: string;
   typeLabel: string;
+  sourceType: string;
   party: string | null;
   status: "Categorized" | "Matched" | "Manually Added";
   docPath: string;
 }
 
 type TabKey = "dashboard" | "uncategorized" | "all";
+
+/**
+ * The account page's Advanced Search, as Zoho's: "Search In" picks between the
+ * transactions in the books and the lines imported from the bank, and the same
+ * five boxes then apply to whichever was picked.
+ *
+ * Status and Transaction Type span both sides. A statement line can be
+ * Uncategorized or Excluded, which no transaction in the books is; a
+ * transaction can be Manually Added, which no statement line is. Picking one on
+ * the side where it cannot occur finds nothing, and the page says where to look.
+ * The document kinds (Expense, Vendor Payment...) read a transaction's source,
+ * and a statement line's by the journal it was matched to.
+ */
+const BANK_STATUS_OPTIONS = [
+  { value: "uncategorized", label: "Uncategorized" },
+  { value: "categorized", label: "Categorized" },
+  { value: "matched", label: "Matched" },
+  { value: "manually_added", label: "Manually Added" },
+  { value: "excluded", label: "Excluded" },
+];
+const STATEMENT_ONLY = new Set(["uncategorized", "excluded"]);
+
+export const BANK_ACCOUNT_SEARCH: SearchField[] = [
+  {
+    key: "searchIn",
+    label: "Search In",
+    kind: "radio",
+    defaultValue: "transactions",
+    options: [
+      {
+        value: "transactions",
+        label: "Transactions",
+        hint: "Searches every transaction in the books for this account: entered here, posted by another module, or made by categorising a statement line.",
+      },
+      {
+        value: "statement",
+        label: "Statement",
+        hint: "Searches the lines imported from bank statements, whether they are still uncategorized, categorized, matched or excluded.",
+      },
+    ],
+  },
+  { key: "total", label: "Total Range", kind: "numberRange" },
+  { key: "date", label: "Date Range", kind: "dateRange" },
+  { key: "status", label: "Status", kind: "select", options: BANK_STATUS_OPTIONS },
+  { key: "reference", label: "Reference#", kind: "text" },
+  {
+    key: "type",
+    label: "Transaction Type",
+    kind: "select",
+    options: [
+      { value: "deposit", label: "Deposit" },
+      { value: "withdrawal", label: "Withdrawal" },
+      { value: "transfer", label: "Transfer Fund" },
+      { value: "expense", label: "Expense" },
+      { value: "vendor_payment", label: "Vendor Payment" },
+      { value: "customer_payment", label: "Customer Payment" },
+      { value: "manual", label: "Journal Entry" },
+      { value: "banking", label: "Bank Entry" },
+      { value: "opening_balance", label: "Opening Balance" },
+    ],
+  },
+];
+
+const REGISTER_STATUS_KEY: Record<RegisterRow["status"], string> = {
+  Categorized: "categorized",
+  Matched: "matched",
+  "Manually Added": "manually_added",
+};
+
+/** What each advanced-search box tests on a register row — see filterRows. */
+function registerValue(r: RegisterRow, key: string) {
+  switch (key) {
+    case "total":
+      return Number(r.debit) > 0 ? r.debit : r.credit;
+    case "date":
+      return r.entryDate;
+    case "reference":
+      return [r.reference, r.entryNumber];
+    case "status":
+      return REGISTER_STATUS_KEY[r.status];
+    case "type": {
+      // Money in is a debit on the bank's own account.
+      const kinds = [Number(r.debit) > 0 ? "deposit" : "withdrawal", r.sourceType];
+      if (r.sourceType === "banking" && r.narration.startsWith("Transfer: ")) kinds.push("transfer");
+      return kinds;
+    }
+  }
+  return undefined;
+}
 
 const tabCls = (active: boolean) =>
   active ? "border-brand-500 font-medium text-brand-700" : "border-transparent text-gray-600 hover:text-gray-900";
@@ -74,6 +166,19 @@ export function BankingDetailPage({ bankAccountId }: { bankAccountId: string }) 
     queryFn: () => api<BankTxn[]>(`/api/banking/transactions?bankAccountId=${bankAccountId}&matchStatus=unmatched`),
   });
 
+  // The register is already on the page whole, so a Transactions search filters
+  // it here and keeps its running balances. Statement lines are a separate,
+  // capped list, so a Statement search asks the server.
+  const adv = useAdvancedSearch("Banking", BANK_ACCOUNT_SEARCH);
+  const { searchIn, ...statementCriteria } = adv.criteria;
+  const statementMode = searchIn === "statement";
+  const { data: statementHits } = useQuery({
+    queryKey: ["bank-txns", bankAccountId, "search", statementCriteria],
+    queryFn: () =>
+      api<BankTxn[]>(`/api/banking/transactions?${new URLSearchParams({ bankAccountId, ...statementCriteria })}`),
+    enabled: statementMode,
+  });
+
   useEffect(() => {
     const close = (e: MouseEvent) => {
       if (addTxnRef.current && !addTxnRef.current.contains(e.target as Node)) setAddTxnOpen(false);
@@ -88,9 +193,20 @@ export function BankingDetailPage({ bankAccountId }: { bankAccountId: string }) 
   useEffect(() => {
     if (term.trim()) setTab((t) => (t === "dashboard" ? "all" : t));
   }, [term]);
-  const searchedRows = (register?.rows ?? []).filter((r) =>
-    matchesTerm(term, [r.reference, r.narration, r.party, r.entryNumber, r.typeLabel]),
+  // A Transactions search narrows the register, so it is shown where the
+  // register is listed.
+  useEffect(() => {
+    if (adv.active && !statementMode) setTab("all");
+  }, [adv.active, statementMode]);
+  const searchedRows = filterRows(
+    (register?.rows ?? []).filter((r) =>
+      matchesTerm(term, [r.reference, r.narration, r.party, r.entryNumber, r.typeLabel]),
+    ),
+    BANK_ACCOUNT_SEARCH,
+    statementMode ? {} : adv.criteria,
+    registerValue,
   );
+  const statementRows = (statementHits ?? []).filter((t) => matchesTerm(term, [t.description, t.counterparty, t.utr]));
 
   const currentBalance = register?.rows.length ? register.rows[register.rows.length - 1]!.running : "0.00";
   const uncategorizedCount = uncategorized?.length ?? 0;
@@ -118,6 +234,7 @@ export function BankingDetailPage({ bankAccountId }: { bankAccountId: string }) 
             </div>
           </div>
           <div className="flex items-center gap-1.5">
+            {adv.button}
             <button onClick={() => setTab("uncategorized")} className="btn-secondary">
               Quick Categorize
             </button>
@@ -188,26 +305,122 @@ export function BankingDetailPage({ bankAccountId }: { bankAccountId: string }) 
       )}
 
       <div className="flex-1 overflow-y-auto">
-        {tab === "dashboard" && (
-          <DashboardTab
-            rows={register?.rows ?? []}
-            onImportStatement={() => {
-              setTab("uncategorized");
-              setPanel("import");
-            }}
-            onViewAllTransactions={() => setTab("all")}
+        {statementMode ? (
+          <StatementResults
+            rows={statementRows}
+            loading={!statementHits}
+            wantsManual={adv.criteria.status === "manually_added"}
+            onOpen={(p) => navigate(p)}
+            onClear={() => adv.setCriteria({})}
           />
+        ) : (
+          <>
+            {tab === "dashboard" && (
+              <DashboardTab
+                rows={register?.rows ?? []}
+                onImportStatement={() => {
+                  setTab("uncategorized");
+                  setPanel("import");
+                }}
+                onViewAllTransactions={() => setTab("all")}
+              />
+            )}
+            {tab === "uncategorized" && (
+              <UncategorizedTab
+                bankAccountId={bankAccountId}
+                term={term}
+                showImport={panel === "import"}
+                onToggleImport={() => setPanel(panel === "import" ? null : "import")}
+              />
+            )}
+            {tab === "all" && (
+              <AllTransactionsTab
+                rows={searchedRows}
+                term={term}
+                searching={adv.active}
+                statementOnlyStatus={STATEMENT_ONLY.has(adv.criteria.status ?? "")}
+                onOpen={(p) => navigate(p)}
+              />
+            )}
+          </>
         )}
-        {tab === "uncategorized" && (
-          <UncategorizedTab
-            bankAccountId={bankAccountId}
-            term={term}
-            showImport={panel === "import"}
-            onToggleImport={() => setPanel(panel === "import" ? null : "import")}
-          />
-        )}
-        {tab === "all" && <AllTransactionsTab rows={searchedRows} term={term} onOpen={(p) => navigate(p)} />}
       </div>
+      {adv.dialog}
+    </div>
+  );
+}
+
+// ============================ Statement search results ============================
+
+/**
+ * What a "Search In: Statement" search found: the imported lines themselves,
+ * in place of the tabs' content while the search stands. A line already in the
+ * books opens the journal it became; one still waiting is categorised from the
+ * Uncategorized tab, where the tools for that live.
+ */
+function StatementResults({
+  rows,
+  loading,
+  wantsManual,
+  onOpen,
+  onClear,
+}: {
+  rows: BankTxn[];
+  loading: boolean;
+  wantsManual: boolean;
+  onOpen: (path: string) => void;
+  onClear: () => void;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between border-b bg-gray-50/60 px-6 py-2.5 text-[13px]">
+        <span className="text-gray-600">
+          Statement lines matching the search{loading ? "" : ` · ${rows.length}`}
+        </span>
+        <button onClick={onClear} className="font-medium text-brand-600 hover:underline">
+          Clear search
+        </button>
+      </div>
+      {loading ? (
+        <div className="p-12 text-center text-sm text-gray-500">Searching…</div>
+      ) : !rows.length ? (
+        <div className="p-12 text-center text-sm text-gray-500">
+          {wantsManual
+            ? "Manually added transactions have no statement line. Search in Transactions to find them."
+            : "No statement lines match the search."}
+        </div>
+      ) : (
+        <table className="w-full text-[13px]">
+          <thead className="table-head sticky top-0">
+            <tr>
+              <th className="border-b border-[#ece3d5] px-4 py-2.5">Date</th>
+              <th className="border-b border-[#ece3d5] px-4 py-2.5">Description</th>
+              <th className="border-b border-[#ece3d5] px-4 py-2.5">Reference#</th>
+              <th className="border-b border-[#ece3d5] px-4 py-2.5 text-right">Withdrawal</th>
+              <th className="border-b border-[#ece3d5] px-4 py-2.5 text-right">Deposit</th>
+              <th className="border-b border-[#ece3d5] px-4 py-2.5">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((t) => (
+              <tr
+                key={t.id}
+                onClick={t.matchedJournalEntryId ? () => onOpen(`/accountant/journals/${t.matchedJournalEntryId}`) : undefined}
+                className={`border-b border-[#ece3d5] bg-white ${t.matchedJournalEntryId ? "cursor-pointer hover:bg-gray-50" : ""}`}
+              >
+                <td className="px-4 py-2.5">{formatDate(t.txnDate)}</td>
+                <td className="px-4 py-2.5">{t.description ?? t.counterparty ?? "—"}</td>
+                <td className="px-4 py-2.5 text-gray-500">{t.utr ?? "—"}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums">{t.direction === "debit" ? formatMoney(t.amount) : ""}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums">{t.direction === "credit" ? formatMoney(t.amount) : ""}</td>
+                <td className="px-4 py-2.5">
+                  <StatusBadge status={t.matchStatus === "unmatched" ? "uncategorized" : t.matchStatus} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }
@@ -396,13 +609,27 @@ const STATUS_STYLES: Record<RegisterRow["status"], string> = {
 function AllTransactionsTab({
   rows,
   term,
+  searching,
+  statementOnlyStatus,
   onOpen,
 }: {
   rows: RegisterRow[];
   term: string;
+  searching: boolean;
+  statementOnlyStatus: boolean;
   onOpen: (path: string) => void;
 }) {
   const desc = [...rows].reverse();
+  if (!desc.length && statementOnlyStatus) {
+    return (
+      <div className="p-12 text-center text-sm text-gray-500">
+        Uncategorized and excluded lines are not in the books yet. Search in Statement to find them.
+      </div>
+    );
+  }
+  if (!desc.length && searching) {
+    return <div className="p-12 text-center text-sm text-gray-500">No transactions match the search.</div>;
+  }
   if (!desc.length && term.trim()) {
     return <div className="p-12 text-center text-sm text-gray-500">No transactions match “{term.trim()}”.</div>;
   }

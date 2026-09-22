@@ -5,7 +5,7 @@
  * six station screens exist. Deleting hands the number back to the series, so
  * testing leaves the counter where it started.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearch } from "../components/search-context";
 import { ApiError, api, formatMoney } from "../api";
@@ -14,6 +14,8 @@ import type { LineMatch } from "@shared/po-match-types";
 import { Modal } from "../components/settings-ui";
 import { SearchSelect, type Choice } from "../components/search-select";
 import { localYmd } from "../lib/utils";
+import { type SearchField, useAdvancedSearch } from "../components/advanced-search";
+import { PURCHASE_CATEGORIES } from "@shared/item-categories";
 
 interface ReceiptRow {
   id: string;
@@ -715,23 +717,81 @@ function ReceiptEditor({
 }
 
 
+/** Every status a receipt can hold, in the order a truck meets them. */
+const RECEIPT_STATUSES = [
+  "gate_in",
+  "weighed_in",
+  "qc_passed",
+  "unloading",
+  "unloading_complete",
+  "gate_out",
+  "settled",
+  "turned_away",
+  "rejected",
+];
+
+/**
+ * What somebody looking for a truck has in hand: the vendor's paper, the
+ * plate, roughly when it came and what it weighed. Location is offered only
+ * once there is more than one to choose between.
+ */
+function receiptFields(ctx: Context | undefined): SearchField[] {
+  return [
+    { key: "number", label: "Receipt#", kind: "text" },
+    { key: "arrival", label: "Arrival Date Range", kind: "dateRange" },
+    { key: "vendorId", label: "Vendor", kind: "contact", contactType: "vendor" },
+    { key: "vehicleNumber", label: "Vehicle Number", kind: "text" },
+    { key: "vendorBillNumber", label: "Bill#", kind: "text" },
+    { key: "billDate", label: "Bill Date Range", kind: "dateRange" },
+    { key: "itemId", label: "Item Name", kind: "item", itemCategories: PURCHASE_CATEGORIES },
+    { key: "status", label: "Status", kind: "select", options: RECEIPT_STATUSES },
+    {
+      key: "qcResult",
+      label: "QC Result",
+      kind: "select",
+      options: [
+        { value: "all_passed", label: "All passed" },
+        { value: "partial", label: "Partly rejected" },
+        { value: "all_rejected", label: "All rejected" },
+      ],
+    },
+    ...((ctx?.locations.length ?? 0) > 1
+      ? [
+          {
+            key: "locationId",
+            label: "Location",
+            kind: "select" as const,
+            options: ctx!.locations.map((l) => ({ value: l.id, label: l.name })),
+          },
+        ]
+      : []),
+    { key: "billedQty", label: "Billed Quantity Range (kg)", kind: "numberRange" },
+    { key: "netWeight", label: "Net Weight Range (kg)", kind: "numberRange" },
+    { key: "billTotal", label: "Bill Total Range", kind: "numberRange" },
+  ];
+}
+
 export function GoodsReceiptsPage() {
   const qc = useQueryClient();
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // "Search in Goods Receipts" is answered by the server: the list shows the
-  // newest 200, and a search has to reach the trucks behind them.
-  const term = useLocalSearch("Goods Receipts", "office:receipts").trim();
-  const { data: rows, isLoading } = useQuery<ReceiptRow[]>({
-    queryKey: ["office", "receipts", term],
-    queryFn: () => api(term ? `/api/office/receipts?search=${encodeURIComponent(term)}` : "/api/office/receipts"),
-    placeholderData: keepPreviousData,
-  });
   const { data: ctx } = useQuery<Context>({
     queryKey: ["office", "context"],
     queryFn: () => api("/api/office/context"),
+  });
+  // "Search in Goods Receipts" is answered by the server: the list shows the
+  // newest 200, and a search has to reach the trucks behind them. The advanced
+  // criteria go the same way and combine with the top-bar term.
+  const term = useLocalSearch("Goods Receipts", "office:receipts").trim();
+  const fields = useMemo(() => receiptFields(ctx), [ctx]);
+  const adv = useAdvancedSearch("Goods Receipts", fields);
+  const params = new URLSearchParams({ ...(term ? { search: term } : {}), ...adv.criteria }).toString();
+  const { data: rows, isLoading } = useQuery<ReceiptRow[]>({
+    queryKey: ["office", "receipts", term, adv.criteria],
+    queryFn: () => api(`/api/office/receipts${params ? `?${params}` : ""}`),
+    placeholderData: keepPreviousData,
   });
   const { data: numbering } = useQuery<Array<{ prefix: string; nextNumber: number; padding: number; seriesName: string; isDefault: boolean }>>({
     queryKey: ["office", "numbering"],
@@ -756,6 +816,7 @@ export function GoodsReceiptsPage() {
               </div>
             </div>
           )}
+          {adv.button}
           <button className="btn-primary" onClick={() => setCreating(true)} disabled={!ctx}>
             + New Receipt
           </button>
@@ -794,7 +855,7 @@ export function GoodsReceiptsPage() {
             {!isLoading && !rows?.length && (
               <tr>
                 <td colSpan={9} className="px-3 py-8 text-center text-gray-400">
-                  {term ? `No trucks match “${term}”.` : "No trucks recorded yet."}
+                  {term ? `No trucks match “${term}”.` : adv.active ? "No trucks match the search." : "No trucks recorded yet."}
                 </td>
               </tr>
             )}
@@ -826,6 +887,7 @@ export function GoodsReceiptsPage() {
         </table>
       </div>
 
+      {adv.dialog}
       {creating && ctx && <ReceiptEditor ctx={ctx} onClose={() => setCreating(false)} />}
       {editing && ctx && (
         <ReceiptEditor ctx={ctx} receiptId={editing} onClose={() => setEditing(null)} />

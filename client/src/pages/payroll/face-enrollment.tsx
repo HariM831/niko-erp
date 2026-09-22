@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Loader2, ScanFace, Trash2, Upload } from "lucide-react";
 import { useLocalSearch } from "../../components/search-context";
+import { filterRows, useAdvancedSearch, type SearchField } from "../../components/advanced-search";
 import { matchesTerm } from "../../lib/utils";
 import { api } from "../../api";
 import { getFaceEmbedding, loadFaceEngine, loadImage, resizePhotoFile } from "../../lib/face";
@@ -37,9 +38,70 @@ export function PayrollFaceEnrollmentPage() {
   }, []);
 
   const active = empQ.data ?? [];
+  // What enrolment work is left, and where: the page's search is about state
+  // (who has a face, who has only a photo) far more than about names.
+  const fields = useMemo<SearchField[]>(
+    () => [
+      { key: "employee", label: "Employee", kind: "employee" },
+      {
+        key: "enrolled",
+        label: "Face",
+        kind: "select",
+        options: [
+          { value: "yes", label: "Enrolled" },
+          { value: "no", label: "Not enrolled" },
+        ],
+      },
+      {
+        key: "photo",
+        label: "Photo",
+        kind: "select",
+        options: [
+          { value: "yes", label: "On file" },
+          { value: "no", label: "None" },
+        ],
+      },
+      {
+        key: "department",
+        label: "Department",
+        kind: "select",
+        options: [...new Set(active.map((e) => e.department).filter((d): d is string => !!d))].sort(),
+      },
+      {
+        key: "payType",
+        label: "Pay Type",
+        kind: "select",
+        options: [
+          { value: "salaried", label: "Salaried" },
+          { value: "daily_wage", label: "Daily wage" },
+        ],
+      },
+    ],
+    [active],
+  );
+  const adv = useAdvancedSearch("Face enrolment", fields);
   const filtered = useMemo(
-    () => active.filter((e) => matchesTerm(search, [e.name, e.empCode, e.department])),
-    [active, search],
+    () =>
+      filterRows(
+        active.filter((e) => matchesTerm(search, [e.name, e.empCode, e.department])),
+        fields,
+        adv.criteria,
+        (e, key) => {
+          switch (key) {
+            case "employee":
+              return e.id;
+            case "enrolled":
+              return e.hasFace ? "yes" : "no";
+            case "photo":
+              return e.hasPhoto ? "yes" : "no";
+            case "department":
+              return e.department;
+            case "payType":
+              return e.payType;
+          }
+        },
+      ),
+    [active, search, fields, adv.criteria],
   );
   const paged = usePaged(filtered);
 
@@ -119,11 +181,13 @@ export function PayrollFaceEnrollmentPage() {
   return (
     <div className="p-4 md:p-6">
       <PageHeader title="Face enrolment" sub={`${stats.enrolled} enrolled · ${stats.pending} with a photo waiting · ${stats.noPhoto} without a photo`}>
+        {adv.button}
         <button className="btn-primary" onClick={() => void handleEnrollAll()} disabled={engineState !== "ready" || batch.running}>
           {batch.running ? <Loader2 size={14} className="animate-spin" /> : <ScanFace size={14} />}
           {batch.running ? `Enrolling ${batch.done}/${batch.total}…` : "Enrol all with photos"}
         </button>
       </PageHeader>
+      {adv.dialog}
       <ErrorBanner message={err} onClose={() => setErr(null)} />
 
       {engineState === "loading" && (

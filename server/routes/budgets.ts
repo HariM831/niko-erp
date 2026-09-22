@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, asc, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, eq, getTableColumns, gte, inArray, lte, sql } from "drizzle-orm";
 import { z } from "zod";
 import { accounts, budgetLines, budgets, journalEntries, journalEntryLines } from "@shared/schema";
 import { db } from "../db";
@@ -42,7 +42,20 @@ function periodEnd(start: string, period: string): string {
 }
 
 budgetsRouter.get("/", requirePermission("accounting", "view"), async (_req, res) => {
-  const rows = await db.select().from(budgets).orderBy(asc(budgets.startDate));
+  // The accounts a budget covers and what it budgets in all, for the list's
+  // advanced search ("which budgets plan for diesel?", "over ₹10 lakh").
+  const rows = await db
+    .select({
+      ...getTableColumns(budgets),
+      accountIds: sql<string[]>`coalesce((
+        SELECT array_agg(DISTINCT bl.account_id) FROM budget_lines bl WHERE bl.budget_id = ${budgets.id}
+      ), '{}')`,
+      total: sql<string>`coalesce((
+        SELECT sum(bl.amount) FROM budget_lines bl WHERE bl.budget_id = ${budgets.id}
+      ), 0)`,
+    })
+    .from(budgets)
+    .orderBy(asc(budgets.startDate));
   res.json(rows);
 });
 

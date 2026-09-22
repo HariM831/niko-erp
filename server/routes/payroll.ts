@@ -7,8 +7,8 @@
 import { FACE_DIM } from "@shared/face";
 import { createHash } from "node:crypto";
 import { Router } from "express";
-import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
-import { matches } from "../services/document-search";
+import { type SQL, and, asc, desc, eq, gte, ilike, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { advancedSearch, matches, type DocumentSearch } from "../services/document-search";
 import { z } from "zod";
 import {
   advanceRepayments,
@@ -418,9 +418,61 @@ payrollRouter.patch("/settings", settingsPerm, validateBody(settingsPatch), asyn
 
 /* ══ Employees ═══════════════════════════════════════════════════════════ */
 
+/**
+ * The Employees page's advanced search. Department, pay type and active sit in
+ * the page's own filter bar and stay there; these are the rest of what HR asks
+ * of the roster — who reports to whom, who joined this year, who has no face
+ * enrolled yet, who is on a rate above ₹500.
+ */
+const employeeSearch: DocumentSearch = {
+  advanced: {
+    designation: { kind: "eq", col: employees.designationId },
+    wageRole: { kind: "eq", col: employees.wageRoleId },
+    location: { kind: "eq", col: employees.locationId },
+    reportingTo: { kind: "eq", col: employees.reportingTo },
+    joined: { kind: "dateRange", col: employees.dateOfJoining },
+    left: { kind: "dateRange", col: employees.dateOfLeaving },
+    dailyRate: { kind: "numberRange", col: wageRoles.dailyRate },
+    gross: {
+      // A salaried person's gross is never stored, only its three parts, so
+      // the range is asked of their sum — the same figure the list shows.
+      kind: "custom",
+      build: (get) => {
+        // Not a number: dropped, as the shared ranges do, not sent to fail the query.
+        const num = (v: string | undefined) => (v && Number.isFinite(Number(v)) ? v : undefined);
+        const min = num(get("grossMin"));
+        const max = num(get("grossMax"));
+        if (!min && !max) return undefined;
+        const g = sql`(${employees.basicSalary} + ${employees.hra} + ${employees.allowances})`;
+        return and(
+          eq(employees.payType, "salaried"),
+          min ? sql`${g} >= ${min}` : undefined,
+          max ? sql`${g} <= ${max}` : undefined,
+        );
+      },
+    },
+    face: {
+      kind: "custom",
+      build: (get) => {
+        switch (get("face")) {
+          case "enrolled":
+            return sql`${employees.faceDescriptor} IS NOT NULL`;
+          case "photo":
+            return sql`${employees.faceDescriptor} IS NULL AND ${employees.photoUrl} IS NOT NULL`;
+          case "none":
+            return sql`${employees.faceDescriptor} IS NULL AND ${employees.photoUrl} IS NULL`;
+        }
+      },
+    },
+    pf: { kind: "bool", col: employees.pfEnabled },
+    esi: { kind: "bool", col: employees.esiEnabled },
+    phone: { kind: "text", col: employees.contactNumber },
+  },
+};
+
 payrollRouter.get("/employees", view, async (req, res) => {
   const q = req.query;
-  const conds = [];
+  const conds: (SQL | undefined)[] = advancedSearch(employeeSearch, q as Record<string, string | undefined>);
   if (typeof q.q === "string" && q.q.trim()) {
     // The top-bar search, by the rule every list follows: words from their
     // start, and a code like "E104" (it has a digit) anywhere.

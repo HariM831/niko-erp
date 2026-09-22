@@ -14,6 +14,7 @@ import { StatusBadge } from "../components/status-badge";
 import { PlatformWeight } from "./platform-weight";
 import { SearchSelect } from "./search-select";
 import { localYmd } from "../lib/utils";
+import type { Criteria } from "./advanced-search";
 
 interface Context {
   feeds: Array<{ itemId: string; formulaName: string; itemName: string; quantity: number; value: number }>;
@@ -43,7 +44,7 @@ const kg = (v: string | number | null | undefined) =>
   v == null ? "—" : `${Number(v).toLocaleString("en-IN", { maximumFractionDigits: 3 })} kg`;
 const inr = (n: number) => `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-export function FeedTransferForm({ term = "" }: { term?: string }) {
+export function FeedTransferForm({ term = "", criteria = {} }: { term?: string; criteria?: Criteria }) {
   const qc = useQueryClient();
   const [itemId, setItemId] = useState("");
   const [fromId, setFromId] = useState("");
@@ -74,12 +75,14 @@ export function FeedTransferForm({ term = "" }: { term?: string }) {
     queryFn: () => api("/api/feed/production/transfers/context"),
   });
   // The search is answered by the server, which reaches every transfer ever
-  // made, not only the newest hundred loaded to browse.
+  // made, not only the newest hundred loaded to browse — the header's advanced
+  // criteria included.
   const q = term.trim();
+  const searching = !!q || Object.keys(criteria).length > 0;
+  const params = new URLSearchParams({ ...(q ? { search: q } : {}), ...criteria }).toString();
   const { data: rows } = useQuery<TransferRow[]>({
-    queryKey: ["feed-transfers", q],
-    queryFn: () =>
-      api(q ? `/api/feed/production/transfers?search=${encodeURIComponent(q)}` : "/api/feed/production/transfers"),
+    queryKey: ["feed-transfers", q, criteria],
+    queryFn: () => api(`/api/feed/production/transfers${params ? `?${params}` : ""}`),
     placeholderData: keepPreviousData,
   });
 
@@ -127,7 +130,7 @@ export function FeedTransferForm({ term = "" }: { term?: string }) {
   const found = rows ?? [];
   const byDay = (() => {
     const all = [...new Set(found.map((r) => r.transferDate))].sort().reverse();
-    const days = term.trim() ? all : all.slice(0, 3);
+    const days = searching ? all : all.slice(0, 3);
     return days.map((day) => {
       const dayRows = found.filter((r) => r.transferDate === day);
       const live = dayRows.filter((r) => r.status !== "void");
@@ -269,10 +272,10 @@ export function FeedTransferForm({ term = "" }: { term?: string }) {
             </div>
           </div>
 
-          {term.trim() && !byDay.length && (
-
-            <p className="p-4 text-center text-[13px] text-gray-400">No transfer matches “{term.trim()}”.</p>
-
+          {searching && !byDay.length && (
+            <p className="p-4 text-center text-[13px] text-gray-400">
+              {q ? <>No transfer matches “{q}”.</> : "No transfer matches the search."}
+            </p>
           )}
 
           {byDay.map(({ day, rows: dayRows, totalKg, totalValue }) => (
@@ -300,7 +303,7 @@ export function FeedTransferForm({ term = "" }: { term?: string }) {
             </div>
           ))}
           <div>
-            {rows && !rows.length && (
+            {!searching && rows && !rows.length && (
               <p className="card p-4 text-center text-[13px] text-gray-400">Nothing transferred yet.</p>
             )}
       </div>

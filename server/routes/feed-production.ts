@@ -24,7 +24,8 @@
  */
 import { Router } from "express";
 import { and, asc, desc, eq, or } from "drizzle-orm";
-import { matches } from "../services/document-search";
+import { type DocumentSearch, advancedSearch, matches } from "../services/document-search";
+import { amountRange, dayRange } from "../services/yard-search";
 import { z } from "zod";
 import {
   accounts,
@@ -81,10 +82,37 @@ function fail(err: unknown, res: { status: (n: number) => { json: (b: unknown) =
 
 // ───────────────────────────── Production ─────────────────────────────
 
+/**
+ * The Production page's advanced search. A formula is asked for by name, not
+ * version: "every Layer Phase 1 run in August" should not stop at the version
+ * that was live on the 1st. An ingredient finds the runs that consumed it —
+ * the question when a lot of DORB turns out to be bad.
+ */
+const productionSearch: DocumentSearch = {
+  id: productionOrders.id,
+  lines: {
+    table: productionOrderLines,
+    documentId: productionOrderLines.orderId,
+    text: [],
+    itemId: productionOrderLines.itemId,
+  },
+  advanced: {
+    number: { kind: "text", col: productionOrders.number },
+    formula: { kind: "eq", col: formulas.name },
+    materialId: { kind: "lineItem" },
+    status: { kind: "eq", col: productionOrders.status },
+    date: dayRange("date", productionOrders.orderDate),
+    batches: amountRange("batches", productionOrders.batchCount),
+    output: amountRange("output", productionOrders.actualOutputKg),
+    costPerKg: amountRange("costPerKg", productionOrders.costPerKg),
+  },
+};
+
 feedProductionRouter.get("/orders", requirePermission("feed_mill", "view"), async (req, res) => {
   // The top-bar search, by the rule every list follows. Browsing shows the
   // newest hundred runs; a search reaches all of them, so it is not capped.
   const term = typeof req.query.search === "string" ? req.query.search.trim() : "";
+  const advanced = advancedSearch(productionSearch, req.query as Record<string, string | undefined>);
   const orders = await db
     .select({
       id: productionOrders.id,
@@ -105,17 +133,20 @@ feedProductionRouter.get("/orders", requirePermission("feed_mill", "view"), asyn
     .innerJoin(formulas, eq(formulas.id, productionOrders.formulaId))
     .leftJoin(locations, eq(locations.id, productionOrders.locationId))
     .where(
-      term
-        ? or(
-            matches(productionOrders.number, term),
-            matches(formulas.name, term),
-            matches(productionOrders.voidReason, term),
-            matches(locations.name, term),
-          )
-        : undefined,
+      and(
+        term
+          ? or(
+              matches(productionOrders.number, term),
+              matches(formulas.name, term),
+              matches(productionOrders.voidReason, term),
+              matches(locations.name, term),
+            )
+          : undefined,
+        ...advanced,
+      ),
     )
     .orderBy(desc(productionOrders.orderDate), desc(productionOrders.createdAt))
-    .limit(term ? 100_000 : 100);
+    .limit(term || advanced.length ? 100_000 : 100);
   res.json(orders);
 });
 
@@ -492,10 +523,28 @@ feedProductionRouter.post(
 
 // ─────────────────────────── Feed transfers ───────────────────────────
 
+/**
+ * The feed-transfer station's advanced search: which feed, to which shed, on
+ * which days, and how much. The shed is a house; the rows written before
+ * houses existed name only a site and are reached by the other fields.
+ */
+const transferSearch: DocumentSearch = {
+  advanced: {
+    number: { kind: "text", col: feedTransfers.number },
+    itemId: { kind: "eq", col: feedTransfers.itemId },
+    houseId: { kind: "eq", col: feedTransfers.toHouseId },
+    status: { kind: "eq", col: feedTransfers.status },
+    date: dayRange("date", feedTransfers.transferDate),
+    quantity: amountRange("quantity", feedTransfers.quantityKg),
+    value: amountRange("value", feedTransfers.value),
+  },
+};
+
 feedProductionRouter.get("/transfers", requirePermission("feed_mill", "view"), async (req, res) => {
   // The top-bar search, as on production runs: uncapped, since a search has
   // to reach past the newest hundred.
   const term = typeof req.query.search === "string" ? req.query.search.trim() : "";
+  const advanced = advancedSearch(transferSearch, req.query as Record<string, string | undefined>);
   const rows = await db
     .select({
       id: feedTransfers.id,
@@ -517,17 +566,20 @@ feedProductionRouter.get("/transfers", requirePermission("feed_mill", "view"), a
     // The site, for the older rows that went to one rather than a house.
     .leftJoin(locations, eq(locations.id, feedTransfers.toLocationId))
     .where(
-      term
-        ? or(
-            matches(feedTransfers.number, term),
-            matches(items.name, term),
-            matches(houses.code, term),
-            matches(locations.name, term),
-          )
-        : undefined,
+      and(
+        term
+          ? or(
+              matches(feedTransfers.number, term),
+              matches(items.name, term),
+              matches(houses.code, term),
+              matches(locations.name, term),
+            )
+          : undefined,
+        ...advanced,
+      ),
     )
     .orderBy(desc(feedTransfers.transferDate))
-    .limit(term ? 100_000 : 100);
+    .limit(term || advanced.length ? 100_000 : 100);
   const locs = await db.select({ id: locations.id, name: locations.name }).from(locations);
   const byId = new Map(locs.map((l) => [l.id, l.name]));
   // The house is the answer where there is one; the site is what the older

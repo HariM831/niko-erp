@@ -9,6 +9,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, Pencil, Plus } from "lucide-react";
 import { api, formatDate } from "../api";
+import { filterRows, useAdvancedSearch, type SearchField } from "../components/advanced-search";
 import { SearchSelect } from "../components/search-select";
 import { localYmd } from "../lib/utils";
 
@@ -42,6 +43,36 @@ const spreadLabel = (v: string) => {
   return `benchmark ${n > 0 ? "+" : "−"} ${Math.abs(n).toFixed(2)}`;
 };
 
+/**
+ * What someone looks for among agreements: a customer's, the live ones, who
+ * takes eggs on a Sunday, who is priced above or below the benchmark. Egg
+ * grade is absent on purpose — an agreement is boxes, not a grade.
+ */
+const SEARCH_FIELDS: SearchField[] = [
+  { key: "customer", label: "Customer", kind: "contact", contactType: "customer" },
+  { key: "status", label: "Status", kind: "select", options: ["active", "paused", "ended"] },
+  {
+    key: "schedule",
+    label: "Schedule",
+    kind: "select",
+    options: [
+      { value: "daily", label: "Every day" },
+      { value: "weekdays", label: "Named days" },
+    ],
+  },
+  {
+    key: "day",
+    label: "Delivers On",
+    kind: "select",
+    options: DAY_NAMES.map((label, i) => ({ value: String(i), label })),
+  },
+  { key: "spread", label: "Spread Range (₹/egg)", kind: "numberRange" },
+  { key: "boxes", label: "Boxes Range", kind: "numberRange" },
+  { key: "start", label: "Start Date", kind: "dateRange" },
+  { key: "end", label: "End Date", kind: "dateRange" },
+  { key: "notes", label: "Notes", kind: "text" },
+];
+
 export function EggAgreementsPage() {
   const [agreements, setAgreements] = useState<Agreement[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -58,19 +89,49 @@ export function EggAgreementsPage() {
     api<{ customers: Customer[] }>("/api/sales/eggs/customers").then((d) => setCustomers(d.customers));
   }, []);
 
+  // Every agreement is already here, so the search filters on the client.
+  const adv = useAdvancedSearch("Egg agreements", SEARCH_FIELDS);
+  const shown = filterRows(agreements, SEARCH_FIELDS, adv.criteria, (a, key) => {
+    switch (key) {
+      case "customer":
+        return a.customerId;
+      case "status":
+        return a.status;
+      case "schedule":
+        return a.schedule;
+      case "day":
+        // A daily agreement delivers on every day of the week.
+        return a.schedule === "daily" ? ["0", "1", "2", "3", "4", "5", "6"] : (a.daysOfWeek ?? []).map(String);
+      case "spread":
+        return Number(a.spreadPerEgg);
+      case "boxes":
+        return a.boxes;
+      case "start":
+        return a.startDate;
+      case "end":
+        return a.endDate;
+      case "notes":
+        return a.notes;
+    }
+  });
+
   return (
     <div className="p-4 md:p-6">
       <div className="page-header -mx-4 px-4 py-3 md:-mx-6 md:px-6 mb-4 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Egg agreements</h1>
           </div>
-        <button
-          onClick={() => setEditing("new")}
-          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-        >
-          <Plus className="h-4 w-4" /> New agreement
-        </button>
+        <div className="flex items-center gap-2">
+          {adv.button}
+          <button
+            onClick={() => setEditing("new")}
+            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            <Plus className="h-4 w-4" /> New agreement
+          </button>
+        </div>
       </div>
+      {adv.dialog}
 
       {loading ? (
         <div className="py-16 text-center text-sm text-muted-foreground">reading…</div>
@@ -90,7 +151,7 @@ export function EggAgreementsPage() {
               </tr>
             </thead>
             <tbody>
-              {agreements.map((a) => (
+              {shown.map((a) => (
                 <tr key={a.id} className={`border-b border-border/60 last:border-0 ${a.status !== "active" ? "opacity-50" : ""}`}>
                   <td className="px-3 py-2 font-medium">{a.customerName}</td>
                   <td className="px-3 py-2">{scheduleLabel(a)}</td>
@@ -109,10 +170,12 @@ export function EggAgreementsPage() {
                   </td>
                 </tr>
               ))}
-              {!agreements.length && (
+              {!shown.length && (
                 <tr>
                   <td colSpan={8} className="px-3 py-8 text-center text-muted-foreground">
-                    No agreements yet. The calendar derives from these — start here.
+                    {agreements.length
+                      ? "No agreement matches the search."
+                      : "No agreements yet. The calendar derives from these — start here."}
                   </td>
                 </tr>
               )}

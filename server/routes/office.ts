@@ -11,8 +11,9 @@ import { existsSync, mkdirSync } from "node:fs";
 import { copyFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import multer from "multer";
-import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
-import { matches } from "../services/document-search";
+import { type SQL, and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { type DocumentSearch, advancedSearch, matches } from "../services/document-search";
+import { amountRange, dayRange, istDay, plate } from "../services/yard-search";
 import { z } from "zod";
 import {
   RECEIPT_TRANSITIONS,
@@ -569,9 +570,46 @@ officeRouter.post(
   },
 );
 
+/**
+ * The Goods Receipts page's advanced search. What someone hunting for a truck
+ * has in hand: the vendor's paper (bill number, bill date, printed total), the
+ * plate, the day it came, what was on it and what it weighed.
+ */
+const receiptSearch: DocumentSearch = {
+  id: officeReceipts.id,
+  lines: {
+    table: officeReceiptLines,
+    documentId: officeReceiptLines.receiptId,
+    text: [officeReceiptLines.itemName],
+    itemId: officeReceiptLines.itemId,
+  },
+  advanced: {
+    number: { kind: "text", col: officeReceipts.number },
+    vehicleNumber: plate("vehicleNumber", officeReceipts.vehicleNumber),
+    vendorBillNumber: { kind: "text", col: officeReceipts.vendorBillNumber },
+    status: { kind: "eq", col: officeReceipts.status },
+    vendorId: { kind: "eq", col: officeReceipts.vendorId },
+    locationId: { kind: "eq", col: officeReceipts.locationId },
+    itemId: { kind: "lineItem" },
+    qcResult: { kind: "eq", col: officeReceipts.qcRollupVerdict },
+    arrival: dayRange("arrival", istDay(officeReceipts.arrivalAt)),
+    billDate: dayRange("billDate", officeReceipts.vendorBillDate),
+    netWeight: amountRange("netWeight", officeReceipts.netWeightKg),
+    billedQty: amountRange(
+      "billedQty",
+      sql`(SELECT COALESCE(SUM(l.bill_quantity_kg), 0) FROM office_receipt_lines l WHERE l.receipt_id = ${officeReceipts.id})`,
+    ),
+    billTotal: amountRange("billTotal", officeReceipts.billTotalAmount),
+  },
+};
+
 officeRouter.get("/receipts", requirePermission("office", "receipts"), async (req, res) => {
-  const { status, vendorId, locationId, search } = req.query as Record<string, string | undefined>;
-  const where = [];
+  const query = req.query as Record<string, string | undefined>;
+  const { search } = query;
+  // Status, vendor and location were query parameters before the advanced
+  // search existed; they are fields of it now, read the same way.
+  const where: SQL[] = advancedSearch(receiptSearch, query);
+  const searching = where.length > 0;
   // The top-bar search, by the rule every list follows. Here rather than in
   // the page: the list stops at the newest 200, and a search has to reach past
   // them, so a search is not capped.
@@ -585,9 +623,6 @@ officeRouter.get("/receipts", requirePermission("office", "receipts"), async (re
     );
     if (cond) where.push(cond);
   }
-  if (status) where.push(eq(officeReceipts.status, status as ReceiptStatus));
-  if (vendorId) where.push(eq(officeReceipts.vendorId, vendorId));
-  if (locationId) where.push(eq(officeReceipts.locationId, locationId));
 
   const rows = await db
     .select({
@@ -613,7 +648,7 @@ officeRouter.get("/receipts", requirePermission("office", "receipts"), async (re
     .leftJoin(locations, eq(locations.id, officeReceipts.locationId))
     .where(where.length ? and(...where) : undefined)
     .orderBy(desc(officeReceipts.arrivalAt))
-    .limit(term ? 100_000 : 200);
+    .limit(term || searching ? 100_000 : 200);
   res.json(rows);
 });
 
@@ -813,7 +848,7 @@ officeRouter.get(
       const [r] = await db
         .select({ n: sql<number>`count(*)::int` })
         .from(officeReceipts)
-        .where(sql`(${officeReceipts.arrivalAt} AT TIME ZONE 'Asia/Kolkata')::date = ${today}`);
+        .where(sql`((${officeReceipts.arrivalAt} AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Kolkata')::date = ${today}`);
       out.receiptsToday = r?.n ?? 0;
     }
     if (may("feed_mill", "view") || may("feed_mill", "produce")) {

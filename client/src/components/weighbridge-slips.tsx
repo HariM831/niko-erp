@@ -22,6 +22,7 @@ import { matchesTerm } from "../lib/utils";
 import { PlatformWeight } from "./platform-weight";
 import { SearchSelect } from "./search-select";
 import { WeighbridgeCamera, type Shot } from "./weighbridge-camera";
+import type { Criteria } from "./advanced-search";
 
 type Kind = "gross" | "tare";
 
@@ -117,7 +118,7 @@ function KindChoice({ value, onChange }: { value: Kind; onChange: (k: Kind) => v
   );
 }
 
-export function WeighbridgeSlips({ term = "" }: { term?: string }) {
+export function WeighbridgeSlips({ term = "", criteria = {} }: { term?: string; criteria?: Criteria }) {
   const qc = useQueryClient();
   const [selected, setSelected] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -133,11 +134,15 @@ export function WeighbridgeSlips({ term = "" }: { term?: string }) {
   });
   const open = allOpen?.filter((t) => matchesTerm(term, [t.vehicleNumber, t.number, t.partyName, t.itemName, t.notes]));
   // Finished slips, newest first: fifty to browse, every one when searched —
-  // the search goes to the server, which is where the older slips are.
+  // the search goes to the server, which is where the older slips are. The
+  // header's advanced search narrows this list only: its fields (the net, the
+  // day it was finished) describe a finished slip, not a vehicle mid-weighing.
   const q = term.trim();
+  const searching = !!q || Object.keys(criteria).length > 0;
+  const params = new URLSearchParams({ status: "closed", ...(q ? { search: q } : {}), ...criteria }).toString();
   const { data: past, isFetching: pastLoading } = useQuery<Ticket[]>({
-    queryKey: ["weigh-tickets", "closed", q],
-    queryFn: () => api(`/api/weigh-tickets?status=closed${q ? `&search=${encodeURIComponent(q)}` : ""}`),
+    queryKey: ["weigh-tickets", "closed", q, criteria],
+    queryFn: () => api(`/api/weigh-tickets?${params}`),
     placeholderData: keepPreviousData,
   });
   const { data: slip } = useQuery<Slip>({
@@ -233,13 +238,19 @@ export function WeighbridgeSlips({ term = "" }: { term?: string }) {
         <div className="mb-2 flex items-baseline justify-between">
           <h3 className="text-[14px] font-semibold text-gray-900">Past weighments</h3>
           <span className="text-[12px] text-gray-400">
-            {q ? `${past?.length ?? 0} found` : past?.length === 50 ? "the latest 50 — search for older" : `${past?.length ?? 0} slips`}
+            {searching ? `${past?.length ?? 0} found` : past?.length === 50 ? "the latest 50 — search for older" : `${past?.length ?? 0} slips`}
           </span>
         </div>
         <div className="card overflow-hidden">
           {!past?.length && (
             <div className="p-6 text-center text-[13px] text-gray-400">
-              {pastLoading ? "Loading…" : q ? `No finished slip matches “${q}”.` : "No weighment has been finished yet."}
+              {pastLoading
+                ? "Loading…"
+                : q
+                  ? `No finished slip matches “${q}”.`
+                  : searching
+                    ? "No finished slip matches the search."
+                    : "No weighment has been finished yet."}
             </div>
           )}
           {past?.map((t) => (

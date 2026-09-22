@@ -202,12 +202,12 @@ export function computeDueDate(invoiceDate: string, termsDays: number): string {
 
 salesRouter.get("/invoices", requirePermission("sales", "view"), async (req, res) => {
   const query = req.query as Record<string, string | undefined>;
-  const { customerId, status, from, to, search } = query;
+  const { customerId, from, to, search } = query;
   const conditions = [];
   if (customerId) conditions.push(eq(invoices.customerId, customerId));
   /** Group sales live on the group page — see the note on the bills list. */
   else conditions.push(sql`COALESCE(${contacts.isGroupCompany}, FALSE) = FALSE`);
-  if (status) conditions.push(eq(invoices.status, status as typeof invoices.$inferSelect.status));
+  // Status is read by invoiceSearch, overdue and unpaid included.
   if (from) conditions.push(gte(invoices.invoiceDate, from));
   if (to) conditions.push(lte(invoices.invoiceDate, to));
   const quick = quickSearch(invoiceSearch, search);
