@@ -1,3 +1,4 @@
+import { MonthInput } from "../components/date-input";
 import { useEffect, useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -298,8 +299,7 @@ function RaiseMonth({ ownerId, onDone }: { ownerId: string; onDone: () => void }
       {open && (
         <div className="absolute right-0 top-10 z-20 w-96 rounded-lg border bg-white p-4 text-[13px] shadow-lg">
           <label className="label">Month</label>
-          <input
-            type="month"
+          <MonthInput
             value={period}
             onChange={(e) => setPeriod(e.target.value)}
             className="input mb-3"

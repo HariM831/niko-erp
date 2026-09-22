@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
 import { AccountSelect, type AccountNode } from "./account-select";
 import { SearchSelect } from "./search-select";
-import { DateInput } from "./date-input";
+import { DateInput, DateTimeInput } from "./date-input";
 
 interface FieldOption {
   id: string;
@@ -179,8 +179,7 @@ function FieldInput({
       );
     case "datetime":
       return (
-        <input
-          type="datetime-local"
+        <DateTimeInput
           value={(value as string) ?? ""}
           onChange={(e) => onChange(e.target.value)}
           className={cls}

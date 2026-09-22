@@ -24,7 +24,7 @@ import {
   num, statusTone, useEmployees, useErr, useMonth, usePaged,
 } from "../../components/payroll/ui";
 import { monthsBefore } from "@shared/search";
-import { DateInput } from "../../components/date-input";
+import { DateInput, MonthInput } from "../../components/date-input";
 
 type Kind = "bonus" | "overtime" | "reimbursement" | "deduction" | "arrears";
 const KINDS: Kind[] = ["bonus", "overtime", "reimbursement", "deduction", "arrears"];
@@ -432,8 +432,7 @@ function InputDialog({ year, month, existing, onClose, onSaved }: { year: number
           ) : isArrears ? (
             <div className="grid grid-cols-2 gap-2">
               <Field label="Earned in" required hint={suggestion?.dateOfJoining ? `Joined ${dmy(suggestion.dateOfJoining)}` : undefined} className="col-span-2">
-                <input
-                  type="month"
+                <MonthInput
                   className="input tabular-nums"
                   max={lastEarnable}
                   min={suggestion?.dateOfJoining?.slice(0, 7)}

@@ -25,7 +25,7 @@ import {
   STATUS_LABEL, Spinner, StatusChip, StatusLegend, Td, Th, daysInMonth, dmy, fmtDateTime, fmtTime, istToday, num, pad2,
   statusTone, useEmployees, useErr, useMonth, usePaged, ymd,
 } from "../../components/payroll/ui";
-import { DateInput } from "../../components/date-input";
+import { DateInput, TimeInput } from "../../components/date-input";
 
 /* ── shared types ──────────────────────────────────────────────────────── */
 interface DayCell { status: AttStatus; source: string; hours: number }
@@ -893,7 +893,7 @@ function ExceptionsTab({ term, criteria }: { term: string; criteria: Criteria })
             {mode === "out" ? (
               <>
                 <Field label="Out at (IST)">
-                  <input type="time" className="input" value={outTime} onChange={(e) => setOutTime(e.target.value)} />
+                  <TimeInput className="input" value={outTime} onChange={(e) => setOutTime(e.target.value)} />
                 </Field>
                 <label className="mt-2 flex items-center gap-2 text-[13px]">
                   <input type="checkbox" checked={nextDay} onChange={(e) => setNextDay(e.target.checked)} />

@@ -23,7 +23,7 @@ import {
   Badge, Empty, ErrorBanner, Field, PAGE_SIZE, PageHeader, Pager, PillTabs, Spinner, Td, Th, dmy, fmtTime, istToday,
   num, useEmployees, useErr, usePaged,
 } from "../../components/payroll/ui";
-import { DateInput } from "../../components/date-input";
+import { DateInput, TimeInput } from "../../components/date-input";
 
 interface Canteen { id: string; code: string; name: string; locationId: string; isActive: boolean }
 interface Window { id?: string; canteenId: string | null; meal: Meal; startTime: string; endTime: string; isActive?: boolean }
@@ -551,15 +551,13 @@ function SetupTab() {
             {MEALS.map((m) => (
               <div key={m} className="flex items-center gap-2">
                 <span className="w-24 text-[13px] capitalize">{m}</span>
-                <input
-                  type="time"
+                <TimeInput
                   className="input w-auto"
                   value={effective[m].startTime}
                   onChange={(e) => setWinForm({ ...effective, [m]: { ...effective[m], startTime: e.target.value } })}
                 />
                 <span className="text-gray-400">–</span>
-                <input
-                  type="time"
+                <TimeInput
                   className="input w-auto"
                   value={effective[m].endTime}
                   onChange={(e) => setWinForm({ ...effective, [m]: { ...effective[m], endTime: e.target.value } })}

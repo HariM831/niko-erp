@@ -19,7 +19,7 @@ import { SearchSelect } from "../../components/search-select";
 import {
   Badge, Empty, ErrorBanner, Field, Spinner, Td, Th, dmy, istToday, num, useErr,
 } from "../../components/payroll/ui";
-import { DateInput } from "../../components/date-input";
+import { DateInput, TimeInput } from "../../components/date-input";
 
 interface Designation { id: string; name: string; displayOrder: number; isActive: boolean }
 interface Department { id: string; name: string; isActive: boolean; designations: Designation[] }
@@ -228,8 +228,8 @@ function ShiftDialog({ shift, onClose, onSaved }: { shift: Shift | null; onClose
         <div className="space-y-2">
           <Field label="Name" required><input className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
           <div className="grid grid-cols-3 gap-2">
-            <Field label="Start"><input type="time" className="input" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} /></Field>
-            <Field label="End"><input type="time" className="input" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} /></Field>
+            <Field label="Start"><TimeInput className="input" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} /></Field>
+            <Field label="End"><TimeInput className="input" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} /></Field>
             <Field label="Working h"><input type="number" step="0.5" className="input tabular-nums" value={form.workingHours} onChange={(e) => setForm({ ...form, workingHours: e.target.value })} /></Field>
           </div>
           <Field label="Weekly off days">
