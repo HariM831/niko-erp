@@ -8,6 +8,7 @@ import { CommentsButton } from "../components/comments";
 import { JournalSection } from "../components/journal-section";
 import { shortDate } from "./documents";
 import { localYmd } from "../lib/utils";
+import { DateInput } from "../components/date-input";
 
 const slashDate = (d: string | null | undefined) => {
   if (!d) return "—";
@@ -510,9 +511,9 @@ export function AccountLedgerPage({ id }: { id: string }) {
       <div className="mb-4 flex items-center gap-3">
         <h2 className="text-sm font-semibold">Account Statement</h2>
         {account && <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] font-medium uppercase text-gray-500">{account.type}</span>}
-        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="input w-auto py-1" />
+        <DateInput value={from} onChange={(e) => setFrom(e.target.value)} className="input w-auto py-1" />
         <span className="text-gray-400">to</span>
-        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="input w-auto py-1" />
+        <DateInput value={to} onChange={(e) => setTo(e.target.value)} className="input w-auto py-1" />
       </div>
       {!rows?.length ? (
         <p className="rounded-xl border border-dashed px-4 py-6 text-center text-[13px] text-gray-400">

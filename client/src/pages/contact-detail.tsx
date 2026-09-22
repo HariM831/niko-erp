@@ -9,6 +9,7 @@ import { AttachmentsButton } from "../components/attachments";
 import { billNo, localYmd } from "../lib/utils";
 import { useSearchContext } from "../components/search-context";
 import { SearchSelect } from "../components/search-select";
+import { DateInput } from "../components/date-input";
 
 interface ContactRailRow {
   id: string;
@@ -809,9 +810,9 @@ export function StatementTab({ id }: { id: string }) {
     <div className="p-6">
       <div className="mb-4 flex items-center gap-3">
         <h3 className="text-sm font-semibold">Statement of Account</h3>
-        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="input w-auto py-1" />
+        <DateInput value={from} onChange={(e) => setFrom(e.target.value)} className="input w-auto py-1" />
         <span className="text-gray-400">to</span>
-        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="input w-auto py-1" />
+        <DateInput value={to} onChange={(e) => setTo(e.target.value)} className="input w-auto py-1" />
         <button onClick={() => window.print()} className="btn-secondary ml-auto print:hidden">
           Print / PDF
         </button>

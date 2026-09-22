@@ -16,6 +16,7 @@ import { SearchSelect, type Choice } from "../components/search-select";
 import { localYmd } from "../lib/utils";
 import { type SearchField, useAdvancedSearch } from "../components/advanced-search";
 import { PURCHASE_CATEGORIES } from "@shared/item-categories";
+import { DateInput } from "../components/date-input";
 
 interface ReceiptRow {
   id: string;
@@ -423,7 +424,7 @@ function ReceiptEditor({
         </div>
         <div>
           <label className="label">Bill date</label>
-          <input type="date" value={billDate} onChange={(e) => setBillDate(e.target.value)} className="input" />
+          <DateInput value={billDate} onChange={(e) => setBillDate(e.target.value)} className="input" />
         </div>
         <div>
           {/* Settlement spreads this across the lines and bills the all-in

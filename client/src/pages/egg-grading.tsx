@@ -12,6 +12,7 @@ import { api } from "../api";
 import { asDataUrl, shrink } from "../lib/image";
 import { EGG_SIZE_LABEL, EGG_SIZE_SHORT, VISIBLE_EGG_SIZES, type EggSize } from "@shared/egg-sizes";
 import { localYmd } from "../lib/utils";
+import { DateInput } from "../components/date-input";
 
 /** The grades this screen shows — the shared list less the hidden ones. */
 const SIZES = VISIBLE_EGG_SIZES;
@@ -282,8 +283,7 @@ export function EggGradingPage() {
             {reading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
             Read a photo
           </button>
-          <input
-            type="date"
+          <DateInput
             value={date}
             onChange={(e) => setDate(e.target.value)}
             className="h-9 rounded-md border border-border bg-background px-2 text-sm"

@@ -16,6 +16,7 @@ import { SearchSelect } from "../components/search-select";
 import { EggOrdersTable, isStruck, type OrderLine } from "../components/egg-orders-table";
 import { EGG_SIZE_LABEL, VISIBLE_EGG_SIZES, isDirectRate } from "@shared/egg-sizes";
 import { localYmd } from "../lib/utils";
+import { DateInput } from "../components/date-input";
 
 type DayLine = OrderLine;
 
@@ -112,7 +113,7 @@ export function EggLoadingPage() {
           <h1 className="text-2xl font-semibold">Loading bay</h1>
           </div>
         <div className="flex items-center gap-2">
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
+          <DateInput value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
           <button
             onClick={() => setLoadingLine("walkin")}
             className="whitespace-nowrap rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-muted"

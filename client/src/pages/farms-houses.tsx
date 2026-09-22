@@ -39,6 +39,7 @@ import {
   getAgeRefStock,
   isBatchActive,
 } from "../lib/bird-batches";
+import { DateInput } from "../components/date-input";
 
 interface Breed {
   id: string;
@@ -815,8 +816,7 @@ export function FarmsHousesPage() {
       {/* Date Selector */}
       <div className="mb-3 flex items-center gap-2">
         <Calendar className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-        <input
-          type="date"
+        <DateInput
           value={displayDate}
           onChange={(e) => setDisplayDate(e.target.value)}
           className="flex-1 rounded-md border border-input bg-card px-2 py-1.5 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring"

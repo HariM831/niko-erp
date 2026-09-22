@@ -24,6 +24,7 @@ import {
   num, statusTone, useEmployees, useErr, useMonth, usePaged,
 } from "../../components/payroll/ui";
 import { monthsBefore } from "@shared/search";
+import { DateInput } from "../../components/date-input";
 
 type Kind = "bonus" | "overtime" | "reimbursement" | "deduction" | "arrears";
 const KINDS: Kind[] = ["bonus", "overtime", "reimbursement", "deduction", "arrears"];
@@ -406,8 +407,7 @@ function InputDialog({ year, month, existing, onClose, onSaved }: { year: number
           {isClaim && (
             <div className="grid grid-cols-2 gap-2">
               <Field label="From" required={!existing || !!existing.dateFrom}>
-                <input
-                  type="date"
+                <DateInput
                   className="input tabular-nums"
                   value={form.dateFrom}
                   // The end is dragged along when the start passes it: a range is never left backwards.
@@ -415,7 +415,7 @@ function InputDialog({ year, month, existing, onClose, onSaved }: { year: number
                 />
               </Field>
               <Field label="To" hint={claimDays > 0 ? `${claimDays} day${claimDays === 1 ? "" : "s"}` : undefined}>
-                <input type="date" className="input tabular-nums" min={form.dateFrom || undefined} value={form.dateTo} onChange={(e) => set("dateTo", e.target.value)} />
+                <DateInput className="input tabular-nums" min={form.dateFrom || undefined} value={form.dateTo} onChange={(e) => set("dateTo", e.target.value)} />
               </Field>
             </div>
           )}
@@ -651,7 +651,7 @@ function GiveAdvanceDialog({ onClose, onSaved }: { onClose: () => void; onSaved:
                 ]}
               />
             </Field>
-            <Field label="Given on" required><input type="date" className="input" value={form.givenOn} onChange={(e) => setForm({ ...form, givenOn: e.target.value })} /></Field>
+            <Field label="Given on" required><DateInput className="input" value={form.givenOn} onChange={(e) => setForm({ ...form, givenOn: e.target.value })} /></Field>
             <Field label="Amount" required><input type="number" className="input tabular-nums" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></Field>
             <Field label="Monthly EMI" hint="Recovered from each run"><input type="number" className="input tabular-nums" value={form.emiAmount} onChange={(e) => setForm({ ...form, emiAmount: e.target.value })} /></Field>
           </div>

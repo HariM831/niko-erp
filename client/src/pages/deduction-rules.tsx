@@ -24,6 +24,7 @@ import { ApiError, api, formatDate } from "../api";
 import { Banner, EmptyRow, SettingsHeader, SettingsTable } from "../components/settings-ui";
 import { SearchSelect } from "../components/search-select";
 import { localYmd } from "../lib/utils";
+import { DateInput } from "../components/date-input";
 
 type Basis = "pct_of_value" | "per_point_per_kg" | "shortfall_value" | "flat";
 
@@ -551,8 +552,7 @@ export function DeductionRulesSection() {
                     <div className="label">
                       {draft.id ? "New version effective from" : "Effective from"}
                     </div>
-                    <input
-                      type="date"
+                    <DateInput
                       value={draft.effectiveFrom}
                       onChange={(e) => set({ effectiveFrom: e.target.value })}
                       className="input h-8 text-[13px]"

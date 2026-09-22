@@ -23,6 +23,7 @@ import {
   Badge, Empty, ErrorBanner, Field, PAGE_SIZE, PageHeader, Pager, PillTabs, Spinner, Td, Th, dmy, fmtTime, istToday,
   num, useEmployees, useErr, usePaged,
 } from "../../components/payroll/ui";
+import { DateInput } from "../../components/date-input";
 
 interface Canteen { id: string; code: string; name: string; locationId: string; isActive: boolean }
 interface Window { id?: string; canteenId: string | null; meal: Meal; startTime: string; endTime: string; isActive?: boolean }
@@ -185,8 +186,7 @@ function TodayTab({ term, criteria }: { term: string; criteria: Criteria }) {
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <input
-          type="date"
+        <DateInput
           className="input w-auto disabled:opacity-50"
           value={date}
           disabled={ranged}
@@ -299,7 +299,7 @@ function ExceptionsTab({ term, criteria }: { term: string; criteria: Criteria })
   return (
     <div>
       <div className="mb-3 flex items-center gap-2">
-        <input type="date" className="input w-auto" value={date} onChange={(e) => setDate(e.target.value)} />
+        <DateInput className="input w-auto" value={date} onChange={(e) => setDate(e.target.value)} />
         <span className="text-[12px] text-gray-500">{rows.length} to review</span>
       </div>
       <div className="table-surface overflow-x-auto">
@@ -377,9 +377,9 @@ function ReportTab() {
         </div>
       )}
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <input type="date" className="input w-auto" value={from} onChange={(e) => setFrom(e.target.value)} />
+        <DateInput className="input w-auto" value={from} onChange={(e) => setFrom(e.target.value)} />
         <span className="text-gray-400">–</span>
-        <input type="date" className="input w-auto" value={to} onChange={(e) => setTo(e.target.value)} />
+        <DateInput className="input w-auto" value={to} onChange={(e) => setTo(e.target.value)} />
         {from <= to && (
           <a className="btn-secondary" href={`/api/canteen/report?from=${from}&to=${to}&format=csv`}>Download CSV</a>
         )}

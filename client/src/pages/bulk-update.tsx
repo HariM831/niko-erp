@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
 import { AccountSelect } from "../components/account-select";
 import { SearchSelect } from "../components/search-select";
+import { DateInput } from "../components/date-input";
 
 
 interface Account {
@@ -127,9 +128,9 @@ function FilterModal({
           <div className="mb-3 flex items-start gap-4">
             <label className="w-36 shrink-0 pt-1.5 text-[13px] text-gray-600">Date Range</label>
             <div className="flex flex-1 items-center gap-2">
-              <input type="date" value={f.fromDate} onChange={(e) => set({ fromDate: e.target.value })} className="input" />
+              <DateInput value={f.fromDate} onChange={(e) => set({ fromDate: e.target.value })} className="input" />
               <span className="text-gray-400">—</span>
-              <input type="date" value={f.toDate} onChange={(e) => set({ toDate: e.target.value })} className="input" />
+              <DateInput value={f.toDate} onChange={(e) => set({ toDate: e.target.value })} className="input" />
             </div>
           </div>
 

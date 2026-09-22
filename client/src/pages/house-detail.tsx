@@ -36,6 +36,7 @@ const Tooltip = RechartsTooltip as unknown as (props: Record<string, unknown>) =
 import { getAgeRefStock, isBatchActive } from "@/lib/bird-batches";
 import { BhHouseCard, type LiveShed } from "@/components/iot-widgets";
 import { api } from "@/api";
+import { DateInput } from "../components/date-input";
 
 /** Whole calendar days between two dates. India keeps no daylight saving, so
  *  UTC arithmetic and local arithmetic agree. */
@@ -1518,11 +1519,10 @@ export function HouseDetailPage() {
                         <div className="space-y-6 pt-4">
                           <div>
                             <Label>Date</Label>
-                            <Input
-                              type="date"
+                            <DateInput
                               value={recordForm.date}
                               onChange={(e) => setRecordForm(prev => ({ ...prev, date: e.target.value }))}
-                              className="min-h-[44px]"
+                              className="input min-h-[44px]"
                               data-testid="input-record-date"
                               max={isAdmin ? undefined : format(new Date(), 'yyyy-MM-dd')}
                               min={isAdmin ? undefined : format(new Date(), 'yyyy-MM-dd')}
@@ -1717,11 +1717,10 @@ export function HouseDetailPage() {
                       <div className="space-y-2">
                         <div className="flex items-center gap-2 mb-3">
                           <Label className="text-xs whitespace-nowrap">Jump to date:</Label>
-                          <Input
-                            type="date"
+                          <DateInput
                             value={recordLookupDate}
                             onChange={(e) => setRecordLookupDate(e.target.value)}
-                            className="w-auto min-h-[36px] text-sm"
+                            className="input w-auto min-h-[36px] text-sm"
                             data-testid="input-record-lookup-date"
                           />
                           {recordLookupDate && (
@@ -1891,8 +1890,8 @@ export function HouseDetailPage() {
                         <div className="space-y-4 pt-4">
                           <div>
                             <Label>Date</Label>
-                            <Input
-                              type="date"
+                            <DateInput
+                              className="input"
                               value={weightForm.date}
                               onChange={(e) => setWeightForm(prev => ({ ...prev, date: e.target.value }))}
                               data-testid="input-weight-date"
@@ -2034,11 +2033,10 @@ export function HouseDetailPage() {
                           <div className="grid grid-cols-2 gap-4">
                             <div>
                               <Label>Date</Label>
-                              <Input
-                                type="date"
+                              <DateInput
                                 value={vaccinationForm.date}
                                 onChange={(e) => setVaccinationForm(prev => ({ ...prev, date: e.target.value }))}
-                                className="min-h-[44px]"
+                                className="input min-h-[44px]"
                                 data-testid="input-vaccination-date"
                               />
                             </div>

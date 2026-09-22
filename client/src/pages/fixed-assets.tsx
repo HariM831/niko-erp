@@ -6,6 +6,7 @@ import { AccountSelect, type AccountNode } from "../components/account-select";
 import { SearchSelect } from "../components/search-select";
 import { localYmd } from "../lib/utils";
 import { filterRows, useAdvancedSearch, type SearchField } from "../components/advanced-search";
+import { DateInput } from "../components/date-input";
 
 interface AssetRow {
   id: string;
@@ -301,8 +302,7 @@ function RunDepreciationDialog({ onClose, onDone }: { onClose: () => void; onDon
           <div className="mb-4 flex items-end gap-3">
             <div className="flex-1">
               <label className="label-required">Period ending *</label>
-              <input
-                type="date"
+              <DateInput
                 value={periodEnd}
                 onChange={(e) => {
                   setPeriodEnd(e.target.value);
@@ -487,8 +487,7 @@ export function FixedAssetNewPage() {
 
           <div>
             <label className="label-required">Acquisition Date *</label>
-            <input
-              type="date"
+            <DateInput
               value={form.acquisitionDate}
               onChange={(e) => set({ acquisitionDate: e.target.value })}
               className="input"
@@ -536,8 +535,7 @@ export function FixedAssetNewPage() {
           </div>
           <div>
             <label className="label">Depreciation Starts</label>
-            <input
-              type="date"
+            <DateInput
               value={form.depreciationStartDate}
               onChange={(e) => set({ depreciationStartDate: e.target.value })}
               className="input"
@@ -786,8 +784,7 @@ function DisposeDialog({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="label-required">Disposal Date *</label>
-              <input
-                type="date"
+              <DateInput
                 value={disposalDate}
                 onChange={(e) => setDisposalDate(e.target.value)}
                 className="input"

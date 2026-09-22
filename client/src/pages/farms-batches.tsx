@@ -22,6 +22,7 @@ import { SearchSelect } from "../components/search-select";
 import { matchesTerm, localYmd } from "../lib/utils";
 import { FLOCK_STATUS_LABELS, hatchProfile, type FlockStatus } from "@shared/schema/flocks";
 import { HOUSE_PURPOSE_LABELS, type HousePurpose } from "@shared/schema/farms";
+import { DateInput } from "../components/date-input";
 
 const today = () => localYmd();
 const n = (v: number) => v.toLocaleString("en-IN");
@@ -394,8 +395,7 @@ function NewBatchDialog({ onClose, onSaved }: { onClose: () => void; onSaved: ()
           <div className="space-y-2">
             {hatches.map((h, i) => (
               <div key={i} className="flex items-center gap-2">
-                <input
-                  type="date"
+                <DateInput
                   value={h.hatchDate}
                   onChange={(e) =>
                     setHatches((cur) =>

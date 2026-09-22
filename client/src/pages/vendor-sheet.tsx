@@ -8,6 +8,7 @@ import { useLocalSearch } from "../components/search-context";
 import { matchesTerm, localYmd } from "../lib/utils";
 import { AccountSelect, bankNodes } from "../components/account-select";
 import { type SearchField, filterRows, useAdvancedSearch } from "../components/advanced-search";
+import { DateInput } from "../components/date-input";
 
 /**
  * Vendor Sheet — the one screen that answers "what do we owe, and what goes to
@@ -511,8 +512,7 @@ function SendToBankDialog({
               </div>
               <div>
                 <label className="label-required">Value date *</label>
-                <input
-                  type="date"
+                <DateInput
                   value={batchDate}
                   onChange={(e) => setBatchDate(e.target.value)}
                   className="input"

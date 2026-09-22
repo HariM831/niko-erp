@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import {
   Avatar, Badge, Empty, EmployeeRow, ErrorBanner, Field, PageHeader, Pager, Spinner, Td, Th, dmy, fileToDataUrl, num, useEmployees, useErr, usePaged,
 } from "../../components/payroll/ui";
+import { DateInput } from "../../components/date-input";
 
 interface Department { id: string; name: string; isActive: boolean; designations: { id: string; name: string; displayOrder: number; isActive: boolean }[] }
 interface WageRole { id: string; name: string; dailyRate: number; isActive: boolean }
@@ -594,10 +595,10 @@ function EmployeeEditor({ id, departments, onClose, onSaved }: {
                     />
                   </Field>
                   <Field label="Date of joining">
-                    <input type="date" className="input" value={form.dateOfJoining ?? ""} onChange={(e) => set("dateOfJoining", e.target.value || null)} />
+                    <DateInput className="input" value={form.dateOfJoining ?? ""} onChange={(e) => set("dateOfJoining", e.target.value || null)} />
                   </Field>
                   <Field label="Date of leaving">
-                    <input type="date" className="input" value={form.dateOfLeaving ?? ""} onChange={(e) => set("dateOfLeaving", e.target.value || null)} />
+                    <DateInput className="input" value={form.dateOfLeaving ?? ""} onChange={(e) => set("dateOfLeaving", e.target.value || null)} />
                   </Field>
                   <Field label="Contact number">
                     <input className="input" value={form.contactNumber ?? ""} onChange={(e) => set("contactNumber", e.target.value)} />
@@ -743,7 +744,7 @@ function EmployeeEditor({ id, departments, onClose, onSaved }: {
                       />
                     </Field>
                     <Field label="Effective from">
-                      <input type="date" className="input" value={newShift.effectiveFrom} onChange={(e) => setNewShift({ ...newShift, effectiveFrom: e.target.value })} />
+                      <DateInput className="input" value={newShift.effectiveFrom} onChange={(e) => setNewShift({ ...newShift, effectiveFrom: e.target.value })} />
                     </Field>
                     <Field label="Notes">
                       <input className="input" value={newShift.notes} onChange={(e) => setNewShift({ ...newShift, notes: e.target.value })} />

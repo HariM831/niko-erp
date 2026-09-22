@@ -25,6 +25,7 @@ import {
   STATUS_LABEL, Spinner, StatusChip, StatusLegend, Td, Th, daysInMonth, dmy, fmtDateTime, fmtTime, istToday, num, pad2,
   statusTone, useEmployees, useErr, useMonth, usePaged, ymd,
 } from "../../components/payroll/ui";
+import { DateInput } from "../../components/date-input";
 
 /* ── shared types ──────────────────────────────────────────────────────── */
 interface DayCell { status: AttStatus; source: string; hours: number }
@@ -503,7 +504,7 @@ function TeamGridTab({ term, criteria }: { term: string; criteria: Criteria }) {
         <DialogContent className="max-w-sm">
           <DialogHeader><DialogTitle>Bulk override · {selected.size} employees</DialogTitle></DialogHeader>
           <Field label="Day">
-            <input type="date" className="input" value={bulkDay} onChange={(e) => setBulkDay(e.target.value)} />
+            <DateInput className="input" value={bulkDay} onChange={(e) => setBulkDay(e.target.value)} />
           </Field>
           <Field label="Status" className="mt-2">
             <div className="flex gap-1">
@@ -765,15 +766,15 @@ function ApplyLeaveDialog({ onClose, onSaved }: { onClose: () => void; onSaved: 
           </Field>
           {form.leaveType === "CompOff" && (
             <Field label="Worked on (holiday / weekly off)" required hint="Must be a past day worked, within validity">
-              <input type="date" className="input" value={form.compOffWorkDate} onChange={(e) => setForm({ ...form, compOffWorkDate: e.target.value })} />
+              <DateInput className="input" value={form.compOffWorkDate} onChange={(e) => setForm({ ...form, compOffWorkDate: e.target.value })} />
             </Field>
           )}
           <div className="grid grid-cols-2 gap-2">
             <Field label="From" required>
-              <input type="date" className="input" value={form.fromDate} onChange={(e) => setForm({ ...form, fromDate: e.target.value })} />
+              <DateInput className="input" value={form.fromDate} onChange={(e) => setForm({ ...form, fromDate: e.target.value })} />
             </Field>
             <Field label="To" required>
-              <input type="date" className="input" value={form.toDate} onChange={(e) => setForm({ ...form, toDate: e.target.value })} />
+              <DateInput className="input" value={form.toDate} onChange={(e) => setForm({ ...form, toDate: e.target.value })} />
             </Field>
           </div>
           {days > 0 && <div className="text-[12px] text-gray-500">{days} day{days === 1 ? "" : "s"}</div>}
@@ -1014,7 +1015,7 @@ function RosterTab({ term, criteria, fields }: { term: string; criteria: Criteri
           />
         </Field>
         <Field label="From">
-          <input type="date" className="input" value={form.effectiveFrom} onChange={(e) => setForm({ ...form, effectiveFrom: e.target.value })} />
+          <DateInput className="input" value={form.effectiveFrom} onChange={(e) => setForm({ ...form, effectiveFrom: e.target.value })} />
         </Field>
         <button className="btn-primary" disabled={!form.employeeId || !form.shiftId || assign.isPending} onClick={() => assign.mutate()}>
           Assign

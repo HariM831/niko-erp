@@ -14,6 +14,7 @@ import { filterRows, useAdvancedSearch, type SearchField } from "../components/a
 import { useLocalSearch } from "../components/search-context";
 import { SearchSelect } from "../components/search-select";
 import { matchesTerm, localYmd } from "../lib/utils";
+import { DateInput } from "../components/date-input";
 
 interface Store {
   id: string;
@@ -510,7 +511,7 @@ function MoveDialog({
               )}
             </Field>
             <Field label="Date">
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
+              <DateInput value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
             </Field>
           </div>
 
@@ -529,7 +530,7 @@ function MoveDialog({
                   <input value={lotNo} onChange={(e) => setLotNo(e.target.value)} className={inputCls} />
                 </Field>
                 <Field label="Expiry (optional)">
-                  <input type="date" value={expiry} onChange={(e) => setExpiry(e.target.value)} className={inputCls} />
+                  <DateInput value={expiry} onChange={(e) => setExpiry(e.target.value)} className={inputCls} />
                 </Field>
               </div>
               <Field label="Delivery note / reference (optional)">

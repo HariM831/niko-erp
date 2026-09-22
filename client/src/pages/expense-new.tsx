@@ -7,6 +7,7 @@ import { CustomFieldsBlock, type CustomFieldValues } from "../components/custom-
 import { AccountSelect, bankNodes, type AccountNode } from "../components/account-select";
 import { SearchSelect } from "../components/search-select";
 import { localYmd } from "../lib/utils";
+import { DateInput } from "../components/date-input";
 
 type Account = AccountNode;
 interface BankAccount {
@@ -173,7 +174,7 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
         <div className="grid max-w-2xl grid-cols-2 gap-4">
           <div>
             <label className="label-required">Date *</label>
-            <input type="date" value={form.expenseDate} onChange={set("expenseDate")} className={inputCls} />
+            <DateInput value={form.expenseDate} onChange={set("expenseDate")} className={inputCls} />
           </div>
           <div>
             <label className="label-required">Amount *</label>
@@ -228,7 +229,7 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
           {unpaid && (
             <div>
               <label className={label}>Due Date</label>
-              <input type="date" value={form.dueDate} onChange={set("dueDate")} className={inputCls} />
+              <DateInput value={form.dueDate} onChange={set("dueDate")} className={inputCls} />
               <p className="mt-1 text-[11px] text-gray-500">
                 Left blank, the vendor's payment terms decide.
               </p>

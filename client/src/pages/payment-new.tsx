@@ -5,6 +5,7 @@ import { api, formatDate, formatMoney } from "../api";
 import { AccountSelect, bankNodes } from "../components/account-select";
 import { SearchSelect } from "../components/search-select";
 import { localYmd } from "../lib/utils";
+import { DateInput } from "../components/date-input";
 
 interface Contact {
   id: string;
@@ -203,7 +204,7 @@ export function PaymentNewPage({ side, editId }: { side: "customer" | "vendor"; 
           </div>
           <div>
             <label className="label-required">Payment Date *</label>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
+            <DateInput value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
           </div>
           <div>
             <label className="label-required">Amount *</label>

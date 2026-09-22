@@ -17,6 +17,7 @@ import { useLocalSearch } from "../../components/search-context";
 import { matchesTerm } from "../../lib/utils";
 import { filterRows, useAdvancedSearch, type Criteria, type SearchField } from "../../components/advanced-search";
 import { Badge, Empty, PageHeader, Pager, Spinner, Td, Th, istToday, num, usePaged } from "../../components/payroll/ui";
+import { DateInput } from "../../components/date-input";
 
 /**
  * Advanced search per view. Dates and role already sit in the header for the
@@ -151,9 +152,9 @@ export function PayrollWagesPage() {
         </div>
         {view === "month" ? (
           <>
-            <input type="date" className="input w-auto" value={from} onChange={(e) => setFrom(e.target.value)} />
+            <DateInput className="input w-auto" value={from} onChange={(e) => setFrom(e.target.value)} />
             <span className="text-gray-400">–</span>
-            <input type="date" className="input w-auto" value={to} onChange={(e) => setTo(e.target.value)} />
+            <DateInput className="input w-auto" value={to} onChange={(e) => setTo(e.target.value)} />
             <SearchSelect
               className="w-44"
               value={role || null}
@@ -163,7 +164,7 @@ export function PayrollWagesPage() {
             />
           </>
         ) : (
-          <input type="date" className="input w-auto" value={day} onChange={(e) => setDay(e.target.value)} />
+          <DateInput className="input w-auto" value={day} onChange={(e) => setDay(e.target.value)} />
         )}
         {adv.button}
       </PageHeader>

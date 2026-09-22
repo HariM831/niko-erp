@@ -31,6 +31,7 @@ import {
 import { LineSet, type Column } from "../components/line-set";
 import { SearchSelect } from "../components/search-select";
 import { localYmd } from "../lib/utils";
+import { DateInput } from "../components/date-input";
 
 const today = () => localYmd();
 const n = (v: number) => v.toLocaleString("en-IN");
@@ -307,7 +308,7 @@ function StartLay({
     <div className="flex items-end gap-2">
       <div className="w-40">
         <label className="label">First eggs</label>
-        <input type="date" value={on} onChange={(e) => setOn(e.target.value)} className="input" />
+        <DateInput value={on} onChange={(e) => setOn(e.target.value)} className="input" />
       </div>
       <button
         onClick={() => save.mutate()}
@@ -724,8 +725,7 @@ function RecordMovement({ flock, onSaved }: { flock: Flock; onSaved: () => void 
         </div>
         <div className="w-40">
           <label className="label">Date</label>
-          <input
-            type="date"
+          <DateInput
             value={eventDate}
             onChange={(e) => setEventDate(e.target.value)}
             className="input"

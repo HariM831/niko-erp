@@ -5,6 +5,7 @@ import { api, formatMoney } from "../api";
 import { AccountSelect, type AccountNode } from "../components/account-select";
 import { SearchSelect } from "../components/search-select";
 import { localYmd } from "../lib/utils";
+import { DateInput } from "../components/date-input";
 
 type Account = AccountNode;
 
@@ -129,7 +130,7 @@ export function JournalNewPage() {
         <div className="mb-5 grid max-w-3xl grid-cols-3 gap-4">
           <div>
             <label className="label-required">Date *</label>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
+            <DateInput value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
           </div>
           <div className="col-span-2">
             <label className="label-required">Narration *</label>

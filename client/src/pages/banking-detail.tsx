@@ -9,6 +9,7 @@ import { matchesTerm, localYmd } from "../lib/utils";
 import { AccountSelect, bankNodes, type AccountNode } from "../components/account-select";
 import { SearchSelect } from "../components/search-select";
 import { filterRows, useAdvancedSearch, type SearchField } from "../components/advanced-search";
+import { DateInput } from "../components/date-input";
 
 interface BankTxn {
   id: string;
@@ -1291,7 +1292,7 @@ function QuickEntryPanel({ bankAccountId, onDone, onCancel }: { bankAccountId: s
         </div>
         <div>
           <label className="label-required">Date *</label>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="input w-40" />
+          <DateInput value={date} onChange={(e) => setDate(e.target.value)} className="input w-40" />
         </div>
         <div>
           <label className="label-required">Amount *</label>
@@ -1357,7 +1358,7 @@ function TransferPanel({ bankAccountId, onDone, onCancel }: { bankAccountId: str
         </div>
         <div>
           <label className="label-required">Date *</label>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="input w-40" />
+          <DateInput value={date} onChange={(e) => setDate(e.target.value)} className="input w-40" />
         </div>
         <div>
           <label className="label-required">Amount *</label>

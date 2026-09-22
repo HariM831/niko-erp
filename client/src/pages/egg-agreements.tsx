@@ -12,6 +12,7 @@ import { api, formatDate } from "../api";
 import { filterRows, useAdvancedSearch, type SearchField } from "../components/advanced-search";
 import { SearchSelect } from "../components/search-select";
 import { localYmd } from "../lib/utils";
+import { DateInput } from "../components/date-input";
 
 interface Agreement {
   id: string;
@@ -329,7 +330,7 @@ function AgreementDialog({
             {!agreement && (
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">Starts</label>
-                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className={inputCls} />
+                <DateInput value={startDate} onChange={(e) => setStartDate(e.target.value)} className={inputCls} />
               </div>
             )}
             {agreement && (
@@ -354,7 +355,7 @@ function AgreementDialog({
               <label className="mb-1 block text-xs font-medium text-muted-foreground">
                 Ends (leave blank while open)
               </label>
-              <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className={inputCls} />
+              <DateInput value={endDate} onChange={(e) => setEndDate(e.target.value)} className={inputCls} />
             </div>
           </div>
 

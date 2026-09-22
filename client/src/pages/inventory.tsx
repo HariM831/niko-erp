@@ -6,6 +6,7 @@ import { AccountSelect, type AccountNode } from "../components/account-select";
 import { SearchSelect } from "../components/search-select";
 import { localYmd } from "../lib/utils";
 import { useAdvancedSearch, type SearchField } from "../components/advanced-search";
+import { DateInput } from "../components/date-input";
 
 /** Current on-hand, for the adjustment form's "quantity now" column. */
 interface StockLevel {
@@ -121,8 +122,7 @@ export function StockPage() {
         <div className="mb-4 flex flex-wrap items-end gap-2">
           <div>
             <label className="label">From</label>
-            <input
-              type="date"
+            <DateInput
               value={from}
               onChange={(e) => setFrom(e.target.value)}
               className="input h-8 w-40 text-[13px]"
@@ -130,8 +130,7 @@ export function StockPage() {
           </div>
           <div>
             <label className="label">To</label>
-            <input
-              type="date"
+            <DateInput
               value={to}
               onChange={(e) => setTo(e.target.value)}
               className="input h-8 w-40 text-[13px]"
@@ -449,8 +448,7 @@ export function InventoryAdjustmentNewPage() {
         <div className="mb-5 grid max-w-3xl grid-cols-3 gap-4">
           <div>
             <label className="label-required">Date *</label>
-            <input
-              type="date"
+            <DateInput
               value={adjustmentDate}
               onChange={(e) => setDate(e.target.value)}
               className="input"

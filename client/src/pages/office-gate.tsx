@@ -17,6 +17,7 @@ import { shrink } from "../lib/image";
 import { SearchSelect, type Choice } from "../components/search-select";
 import type { LineMatch } from "@shared/po-match-types";
 import { localYmd } from "../lib/utils";
+import { DateInput } from "../components/date-input";
 
 interface Context {
   locations: Array<{ id: string; name: string; code: string }>;
@@ -579,8 +580,7 @@ export function GateInPage() {
           </div>
           <div>
             <label className="label">Bill date</label>
-            <input
-              type="date"
+            <DateInput
               value={billDate}
               onChange={(e) => setBillDate(e.target.value)}
               className="input"

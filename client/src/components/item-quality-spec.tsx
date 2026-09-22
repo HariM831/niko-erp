@@ -23,6 +23,7 @@ import { ApiError, api, formatDate } from "../api";
 import { SearchSelect } from "./search-select";
 import { QC_PARAMETERS, qcParameterDef } from "@shared/feed";
 import { localYmd } from "../lib/utils";
+import { DateInput } from "./date-input";
 
 interface SpecParam {
   parameter: string;
@@ -373,8 +374,7 @@ export function ItemQualitySpec({ itemId }: { itemId: string }) {
                     <div className="label">
                       {detail.spec ? "New version effective from" : "Effective from"}
                     </div>
-                    <input
-                      type="date"
+                    <DateInput
                       value={effectiveFrom}
                       onChange={(e) => setEffectiveFrom(e.target.value)}
                       className="input h-8 text-[13px]"

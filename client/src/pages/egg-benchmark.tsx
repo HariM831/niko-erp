@@ -12,6 +12,7 @@ import { Loader2 } from "lucide-react";
 import { api, formatDate } from "../api";
 import { DIRECT_RATE_SIZES, EGG_SIZE_LABEL, VISIBLE_EGG_SIZES, isDirectRate, type EggSize } from "@shared/egg-sizes";
 import { localYmd } from "../lib/utils";
+import { DateInput } from "../components/date-input";
 
 interface BenchmarkRow {
   id: string;
@@ -184,7 +185,7 @@ export function EggBenchmarkPage() {
               <div className="flex items-end gap-2">
                 <div>
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">For</label>
-                  <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
+                  <DateInput value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
                 </div>
                 <div className="w-28">
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">₹ / egg</label>
@@ -232,7 +233,7 @@ export function EggBenchmarkPage() {
                   <div className="flex items-end gap-2">
                     <div>
                       <label className="mb-1 block text-xs font-medium text-muted-foreground">For</label>
-                      <input type="date" value={boxDate} onChange={(e) => setBoxDate(e.target.value)} className={inputCls} />
+                      <DateInput value={boxDate} onChange={(e) => setBoxDate(e.target.value)} className={inputCls} />
                     </div>
                     <div className="w-28">
                       <label className="mb-1 block text-xs font-medium text-muted-foreground">₹ / box</label>

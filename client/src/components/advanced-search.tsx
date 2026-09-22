@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { SearchSelect } from "./search-select";
 import { AccountSelect, bankNodes, type AccountNode } from "./account-select";
 import { matchesTerm } from "../lib/utils";
+import { DateInput } from "./date-input";
 
 /**
  * Field-by-field search, laid out the way Zoho's "Advanced Search" dialog is:
@@ -83,8 +84,8 @@ interface Props {
   onClose: () => void;
 }
 
-const INPUT =
-  "w-full rounded border border-gray-300 bg-white px-2.5 py-1.5 text-[13px] outline-none focus:border-brand-500";
+/** The app's own box (index.css `.input`), so the dialog matches every form. */
+const INPUT = "input min-w-0";
 
 function ContactPicker({
   value,
@@ -182,9 +183,9 @@ function EmployeePicker({ value, onChange }: { value: string; onChange: (v: stri
 /** One label-and-box row. Zoho's labels sit to the left, right-aligned. */
 function Row({ label, wide, children }: { label: string; wide?: boolean; children: ReactNode }) {
   return (
-    <div className={`flex flex-col gap-1 sm:flex-row sm:items-start sm:gap-4 ${wide ? "sm:col-span-2" : ""}`}>
+    <div className={`flex flex-col gap-1 sm:flex-row sm:items-start sm:gap-4 ${wide ? "lg:col-span-2" : ""}`}>
       <div className="text-[13px] text-gray-700 sm:w-36 sm:shrink-0 sm:pt-1.5 sm:text-right">{label}</div>
-      <div className="min-w-0 flex-1">{children}</div>
+      <div className={`min-w-0 flex-1 ${wide ? "" : "sm:max-w-sm"}`}>{children}</div>
     </div>
   );
 }
@@ -272,15 +273,13 @@ export function AdvancedSearch({ title, fields, initial, onApply, onClose }: Pro
       case "dateRange":
         return (
           <div className="flex items-center gap-2">
-            <input
-              type="date"
+            <DateInput
               value={values[`${f.key}From`] ?? ""}
               onChange={(e) => set(`${f.key}From`, e.target.value)}
               className={INPUT}
             />
             <span className="text-gray-400">-</span>
-            <input
-              type="date"
+            <DateInput
               value={values[`${f.key}To`] ?? ""}
               onChange={(e) => set(`${f.key}To`, e.target.value)}
               className={INPUT}
@@ -316,7 +315,7 @@ export function AdvancedSearch({ title, fields, initial, onApply, onClose }: Pro
       <div role="dialog" aria-label={`Search ${title}`} className="relative w-full max-w-[72rem] rounded-lg bg-white shadow-xl">
         <div className="flex items-center gap-4 border-b bg-gray-50 px-5 py-3 sm:px-8">
           <div className="text-[13px] text-gray-700 sm:w-36 sm:text-right">Search</div>
-          <div className="w-full max-w-xs rounded border border-gray-300 bg-white px-2.5 py-1.5 text-[13px] text-gray-800">
+          <div className="input w-full max-w-xs text-gray-800">
             {title}
           </div>
           <button
@@ -328,7 +327,7 @@ export function AdvancedSearch({ title, fields, initial, onApply, onClose }: Pro
           </button>
         </div>
 
-        <div className="grid grid-cols-1 gap-x-10 gap-y-4 px-5 py-6 sm:grid-cols-2 sm:px-8">
+        <div className="grid grid-cols-1 gap-x-10 gap-y-4 px-5 py-6 sm:px-8 lg:grid-cols-2">
           {fields.map((f) => (
             <Row key={f.key} label={f.label} wide={f.wide || f.kind === "radio"}>
               {control(f)}

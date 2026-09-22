@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
 import { Banner, SettingsHeader } from "../components/settings-ui";
 import { localYmd } from "../lib/utils";
+import { DateInput } from "../components/date-input";
 
 interface OpeningAccount {
   id: string;
@@ -140,8 +141,7 @@ export function OpeningBalancesSection() {
       <div className="mb-5 flex items-end gap-4">
         <div className="w-56">
           <label className="label-required">Migration Date *</label>
-          <input
-            type="date"
+          <DateInput
             value={migrationDate}
             onChange={(e) => setMigrationDate(e.target.value)}
             className="input"

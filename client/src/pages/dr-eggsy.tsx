@@ -18,6 +18,7 @@ import { filterRows, useAdvancedSearch, type SearchField } from "../components/a
 import { useLocalSearch } from "../components/search-context";
 import { SearchSelect } from "../components/search-select";
 import { matchesTerm, localYmd } from "../lib/utils";
+import { DateInput } from "../components/date-input";
 
 interface ObsImage {
   id: string;
@@ -478,8 +479,7 @@ function NewObservation({
         />
 
         <label className="mb-1 block text-xs font-medium text-muted-foreground">Date</label>
-        <input
-          type="date"
+        <DateInput
           value={date}
           onChange={(e) => setDate(e.target.value)}
           className="mb-3 h-9 w-full rounded-md border border-border bg-background px-2 text-sm"

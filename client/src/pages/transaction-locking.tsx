@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate } from "../api";
 import { localYmd } from "../lib/utils";
+import { DateInput } from "../components/date-input";
 
 interface Lock {
   module: string;
@@ -116,8 +117,7 @@ export function TransactionLockingPage() {
                   <div className="flex flex-wrap items-end gap-3">
                     <div>
                       <label className="label-required">Lock transactions on or before *</label>
-                      <input
-                        type="date"
+                      <DateInput
                         value={date}
                         onChange={(e) => setDate(e.target.value)}
                         className="input w-44"

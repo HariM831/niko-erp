@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { api } from "../api";
 import { SearchSelect } from "../components/search-select";
 import { localYmd } from "../lib/utils";
+import { DateInput } from "../components/date-input";
 
 /**
  * Reports, laid out the way Zoho Books lays them out.
@@ -441,14 +442,12 @@ export function ReportViewPage({ reportKey }: { reportKey: string }) {
 
         {preset === "Custom" && (
           <>
-            <input
-              type="date"
+            <DateInput
               value={draft.from}
               onChange={(e) => setDraft((r) => ({ ...r, from: e.target.value }))}
               className="input h-8 w-auto py-0"
             />
-            <input
-              type="date"
+            <DateInput
               value={draft.to}
               onChange={(e) => setDraft((r) => ({ ...r, to: e.target.value }))}
               className="input h-8 w-auto py-0"

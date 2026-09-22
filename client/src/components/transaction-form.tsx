@@ -8,6 +8,7 @@ import { AccountSelect, type AccountNode } from "./account-select";
 import { SearchSelect, type Choice } from "./search-select";
 import { PURCHASE_CATEGORIES, SALE_CATEGORIES } from "@shared/item-categories";
 import { localYmd } from "../lib/utils";
+import { DateInput } from "./date-input";
 
 interface Contact {
   id: string;
@@ -427,7 +428,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
           </div>
           <div>
             <label className="label-required">{config.dateLabel} *</label>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
+            <DateInput value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
           </div>
           <div>
             <label className="label">Reference</label>
@@ -462,8 +463,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
           {config.withDeliveryDate && (
             <div>
               <label className="label">Expected Delivery Date</label>
-              <input
-                type="date"
+              <DateInput
                 value={deliveryDate}
                 onChange={(e) => setDeliveryDate(e.target.value)}
                 className={inputCls}

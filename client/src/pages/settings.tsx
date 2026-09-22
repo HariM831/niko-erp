@@ -40,6 +40,7 @@ import {
   OfficePrefsSection,
   TransactionPrefsSection,
 } from "./settings-preferences";
+import { DateInput } from "../components/date-input";
 
 type Section = string;
 
@@ -863,8 +864,7 @@ function NewFinancialYearModal({ onClose, onDone }: { onClose: () => void; onDon
         </div>
         <div>
           <label className="label-required">Start *</label>
-          <input
-            type="date"
+          <DateInput
             value={form.startDate}
             onChange={(e) => setForm((f) => ({ ...f, startDate: e.target.value }))}
             className="input"
@@ -872,8 +872,7 @@ function NewFinancialYearModal({ onClose, onDone }: { onClose: () => void; onDon
         </div>
         <div>
           <label className="label-required">End *</label>
-          <input
-            type="date"
+          <DateInput
             value={form.endDate}
             onChange={(e) => setForm((f) => ({ ...f, endDate: e.target.value }))}
             className="input"
@@ -929,8 +928,7 @@ function LockPeriodModal({
     >
       {error && <Banner tone="error">{error}</Banner>}
       <label className="label-required">Lock transactions through *</label>
-      <input
-        type="date"
+      <DateInput
         value={date}
         min={year.startDate}
         max={year.endDate}

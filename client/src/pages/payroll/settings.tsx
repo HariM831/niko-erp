@@ -19,6 +19,7 @@ import { SearchSelect } from "../../components/search-select";
 import {
   Badge, Empty, ErrorBanner, Field, Spinner, Td, Th, dmy, istToday, num, useErr,
 } from "../../components/payroll/ui";
+import { DateInput } from "../../components/date-input";
 
 interface Designation { id: string; name: string; displayOrder: number; isActive: boolean }
 interface Department { id: string; name: string; isActive: boolean; designations: Designation[] }
@@ -290,7 +291,7 @@ export function HolidaysTab() {
           <input type="number" className="input w-24 tabular-nums" value={year} onChange={(e) => setYear(Number(e.target.value) || year)} />
         </Field>
         <Field label="Name"><input className="input w-52" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></Field>
-        <Field label="Date"><input type="date" className="input" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></Field>
+        <Field label="Date"><DateInput className="input" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })} /></Field>
         <Field label="Type">
           <SearchSelect
             className="w-32"
