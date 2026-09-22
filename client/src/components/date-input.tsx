@@ -184,7 +184,12 @@ export function DateInput({
           if (e.key === "Enter") {
             commit();
             setOpen(false);
-          } else if (e.key === "Escape" || e.key === "Tab") {
+          } else if (e.key === "Escape" && open) {
+            // Shut the calendar only — not the dialog the box sits in, which
+            // listens for Escape on the document.
+            e.stopPropagation();
+            setOpen(false);
+          } else if (e.key === "Tab") {
             setOpen(false);
           }
           onKeyDown?.(e);

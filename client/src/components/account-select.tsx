@@ -291,6 +291,8 @@ export function AccountSelect({
                     const r = rows[cursor];
                     if (r?.kind === "account" && r.pickable) pick(r.a.id);
                   } else if (e.key === "Escape") {
+                    // The tree only, not a dialog around it.
+                    e.stopPropagation();
                     setOpen(false);
                   }
                 }}

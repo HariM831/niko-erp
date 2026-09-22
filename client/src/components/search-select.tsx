@@ -159,6 +159,8 @@ export function SearchSelect({
                 const hit = matches[cursor];
                 if (hit) pick(hit.id);
               } else if (e.key === "Escape") {
+                // The list only, not a dialog around it.
+                e.stopPropagation();
                 setOpen(false);
               }
             }}
