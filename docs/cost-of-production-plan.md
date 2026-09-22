@@ -1,6 +1,10 @@
 # Cost of production per egg — plan
 
-Read of niko and the staging books as at 22 Sep 2026. No code written.
+Read of niko and the staging books as at 22 Sep 2026. **Implemented the same
+day** (commit b81d2a6) as Reports › Business Overview › Cost Analysis, with the
+head mapping on Settings › Cost Analysis and seeded by
+`scripts/seed-cost-analysis-heads.ts`. Verified on staging: the Apr–Aug
+statement reproduces the hand-worked figures below to the paisa.
 
 ## The formula, as decided
 
