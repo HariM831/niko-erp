@@ -2,7 +2,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api } from "../api";
-import { AdvancedSearch, type Criteria, type SearchField } from "./advanced-search";
+import { AdvancedButton, AdvancedSearch, criteriaCount as countCriteria, type Criteria, type SearchField } from "./advanced-search";
 import { useSearchContext } from "./search-context";
 
 export interface Column<T> {
@@ -204,7 +204,7 @@ export function ListPage<T>({
     // next arrive stops the table blanking to "Loading…" between letters.
     placeholderData: liveSearch ? keepPreviousData : undefined,
   });
-  const criteriaCount = Object.keys(criteria).length;
+  const criteriaCount = countCriteria(criteria);
 
   const allSelected = !!data?.length && data.every((r) => selected.has(rowKey(r)));
   const toggleAll = () =>
@@ -261,16 +261,7 @@ export function ListPage<T>({
         </div>
         <div className="flex flex-1 items-center justify-end gap-1.5 sm:flex-none sm:gap-2">
           {searchFields && (
-            <button
-              onClick={() => setAdvancedOpen(true)}
-              className={`whitespace-nowrap rounded border px-2 py-1.5 text-[13px] ${
-                criteriaCount
-                  ? "border-brand-500 bg-brand-50 text-brand-700"
-                  : "border-gray-300 text-gray-600 hover:bg-gray-50"
-              }`}
-            >
-              Advanced{criteriaCount ? ` (${criteriaCount})` : ""}
-            </button>
+            <AdvancedButton count={criteriaCount} onOpen={() => setAdvancedOpen(true)} onClear={() => setCriteria({})} />
           )}
           {extraActions}
           {handleNew && (

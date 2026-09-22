@@ -80,13 +80,25 @@ export type Field =
   | { kind: "contactText"; on: PgColumn }
   | { kind: "lineText"; on: PgColumn }
   | { kind: "lineItem" }
-  | { kind: "accountName" };
+  | { kind: "accountName" }
+  /** An account picked by id: the document's own account, or any line's. */
+  | { kind: "accountId" }
+  /** One box matched against several columns — a name that may be the display or the company name. */
+  | { kind: "anyText"; cols: PgColumn[] }
+  /** "true"/"false" (or "yes"/"no") against a boolean column. */
+  | { kind: "bool"; col: PgColumn }
+  /**
+   * Anything the kinds above cannot say — a join, a computed status. Handed a
+   * reader for the query so it can take its own key, or several; returns
+   * nothing when its value is absent.
+   */
+  | { kind: "custom"; build: (get: (k: string) => string | undefined) => SQL | undefined };
 
 export interface DocumentSearch {
-  /** The document's own id, used to correlate the EXISTS subqueries. */
-  id: PgColumn;
+  /** The document's own id, used to correlate the EXISTS subqueries. Needed with `lines`. */
+  id?: PgColumn;
   /** Columns the quick search matches directly. */
-  text: PgColumn[];
+  text?: PgColumn[];
   /** Vendor or customer; both their display and company names are matched. */
   contactId?: PgColumn;
   /** For documents that post to one account rather than carrying lines. */
@@ -144,10 +156,10 @@ export function quickSearch(spec: DocumentSearch, raw: string | undefined): SQL 
   if (!trimmed) return undefined;
   const m: Matcher = (col) => matches(col, trimmed);
 
-  const conditions: (SQL | undefined)[] = spec.text.map(m);
+  const conditions: (SQL | undefined)[] = (spec.text ?? []).map(m);
   if (spec.contactId) conditions.push(contactMatches(spec.contactId, m));
   if (spec.accountId) conditions.push(accountMatches(spec.accountId, m));
-  if (spec.lines) conditions.push(lineMatches(spec.lines, spec.id, m));
+  if (spec.lines && spec.id) conditions.push(lineMatches(spec.lines, spec.id, m));
   return or(...conditions);
 }
 
@@ -237,7 +249,7 @@ export function advancedSearch(
               db
                 .select(one)
                 .from(spec.lines.table)
-                .where(and(eq(spec.lines.documentId, spec.id), ilike(field.on, contains(v)))),
+                .where(and(eq(spec.lines.documentId, spec.id!), ilike(field.on, contains(v)))),
             ),
           );
         }
@@ -251,7 +263,7 @@ export function advancedSearch(
               db
                 .select(one)
                 .from(spec.lines.table)
-                .where(and(eq(spec.lines.documentId, spec.id), eq(spec.lines.itemId, v))),
+                .where(and(eq(spec.lines.documentId, spec.id!), eq(spec.lines.itemId, v))),
             ),
           );
         }
@@ -271,10 +283,40 @@ export function advancedSearch(
               db
                 .select(one)
                 .from(lines.table)
-                .where(and(eq(lines.documentId, spec.id), accountMatches(lines.accountId!, m))),
+                .where(and(eq(lines.documentId, spec.id!), accountMatches(lines.accountId!, m))),
             ),
           );
         }
+        break;
+      }
+      case "accountId": {
+        const v = value(key);
+        if (!v) break;
+        if (spec.accountId) out.push(eq(spec.accountId, v));
+        else if (spec.lines?.accountId && spec.id) {
+          out.push(
+            inArray(
+              spec.id,
+              db.select({ id: spec.lines.documentId }).from(spec.lines.table).where(eq(spec.lines.accountId, v)),
+            ),
+          );
+        }
+        break;
+      }
+      case "anyText": {
+        const v = value(key);
+        if (v) out.push(or(...field.cols.map((c) => ilike(c, contains(v))))!);
+        break;
+      }
+      case "bool": {
+        const v = value(key)?.toLowerCase();
+        if (v === "true" || v === "yes") out.push(eq(field.col, true));
+        else if (v === "false" || v === "no") out.push(eq(field.col, false));
+        break;
+      }
+      case "custom": {
+        const c = field.build(value);
+        if (c) out.push(c);
         break;
       }
     }
