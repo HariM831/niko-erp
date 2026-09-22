@@ -92,7 +92,11 @@ interface DailyRecord {
   birdsTransferredOut: number;
   birdsCulled: number;
   waterKl: number;
+  /** The mill's transfers into the house that day; feed delivered is not typed here. */
   feedDeliveredKg: number;
+  /** What the silo implies arrived: today's level, less yesterday's, plus what was eaten. */
+  siloImpliedKg?: number | null;
+  deliveryCheck?: 'agrees' | 'differs' | 'missing' | 'unknown';
   feedIntakeKg: number;
   feedStockKg: number;
   eggsProduced: number;
@@ -245,7 +249,7 @@ export function HouseDetailPage() {
     feedConsumedKg?: number | null; feedClosingKg?: number | null;
     waterKl?: number | null; mortality?: number | null; eggsProduced?: number | null;
     deliveredImpliedKg?: number | null; millRecordedKg?: number | null;
-    deliveryCheck?: 'agrees' | 'differs' | 'unknown';
+    deliveryCheck?: 'agrees' | 'differs' | 'missing' | 'unknown';
     rejected?: string[];
   } | null>(null);
   const [fromSensor, setFromSensor] = useState<Set<string>>(new Set());
@@ -1607,7 +1611,7 @@ export function HouseDetailPage() {
                                 <div
                                   data-testid="input-feed-delivered"
                                   className={`flex min-h-[44px] items-center rounded-md border px-3 text-sm tabular-nums ${
-                                    sensor?.deliveryCheck === 'differs'
+                                    sensor?.deliveryCheck === 'differs' || sensor?.deliveryCheck === 'missing'
                                       ? 'border-amber-400 bg-amber-50 font-semibold text-amber-900'
                                       : sensor?.deliveryCheck === 'agrees'
                                         ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
@@ -1650,7 +1654,7 @@ export function HouseDetailPage() {
                                 />
                               </div>
                             </div>
-                            {sensor?.deliveryCheck === 'differs' && (
+                            {(sensor?.deliveryCheck === 'differs' || sensor?.deliveryCheck === 'missing') && (
                               <div className="rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
                                 The silo says about{' '}
                                 <strong>{(sensor.deliveredImpliedKg ?? 0).toLocaleString('en-IN')} kg</strong>{' '}
@@ -1802,7 +1806,15 @@ export function HouseDetailPage() {
                                   {format(new Date(record.date), 'dd MMM yyyy')}
                                 </div>
                                 <div className="text-sm text-gray-500">
-                                  by {record.recordedBy} {ageRefDate && <span className="text-xs">(Week {recordAgeWeeks})</span>}
+                                  by {record.recordedBy || '—'} {ageRefDate && <span className="text-xs">(Week {recordAgeWeeks})</span>}
+                                  {record.deliveryCheck === 'missing' && (
+                                    <span
+                                      className="ml-2 inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900"
+                                      title={`Silo says about ${(record.siloImpliedKg ?? 0).toLocaleString('en-IN')} kg arrived; Feed Mill has no transfer for this day`}
+                                    >
+                                      no transfer
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                               <div className="flex items-center gap-4 text-sm flex-wrap justify-end">
@@ -2468,9 +2480,39 @@ export function HouseDetailPage() {
                 <div className="border-t pt-3">
                   <h4 className="text-sm font-medium mb-2">Feed</h4>
                   <div className="grid grid-cols-3 gap-3">
-                    <div className="bg-yolk-50 p-3 rounded-lg">
+                    {/*
+                      Delivered is the mill's transfer, not a typed figure. The silo's
+                      own arithmetic sits beside it so a transfer the mill has not
+                      recorded reads as a disagreement, not as a quiet zero.
+                    */}
+                    <div
+                      className={`p-3 rounded-lg ${
+                        selectedRecord.deliveryCheck === 'missing'
+                          ? 'bg-amber-50 ring-1 ring-amber-300'
+                          : 'bg-yolk-50'
+                      }`}
+                      data-testid="record-feed-delivered"
+                    >
                       <div className="text-xs text-yolk-700 mb-1">Delivered (kg)</div>
-                      <div className="text-lg font-semibold text-yolk-700">{selectedRecord.feedDeliveredKg || 0}</div>
+                      <div className="text-lg font-semibold text-yolk-700 tabular-nums">
+                        {(selectedRecord.feedDeliveredKg || 0).toLocaleString('en-IN')}
+                      </div>
+                      <div className="text-[11px] text-soil-500 mt-0.5">Feed Mill</div>
+                      <div
+                        className={`text-xs mt-1.5 tabular-nums ${
+                          selectedRecord.deliveryCheck === 'missing'
+                            ? 'font-semibold text-amber-900'
+                            : selectedRecord.deliveryCheck === 'agrees'
+                              ? 'text-emerald-800'
+                              : 'text-soil-600'
+                        }`}
+                        title="Worked out from the silo: that day's level, less the day before's, plus what the birds ate. The silo is read once in the evening, so a load arriving after that shows up in the next day's figure."
+                      >
+                        Silo says{' '}
+                        {selectedRecord.siloImpliedKg != null
+                          ? `${selectedRecord.siloImpliedKg.toLocaleString('en-IN')} kg`
+                          : '—'}
+                      </div>
                     </div>
                     <div className="bg-yolk-50 p-3 rounded-lg">
                       <div className="text-xs text-yolk-700 mb-1">Intake (kg)</div>
@@ -2481,10 +2523,17 @@ export function HouseDetailPage() {
                       <div className="text-lg font-semibold text-yolk-700">{selectedRecord.feedStockKg || 0}</div>
                     </div>
                   </div>
+                  {selectedRecord.deliveryCheck === 'missing' && (
+                    <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+                      The silo says about{' '}
+                      <strong>{(selectedRecord.siloImpliedKg ?? 0).toLocaleString('en-IN')} kg</strong>{' '}
+                      arrived, and Feed Mill has no transfer to this house for the day. Record it in Feed Mill.
+                    </div>
+                  )}
                 </div>
 
                 <div className="border-t pt-3 text-sm text-gray-500">
-                  Recorded by: {selectedRecord.recordedBy}
+                  Recorded by: {selectedRecord.recordedBy || '—'}
                 </div>
               </div>
             )}

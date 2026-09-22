@@ -36,6 +36,8 @@ import {
   standardSets,
 } from "@shared/schema";
 import type { db as Db } from "../db";
+import { istDate } from "./day-resolution";
+import { compareDelivery } from "./daily";
 
 type Tx = Parameters<Parameters<typeof Db.transaction>[0]>[0];
 
@@ -107,6 +109,18 @@ export async function housesBoard(tx: Tx) {
   // A day appears if EITHER was recorded. A house can lose birds on a day
   // nobody entered feed for, and dropping those rows would quietly lose the
   // mortality from every total on the page.
+  //
+  // Feed DELIVERED is not one of the entered figures. It is the mill's
+  // transfer into the house, so the row carries the mill's total for the day
+  // and, beside it, what the silo implies arrived — today's level, less
+  // yesterday's, plus what the birds ate — so a delivery the mill has not
+  // recorded shows up as the two disagreeing rather than as a quiet zero.
+  // The silo figure follows the same rules as the entry form's suggestion: it
+  // needs both days' readings, a feed counter reading a plausible 20–250 g a
+  // bird, and it is dropped when the arithmetic goes negative, which is an
+  // instrument being wrong and not a delivery of minus three tonnes. Today's
+  // silo is still moving, so today gets no figure.
+  const today = istDate();
   const dayRows = await tx.execute(sql`
     WITH days AS (
       SELECT placement_id, day FROM placement_days
@@ -125,6 +139,26 @@ export async function housesBoard(tx: Tx) {
       -- water_kl since 0085; the pair is history, summed for rows older than it
       coalesce(pd.water_kl, coalesce(pd.water_upper_kl, 0) + coalesce(pd.water_lower_kl, 0))::float8 AS "waterKl",
       coalesce(pd.eggs_total, 0)::int                  AS "eggsProduced",
+      coalesce(u.name, '')                             AS "recordedBy",
+      coalesce((
+        SELECT sum(ft.quantity_kg) FROM feed_transfers ft
+         WHERE ft.to_house_id = p.house_id AND ft.transfer_date = d.day
+           AND ft.status IS DISTINCT FROM 'void'
+      ), 0)::float8                                    AS "feedDeliveredKg",
+      (
+        SELECT CASE
+                 WHEN d.day >= ${today}::date THEN NULL
+                 WHEN t.silo_kg IS NULL OR y.silo_kg IS NULL OR t.feed_kg IS NULL THEN NULL
+                 WHEN t.silo_kg < 0 THEN NULL
+                 WHEN coalesce(t.bird_count, 0) <= 0 THEN NULL
+                 WHEN t.feed_kg * 1000 / t.bird_count NOT BETWEEN 20 AND 250 THEN NULL
+                 WHEN t.silo_kg - y.silo_kg + t.feed_kg < 0 THEN NULL
+                 ELSE round((t.silo_kg - y.silo_kg + t.feed_kg)::numeric)
+               END
+          FROM iot_house_day t
+          LEFT JOIN iot_house_day y ON y.house_id = t.house_id AND y.day = t.day - 1
+         WHERE t.house_id = p.house_id AND t.day = d.day
+      )::float8                                        AS "siloImpliedKg",
       coalesce(SUM(m.qty) FILTER (WHERE m.kind = 'mortality'), 0)::int      AS "mortality",
       coalesce(SUM(m.qty) FILTER (WHERE m.kind = 'cull'), 0)::int           AS "birdsCulled",
       coalesce(SUM(m.qty) FILTER (WHERE m.kind = 'male_removal'), 0)::int   AS "maleBirds",
@@ -144,15 +178,22 @@ export async function housesBoard(tx: Tx) {
     JOIN flock_placements p ON p.id = d.placement_id
     JOIN flocks f           ON f.id = p.flock_id
     LEFT JOIN placement_days pd ON pd.placement_id = d.placement_id AND pd.day = d.day
+    LEFT JOIN users u           ON u.id = pd.recorded_by
     LEFT JOIN flock_movements m ON m.placement_id = d.placement_id AND m.event_date = d.day
     GROUP BY d.placement_id, p.house_id, f.code, d.day,
              pd.feed_consumed_kg, pd.feed_closing_kg, pd.water_kl,
-             pd.water_upper_kl, pd.water_lower_kl, pd.eggs_total
+             pd.water_upper_kl, pd.water_lower_kl, pd.eggs_total, u.name
     ORDER BY d.day DESC`);
 
   const records: Record<string, unknown[]> = {};
   for (const r of dayRows.rows as Array<Record<string, unknown>>) {
-    (records[r.shedId as string] ??= []).push({ ...r, id: `${r.placementId}:${r.date}` });
+    const siloImpliedKg = r.siloImpliedKg as number | null;
+    const feedDeliveredKg = r.feedDeliveredKg as number;
+    (records[r.shedId as string] ??= []).push({
+      ...r,
+      id: `${r.placementId}:${r.date}`,
+      deliveryCheck: compareDelivery(siloImpliedKg, feedDeliveredKg),
+    });
   }
 
   // ── Breeds and their curves ──

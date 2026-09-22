@@ -28,7 +28,7 @@ import { EGG_SIZES, eggPrefs, eggsInBox } from "../services/egg-sales";
 import { requirePermission } from "../lib/rbac";
 import { nonBlank, validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
-import { dayBoard, saveDay } from "../services/daily";
+import { compareDelivery, dayBoard, saveDay } from "../services/daily";
 import { housesBoard } from "../services/houses-board";
 import { houseDetail } from "../services/house-detail";
 import {
@@ -878,10 +878,9 @@ farmsFlockRouter.get("/daily/sensor", view, async (req, res) => {
    * counter recorded 6,838 eaten, which is not a delivery of minus 3,361 kg.
    * A negative answer is reported as unusable rather than shown as a number.
    *
-   * On days with no delivery the arithmetic lands within a few hundred kg of
-   * zero (144, 289, 347 across the last week), so that is the noise floor and
-   * the tolerance is built from it: differences under half a tonne, or under
-   * 5%, are the instruments disagreeing rather than a missing transfer.
+   * The tolerance for "agrees" lives with compareDelivery, which the saved
+   * records use too, so the form and the record never disagree about
+   * disagreeing.
    */
   const siloPrev = num(r!.prev_silo);
   const impliedRaw =
@@ -889,13 +888,7 @@ farmsFlockRouter.get("/daily/sensor", view, async (req, res) => {
   const deliveredImpliedKg = impliedRaw == null || impliedRaw < 0 ? null : Math.round(impliedRaw);
   const millRecordedKg = r!.mill_kg == null ? null : Math.round(Number(r!.mill_kg));
 
-  let deliveryCheck: "agrees" | "differs" | "unknown" = "unknown";
-  if (deliveredImpliedKg != null) {
-    const mill = millRecordedKg ?? 0;
-    const gap = Math.abs(deliveredImpliedKg - mill);
-    const tolerance = Math.max(500, mill * 0.05);
-    deliveryCheck = gap <= tolerance ? "agrees" : "differs";
-  }
+  const deliveryCheck = compareDelivery(deliveredImpliedKg, millRecordedKg);
 
   const rejected: string[] = [];
   if (!feedOk && feedKg != null) rejected.push(`feed (${Math.round(feedG ?? 0)} g/bird)`);

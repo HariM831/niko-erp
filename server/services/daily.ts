@@ -212,6 +212,41 @@ const money = (v: string | null | undefined) => (v === "" || v == null ? null : 
  * correction instead of a second helping, and it is why this screen owns
  * mortality outright — nothing else writes those kinds.
  */
+/**
+ * The silo's word against the mill's, for one house-day.
+ *
+ *   implied = silo today − silo yesterday + what the birds ate
+ *
+ * On days with no delivery the arithmetic lands within a few hundred kg of
+ * zero (144, 289, 347 across a week of L3), so that is the noise floor and the
+ * tolerance is built from it: a gap under half a tonne, or under 5% of the
+ * mill's figure, is the instruments disagreeing rather than anything to act on.
+ *
+ * Two answers wider than that, kept apart because they mean different things:
+ *
+ *  - "missing": the mill has NOTHING for the day and the silo says a load
+ *    arrived. That is a transfer nobody has recorded yet — L3 on 14 and 15
+ *    Sep 2026 read 18 and 21 tonnes from the silo against a blank Feed Mill —
+ *    and it is the one worth an amber mark.
+ *  - "differs": both have a figure and they disagree. Across a week of the
+ *    imported days this was true of almost every day, and the totals still
+ *    agreed within 4%: the silo is read once, around 18:25, so a load that
+ *    arrives after that lands in the NEXT day's arithmetic. A day-level
+ *    disagreement is mostly timing, so it is shown and not alarmed.
+ */
+export type DeliveryCheck = "agrees" | "differs" | "missing" | "unknown";
+export function compareDelivery(
+  siloImpliedKg: number | null | undefined,
+  millKg: number | null | undefined,
+): DeliveryCheck {
+  if (siloImpliedKg == null) return "unknown";
+  const mill = millKg ?? 0;
+  const gap = Math.abs(siloImpliedKg - mill);
+  const tolerance = Math.max(500, mill * 0.05);
+  if (gap <= tolerance) return "agrees";
+  return mill === 0 ? "missing" : "differs";
+}
+
 export async function saveDay(tx: Tx, input: DayInput, userId: string) {
   const [placement] = await tx
     .select({
