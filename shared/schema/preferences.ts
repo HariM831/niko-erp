@@ -115,5 +115,17 @@ export const preferences = pgTable("preferences", {
   eggPurchaseItemId: uuid("egg_purchase_item_id"),
   birdSaleItemId: uuid("bird_sale_item_id"),
 
+  // ---- Cost analysis ----
+  /**
+   * What a pullet is taken to have cost by the time it lays, and how many eggs
+   * it is expected to lay in its life. The Cost Analysis report charges
+   * cost ÷ eggs against every egg produced, in place of the chick bill and the
+   * rearing feed — a flat figure until the farm's own rearing cost is derived.
+   */
+  pulletCostPerBird: numeric("pullet_cost_per_bird", { precision: 10, scale: 2 })
+    .notNull()
+    .default("360.00"),
+  eggsPerPulletLife: integer("eggs_per_pullet_life").notNull().default(450),
+
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

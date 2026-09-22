@@ -30,6 +30,7 @@ import { buildTree, pruneEmpty } from "../services/report-tree";
 import { requirePermission } from "../lib/rbac";
 import { weeklySummary } from "../services/rollup";
 import { istDate } from "../services/day-resolution";
+import { costAnalysis } from "../services/cost-analysis";
 
 export const reportsRouter = Router();
 
@@ -1175,3 +1176,14 @@ reportsRouter.get(
     res.json({ flock, weeks });
   },
 );
+
+/**
+ * Cost Analysis — the P&L per egg produced. Feed is the actual FIFO cost by
+ * day; every other head is the mapped P&L account, month-rated; the pullet is
+ * a constant from preferences. The arithmetic lives in services/cost-analysis.
+ */
+reportsRouter.get("/cost-analysis", requirePermission("reports", "view"), async (req, res) => {
+  const { from, to } = req.query as Record<string, string | undefined>;
+  if (!from || !to) return res.status(400).json({ message: "Choose a date range" });
+  res.json(await costAnalysis(db, from, to));
+});

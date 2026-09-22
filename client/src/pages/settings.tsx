@@ -19,6 +19,7 @@ import { RolesSection, UsersSection } from "./settings-users";
 import { OpeningBalancesSection } from "./settings-opening";
 import { LocationsSection } from "./settings-locations";
 import { ReportingTagsSection } from "./settings-tags";
+import { CostAnalysisSection } from "./settings-cost-analysis";
 import { CustomFieldsTab } from "./settings-fields";
 import { DeductionRulesSection } from "./deduction-rules";
 import { OfficeSitesSection } from "./office-sites";
@@ -72,6 +73,7 @@ const SECTIONS: SectionDef[] = [
   { key: "taxes", label: "Taxes", group: "Setup" },
   { key: "series", label: "Transaction Number Series", group: "Setup" },
   { key: "reporting-tags", label: "Reporting Tags", group: "Setup" },
+  { key: "cost-analysis", label: "Cost Analysis", group: "Setup" },
   { key: "opening-balances", label: "Opening Balances", group: "Setup" },
   { key: "financial-years", label: "Financial Years & Locking", group: "Setup" },
 
@@ -169,6 +171,7 @@ export function SettingsPage() {
           {active === "taxes" && <TaxesSection />}
           {active === "series" && <SeriesSection />}
           {active === "reporting-tags" && <ReportingTagsSection />}
+          {active === "cost-analysis" && <CostAnalysisSection />}
           {active === "opening-balances" && <OpeningBalancesSection />}
           {active === "financial-years" && <FinancialYearsSection />}
           {activeDef?.group === "Module Settings" && (

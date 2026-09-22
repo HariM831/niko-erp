@@ -28,3 +28,4 @@ export * from "./migration";
 export * from "./egg-sales";
 export * from "./payroll";
 export * from "./devices";
+export * from "./cost-analysis";

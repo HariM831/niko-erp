@@ -1,13 +1,19 @@
 import { Router } from "express";
-import { asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
+  COST_SECTIONS,
+  accounts,
+  costAnalysisHeads,
   documentSeries,
   financialYears,
+  journalEntries,
+  journalEntryLines,
   numberSeries,
   orgProfile,
   preferences,
 } from "@shared/schema";
+import { istDaysAgo } from "../services/day-resolution";
 import { NUMBERED_ENTITIES } from "@shared/entities";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
@@ -323,6 +329,11 @@ const preferencesSchema = z.object({
     .regex(/^\d+(\.\d{1,3})?$/)
     .refine((v) => Number(v) <= 10, "An over-delivery allowance above 10% is not a control")
     .optional(),
+  pulletCostPerBird: z
+    .string()
+    .regex(/^\d+(\.\d{1,2})?$/)
+    .optional(),
+  eggsPerPulletLife: z.number().int().min(1).max(1000).optional(),
 });
 
 settingsRouter.patch(
@@ -343,5 +354,69 @@ settingsRouter.patch(
           .values({ id: "default", ...patch })
           .returning();
     res.json(row);
+  },
+);
+
+// ---------- Cost analysis heads ----------
+
+/**
+ * Every income and expense account with the section it is mapped to, plus
+ * what it carried in the last twelve months so the person mapping can see
+ * which heads matter. Accounts are the chart as it stands — Zoho's codes, not
+ * the seeded ones — which is why the mapping is data and not source.
+ */
+settingsRouter.get("/cost-analysis-heads", requireReferenceRead, async (_req, res) => {
+  const since = istDaysAgo(365);
+  const rows = await db
+    .select({
+      accountId: accounts.id,
+      code: accounts.code,
+      name: accounts.name,
+      type: accounts.type,
+      subtype: accounts.subtype,
+      isGroup: accounts.isGroup,
+      section: costAnalysisHeads.section,
+      recent: sql<string>`coalesce(sum(
+        case when ${journalEntries.status} = 'posted' and ${journalEntries.entryDate} >= ${since}
+             then ${journalEntryLines.debit} - ${journalEntryLines.credit} else 0 end), 0)::numeric(20,2)`,
+    })
+    .from(accounts)
+    .leftJoin(costAnalysisHeads, eq(costAnalysisHeads.accountId, accounts.id))
+    .leftJoin(journalEntryLines, eq(journalEntryLines.accountId, accounts.id))
+    .leftJoin(journalEntries, eq(journalEntries.id, journalEntryLines.entryId))
+    .where(and(inArray(accounts.type, ["income", "expense"]), eq(accounts.isGroup, false)))
+    .groupBy(accounts.id, costAnalysisHeads.section)
+    .orderBy(asc(accounts.code));
+  res.json(
+    rows.map((r) => ({
+      ...r,
+      // Income reads credit-positive so the two types sit on one scale.
+      recent: (r.type === "income" ? -Number(r.recent) : Number(r.recent)).toFixed(2),
+    })),
+  );
+});
+
+const headsSchema = z.object({
+  heads: z
+    .array(z.object({ accountId: z.string().uuid(), section: z.enum(COST_SECTIONS) }))
+    .max(2000),
+});
+
+/** Replaces the whole mapping in one transaction: what is sent is the mapping. */
+settingsRouter.put(
+  "/cost-analysis-heads",
+  requirePermission("settings", "edit"),
+  validateBody(headsSchema),
+  async (req, res) => {
+    const heads = req.body.heads as Array<{ accountId: string; section: (typeof COST_SECTIONS)[number] }>;
+    await db.transaction(async (tx) => {
+      await tx.delete(costAnalysisHeads);
+      if (heads.length) {
+        await tx
+          .insert(costAnalysisHeads)
+          .values(heads.map((h) => ({ accountId: h.accountId, section: h.section })));
+      }
+    });
+    res.json({ count: heads.length });
   },
 );

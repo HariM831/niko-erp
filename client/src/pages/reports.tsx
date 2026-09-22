@@ -38,6 +38,7 @@ const LEDGER_BASED = new Set([
   "cash-flow",
   "expense-by-category",
   "tag-summary",
+  "cost-analysis",
 ]);
 
 const REPORTS: ReportDef[] = [
@@ -62,6 +63,8 @@ const REPORTS: ReportDef[] = [
     category: "Business Overview",
     period: "range",
   },
+  // The P&L stated per egg produced — see report body below.
+  { key: "cost-analysis", label: "Cost Analysis", category: "Business Overview", period: "range" },
   { key: "sales-by-customer", label: "Sales by Customer", category: "Sales", period: "range" },
   { key: "sales-by-item", label: "Sales by Item", category: "Sales", period: "range" },
   { key: "ar-aging", label: "AR Aging Summary", category: "Receivables", period: "asOf" },
@@ -786,6 +789,9 @@ function ReportBody({
     case "expense-by-category":
       return <ExpenseByCategory data={data} />;
 
+    case "cost-analysis":
+      return <CostAnalysis data={data as unknown as CostAnalysisData} />;
+
     case "ar-aging":
     case "ap-aging":
       return <AgingSummary reportKey={reportKey} data={data} />;
@@ -1459,4 +1465,280 @@ function LegacyBody({ reportKey, data }: { reportKey: string; data: Record<strin
     default:
       return <p className="text-center text-[13px] text-gray-500">This report has no renderer yet.</p>;
   }
+}
+
+// ---------- Cost Analysis ----------
+
+interface CostLine {
+  accountId: string | null;
+  code: string | null;
+  name: string;
+  amount: string;
+  perEgg: string;
+}
+interface CostSection {
+  lines: CostLine[];
+  total: string;
+  perEgg: string;
+}
+interface Money {
+  amount: string;
+  perEgg: string;
+}
+interface CostAnalysisData {
+  eggs: {
+    produced: number;
+    sold: number;
+    eggSales: string;
+    realisedPerEggSold: string | null;
+    months: Array<{ month: string; eggs: number; inRange: number; provisional: boolean }>;
+  };
+  feed: {
+    kg: string;
+    amount: string;
+    perEgg: string;
+    incomplete: boolean;
+    unpricedDays: number;
+    rearingExcluded: string;
+    byHouse: Array<{ code: string; eggs: number; kg: string; amount: string; perEgg: string | null }>;
+  };
+  pullet: { perBird: string; eggsPerLife: number; perEgg: string; amount: string };
+  income: CostSection;
+  costOfGoodsSold: CostSection;
+  grossProfit: Money;
+  farm: CostSection;
+  mill: CostSection;
+  packing: CostSection;
+  admin: CostSection;
+  operatingTotal: Money;
+  operatingProfit: Money;
+  finance: CostSection;
+  netProfit: Money;
+  costPerEgg: { cogs: string; afterOperating: string; full: string };
+  unassigned: Array<{ accountId: string; code: string; name: string; type: string; amount: string }>;
+  excluded: Array<{ accountId: string; code: string; name: string; amount: string }>;
+}
+
+/** Per-egg figures carry three decimals: at two, a 0.004 head prints as nothing. */
+const perEgg = (v: string) =>
+  Number(v).toLocaleString("en-IN", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+
+const PerEgg = ({ value, className = "" }: { value: string; className?: string }) => (
+  <td className={`w-28 px-2 py-2 text-right tabular-nums ${className}`}>{perEgg(value)}</td>
+);
+
+/**
+ * The P&L stated per egg produced. Same chrome as the P&L with one more column.
+ * Feed is the actual FIFO cost by day and the pullet a constant; every other
+ * line is a P&L account mapped in Settings > Cost Analysis and rated by month.
+ */
+function CostAnalysis({ data }: { data: CostAnalysisData }) {
+  const period = useContext(PeriodContext);
+  const ledger = (accountId: string) =>
+    `/accountant/accounts/${accountId}?${new URLSearchParams({ from: period.from, to: period.to })}`;
+
+  const Head = ({ label }: { label: string }) => (
+    <tr>
+      <td className="px-2 pb-1 pl-5 pt-4 font-bold text-black">{label}</td>
+      <td className="col-portrait-hide" />
+      <td />
+      <td />
+    </tr>
+  );
+  const Line = ({ line }: { line: CostLine }) => (
+    <tr>
+      <td className="px-2 py-2 pl-10">
+        {line.accountId ? (
+          <Link href={ledger(line.accountId)} className="font-medium text-[#e06d05] hover:underline">
+            {line.name}
+          </Link>
+        ) : (
+          line.name
+        )}
+      </td>
+      <td className="col-portrait-hide w-28 px-2 py-2 text-gray-500">{line.code ?? ""}</td>
+      <Amount value={line.amount} />
+      <PerEgg value={line.perEgg} />
+    </tr>
+  );
+  const Total = ({ label, amount, per }: { label: string; amount: string; per: string }) => (
+    <tr className="border-b-[0.7px] border-[#eee] font-bold">
+      <td className="px-2 py-2 pl-5">{label}</td>
+      <td className="col-portrait-hide" />
+      <Amount value={amount} />
+      <PerEgg value={per} />
+    </tr>
+  );
+  const Block = ({ label, section }: { label: string; section: CostSection }) => (
+    <>
+      <Head label={label} />
+      {section.lines.map((l, i) => (
+        <Line key={l.accountId ?? `${label}-${i}`} line={l} />
+      ))}
+      <Total label={`Total for ${label}`} amount={section.total} per={section.perEgg} />
+    </>
+  );
+  const Key = ({ label, value }: { label: string; value: Money }) => (
+    <tr className="border-b-[0.7px] border-[#eee] font-bold">
+      <td className="px-2 py-2.5 pl-5">{label}</td>
+      <td className="col-portrait-hide" />
+      <Amount value={value.amount} />
+      <PerEgg value={value.perEgg} />
+    </tr>
+  );
+  const PerEggOnly = ({ label, value, bold = false }: { label: string; value: string; bold?: boolean }) => (
+    <tr className={bold ? "border-b-[0.7px] border-[#eee] font-bold" : ""}>
+      <td className={`px-2 pl-10 ${bold ? "py-2.5" : "py-2"}`}>{label}</td>
+      <td className="col-portrait-hide" />
+      <td />
+      <PerEgg value={value} />
+    </tr>
+  );
+
+  const eggs = data.eggs.produced.toLocaleString("en-IN");
+  const provisional = data.eggs.months.filter((m) => m.provisional).map((m) => m.month);
+  const usedMonths = data.eggs.months.map((m) => m.month);
+
+  return (
+    <>
+      <Sheet>
+        <table className="w-full text-[14px]">
+          <thead>
+            <tr>
+              <th className={`${HEAD_CELL} pl-5 text-left`}>Account</th>
+              <th className={`col-portrait-hide ${HEAD_CELL} w-28 text-left`}>Account Code</th>
+              <th className={`${HEAD_CELL} w-40 text-right`}>Total</th>
+              <th className={`${HEAD_CELL} w-28 text-right`}>Per Egg</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td className="px-2 pb-1 pl-5 pt-2 text-[13px] text-gray-500" colSpan={4}>
+                Eggs produced in the period: <span className="text-gray-800">{eggs}</span>. Every
+                per-egg figure is the line divided by this number.
+              </td>
+            </tr>
+            <Block label="Income" section={data.income} />
+            <Block label="Cost of Goods Sold" section={data.costOfGoodsSold} />
+            <Key label="Gross Profit" value={data.grossProfit} />
+            <Block label="Operating Expense - Farm" section={data.farm} />
+            <Block label="Operating Expense - Feed Mill" section={data.mill} />
+            <Block label="Packing" section={data.packing} />
+            <Block label="Administrative Expense" section={data.admin} />
+            <Total
+              label="Total Operating Expense"
+              amount={data.operatingTotal.amount}
+              per={data.operatingTotal.perEgg}
+            />
+            <Key label="Operating Profit" value={data.operatingProfit} />
+            <Block label="Finance Cost" section={data.finance} />
+            <Key label="Net Profit/Loss" value={data.netProfit} />
+
+            <Head label="Cost per Egg" />
+            <PerEggOnly label="Cost of goods sold" value={data.costPerEgg.cogs} />
+            <PerEggOnly label="After operating expense" value={data.costPerEgg.afterOperating} />
+            <PerEggOnly label="Full cost, including finance" value={data.costPerEgg.full} bold />
+          </tbody>
+        </table>
+      </Sheet>
+
+      {data.unassigned.length > 0 && (
+        <Sheet>
+          <div className="mt-6 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700">
+            <div className="font-medium">
+              {data.unassigned.length} account{data.unassigned.length === 1 ? "" : "s"} with postings
+              in this period are not mapped to any section, so their rupees are in none of the lines
+              above. Map them in Settings &rsaquo; Cost Analysis.
+            </div>
+            <ul className="mt-1 list-disc pl-5">
+              {data.unassigned.map((u) => (
+                <li key={u.accountId}>
+                  {u.code} &middot; {u.name} &mdash; {num(u.amount)}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </Sheet>
+      )}
+
+      <Sheet>
+        <div className="mt-8 text-[13px] text-gray-700">
+          <div className="mb-2 font-semibold text-black">Feed by house</div>
+          <table className="w-full text-[13px]">
+            <thead>
+              <tr>
+                <th className={`${HEAD_CELL} pl-5 text-left`}>House</th>
+                <th className={`${HEAD_CELL} text-right`}>Eggs</th>
+                <th className={`${HEAD_CELL} text-right`}>Feed kg</th>
+                <th className={`${HEAD_CELL} w-40 text-right`}>Feed</th>
+                <th className={`${HEAD_CELL} w-28 text-right`}>Per Egg</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.feed.byHouse.map((h) => (
+                <tr key={h.code}>
+                  <td className="px-2 py-1.5 pl-5">{h.code}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">{h.eggs.toLocaleString("en-IN")}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">{num(h.kg)}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">{num(h.amount)}</td>
+                  {/* A house into lay has fed birds and laid nothing: a dash, not 0.000. */}
+                  <td className="px-2 py-1.5 text-right tabular-nums">
+                    {h.perEgg == null ? "—" : perEgg(h.perEgg)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          <div className="mb-2 mt-6 font-semibold text-black">Notes</div>
+          <ol className="list-decimal space-y-1 pl-5">
+            <li>
+              Eggs produced {eggs}; eggs sold {data.eggs.sold.toLocaleString("en-IN")} for{" "}
+              {num(data.eggs.eggSales)}
+              {data.eggs.realisedPerEggSold && (
+                <> &mdash; realised {perEgg(data.eggs.realisedPerEggSold)} per egg sold</>
+              )}
+              . The difference between produced and sold is stock and breakage.
+            </li>
+            <li>
+              Feed is the actual FIFO cost of feed eaten in the laying houses, by day
+              {data.feed.incomplete && (
+                <>; some days ate more than was ever delivered and were charged at the last known rate</>
+              )}
+              {data.feed.unpricedDays > 0 && (
+                <>; {data.feed.unpricedDays} day(s) had feed with no price and carry no cost</>
+              )}
+              . Rearing feed of {num(data.feed.rearingExcluded)} in the period is left out: the pullet
+              line stands for it.
+            </li>
+            <li>
+              Pullet amortisation is {perEgg(data.pullet.perEgg)} per egg &mdash; {num(data.pullet.perBird)}{" "}
+              per bird over {data.pullet.eggsPerLife} eggs, set in Settings &rsaquo; Cost Analysis. It
+              replaces the chick bill and the rearing feed.
+            </li>
+            <li>
+              Every other line is a P&amp;L account, rated per calendar month (the month&rsquo;s postings
+              divided by the month&rsquo;s eggs) and applied to the eggs in this period. Months used:{" "}
+              {usedMonths.join(", ")}.
+              {provisional.length > 0 && (
+                <>
+                  {" "}
+                  <span className="font-medium text-amber-700">
+                    {provisional.join(", ")} {provisional.length === 1 ? "is" : "are"} still being posted to
+                  </span>
+                  , so those heads are what has been entered so far.
+                </>
+              )}
+            </li>
+            {data.excluded.length > 0 && (
+              <li>
+                Excluded on purpose (transfer prices within the group, and the heads the feed and pullet
+                lines replace): {data.excluded.map((e) => `${e.name} ${num(e.amount)}`).join("; ")}.
+              </li>
+            )}
+          </ol>
+        </div>
+      </Sheet>
+    </>
+  );
 }

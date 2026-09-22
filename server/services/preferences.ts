@@ -30,6 +30,8 @@ export const DEFAULT_PREFERENCES: Omit<Preferences, "id" | "updatedAt"> = {
   millOverheadPerKg: "1.00",
   eggPurchaseItemId: null,
   birdSaleItemId: null,
+  pulletCostPerBird: "360.00",
+  eggsPerPulletLife: 450,
 };
 
 /**
