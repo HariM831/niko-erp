@@ -354,8 +354,25 @@ export function criteriaCount(c: Criteria): number {
 }
 
 /**
- * The header button that opens the dialog: "Advanced", or "Advanced (2)" and
- * tinted once criteria are applied, with an × that drops them all.
+ * Advanced search's mark: a bold magnifier with a magic star in its lens and a
+ * twinkle above — search, with something extra. Drawn here rather than taken
+ * from the icon set, which has no such glyph.
+ */
+export function AdvancedSearchIcon({ className = "h-[18px] w-[18px]" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <circle cx="10" cy="10" r="6" />
+      <path d="M14.5 14.5 21 21" />
+      <path d="M18.5 2.5v3M17 4h3" strokeWidth={2} />
+      <path d="M8 7.5l.6 1.4 1.4.6-1.4.6L8 11.5l-.6-1.4-1.4-.6 1.4-.6z" fill="currentColor" strokeWidth={1} />
+    </svg>
+  );
+}
+
+/**
+ * The header button that opens the dialog: the mark alone, bold black, named
+ * "Advanced search" for the tooltip and screen readers. Once criteria are
+ * applied it is tinted with a count beside it, and an × drops them all.
  */
 export function AdvancedButton({
   count,
@@ -369,11 +386,21 @@ export function AdvancedButton({
   return (
     <span
       className={`inline-flex items-center whitespace-nowrap rounded border text-[13px] ${
-        count ? "border-brand-500 bg-brand-50 text-brand-700" : "border-gray-300 text-gray-600"
+        count ? "border-brand-500 bg-brand-50 text-brand-700" : "border-gray-300 text-gray-900"
       }`}
     >
-      <button onClick={onOpen} className="px-2 py-1.5 hover:bg-gray-50/50">
-        Advanced{count ? ` (${count})` : ""}
+      <button
+        onClick={onOpen}
+        title="Advanced search"
+        aria-label={count ? `Advanced search, ${count} applied` : "Advanced search"}
+        className="flex items-center gap-1 px-2 py-1.5 hover:bg-gray-50/50"
+      >
+        <AdvancedSearchIcon />
+        {count > 0 && (
+          <span className="min-w-[1.1rem] rounded-full bg-brand-500 px-1 text-center text-[11px] font-semibold leading-[1.1rem] text-white">
+            {count}
+          </span>
+        )}
       </button>
       {count > 0 && (
         <button onClick={onClear} title="Clear the advanced search" className="border-l border-brand-200 px-1.5 py-1.5 hover:text-brand-900">
