@@ -38,6 +38,7 @@ import { outsideChangesSince } from "../services/iot/watch";
 import { outsideWeather } from "../services/iot/weather";
 import { fansInGroup, houseFeelsLike, velocity, zoneFeelsLike, type LevelName } from "../services/iot/feels-like";
 import { istDaysAgo } from "../services/day-resolution";
+import { dayStatus, verdictNow, type Verdict } from "../services/iot/status";
 
 export const iotRouter = Router();
 
@@ -85,6 +86,61 @@ async function lastDayWaterToFeed(houseId: string): Promise<number | null> {
  * so the query is one small table scan however many years are stored.
  */
 iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) => {
+  res.json(await buildBoard());
+});
+
+/**
+ * The one-click answer: every shed's verdict now, and how its last 24 hours
+ * went. See services/iot/status.ts for how the verdict is reached. Houses
+ * without a controller are left out — there is nothing to judge them by.
+ */
+iotRouter.get("/status", requirePermission("farms", "view"), async (_req, res) => {
+  const b = await buildBoard();
+  const sheds = b.board.filter((h) => h.device);
+  const days = await dayStatus(sheds.map((h) => h.houseId));
+  const order: Verdict[] = ["ok", "watch", "severe", "critical", "offline"];
+  const counts = Object.fromEntries(order.map((v) => [v, 0])) as Record<Verdict, number>;
+  const rows = sheds.map((h) => {
+    const v = verdictNow(h);
+    counts[v.verdict]++;
+    return {
+      houseId: h.houseId,
+      code: h.code,
+      purpose: h.purpose,
+      verdict: v.verdict,
+      reasons: v.reasons,
+      now: {
+        at: h.fetchedAt,
+        tempC: h.tempC,
+        targetTempC: h.targetTempC,
+        humidityPct: h.humidityPct,
+        co2Ppm: h.co2Ppm,
+        feelsLikeC: h.feelsLike?.bft ?? null,
+        wetBulbC: h.feelsLike?.wetBulbC ?? null,
+        thi: v.thi?.thi ?? null,
+        fans: h.feelsLike?.fans ?? null,
+        ventLevel: h.ventLevel,
+        padsOn: h.padsOn,
+        birdCount: h.birdCount,
+        birdAgeDays: h.birdAgeDays,
+      },
+      day: days.get(h.houseId) ?? null,
+    };
+  });
+  // Offline outranks nothing: a dark shed is reported, but the farm's word is the worst of the sheds that answered.
+  const answered = rows.filter((r) => r.verdict !== "offline").map((r) => order.indexOf(r.verdict));
+  res.json({
+    at: new Date().toISOString(),
+    overall: answered.length ? order[Math.max(...answered)] : "offline",
+    counts,
+    houses: rows,
+    weather: b.weather,
+    poll: b.poll,
+  });
+});
+
+/** The board itself, shared by `/board` and `/status`. */
+async function buildBoard() {
   const rows = await db
     .select({
       houseId: houses.id,
@@ -357,15 +413,15 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
   const exp = tokenExpiry();
   const [last] = await recentPolls(1);
   const weather = await outsideWeather();
-  res.json({
+  return {
     board,
     weather,
     poll: last
       ? { at: last.startedAt, ok: last.ok, houses: last.houses, readings: last.readings, error: last.error }
       : null,
     tokenExpires: exp ? exp.toISOString().slice(0, 10) : null,
-  });
-});
+  };
+}
 
 /**
  * Everything the controller says about one house RIGHT NOW, for the drawings.

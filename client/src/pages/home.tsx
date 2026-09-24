@@ -27,6 +27,7 @@ import {
 import { api, formatMoney } from "../api";
 import { useAuth } from "../auth";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { BirdComfortTile } from "../components/house-status";
 
 /* ── Shape of /api/boss-view ───────────────────────────────────────────── */
 interface BossView {
@@ -598,6 +599,9 @@ export function HomePage() {
               </div>
             </div>
           </div>
+
+          {/* ── Inside the sheds, right now and over the last day ── */}
+          <BirdComfortTile />
 
           {/* ── Everything the farm feeds and is fed by ── */}
           <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-3">
