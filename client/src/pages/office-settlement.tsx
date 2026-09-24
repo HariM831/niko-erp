@@ -342,7 +342,7 @@ export function SettlementPage() {
                     total={ctx.goodsValue}
                     segments={[
                       { label: "Net payable", value: Math.max(0, netPayable), display: inr(Math.max(0, netPayable)), tone: "brand" },
-                      ...charging.map((d) => ({ label: d.name, value: d.amount, display: `−${inr(d.amount)}`, tone: "warning" as const })),
+                      ...charging.map((d) => ({ label: d.name, value: d.amount, display: `−${inr(d.amount)}`, tone: "neutral" as const })),
                     ]}
                   />
                 </div>

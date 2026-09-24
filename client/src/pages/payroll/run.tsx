@@ -488,7 +488,7 @@ function GrossToNet({ slips }: { slips: Slip[] }) {
     { label: "PF", value: sum("pfEmployee"), tone: "neutral" },
     { label: "ESI", value: sum("esiEmployee"), tone: "neutral" },
     { label: "Professional tax", value: sum("professionalTax"), tone: "neutral" },
-    { label: "Advance recovery", value: sum("advanceRecovery"), tone: "warning" },
+    { label: "Advance recovery", value: sum("advanceRecovery"), tone: "neutral" },
     { label: "Other deductions", value: sum("otherDeductions"), tone: "neutral" },
   ];
   const parts = all

@@ -58,7 +58,7 @@ export function BandStrip({
   ticks?: BandTick[];
   /** The reading, in axis units. */
   marker?: number | null;
-  /** Its label; defaults to the number. */
+  /** Its label in the tick row, only when given — a reading already shown beside the strip (the QC input) would only collide with the limits. */
   markerLabel?: string;
   /** Appended to the right-hand end label only — repeating it on every tick crowds the strip. */
   unit?: string;
@@ -109,12 +109,12 @@ export function BandStrip({
             {t.label ?? t.at}
           </span>
         ))}
-        {hasMarker && (
+        {hasMarker && markerLabel != null && (
           <span
             className="absolute -translate-x-1/2 whitespace-nowrap font-semibold text-gray-800"
             style={{ left: `${pct(marker)}%`, top: 0 }}
           >
-            {markerLabel ?? marker}
+            {markerLabel}
           </span>
         )}
         {ends && (
