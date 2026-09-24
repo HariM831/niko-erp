@@ -344,7 +344,7 @@ export function VendorSheetPage() {
                       />
                     </td>
                     <td
-                      className="cursor-pointer select-none border-b border-[#ece3d5] px-3 py-1.5 font-semibold text-gray-700"
+                      className="cursor-pointer select-none whitespace-nowrap border-b border-[#ece3d5] px-3 py-1.5 font-semibold text-gray-700"
                       onClick={() =>
                         setCollapsed((c) => {
                           const next = new Set(c);
