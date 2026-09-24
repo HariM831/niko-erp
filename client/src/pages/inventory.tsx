@@ -7,6 +7,7 @@ import { SearchSelect } from "../components/search-select";
 import { localYmd } from "../lib/utils";
 import { useAdvancedSearch, type SearchField } from "../components/advanced-search";
 import { DateInput } from "../components/date-input";
+import { BandStrip } from "../components/ui/band-strip";
 
 /** Current on-hand, for the adjustment form's "quantity now" column. */
 interface StockLevel {
@@ -44,7 +45,7 @@ interface AdjustmentRow {
 type Account = AccountNode;
 
 const today = () => localYmd();
-const qty = (v: string) => Number(v).toLocaleString("en-IN", { maximumFractionDigits: 3 });
+const qty = (v: string | number) => Number(v).toLocaleString("en-IN", { maximumFractionDigits: 3 });
 
 /**
  * Stock on Hand — what moved in a window, and where it left us.
@@ -65,6 +66,30 @@ const STOCK_TABS: Array<{ key: string; label: string; hint: string }> = [
   { key: "birds", label: "Birds", hint: "" },
   { key: "manure", label: "Manure", hint: "" },
 ];
+
+/**
+ * Closing stock against its reorder level: amber up to the level, green
+ * beyond, the closing figure as the mark. The "Low" chip says which side of
+ * the line an item is on; this says how far.
+ */
+function ReorderStrip({ closing, reorder, unit }: { closing: number; reorder: number; unit: string }) {
+  if (!(reorder > 0)) return null;
+  const hi = Math.max(reorder * 2, closing * 1.1);
+  return (
+    <span className="w-16" title={`${qty(closing)} ${unit} in stock, reorder at ${qty(reorder)} ${unit}`}>
+      <BandStrip
+        lo={0}
+        hi={hi}
+        bands={[
+          { from: 0, to: reorder, tone: "warn" },
+          { from: reorder, to: hi, tone: "pass" },
+        ]}
+        marker={Math.max(0, closing)}
+        compact
+      />
+    </span>
+  );
+}
 
 export function StockPage() {
   const [, navigate] = useLocation();
@@ -237,7 +262,14 @@ export function StockPage() {
                   {qty(l.closing)} <span className="text-gray-400">{l.unit}</span>
                 </td>
                 <td className="col-portrait-hide px-3 py-2 text-right tabular-nums text-gray-500">
-                  {l.reorderLevel ? qty(l.reorderLevel) : "-"}
+                  {l.reorderLevel ? (
+                    <span className="flex items-center justify-end gap-2">
+                      <ReorderStrip closing={Number(l.closing)} reorder={Number(l.reorderLevel)} unit={l.unit} />
+                      {qty(l.reorderLevel)}
+                    </span>
+                  ) : (
+                    "-"
+                  )}
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">{formatMoney(l.value)}</td>
               </tr>

@@ -1,6 +1,8 @@
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Landmark, Wallet } from "lucide-react";
+import { useState, type ReactElement } from "react";
+import { Landmark, TrendingUp, Wallet } from "lucide-react";
+import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from "recharts";
 import { api, formatMoney } from "../api";
 import { useLocalSearch } from "../components/search-context";
 import { matchesTerm } from "../lib/utils";
@@ -91,6 +93,8 @@ export function BankingOverviewPage() {
           </div>
         </div>
 
+        <BalanceChart />
+
         <h2 className="mb-2 text-sm font-semibold text-gray-700">Active Accounts</h2>
         <div className="card overflow-hidden">
           {isLoading ? (
@@ -157,6 +161,60 @@ export function BankingOverviewPage() {
         </div>
       </div>
       {adv.dialog}
+    </div>
+  );
+}
+
+/**
+ * recharts 3 types the Tooltip's formatters more tightly than this chart
+ * needs; widened once, as the shed-conditions charts do.
+ */
+const Tooltip = RechartsTooltip as unknown as (props: Record<string, unknown>) => ReactElement;
+
+/**
+ * Zoho's Show Chart: cash in hand and bank balance at the close of each of
+ * the last 30 days, two thin lines, folded away until asked for. Read off
+ * books.zoho.in's Banking Overview, 24 Sep 2026 — its axis is in millions
+ * too, so this one is.
+ */
+function BalanceChart() {
+  const [open, setOpen] = useState(false);
+  const { data, isLoading } = useQuery({
+    queryKey: ["banking-summary-chart"],
+    queryFn: () => api<{ days: Array<{ day: string; cashInHand: number; bankBalance: number }> }>("/api/banking/summary/chart"),
+    enabled: open,
+  });
+  const rows = (data?.days ?? []).map((d) => ({
+    ...d,
+    label: new Date(`${d.day}T00:00:00Z`).toLocaleDateString("en-IN", { day: "2-digit", month: "short", timeZone: "UTC" }),
+  }));
+  const millions = (v: number) => (v === 0 ? "0" : `${+(v / 1e6).toFixed(1)} M`);
+  return (
+    <div className="mb-6">
+      <button type="button" onClick={() => setOpen((o) => !o)} className="mb-2 inline-flex items-center gap-1.5 text-[13px] text-[#1c5bd9] hover:underline">
+        <TrendingUp size={15} /> {open ? "Hide Chart" : "Show Chart"}
+      </button>
+      {open && (
+        <div className="card px-3 pb-2 pt-3">
+          {isLoading ? (
+            <div className="p-8 text-center text-sm text-gray-500">Loading…</div>
+          ) : (
+            <div className="h-[250px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={rows} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 10 }} interval={1} />
+                  <YAxis tick={{ fontSize: 10 }} tickFormatter={millions} width={48} />
+                  <Tooltip formatter={(v: number, n: string) => [formatMoney(v), n]} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} itemSorter={null} formatter={(v: string) => <span className="text-gray-600">{v}</span>} />
+                  <Line dataKey="cashInHand" name="Cash In Hand" stroke="var(--color-muted-foreground)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                  <Line dataKey="bankBalance" name="Bank Balance" stroke="var(--color-success)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

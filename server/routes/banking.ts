@@ -23,6 +23,7 @@ import {
 import { db, type Tx } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { nonBlank, validateBody } from "../lib/validate";
+import { addDays, istDate } from "../services/day-resolution";
 import { PostingError, postJournal } from "../services/posting";
 import { toPaise } from "../services/documents";
 
@@ -220,6 +221,52 @@ bankingRouter.get("/summary", requirePermission("banking", "view"), async (_req,
     bankBalance: bankBalance.toFixed(2),
     accounts: withUncategorized,
   });
+});
+
+/**
+ * Cash in hand and bank balance at the close of each of the last 30 days —
+ * the Banking Overview's chart, which Zoho shows behind a Show Chart link.
+ * The same split as /summary: active accounts, posted lines, cash kind
+ * against everything else. Daily movements are summed in SQL; the running
+ * balance is walked here from each kind's balance before the window.
+ */
+bankingRouter.get("/summary/chart", requirePermission("banking", "view"), async (_req, res) => {
+  const today = istDate();
+  const start = addDays(today, -29);
+  const rows = (await db.execute(sql`
+    SELECT ${bankAccounts.kind} AS kind, ${journalEntries.entryDate}::text AS day, SUM(${journalEntryLines.debit} - ${journalEntryLines.credit})::numeric(16,2) AS amount
+    FROM ${bankAccounts}
+    JOIN ${journalEntryLines} ON ${journalEntryLines.accountId} = ${bankAccounts.glAccountId}
+    JOIN ${journalEntries} ON ${journalEntries.id} = ${journalEntryLines.entryId}
+    WHERE ${bankAccounts.isActive} AND ${journalEntries.status} = 'posted' AND ${journalEntries.entryDate} <= ${today}
+    GROUP BY 1, 2
+  `)).rows as Array<{ kind: string; day: string; amount: string }>;
+  let cash = 0;
+  let bank = 0;
+  const byDay = new Map<string, { cash: number; bank: number }>();
+  for (const r of rows) {
+    const amt = Number(r.amount);
+    const isCash = r.kind === "cash";
+    if (r.day < start) {
+      if (isCash) cash += amt;
+      else bank += amt;
+      continue;
+    }
+    const d = byDay.get(r.day) ?? { cash: 0, bank: 0 };
+    if (isCash) d.cash += amt;
+    else d.bank += amt;
+    byDay.set(r.day, d);
+  }
+  const days: Array<{ day: string; cashInHand: number; bankBalance: number }> = [];
+  for (let day = start; day <= today; day = addDays(day, 1)) {
+    const d = byDay.get(day);
+    if (d) {
+      cash += d.cash;
+      bank += d.bank;
+    }
+    days.push({ day, cashInHand: Math.round(cash * 100) / 100, bankBalance: Math.round(bank * 100) / 100 });
+  }
+  res.json({ days });
 });
 
 /** sourceType -> how to look up the counterparty's display name for the register's Type-cell subtitle. */
