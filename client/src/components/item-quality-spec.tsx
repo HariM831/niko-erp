@@ -24,6 +24,7 @@ import { SearchSelect } from "./search-select";
 import { QC_PARAMETERS, qcParameterDef } from "@shared/feed";
 import { localYmd } from "../lib/utils";
 import { DateInput } from "./date-input";
+import { BandStrip, type Band, type BandTick } from "./ui/band-strip";
 
 interface SpecParam {
   parameter: string;
@@ -114,14 +115,8 @@ function axisOf(d: Draft) {
   return { lo: Math.floor(lo - pad), hi: Math.ceil(hi + pad) };
 }
 
-interface Band {
-  cls: string;
-  from: number;
-  to: number;
-}
-
 /**
- * Pass, warning and reject as spans of the axis.
+ * Pass, warning and reject as spans of the axis, in the parameter's own units.
  *
  * A "max" parameter runs green → amber → red left to right; a "min" runs the
  * other way. A missing limit does not leave a hole — the band beside it takes
@@ -129,19 +124,18 @@ interface Band {
  * above the warning.
  */
 function bandsOf(d: Draft, ax: { lo: number; hi: number }): Band[] {
-  const pct = (v: number) => Math.max(0, Math.min(100, ((v - ax.lo) / (ax.hi - ax.lo)) * 100));
   const warn = num(d.warnAt);
   const rej = num(d.rejectAt);
   const out: Band[] = [];
 
   if (d.direction === "max") {
-    out.push({ cls: "bg-green-200", from: 0, to: pct(warn ?? rej ?? ax.hi) });
-    if (warn != null) out.push({ cls: "bg-amber-200", from: pct(warn), to: pct(rej ?? ax.hi) });
-    if (rej != null) out.push({ cls: "bg-red-200", from: pct(rej), to: 100 });
+    out.push({ tone: "pass", from: ax.lo, to: warn ?? rej ?? ax.hi });
+    if (warn != null) out.push({ tone: "warn", from: warn, to: rej ?? ax.hi });
+    if (rej != null) out.push({ tone: "fail", from: rej, to: ax.hi });
   } else {
-    if (rej != null) out.push({ cls: "bg-red-200", from: 0, to: pct(rej) });
-    if (warn != null) out.push({ cls: "bg-amber-200", from: pct(rej ?? ax.lo), to: pct(warn) });
-    out.push({ cls: "bg-green-200", from: pct(warn ?? rej ?? ax.lo), to: 100 });
+    if (rej != null) out.push({ tone: "fail", from: ax.lo, to: rej });
+    if (warn != null) out.push({ tone: "warn", from: rej ?? ax.lo, to: warn });
+    out.push({ tone: "pass", from: warn ?? rej ?? ax.lo, to: ax.hi });
   }
   return out.filter((b) => b.to > b.from);
 }
@@ -159,59 +153,20 @@ function bandProblem(d: Draft): string | null {
   return null;
 }
 
+/** The spec's limits as bands and ticks, drawn by the shared BandStrip. */
 function BandBar({ d }: { d: Draft }) {
   const ax = axisOf(d);
   if (!ax) {
     return <div className="my-2 h-2.5 rounded bg-gray-100" />;
   }
-  const pct = (v: number) => Math.max(0, Math.min(100, ((v - ax.lo) / (ax.hi - ax.lo)) * 100));
   const target = num(d.target);
   const warn = num(d.warnAt);
   const rej = num(d.rejectAt);
-
-  return (
-    <div className="mb-2 mt-1">
-      <div className="relative h-2.5 overflow-hidden rounded bg-gray-100">
-        {bandsOf(d, ax).map((b, i) => (
-          <div
-            key={i}
-            className={`absolute inset-y-0 ${b.cls}`}
-            style={{ left: `${b.from}%`, width: `${b.to - b.from}%` }}
-          />
-        ))}
-      </div>
-      {/* Only the ends of the axis carry the unit — repeating it on every tick
-          crowds four labels into a bar that is often 300px wide. */}
-      <div className="relative mt-0.5 h-4 text-[10px] text-gray-400">
-        <span className="absolute left-0">{ax.lo}</span>
-        {target != null && (
-          <span
-            className="absolute -translate-x-1/2 whitespace-nowrap text-green-700"
-            style={{ left: `${pct(target)}%` }}
-          >
-            ▲ {target}
-          </span>
-        )}
-        {warn != null && (
-          <span
-            className="absolute -translate-x-1/2 text-amber-700"
-            style={{ left: `${pct(warn)}%` }}
-          >
-            {warn}
-          </span>
-        )}
-        {rej != null && (
-          <span className="absolute -translate-x-1/2 text-red-700" style={{ left: `${pct(rej)}%` }}>
-            {rej}
-          </span>
-        )}
-        <span className="absolute right-0">
-          {ax.hi}
-          {d.unit}
-        </span>
-      </div>
-    </div>
-  );
+  const ticks: BandTick[] = [];
+  if (target != null) ticks.push({ at: target, label: `▲ ${target}`, tone: "pass" });
+  if (warn != null) ticks.push({ at: warn, tone: "warn" });
+  if (rej != null) ticks.push({ at: rej, tone: "fail" });
+  return <BandStrip className="mb-2 mt-1" lo={ax.lo} hi={ax.hi} bands={bandsOf(d, ax)} ticks={ticks} unit={d.unit} />;
 }
 
 export function ItemQualitySpec({ itemId }: { itemId: string }) {

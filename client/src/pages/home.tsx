@@ -27,6 +27,7 @@ import {
 import { api, formatMoney } from "../api";
 import { useAuth } from "../auth";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FractionBar } from "@/components/ui/fraction-bar";
 import { BirdComfortTile } from "../components/house-status";
 
 /* ── Shape of /api/boss-view ───────────────────────────────────────────── */
@@ -236,16 +237,10 @@ function Metric({
   );
 }
 
-/** A slim progress bar in the yolk ramp, on a soil track. */
-function Bar({ pct, invert }: { pct: number; invert?: boolean }) {
-  return (
-    <div className={`h-1.5 flex-1 overflow-hidden rounded-full ${invert ? "bg-white/25" : "bg-soil-100"}`}>
-      <div
-        className={`h-full rounded-full ${invert ? "bg-white" : "bg-yolk-500"}`}
-        style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
-      />
-    </div>
-  );
+/** A slim progress bar in the yolk ramp, on a soil track — the shared
+    FractionBar in this page's own colours (see docs/ui-visuals-plan.md). */
+function Bar({ pct }: { pct: number }) {
+  return <FractionBar value={pct} max={100} classes={{ track: "bg-soil-100", fill: "bg-yolk-500" }} />;
 }
 
 /** A ring gauge — the hero's lay-rate dial. */
