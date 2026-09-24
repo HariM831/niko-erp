@@ -1217,13 +1217,18 @@ export function HouseDetailPage() {
               </div>
             )}
 
+            {/* The window is the last 14 daily records, so the axis is the date.
+                Plotting those days against age-in-weeks put two weeks of points
+                on two or three x-values and drew a zigzag; the week is in the
+                tooltip instead, and the standard line still matches each day's
+                week. */}
             {chartData.length > 0 && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <Card className="rounded-2xl border-0 bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
                   <CardHeader className="pb-2">
                     <CardTitle className="text-base flex items-center gap-2">
                       <Wheat className="w-4 h-4 text-yolk-600" />
-                      Feed per Bird (grams) vs Age
+                      Feed per Bird (grams), last 14 days
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -1232,9 +1237,9 @@ export function HouseDetailPage() {
                         <LineChart data={chartData}>
                           <CartesianGrid strokeDasharray="3 3" />
                           <XAxis 
-                            dataKey="ageWeeks" 
+                            dataKey="date" 
                             tick={{ fontSize: 10 }} 
-                            label={{ value: 'Age (weeks)', position: 'bottom', fontSize: 10, offset: -5 }}
+                            label={{ value: 'Last 14 days', position: 'bottom', fontSize: 10, offset: -5 }}
                           />
                           <YAxis tick={{ fontSize: 10 }} />
                           <Tooltip 
@@ -1242,7 +1247,7 @@ export function HouseDetailPage() {
                               `${value} g`, 
                               name === 'Standard' ? 'Standard' : 'Actual'
                             ]}
-                            labelFormatter={(label: number) => `Week ${label}`}
+                            labelFormatter={(label: string, items: Array<{ payload?: { ageWeeks?: number } }>) => `${label} · week ${items?.[0]?.payload?.ageWeeks ?? '–'}`}
                           />
                           <Legend />
                           <Line 
@@ -1275,7 +1280,7 @@ export function HouseDetailPage() {
                   <CardHeader className="pb-2">
                     <CardTitle className="text-base flex items-center gap-2">
                       <Droplets className="w-4 h-4 text-soil-600" />
-                      Water per Bird (ml) vs Age
+                      Water per Bird (ml), last 14 days
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -1284,9 +1289,9 @@ export function HouseDetailPage() {
                         <LineChart data={chartData}>
                           <CartesianGrid strokeDasharray="3 3" />
                           <XAxis 
-                            dataKey="ageWeeks" 
+                            dataKey="date" 
                             tick={{ fontSize: 10 }} 
-                            label={{ value: 'Age (weeks)', position: 'bottom', fontSize: 10, offset: -5 }}
+                            label={{ value: 'Last 14 days', position: 'bottom', fontSize: 10, offset: -5 }}
                           />
                           <YAxis tick={{ fontSize: 10 }} />
                           <Tooltip 
@@ -1294,7 +1299,7 @@ export function HouseDetailPage() {
                               `${value} ml`, 
                               name === 'Standard' ? 'Standard' : 'Actual'
                             ]}
-                            labelFormatter={(label: number) => `Week ${label}`}
+                            labelFormatter={(label: string, items: Array<{ payload?: { ageWeeks?: number } }>) => `${label} · week ${items?.[0]?.payload?.ageWeeks ?? '–'}`}
                           />
                           <Legend />
                           <Line 
@@ -1328,7 +1333,7 @@ export function HouseDetailPage() {
                     <CardHeader className="pb-2">
                       <CardTitle className="text-base flex items-center gap-2">
                         <Egg className="w-4 h-4 text-yolk-700" />
-                        Egg Production (%) vs Age (weeks)
+                        Egg Production (%), last 14 days
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
@@ -1337,9 +1342,9 @@ export function HouseDetailPage() {
                           <LineChart data={chartData}>
                             <CartesianGrid strokeDasharray="3 3" />
                             <XAxis 
-                              dataKey="ageWeeks" 
+                              dataKey="date" 
                               tick={{ fontSize: 10 }} 
-                              label={{ value: 'Age (weeks)', position: 'bottom', fontSize: 10, offset: -5 }}
+                              label={{ value: 'Last 14 days', position: 'bottom', fontSize: 10, offset: -5 }}
                             />
                             <YAxis tick={{ fontSize: 10 }} domain={[0, 100]} />
                             <Tooltip 
@@ -1347,7 +1352,7 @@ export function HouseDetailPage() {
                                 `${value}%`, 
                                 name === 'Standard' ? 'Standard' : 'Actual'
                               ]}
-                              labelFormatter={(label: number) => `Week ${label}`}
+                              labelFormatter={(label: string, items: Array<{ payload?: { ageWeeks?: number } }>) => `${label} · week ${items?.[0]?.payload?.ageWeeks ?? '–'}`}
                             />
                             <Legend />
                             <Line 

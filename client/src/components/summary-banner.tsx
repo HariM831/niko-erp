@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 /**
  * The gradient hero strip above a document list — one figure leads, the
  * rest sit lighter beside it, in the same varied-shade yolk language as
@@ -17,7 +19,8 @@ export interface BannerStat {
   alert?: boolean;
 }
 
-export function SummaryBanner({ primary, secondary }: { primary: BannerStat; secondary: BannerStat[] }) {
+/** The strip's one control, at its right end — Zoho's Hide link on the Payment Summary. */
+export function SummaryBanner({ primary, secondary, action }: { primary: BannerStat; secondary: BannerStat[]; action?: ReactNode }) {
   return (
     /*
      * A quiet strip, not a hero.
@@ -65,6 +68,7 @@ export function SummaryBanner({ primary, secondary }: { primary: BannerStat; sec
             ))}
           </div>
         )}
+        {action && <div className="ml-auto self-start text-[12px]">{action}</div>}
       </div>
     </div>
   );

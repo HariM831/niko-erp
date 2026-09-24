@@ -1,7 +1,8 @@
+import { useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { ListPage, StatusBadge, type Column, type ListView } from "../components/list-page";
-import { SummaryBanner } from "../components/summary-banner";
+import { SummaryBanner, type BannerStat } from "../components/summary-banner";
 import type { SearchField } from "../components/advanced-search";
 import { AttachmentsButton } from "../components/attachments";
 import { api, formatMoney } from "../api";
@@ -317,25 +318,73 @@ interface SummaryStats {
 }
 
 /**
- * The Payment Summary strip above the Invoices / Bills lists — a quiet
- * gradient hero rather than a flat row of numbers, in the same varied-shade
- * yolk language as Home: one figure leads, the rest sit beside it in a
- * lighter weight. Overdue gets a small dot when it is not zero — the one
- * place on this page red is earned rather than decorative.
+ * The Payment Summary strip above the Invoices / Bills lists — Zoho's own
+ * figures under Zoho's own headings: five on Invoices, four on Bills (a bill
+ * has no "days for getting paid"), behind the same Show Details / Hide toggle.
+ *
+ * It used to show two figures and leave the rest off, because four across the
+ * top of a phone left none of them readable. The toggle is the answer Zoho
+ * gives the same problem: the whole strip folds to one line, and the browser
+ * remembers which way it was left, per list.
  */
+const SUMMARY_OPEN_KEY = "niko.paymentSummary.open";
+function readSummaryOpen(side: string): boolean {
+  try {
+    return localStorage.getItem(`${SUMMARY_OPEN_KEY}.${side}`) !== "0";
+  } catch {
+    return true;
+  }
+}
 function PaymentSummaryBanner({ endpoint, side }: { endpoint: string; side: "receivable" | "payable" }) {
   const { data } = useQuery({
     queryKey: [endpoint],
     queryFn: () => api<SummaryStats>(endpoint),
   });
-  // Two figures. What is owed, and what is owed today — the rest (30 days,
-  // overdue, average days to collect) are questions you go looking for, not
-  // things you need every time you open the list, and four of them across the
-  // top of a phone left none of them readable.
+  const [open, setOpen] = useState(() => readSummaryOpen(side));
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    try {
+      localStorage.setItem(`${SUMMARY_OPEN_KEY}.${side}`, next ? "1" : "0");
+    } catch {
+      /* a browser that keeps nothing still gets the toggle for this visit */
+    }
+  };
+  const link = "text-brand-600 hover:underline";
+  if (!open) {
+    return (
+      <div className="flex items-center gap-3 border-b border-yolk-200/70 bg-gradient-to-r from-yolk-100 via-yolk-50 to-transparent px-4 py-2 sm:px-6">
+        <span className="text-[10.5px] font-semibold uppercase tracking-wider text-yolk-700/80">Payment Summary</span>
+        <button type="button" onClick={toggle} className={`ml-auto text-[12px] ${link}`}>
+          Show Details
+        </button>
+      </div>
+    );
+  }
+  const receivable = side === "receivable";
+  const overdue = Number(data?.overdue ?? 0);
+  const secondary: BannerStat[] = [
+    { label: "Due Today", value: formatMoney(data?.dueToday ?? 0) },
+    { label: "Due Within 30 Days", value: formatMoney(data?.dueWithin30Days ?? 0) },
+    // Overdue gets the dot when it is not zero — the one place on this page
+    // red is earned rather than decorative.
+    { label: receivable ? "Overdue Invoices" : "Overdue Bills", value: formatMoney(data?.overdue ?? 0), alert: overdue > 0 },
+  ];
+  if (receivable) {
+    secondary.push({ label: "Average No. of Days for Getting Paid", value: `${data?.avgDaysToGetPaid ?? 0} Days` });
+  }
   return (
     <SummaryBanner
-      primary={{ label: "Total outstanding", value: formatMoney(data?.totalOutstanding ?? 0) }}
-      secondary={[{ label: "Due today", value: formatMoney(data?.dueToday ?? 0) }]}
+      primary={{
+        label: receivable ? "Total Outstanding Receivables" : "Total Outstanding Payables",
+        value: formatMoney(data?.totalOutstanding ?? 0),
+      }}
+      secondary={secondary}
+      action={
+        <button type="button" onClick={toggle} className={link}>
+          Hide
+        </button>
+      }
     />
   );
 }

@@ -13,7 +13,7 @@ interface Today {
   present: { id: string; empCode: string; name: string; department?: string | null; firstIn?: string | null; photoUrl?: string | null }[];
   insideNow: { id: string; empCode: string; name: string; department?: string | null; since?: string | null; punchedAt?: string | null }[];
   absent: { id: string; empCode: string; name: string; department?: string | null }[];
-  counts: { present: number; insideNow: number; absent: number; total: number; onLeave?: number };
+  counts: { present: number; insideNow: number; absent: number; total: number };
 }
 interface Run { id: string; month: number; year: number; status: "draft" | "confirmed"; employeeCount: number; totalNet: number; totalGross: number; journalEntryNumber?: string | null }
 interface Leave { id: string; name?: string; empCode?: string; leaveType: string; fromDate: string; toDate: string; days: number; status: string }

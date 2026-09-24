@@ -243,7 +243,7 @@ export function PayrollEmployeesPage() {
 
   return (
     <div className="p-4 md:p-6">
-      <PageHeader title="Employees" sub={`${rows.length} listed · ${counts.salaried} salaried · ${counts.wage} daily wage · ${counts.faces} with a face`}>
+      <PageHeader title="Employees">
         {adv.button}
         <Link href="/payroll/face-enrollment" className="btn-secondary"><ScanFace size={14} /> Face enrolment</Link>
         <button className="btn-secondary" onClick={() => setImportOpen(true)}><Upload size={14} /> Import CSV</button>
@@ -282,6 +282,12 @@ export function PayrollEmployeesPage() {
             { id: "", label: "All" },
           ]}
         />
+        {/* Counts sit on the filter row, not under the title: the header
+            dropped its sub-line because page descriptions pushed the content
+            below the fold on a phone, and these numbers went with it. */}
+        <span className="ml-auto text-[12px] tabular-nums text-gray-500">
+          {rows.length} listed · {counts.salaried} salaried · {counts.wage} daily wage · {counts.faces} with a face
+        </span>
       </div>
 
       <div className="table-surface overflow-x-auto">

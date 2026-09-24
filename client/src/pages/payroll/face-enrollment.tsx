@@ -180,7 +180,7 @@ export function PayrollFaceEnrollmentPage() {
 
   return (
     <div className="p-4 md:p-6">
-      <PageHeader title="Face enrolment" sub={`${stats.enrolled} enrolled · ${stats.pending} with a photo waiting · ${stats.noPhoto} without a photo`}>
+      <PageHeader title="Face enrolment">
         {adv.button}
         <button className="btn-primary" onClick={() => void handleEnrollAll()} disabled={engineState !== "ready" || batch.running}>
           {batch.running ? <Loader2 size={14} className="animate-spin" /> : <ScanFace size={14} />}
@@ -201,6 +201,12 @@ export function PayrollFaceEnrollmentPage() {
         </div>
       )}
 
+
+      {/* The roster's progress, where the header's sub-line used to carry it
+          before that line was dropped for pushing content below the fold. */}
+      <p className="mb-2 text-[12px] tabular-nums text-gray-500">
+        {stats.enrolled} enrolled · {stats.pending} with a photo waiting · {stats.noPhoto} without a photo
+      </p>
 
       <div className="table-surface">
         {empQ.isLoading ? (

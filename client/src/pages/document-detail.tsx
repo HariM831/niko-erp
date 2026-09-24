@@ -853,7 +853,7 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
 
             {!!doc.payments?.length && (
               <div className="mt-10 print:hidden">
-                <h3 className="mb-2 text-sm font-semibold">Payments Received</h3>
+                <h3 className="mb-2 text-sm font-semibold">{kind === "bill" ? "Payments Made" : "Payments Received"}</h3>
                 <table className="w-full text-[13px]">
                   <thead className="table-head">
                     <tr>
