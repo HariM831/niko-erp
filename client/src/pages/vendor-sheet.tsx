@@ -163,6 +163,25 @@ export function VendorSheetPage() {
     sheetValue,
   );
 
+  /**
+   * One vendor, one block. The bank file is built per beneficiary, so the
+   * question the sheet answers is "how much goes to this vendor today", and
+   * four of the same vendor's bills scattered down a list did not answer it.
+   * Vendors sort by name; within a vendor the server's order stands.
+   */
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const groups = useMemo(() => {
+    const byVendor = new Map<string, { vendorId: string; vendorName: string; rows: Payable[]; subtotal: number; bank: boolean }>();
+    for (const r of shown) {
+      const g = byVendor.get(r.vendorId) ?? { vendorId: r.vendorId, vendorName: r.vendorName, rows: [], subtotal: 0, bank: hasBank(r) };
+      g.rows.push(r);
+      g.subtotal += Number(r.amount);
+      byVendor.set(r.vendorId, g);
+    }
+    return [...byVendor.values()].sort((a, b) => a.vendorName.localeCompare(b.vendorName));
+  }, [shown]);
+  const shownTotal = shown.reduce((sum, r) => sum + Number(r.amount), 0);
+
   const chosen = useMemo(
     () => rows.filter((r) => selected.has(rowKey(r))),
     [rows, selected],
@@ -293,80 +312,160 @@ export function VendorSheetPage() {
               </tr>
             </thead>
             <tbody>
-              {shown.map((r) => {
-                const k = rowKey(r);
-                const selectable = hasBank(r) && !r.sentBatchId;
-                return (
-                  <tr
-                    key={k}
-                    onClick={() => navigate(docPath(r))}
-                    className="cursor-pointer bg-white transition-colors duration-100 hover:bg-gray-50"
-                  >
-                    <td
-                      className="border-b border-[#ece3d5] px-3 py-2"
-                      onClick={(e) => e.stopPropagation()}
-                    >
+              {groups.flatMap(({ vendorId, vendorName, rows: vendorRows, subtotal, bank }) => {
+                const open = !collapsed.has(vendorId);
+                const groupPayable = vendorRows.filter((r) => hasBank(r) && !r.sentBatchId);
+                const groupAllOn = groupPayable.length > 0 && groupPayable.every((r) => selected.has(rowKey(r)));
+                const header = (
+                  <tr key={`v:${vendorId}`} className="bg-gray-50 text-[12px]">
+                    <td className="border-b border-[#ece3d5] px-3 py-1.5" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
-                        checked={selected.has(k)}
-                        disabled={!selectable}
+                        checked={groupAllOn}
+                        disabled={groupPayable.length === 0}
                         title={
-                          r.sentBatchId
-                            ? `Already sent in ${r.sentBatchNumber}`
-                            : selectable
-                              ? undefined
-                              : `${r.vendorName} has no bank details on file`
+                          groupPayable.length === 0
+                            ? bank
+                              ? "Everything here has been sent"
+                              : `${vendorName} has no bank details on file`
+                            : `Tick every ${vendorName} row`
                         }
-                        onChange={() => toggleOne(k)}
+                        onChange={() =>
+                          setSelected((s) => {
+                            const next = new Set(s);
+                            for (const r of groupPayable) {
+                              if (groupAllOn) next.delete(rowKey(r));
+                              else next.add(rowKey(r));
+                            }
+                            return next;
+                          })
+                        }
                         className="accent-brand-500 disabled:opacity-40"
                       />
                     </td>
-                    <td className="border-b border-[#ece3d5] px-3 py-2">
-                      <div className="text-gray-800">{r.vendorName}</div>
-                      <div className="text-[11px] text-gray-400">
-                        {/* A bill goes by the vendor's number (the server falls back to ours); an expense by its own. */}
-                        {r.kind === "bill" ? `Bill · ${r.billNumber}` : `Expense · ${r.number}`}
-                      </div>
-                      {!hasBank(r) && (
-                        <div className="text-[11px] text-amber-600">no bank details</div>
-                      )}
-                      {r.sentBatchNumber && (
-                        <div className="text-[11px] text-brand-600">
-                          sent {r.sentBatchNumber} · {shortDate(r.sentBatchDate)}
-                        </div>
-                      )}
+                    <td
+                      className="cursor-pointer select-none border-b border-[#ece3d5] px-3 py-1.5 font-semibold text-gray-700"
+                      onClick={() =>
+                        setCollapsed((c) => {
+                          const next = new Set(c);
+                          if (next.has(vendorId)) next.delete(vendorId);
+                          else next.add(vendorId);
+                          return next;
+                        })
+                      }
+                    >
+                      <span className="mr-1.5 inline-block w-3 text-gray-400">{open ? "▾" : "▸"}</span>
+                      {vendorName}
+                      <span className="ml-2 font-normal text-gray-400">{vendorRows.length}</span>
+                      {!bank && <span className="ml-2 font-normal text-amber-600">no bank details</span>}
                     </td>
-                    <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2">
-                      <div className="max-w-xs truncate text-gray-700" title={r.description ?? ""}>
-                        {r.description || "—"}
-                      </div>
+                    <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-1.5" />
+                    <td className="border-b border-[#ece3d5] px-3 py-1.5 text-right font-semibold tabular-nums text-gray-800">
+                      {formatMoney(subtotal)}
                     </td>
-                    <td className="border-b border-[#ece3d5] px-3 py-2 text-right tabular-nums">
-                      {formatMoney(r.amount)}
-                    </td>
-                    <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 text-gray-600">
-                      {r.billNumber}
-                    </td>
-                    <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2">
-                      {shortDate(r.deliveryDate)}
-                    </td>
-                    <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2">{shortDate(r.dueDate)}</td>
-                    <td className="border-b border-[#ece3d5] px-3 py-2 text-right tabular-nums">
-                      {r.overdueDays > 0 ? (
-                        <span className="text-red-600">{r.overdueDays}</span>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
-                    </td>
-                    <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 text-gray-600">
-                      <div className="max-w-[16rem] truncate" title={r.notes ?? ""}>
-                        {r.notes || "—"}
-                      </div>
-                    </td>
+                    <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-1.5" />
+                    <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-1.5" />
+                    <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-1.5" />
+                    <td className="border-b border-[#ece3d5] px-3 py-1.5" />
+                    <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-1.5" />
                   </tr>
                 );
+                if (!open) return [header];
+                return [
+                  header,
+                  ...vendorRows.map((r) => {
+                    const k = rowKey(r);
+                    const selectable = hasBank(r) && !r.sentBatchId;
+                    return (
+                      <tr
+                        key={k}
+                        onClick={() => navigate(docPath(r))}
+                        className="cursor-pointer bg-white transition-colors duration-100 hover:bg-gray-50"
+                      >
+                        <td className="border-b border-[#ece3d5] px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selected.has(k)}
+                            disabled={!selectable}
+                            title={
+                              r.sentBatchId
+                                ? `Already sent in ${r.sentBatchNumber}`
+                                : selectable
+                                  ? undefined
+                                  : `${r.vendorName} has no bank details on file`
+                            }
+                            onChange={() => toggleOne(k)}
+                            className="accent-brand-500 disabled:opacity-40"
+                          />
+                        </td>
+                        <td className="border-b border-[#ece3d5] px-3 py-2">
+                          {/* The vendor is the group heading, so a row is known by its document:
+                              a bill by the vendor's number (the server falls back to ours), an
+                              expense by its own. */}
+                          <div className="text-gray-800">
+                            {r.kind === "bill" ? `Bill · ${r.billNumber}` : `Expense · ${r.number}`}
+                          </div>
+                          {r.sentBatchNumber && (
+                            <div className="text-[11px] text-brand-600">
+                              sent {r.sentBatchNumber} · {shortDate(r.sentBatchDate)}
+                            </div>
+                          )}
+                        </td>
+                        <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2">
+                          <div className="max-w-xs truncate text-gray-700" title={r.description ?? ""}>
+                            {r.description || "—"}
+                          </div>
+                        </td>
+                        <td className="border-b border-[#ece3d5] px-3 py-2 text-right tabular-nums">
+                          {formatMoney(r.amount)}
+                        </td>
+                        <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 text-gray-600">
+                          {r.billNumber}
+                        </td>
+                        <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2">
+                          {shortDate(r.deliveryDate)}
+                        </td>
+                        <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2">{shortDate(r.dueDate)}</td>
+                        <td className="border-b border-[#ece3d5] px-3 py-2 text-right tabular-nums">
+                          {r.overdueDays > 0 ? (
+                            <span className="text-red-600">{r.overdueDays}</span>
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )}
+                        </td>
+                        <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 text-gray-600">
+                          <div className="max-w-[16rem] truncate" title={r.notes ?? ""}>
+                            {r.notes || "—"}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  }),
+                ];
               })}
             </tbody>
+            {/* The sheet's own total — what the rows in view add up to, which after
+                a search is not the banner's figure. */}
+            <tfoot className="table-head sticky bottom-0 z-10">
+              <tr>
+                <td className="border-t border-[#ece3d5] px-3 py-2" />
+                <td className="border-t border-[#ece3d5] px-3 py-2 font-semibold">
+                  Total
+                  <span className="ml-1.5 font-normal text-gray-400">
+                    {shown.length} documents · {groups.length} vendors
+                  </span>
+                </td>
+                <td className="col-portrait-hide border-t border-[#ece3d5] px-3 py-2" />
+                <td className="border-t border-[#ece3d5] px-3 py-2 text-right font-semibold tabular-nums">
+                  {formatMoney(shownTotal)}
+                </td>
+                <td className="col-portrait-hide border-t border-[#ece3d5] px-3 py-2" />
+                <td className="col-portrait-hide border-t border-[#ece3d5] px-3 py-2" />
+                <td className="col-portrait-hide border-t border-[#ece3d5] px-3 py-2" />
+                <td className="border-t border-[#ece3d5] px-3 py-2" />
+                <td className="col-portrait-hide border-t border-[#ece3d5] px-3 py-2" />
+              </tr>
+            </tfoot>
           </table>
         )}
       </div>

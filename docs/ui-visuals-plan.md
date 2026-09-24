@@ -181,8 +181,10 @@ placement is read off the Zoho screen before it is built.
    quality spec's `BandBar` onto them. One commit, no visible change.
 2. `Sparkline` and `StandardLine`; refactor Home and house detail onto them.
    One commit, no visible change.
-3. `ListPage` footer and group footer, first used on the Vendor Sheet grouped
-   by vendor.
+3. The Vendor Sheet grouped by vendor, with a subtotal and a tick per group
+   and a totals row. It is not a `ListPage`, and nor is any other table on the
+   footer list, so the `ListPage` footer waits until a `ListPage` needs one
+   rather than shipping unused.
 4. Then the modules, each with its own agreed list: Farms, Sales, Payroll,
    Feed Mill, then the books screens after the Zoho look.
 
