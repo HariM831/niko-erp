@@ -579,6 +579,60 @@ function Signed({ value, tone }: { value: number; tone: string }) {
   );
 }
 
+/**
+ * A budget's actuals read at a wider period than it was entered at — Zoho's
+ * Budget vs Actuals lets the report be customised to monthly, quarterly,
+ * half-yearly or yearly. Blocks run from the budget's own start, so a year
+ * that opens in April has April-June as its first quarter. The Total trio is
+ * the budget's whole span either way and is left as it came.
+ */
+function regroup(
+  data: { periods: string[]; rows: ActualRow[] },
+  from: string,
+  to: string,
+): { periods: string[]; rows: ActualRow[] } {
+  const k = (PERIOD_MONTHS[to] ?? 1) / (PERIOD_MONTHS[from] ?? 1);
+  if (!(k > 1) || !Number.isInteger(k)) return data;
+  const blocks: string[][] = [];
+  for (let i = 0; i < data.periods.length; i += k) blocks.push(data.periods.slice(i, i + k));
+  return {
+    periods: blocks.map((b) => b[0]!),
+    rows: data.rows.map((r) => ({
+      ...r,
+      cells: blocks.map((b) => {
+        const inBlock = r.cells.filter((c) => b.includes(c.periodStart));
+        const add = (m: "budget" | "actual" | "variance") => inBlock.reduce((a, c) => a + Number(c[m]), 0).toFixed(2);
+        return { periodStart: b[0]!, budget: add("budget"), actual: add("actual"), variance: add("variance"), variancePercent: null };
+      }),
+    })),
+  };
+}
+
+/** The actuals grid with Zoho's period choice above it — the wider views are what make a year of months readable. */
+function ActualsView({ data, period }: { data: { periods: string[]; rows: ActualRow[] }; period: string }) {
+  const [view, setView] = useState(period);
+  const base = PERIOD_MONTHS[period] ?? 1;
+  const choices = Object.keys(PERIOD_MONTHS).filter((p) => PERIOD_MONTHS[p]! >= base && PERIOD_MONTHS[p]! % base === 0);
+  const shown = view === period ? data : regroup(data, period, view);
+  return (
+    <div>
+      {choices.length > 1 && (
+        <div className="mb-2 flex items-center gap-2 text-[13px]">
+          <span className="text-gray-500">Budget Period</span>
+          <select value={view} onChange={(e) => setView(e.target.value)} className="rounded border border-[#e3e3ec] bg-white px-2 py-1 text-[13px]">
+            {choices.map((p) => (
+              <option key={p} value={p}>
+                {PERIOD_LABEL[p]}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      <ActualsGrid data={shown} period={view} />
+    </div>
+  );
+}
+
 /** Zoho's Budget vs Actuals layout: a Budget/Actual/Variance trio per period, then a Total trio. */
 function ActualsGrid({ data, period }: { data: { periods: string[]; rows: ActualRow[] }; period: string }) {
   const { periods, rows } = data;
@@ -905,7 +959,7 @@ export function BudgetDetailPage({ id }: { id: string }) {
         ) : !actuals ? (
           <div className="text-sm text-gray-500">Loading…</div>
         ) : (
-          <ActualsGrid data={actuals} period={data.period} />
+          <ActualsView data={actuals} period={data.period} />
         )}
       </div>
     </div>

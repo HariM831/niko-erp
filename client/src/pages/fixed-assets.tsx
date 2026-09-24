@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import type { ReactElement } from "react";
+import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from "recharts";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
@@ -690,6 +692,8 @@ export function FixedAssetDetailPage({ id }: { id: string }) {
           )}
         </div>
 
+        {asset.schedule.length > 0 && <ValueOverTime cost={Number(asset.cost)} start={asset.depreciationStartDate} schedule={asset.schedule} />}
+
         <h2 className="mb-2 text-sm font-semibold">Depreciation Schedule</h2>
         {asset.schedule.length === 0 ? (
           <p className="text-[13px] text-gray-500">
@@ -843,6 +847,53 @@ function DisposeDialog({
             Dispose Asset
           </button>
         </footer>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * recharts 3 types the Tooltip's formatters more tightly than this chart
+ * needs; widened once, as the shed-conditions charts do.
+ */
+const Tooltip = RechartsTooltip as unknown as (props: Record<string, unknown>) => ReactElement;
+
+/**
+ * The asset's value at each depreciation date, from its cost down — Zoho's
+ * Depreciation tab draws the same: the depreciation date along the bottom,
+ * the asset's current value up the side (Zoho Books help, Fixed Assets).
+ */
+function ValueOverTime({
+  cost,
+  start,
+  schedule,
+}: {
+  cost: number;
+  start: string | null;
+  schedule: Array<{ periodEnd: string; amount: string }>;
+}) {
+  const charges = [...schedule].sort((a, b) => a.periodEnd.localeCompare(b.periodEnd));
+  let value = cost;
+  const data = [
+    ...(start ? [{ label: formatDate(start), value: cost }] : []),
+    ...charges.map((c) => {
+      value -= Number(c.amount);
+      return { label: formatDate(c.periodEnd), value: Math.round(value * 100) / 100 };
+    }),
+  ];
+  if (data.length < 2) return null;
+  return (
+    <div className="mb-4 max-w-xl">
+      <div className="h-[180px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data} margin={{ top: 6, right: 12, bottom: 0, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+            <YAxis tick={{ fontSize: 10 }} width={70} tickFormatter={(v: number) => formatMoney(v).replace(/.00$/, "")} domain={[0, "auto"]} />
+            <Tooltip formatter={(v: number) => [formatMoney(v), "Current value"]} />
+            <Line dataKey="value" name="Current value" stroke="var(--color-brand-600)" strokeWidth={2} dot={{ r: 2 }} isAnimationActive={false} />
+          </LineChart>
+        </ResponsiveContainer>
       </div>
     </div>
   );
