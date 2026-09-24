@@ -66,7 +66,12 @@ export interface ShadowPrice {
 }
 
 export interface Blocker {
-  kind: "nutrient" | "inclusion";
+  /**
+   * nutrient: a bound no mix can meet even alone. inclusion: the limits cannot
+   * fill 100%. conflict: the smallest group of bounds, each reachable alone,
+   * that no mix meets together — `key` and each of `with` name them.
+   */
+  kind: "nutrient" | "inclusion" | "conflict";
   /** Nutrient key, or ingredient id for an inclusion limit. */
   key: string;
   label: string;
@@ -75,6 +80,8 @@ export interface Blocker {
   /** The best these ingredients can do for it, ignoring every other bound. */
   best: number | null;
   detail: string;
+  /** For a conflict: the other bounds in the group, with what each asked. `best` is then the most (or least) of `key` a mix reaches while meeting them. */
+  with?: Array<{ key: string; asked: string }>;
 }
 
 export interface SolveResult {
@@ -162,6 +169,30 @@ function buildModel(ingredients: SolveIngredient[], standard: SolveStandard[]): 
  * sum past 100, or maxes that cannot reach it, are the two ways a pool is
  * impossible before nutrition is even considered.
  */
+/** What a bound asks for, in words: "2737–2842", "at least 17.58", "at most 5". */
+function askedOf(std: SolveStandard): string {
+  return std.minValue != null && std.maxValue != null
+    ? `${std.minValue}–${std.maxValue}`
+    : std.minValue != null
+      ? `at least ${std.minValue}`
+      : `at most ${std.maxValue}`;
+}
+
+/**
+ * The most (for a floor) or least (for a ceiling) of one nutrient a mix can
+ * reach under the given bounds, or null when even those cannot be met.
+ */
+function reach(priced: SolveIngredient[], target: SolveStandard, under: SolveStandard[]): number | null {
+  const probe = buildModel(priced, under);
+  probe.optimize = `n_${target.nutrient}`;
+  probe.opType = target.minValue != null ? "max" : "min";
+  for (const ing of priced) {
+    probe.variables[`i_${ing.id}`]![`n_${target.nutrient}`] = (ing.nutrients[target.nutrient] ?? 0) / 100;
+  }
+  const p = lpSolver.Solve(probe) as Record<string, number> & { feasible: boolean; result: number };
+  return p.feasible ? round(p.result, 3) : null;
+}
+
 function diagnose(priced: SolveIngredient[], standard: SolveStandard[]): Blocker[] {
   const out: Blocker[] = [];
 
@@ -209,12 +240,7 @@ function diagnose(priced: SolveIngredient[], standard: SolveStandard[]): Blocker
     }
     const p = lpSolver.Solve(probe) as Record<string, number> & { feasible: boolean; result: number };
     const best = p.feasible ? round(p.result, 3) : null;
-    const asked =
-      std.minValue != null && std.maxValue != null
-        ? `${std.minValue}–${std.maxValue}`
-        : std.minValue != null
-          ? `at least ${std.minValue}`
-          : `at most ${std.maxValue}`;
+    const asked = askedOf(std);
     out.push({
       kind: "nutrient",
       key: std.nutrient,
@@ -228,6 +254,38 @@ function diagnose(priced: SolveIngredient[], standard: SolveStandard[]): Blocker
             ? `The richest mix these materials allow reaches ${best}, short of ${std.minValue}.`
             : `The leanest mix these materials allow is ${best}, over ${std.maxValue}.`,
     });
+  }
+
+  // Every bound can be met on its own, so the wall is between them. Find the
+  // smallest group that cannot be met together: take each bound out in turn
+  // and leave it out whenever the rest are still impossible. What remains is
+  // a group where dropping any one member makes the mix possible — the thing
+  // to loosen, or to buy a denser material for. One solve per bound.
+  if (!out.length) {
+    let group = standard.filter((s) => s.minValue != null || s.maxValue != null);
+    for (const s of [...group]) {
+      const rest = group.filter((g) => g !== s);
+      const r = lpSolver.Solve(buildModel(priced, rest)) as { feasible: boolean };
+      if (!r.feasible) group = rest;
+    }
+    const still = lpSolver.Solve(buildModel(priced, group)) as { feasible: boolean };
+    if (group.length >= 2 && !still.feasible) {
+      const [lead, ...others] = group;
+      const best = reach(priced, lead!, others);
+      const names = group.map((g) => g.nutrient).join(", ");
+      out.push({
+        kind: "conflict",
+        key: lead!.nutrient,
+        label: names,
+        asked: askedOf(lead!),
+        best,
+        with: others.map((o) => ({ key: o.nutrient, asked: askedOf(o) })),
+        detail:
+          best == null
+            ? `${names} can each be met alone, not all together.`
+            : `${names} can each be met alone, not all together: meeting the others, the best ${lead!.nutrient} these materials reach is ${best}.`,
+      });
+    }
   }
   return out;
 }
@@ -264,8 +322,14 @@ export function solveLeastCost(opts: SolveOptions): SolveResult {
       ...empty,
       blockers,
       message: blockers.length
-        ? "No mix of these ingredients can meet every bound."
-        : "No mix of these ingredients can land inside the standard, and no single bound is the cause — the inclusion limits are contradictory taken together.",
+        ? blockers.every((b) => b.kind === "conflict")
+          ? "No mix of these ingredients meets every bound: each can be met alone, but not all of these together."
+          : "No mix of these ingredients can meet every bound."
+        : // Only mention inclusion limits when there are some — blaming limits
+          // nobody set sent people looking for a fault that was not there.
+          priced.some((i) => i.minPercent != null || i.maxPercent != null)
+          ? "No mix of these ingredients lands inside the standard. No bound, alone or with others, is the cause — the inclusion limits and the standard cannot be met together."
+          : "No mix of these ingredients lands inside the standard. No single bound is the cause, and no group of them could be picked out.",
     };
   }
 

@@ -57,12 +57,13 @@ interface FormulaGroup {
 }
 
 interface Blocker {
-  kind: "nutrient" | "inclusion";
+  kind: "nutrient" | "inclusion" | "conflict";
   key: string;
   label: string;
   asked: string;
   best: number | null;
   detail: string;
+  with?: Array<{ key: string; asked: string }>;
 }
 
 interface SolveResponse {
@@ -99,6 +100,9 @@ interface StandardResponse {
 const inr = (n: number) =>
   `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const num = (v: string) => (v.trim() === "" ? null : Number(v));
+
+/** "a", "a and b", "a, b and c". */
+const joinWords = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
 
 export function FormulaSolver({
   selected,
@@ -184,7 +188,13 @@ export function FormulaSolver({
   });
 
   const byId = useMemo(() => new Map((materials ?? []).map((m) => [m.id, m])), [materials]);
-  const nameOf = (id: string) => byId.get(id)?.name ?? "—";
+  // A formula line whose item is not marked a feed ingredient is not in the
+  // materials list, so its name comes from the line — it used to show as "—".
+  const lineName = useMemo(
+    () => new Map((current?.active?.lines ?? []).map((l) => [l.itemId, l.itemName])),
+    [current],
+  );
+  const nameOf = (id: string) => byId.get(id)?.name ?? lineName.get(id) ?? "—";
 
   const mixPct = useMemo(
     () => Object.entries(edited).map(([id, v]) => ({ id, pct: Number(v) || 0 })).filter((x) => x.pct > 0),
@@ -301,7 +311,15 @@ export function FormulaSolver({
                           <tr key={id} className="border-b border-gray-100">
                             <td className="px-2 py-1">
                               {nameOf(id)}
-                              {(byId.get(id)?.measured ?? 0) < 20 && (
+                              {!byId.has(id) && materials && (
+                                <span
+                                  className="ml-1.5 rounded bg-gray-100 px-1 py-px text-[10px] text-gray-500"
+                                  title="Not marked as a feed ingredient, so the solver leaves it out. Mark it on the item's Nutrition tab to include it."
+                                >
+                                  not a feed ingredient
+                                </span>
+                              )}
+                              {byId.has(id) && (byId.get(id)?.measured ?? 0) < 20 && (
                                 <span
                                   className="ml-1 cursor-help text-amber-600"
                                   title={`Only ${byId.get(id)?.measured ?? 0} of 20 nutrients on file — the rest count as zero`}
@@ -419,19 +437,41 @@ export function FormulaSolver({
                   </div>
                 </div>
 
+                {/* The solver leaves out anything it cannot cost. It said so in the
+                    response and the screen never did — which left an infeasible
+                    solve blamed on the standard when two materials were missing. */}
+                {result && result.unpriced.length > 0 && (
+                  <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
+                    <span className="font-semibold">Left out — no price: </span>
+                    {result.unpriced.join(", ")}. Give {result.unpriced.length === 1 ? "it" : "them"} a cost price or stock on hand
+                    to include {result.unpriced.length === 1 ? "it" : "them"}.
+                  </div>
+                )}
+
                 {result && !result.feasible && (
                   <div className="card mt-3 border-red-200 p-4">
                     <div className="text-[13px] font-semibold text-red-700">{result.message}</div>
                     {/* The whole point of the diagnosis: what to change. */}
                     {(result.blockers ?? []).map((b) => (
-                      <div key={b.key} className="mt-2 border-l-2 border-red-300 pl-2.5">
+                      <div key={`${b.key}:${b.with?.map((w) => w.key).join(",") ?? ""}`} className="mt-2 border-l-2 border-red-300 pl-2.5">
                         <div className="text-[13px] font-medium text-gray-900">
-                          {b.kind === "nutrient" ? nutrientLabel(b.key) : b.label}
+                          {b.kind === "conflict" && b.with
+                            ? joinWords([b.key, ...b.with.map((w) => w.key)].map(nutrientLabel))
+                            : b.kind === "nutrient"
+                              ? nutrientLabel(b.key)
+                              : b.label}
                           <span className="ml-2 text-[12px] font-normal text-gray-500">
                             asked {b.asked}
+                            {b.with?.map((w) => <span key={w.key}>, {w.asked}</span>)}
                           </span>
                         </div>
-                        <div className="text-[12px] text-gray-600">{b.detail}</div>
+                        <div className="text-[12px] text-gray-600">
+                          {b.kind === "conflict" && b.with
+                            ? b.best == null
+                              ? "Each can be met alone, not all together. Loosen one, or add a material richer in them."
+                              : `Each can be met alone, not all together. Meeting the others, the best ${nutrientLabel(b.key)} these materials reach is ${b.best}. Loosen one, or add a material richer in them.`
+                            : b.detail}
+                        </div>
                       </div>
                     ))}
                   </div>
