@@ -5,7 +5,9 @@
  * effects first); confirming posts ONE journal dated the last day of the
  * month and locks it. The bank file is a CSV of name / account / IFSC / net.
  */
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactElement } from "react";
+import { Bar, CartesianGrid, Cell, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from "recharts";
+import { ProportionBar, type ProportionSegment } from "@/components/ui/proportion-bar";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Download, Printer } from "lucide-react";
 import { useLocalSearch } from "../../components/search-context";
@@ -236,6 +238,8 @@ export function PayrollRunPage() {
             ))}
           </div>
 
+          {detail && detail.slips.length > 0 && <GrossToNet slips={detail.slips} />}
+
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <Badge tone={statusTone(run.status)}>{run.status}</Badge>
             {run.processedAt && <span className="text-[12px] text-gray-500">processed {fmtDateTime(run.processedAt)}</span>}
@@ -325,6 +329,7 @@ export function PayrollRunPage() {
       {/* Past runs */}
       <div className="mt-6">
         <h2 className="mb-2 text-[15px] font-semibold">All runs</h2>
+        <RunsChart runs={runsQ.data ?? []} />
         <div className="table-surface">
           {runsQ.isLoading ? (
             <Spinner />
@@ -462,5 +467,87 @@ function PayslipDialog({ slip: s, run, onClose }: { slip: Slip; run: Run; onClos
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * recharts 3 types the Tooltip's formatters more tightly than these charts
+ * need; widened once, as the shed-conditions charts do.
+ */
+const Tooltip = RechartsTooltip as unknown as (props: Record<string, unknown>) => ReactElement;
+
+/**
+ * Where the month's gross goes: what reaches the people, and each thing taken
+ * off on the way. Five totals tiles above say how big each figure is; this
+ * says how they relate, which the tiles leave to arithmetic.
+ */
+function GrossToNet({ slips }: { slips: Slip[] }) {
+  const sum = (k: keyof Slip) => slips.reduce((a, s) => a + (Number(s[k]) || 0), 0);
+  const all: ProportionSegment[] = [
+    { label: "Net pay", value: sum("netPay"), tone: "brand" },
+    { label: "PF", value: sum("pfEmployee"), tone: "neutral" },
+    { label: "ESI", value: sum("esiEmployee"), tone: "neutral" },
+    { label: "Professional tax", value: sum("professionalTax"), tone: "neutral" },
+    { label: "Advance recovery", value: sum("advanceRecovery"), tone: "warning" },
+    { label: "Other deductions", value: sum("otherDeductions"), tone: "neutral" },
+  ];
+  const parts = all
+    .filter((p) => p.value > 0)
+    .map((p) => ({ ...p, display: formatMoney(p.value) }));
+  const whole = parts.reduce((a, p) => a + p.value, 0);
+  if (!whole) return null;
+  return (
+    <div className="mb-3 rounded-lg bg-white px-4 py-3 shadow-sm">
+      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+        Where {formatMoney(whole)} goes
+      </div>
+      <ProportionBar segments={parts} />
+    </div>
+  );
+}
+
+/**
+ * Every run, oldest to newest: net and deductions stacked to the gross, with
+ * what the month cost the business — employer PF and ESI on top — as a line.
+ * A draft is drawn faint; its figures move until it is confirmed.
+ */
+function RunsChart({ runs }: { runs: Run[] }) {
+  const data = [...runs]
+    .sort((a, b) => a.year - b.year || a.month - b.month)
+    .slice(-12)
+    .map((r) => ({
+      label: `${MONTHS_LONG[r.month - 1]!.slice(0, 3)} ${String(r.year).slice(2)}`,
+      net: Number(r.totalNet),
+      deductions: Number(r.totalDeductions),
+      employerCost: Number(r.totalEmployerCost),
+      draft: r.status === "draft",
+    }));
+  if (data.length < 2) return null;
+  const money = (v: number) => formatMoney(v);
+  const axis = (v: number) => (v >= 1e5 ? `${(v / 1e5).toFixed(v >= 1e6 ? 0 : 1)} L` : `${Math.round(v / 1e3)} k`);
+  return (
+    <div className="mb-3 rounded-lg bg-white px-3 pb-2 pt-3 shadow-sm">
+      <div className="h-[200px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+            <YAxis tick={{ fontSize: 10 }} tickFormatter={axis} width={44} />
+            <Tooltip formatter={(v: number, n: string) => [money(v), n]} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Bar dataKey="net" name="Net pay" stackId="g" fill="var(--color-brand-500)" isAnimationActive={false}>
+              {data.map((d, i) => <Cell key={i} fillOpacity={d.draft ? 0.4 : 1} />)}
+            </Bar>
+            <Bar dataKey="deductions" name="Deductions" stackId="g" fill="var(--color-soil-400)" radius={[3, 3, 0, 0]} isAnimationActive={false}>
+              {data.map((d, i) => <Cell key={i} fillOpacity={d.draft ? 0.4 : 1} />)}
+            </Bar>
+            <Line dataKey="employerCost" name="Cost to the business" stroke="var(--color-soil-600)" strokeDasharray="4 3" strokeWidth={1.5} dot={{ r: 2 }} isAnimationActive={false} />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+      {data.some((d) => d.draft) && (
+        <p className="px-1 text-[11px] text-gray-400">Faint bars are drafts, not yet confirmed.</p>
+      )}
+    </div>
   );
 }

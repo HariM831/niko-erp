@@ -11,7 +11,8 @@
  */
 import { SERVING_STATES, SERVING_STATE_LABEL, type ServingState } from "@shared/canteen";
 import { filterRows, useAdvancedSearch, type Criteria, type SearchField } from "../../components/advanced-search";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from "recharts";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearch } from "../../components/search-context";
 import { matchesTerm } from "../../lib/utils";
@@ -393,6 +394,7 @@ function ReportTab() {
           </span>
         )}
       </div>
+      {(d?.days?.length ?? 0) > 1 && <PlatesByDay days={d!.days!} />}
       {(d?.days?.length ?? 0) > 0 && (
         <div className="table-surface mb-4">
           <table className="w-full">
@@ -417,28 +419,82 @@ function ReportTab() {
         {repQ.isLoading ? (
           <Spinner />
         ) : (
-          <table className="w-full">
-            <thead className="table-head">
-              <tr><Th>Canteen</Th><Th>Meal</Th><Th>State</Th><Th right>Plates</Th></tr>
-            </thead>
-            <tbody>
-              {cells.map((r, i) => (
-                <tr key={i} className="table-row">
-                  <Td>{r.canteen}</Td>
-                  <Td className="capitalize">{r.meal}</Td>
-                  <Td>{SERVING_STATE_LABEL[r.state as ServingState] ?? r.state}</Td>
-                  <Td right>{num(r.plates)}</Td>
-                </tr>
-              ))}
-              {!cells.length && <tr><Td colSpan={4}><Empty>No plates in this range.</Empty></Td></tr>}
-              {cells.length > 0 && (
-                <tr className="bg-gray-50 font-semibold"><Td colSpan={3}>Total</Td><Td right>{num(total)}</Td></tr>
-              )}
-            </tbody>
-          </table>
+          <CellsGrid cells={cells} total={total} />
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * recharts 3 types the Tooltip's formatters more tightly than these charts
+ * need; widened once, as the shed-conditions charts do.
+ */
+const Tooltip = RechartsTooltip as unknown as (props: Record<string, unknown>) => ReactElement;
+
+/** Plates a day in the range, stacked by meal — which days spiked, and in which meal. */
+function PlatesByDay({ days }: { days: NonNullable<Report["days"]> }) {
+  const data = days.map((r) => ({ ...r, label: dmy(r.date).slice(0, 5) }));
+  return (
+    <div className="table-surface mb-4 px-3 pb-2 pt-3">
+      <div className="h-[180px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: -12 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+            <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+            <Tooltip formatter={(v: number, n: string) => [`${v} plates`, n]} />
+            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Bar dataKey="breakfast" name="Breakfast" stackId="m" fill="var(--color-brand-200)" isAnimationActive={false} />
+            <Bar dataKey="lunch" name="Lunch" stackId="m" fill="var(--color-brand-500)" isAnimationActive={false} />
+            <Bar dataKey="dinner" name="Dinner" stackId="m" fill="var(--color-soil-600)" radius={[3, 3, 0, 0]} isAnimationActive={false} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The range's plates by canteen and state, with the meals across. It was one
+ * row per canteen, meal and state — thirty rows for two canteens — so the
+ * same canteen's lunch and dinner sat far apart.
+ */
+function CellsGrid({ cells, total }: { cells: Report["cells"]; total: number }) {
+  const meals: Meal[] = ["breakfast", "lunch", "dinner"];
+  const rows = new Map<string, { canteen: string; state: string; by: Record<Meal, number> }>();
+  for (const c of cells) {
+    const k = `${c.canteen}\u0000${c.state}`;
+    const r = rows.get(k) ?? { canteen: c.canteen, state: c.state, by: { breakfast: 0, lunch: 0, dinner: 0 } };
+    r.by[c.meal] += c.plates;
+    rows.set(k, r);
+  }
+  const list = [...rows.values()].sort((a, b) => a.canteen.localeCompare(b.canteen) || SERVING_STATES.indexOf(a.state as ServingState) - SERVING_STATES.indexOf(b.state as ServingState));
+  const col = (m: Meal) => cells.filter((c) => c.meal === m).reduce((a, c) => a + c.plates, 0);
+  return (
+    <table className="w-full">
+      <thead className="table-head">
+        <tr><Th>Canteen</Th><Th>State</Th><Th right>Breakfast</Th><Th right>Lunch</Th><Th right>Dinner</Th><Th right>Plates</Th></tr>
+      </thead>
+      <tbody>
+        {list.map((r, i) => (
+          <tr key={i} className="table-row">
+            <Td className={i > 0 && list[i - 1]!.canteen === r.canteen ? "text-transparent" : "font-medium"}>{r.canteen}</Td>
+            <Td>{SERVING_STATE_LABEL[r.state as ServingState] ?? r.state}</Td>
+            {meals.map((m) => <Td key={m} right>{r.by[m] ? num(r.by[m]) : ""}</Td>)}
+            <Td right className="font-medium">{num(r.by.breakfast + r.by.lunch + r.by.dinner)}</Td>
+          </tr>
+        ))}
+        {!list.length && <tr><Td colSpan={6}><Empty>No plates in this range.</Empty></Td></tr>}
+        {list.length > 0 && (
+          <tr className="bg-gray-50 font-semibold">
+            <Td colSpan={2}>Total</Td>
+            {meals.map((m) => <Td key={m} right>{num(col(m))}</Td>)}
+            <Td right>{num(total)}</Td>
+          </tr>
+        )}
+      </tbody>
+    </table>
   );
 }
 

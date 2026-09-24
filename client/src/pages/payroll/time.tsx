@@ -495,6 +495,44 @@ function TeamGridTab({ term, criteria }: { term: string; criteria: Criteria }) {
               ))}
               {!paged.page.length && <tr><Td colSpan={days.length + 5}><Empty>No employees.</Empty></Td></tr>}
             </tbody>
+            {/* Each day's turnout, under the day it describes — for everyone the
+                filters leave in, not just this page of them. Expected is who was
+                not off, on holiday or on leave; a half day counts half. */}
+            {employees.length > 0 && (
+              <tfoot>
+                <tr className="border-t border-gray-200 bg-gray-50">
+                  <Td className="sticky left-0 z-10 whitespace-nowrap bg-gray-50 text-[11px] font-semibold text-gray-500">
+                    Present of expected
+                  </Td>
+                  {days.map((d) => {
+                    let present = 0;
+                    let expected = 0;
+                    for (const e of employees) {
+                      const st = e.days[String(d)]?.status;
+                      if (st === "P") { present += 1; expected += 1; }
+                      else if (st === "H") { present += 0.5; expected += 1; }
+                      else if (st === "A") expected += 1;
+                    }
+                    const share = expected ? present / expected : 0;
+                    return (
+                      <Td key={d} className="!px-0.5 text-center">
+                        {expected ? (
+                          <span className="flex flex-col items-center gap-0.5" title={`${num(present, 1)} of ${expected} expected`}>
+                            <span className="flex h-6 w-2.5 flex-col justify-end overflow-hidden rounded-sm bg-red-100">
+                              <span className="bg-emerald-500" style={{ height: `${share * 100}%` }} />
+                            </span>
+                            <span className="text-[9px] tabular-nums text-gray-500">{num(present, 0)}</span>
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-gray-300">—</span>
+                        )}
+                      </Td>
+                    );
+                  })}
+                  <Td colSpan={4} />
+                </tr>
+              </tfoot>
+            )}
           </table>
           <Pager total={paged.total} offset={paged.offset} onChange={paged.setOffset} />
         </div>
