@@ -17,6 +17,7 @@ import { ArrowLeft, Camera, Check, ClipboardList, RefreshCw, Settings2, Wifi, Wi
 import { api, ApiError } from "../api";
 import { useAuth } from "../auth";
 import { SearchSelect } from "../components/search-select";
+import { Last24Hours } from "../components/house-status";
 
 interface BoardRow {
   houseId: string;
@@ -564,9 +565,12 @@ export function FarmControlsPage() {
       </div>
 
       {!catalog?.pages.length ? (
-        <div className="rounded-2xl bg-white p-8 text-center text-[13px] text-muted-foreground shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
-          The controller catalogue has not been fetched yet.
-          {manage ? " Use Fetch catalogue above; it asks the vendor for every page once." : " Ask a farm manager to fetch it."}
+        <div className="space-y-4">
+          {houseId && <Last24Hours houseId={houseId} />}
+          <div className="rounded-2xl bg-white p-8 text-center text-[13px] text-muted-foreground shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
+            The controller catalogue has not been fetched yet.
+            {manage ? " Use Fetch catalogue above; it asks the vendor for every page once." : " Ask a farm manager to fetch it."}
+          </div>
         </div>
       ) : (
         <div className="grid gap-4 lg:grid-cols-[210px_minmax(0,1fr)]">
@@ -596,6 +600,7 @@ export function FarmControlsPage() {
             {notice && (
               <div className="rounded-lg border border-yolk-200 bg-yolk-50 px-3 py-2 text-[12px] text-yolk-800">{notice}</div>
             )}
+            {houseId && <Last24Hours houseId={houseId} />}
             {showRules && rules && (
               <RulesPanel rules={rules} busy={busy} onSave={saveRule} onWrites={setWrites} onMode={setMode} manage={manage} houseCode={house?.code ?? ""} />
             )}
