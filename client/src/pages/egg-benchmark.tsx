@@ -386,7 +386,10 @@ function BenchmarkTrend({ history, forecast }: { history: BenchmarkRow[]; foreca
   if (rates.length < 2) return null;
   const today = localYmd();
   const lastSet = rates[rates.length - 1]!.effectiveFrom;
-  const end = lastSet > today ? lastSet : today;
+  // The window ends at the last rate anyone set. Running it on to today would,
+  // on a benchmark left alone for months, draw sixty days of one carried rate.
+  const end = lastSet;
+  const stale = lastSet < today;
   const start = [rates[0]!.effectiveFrom, shiftDay(end, -59)].sort()[1]!;
   const points: { x: string; y: number }[] = [];
   let j = 0;
@@ -396,7 +399,8 @@ function BenchmarkTrend({ history, forecast }: { history: BenchmarkRow[]; foreca
     if (rate != null) points.push({ x: day, y: rate });
   }
   const ahead = (forecast?.points ?? [])
-    .filter((p) => p.date > end)
+    // A forecast whose days have gone by is not a forecast — the home tile's rule.
+    .filter((p) => p.date > end && p.date > today)
     .slice(0, 28)
     .map((p) => ({ x: p.date, y: p.p50, lo: p.p10, hi: p.p90 }));
   const first = points[0];
@@ -408,9 +412,11 @@ function BenchmarkTrend({ history, forecast }: { history: BenchmarkRow[]; foreca
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
         <span className="text-sm font-semibold">Benchmark, ₹ per egg</span>
         <span className="text-[11px] text-muted-foreground">
-          {ahead.length
-            ? "Dashed: the forecast; shaded: where 8 in 10 outcomes fall"
-            : "No forecast ahead of the last rate"}
+          {stale
+            ? `Not set since ${formatDate(lastSet)} — every day since has carried ₹${last.y.toFixed(2)}`
+            : ahead.length
+              ? "Dashed: the forecast; shaded: where 8 in 10 outcomes fall"
+              : "No forecast ahead of the last rate"}
         </span>
       </div>
       <Sparkline points={points} ahead={ahead} className="h-24 w-full" />
