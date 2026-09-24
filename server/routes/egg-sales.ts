@@ -21,6 +21,7 @@ import {
   invoices,
 } from "@shared/schema";
 import { db } from "../db";
+import { latestForecast } from "../services/egg-price-forecast";
 import { requirePermission } from "../lib/rbac";
 import { looseNumber, validateBody } from "../lib/validate";
 import { DIRECT_RATE_SIZES, EGG_SIZE_LABEL, HIDDEN_EGG_SIZES, type EggSize } from "@shared/egg-sizes";
@@ -357,6 +358,9 @@ eggSalesRouter.get("/benchmark", view, async (_req, res) => {
     eggsPerBox: prefs.eggsPerBox,
     boxSizes: Object.fromEntries(EGG_SIZES.map((z) => [z, eggsInBox(z, prefs)])),
     boxRates,
+    // The model's latest run, so the page that sets the rate can show where it
+    // is expected to go — the same figures the home page tile draws.
+    forecast: await latestForecast(db),
   });
 });
 

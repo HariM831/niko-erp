@@ -13,6 +13,7 @@ import { api, formatDate } from "../api";
 import { DIRECT_RATE_SIZES, EGG_SIZE_LABEL, VISIBLE_EGG_SIZES, isDirectRate, type EggSize } from "@shared/egg-sizes";
 import { localYmd } from "../lib/utils";
 import { DateInput } from "../components/date-input";
+import { Sparkline } from "../components/ui/sparkline";
 
 interface BenchmarkRow {
   id: string;
@@ -20,6 +21,11 @@ interface BenchmarkRow {
   ratePerEgg: string;
   note: string | null;
   setBy: string | null;
+}
+
+interface Forecast {
+  anchorDate: string;
+  points: { date: string; p10: number; p50: number; p90: number }[];
 }
 
 type OffsetRow = { effectiveFrom: string } & Partial<Record<EggSize, string>>;
@@ -46,6 +52,7 @@ const inputCls = "h-9 w-full rounded-md border border-border bg-background px-2 
 
 export function EggBenchmarkPage() {
   const [history, setHistory] = useState<BenchmarkRow[]>([]);
+  const [forecast, setForecast] = useState<Forecast | null>(null);
   const [offsets, setOffsets] = useState<OffsetRow[]>([]);
   const [eggsPerBox, setEggsPerBox] = useState(210);
   const [loading, setLoading] = useState(true);
@@ -74,9 +81,11 @@ export function EggBenchmarkPage() {
       eggsPerBox: number;
       boxSizes: Record<string, number>;
       boxRates: Record<string, BoxRateRow[]>;
+      forecast?: Forecast | null;
     }>("/api/sales/eggs/benchmark")
       .then((d) => {
         setHistory(d.history);
+        setForecast(d.forecast ?? null);
         setOffsets(d.offsets);
         setEggsPerBox(d.eggsPerBox);
         setBoxSizes(d.boxSizes ?? {});
@@ -299,22 +308,28 @@ export function EggBenchmarkPage() {
           </div>
 
           {/* ── History ── */}
+          <div className="space-y-4">
+          <BenchmarkTrend history={history} forecast={forecast} />
           <div className="table-surface overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="table-head">
                 <tr>
                   <th className="table-th text-left">From</th>
                   <th className="table-th text-right">₹ / egg</th>
+                  <th className="table-th text-right">Change</th>
                   <th className="table-th text-right">₹ / box</th>
                   <th className="table-th text-left">Note</th>
                   <th className="table-th text-left">Set by</th>
                 </tr>
               </thead>
               <tbody>
-                {history.map((h) => (
+                {history.map((h, i) => (
                   <tr key={h.id} className="border-b border-border/60 last:border-0">
                     <td className="px-3 py-2">{formatDate(h.effectiveFrom)}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{Number(h.ratePerEgg).toFixed(2)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      <RateChange now={h.ratePerEgg} before={history[i + 1]?.ratePerEgg} />
+                    </td>
                     <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
                       {(Number(h.ratePerEgg) * eggsPerBox).toFixed(0)}
                     </td>
@@ -324,7 +339,7 @@ export function EggBenchmarkPage() {
                 ))}
                 {!history.length && (
                   <tr>
-                    <td colSpan={5} className="px-3 py-8 text-center text-muted-foreground">
+                    <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
                       No rates set yet — nothing can be invoiced until one is.
                     </td>
                   </tr>
@@ -332,9 +347,86 @@ export function EggBenchmarkPage() {
               </tbody>
             </table>
           </div>
+          </div>
         </div>
       )}
       {error && <p className="mt-3 text-sm text-destructive">{error}</p>}
+    </div>
+  );
+}
+
+/** A rate against the one before it, in paise-sized steps. */
+function RateChange({ now, before }: { now: string; before?: string }) {
+  if (before == null) return <span className="text-muted-foreground">—</span>;
+  const d = Number(now) - Number(before);
+  if (Math.abs(d) < 0.005) return <span className="text-muted-foreground">0.00</span>;
+  return (
+    <span className={d > 0 ? "text-emerald-600" : "text-rose-600"}>
+      {d > 0 ? "+" : ""}
+      {d.toFixed(2)}
+    </span>
+  );
+}
+
+/** YYYY-MM-DD plus or minus whole days, in UTC so no clock moves the date. */
+const shiftDay = (iso: string, days: number) => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+};
+
+/**
+ * The benchmark over the last sixty days, one point a day. A day nobody set a
+ * rate for carries the one before it — that is the price eggs were invoiced
+ * at — so the line shows what applied, and a flat stretch is a stretch nobody
+ * updated. The model's forecast follows, dashed, with its p10–p90 range shaded.
+ */
+function BenchmarkTrend({ history, forecast }: { history: BenchmarkRow[]; forecast: Forecast | null }) {
+  const rates = [...history].sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
+  if (rates.length < 2) return null;
+  const today = localYmd();
+  const lastSet = rates[rates.length - 1]!.effectiveFrom;
+  const end = lastSet > today ? lastSet : today;
+  const start = [rates[0]!.effectiveFrom, shiftDay(end, -59)].sort()[1]!;
+  const points: { x: string; y: number }[] = [];
+  let j = 0;
+  let rate: number | null = null;
+  for (let day = start; day <= end; day = shiftDay(day, 1)) {
+    while (j < rates.length && rates[j]!.effectiveFrom <= day) rate = Number(rates[j++]!.ratePerEgg);
+    if (rate != null) points.push({ x: day, y: rate });
+  }
+  const ahead = (forecast?.points ?? [])
+    .filter((p) => p.date > end)
+    .slice(0, 28)
+    .map((p) => ({ x: p.date, y: p.p50, lo: p.p10, hi: p.p90 }));
+  const first = points[0];
+  const last = points[points.length - 1];
+  const far = ahead[ahead.length - 1];
+  if (!first || !last) return null;
+  return (
+    <div className="table-surface p-4">
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <span className="text-sm font-semibold">Benchmark, ₹ per egg</span>
+        <span className="text-[11px] text-muted-foreground">
+          {ahead.length
+            ? "Dashed: the forecast; shaded: where 8 in 10 outcomes fall"
+            : "No forecast ahead of the last rate"}
+        </span>
+      </div>
+      <Sparkline points={points} ahead={ahead} className="h-24 w-full" />
+      <div className="mt-1 flex justify-between gap-2 text-[11px] text-muted-foreground">
+        <span>
+          {formatDate(first.x)} · ₹{first.y.toFixed(2)}
+        </span>
+        <span>
+          {formatDate(last.x)} · <strong className="text-foreground">₹{last.y.toFixed(2)}</strong>
+        </span>
+        {far && (
+          <span>
+            {formatDate(far.x)} · ₹{far.y.toFixed(2)} forecast
+          </span>
+        )}
+      </div>
     </div>
   );
 }

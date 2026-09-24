@@ -46,7 +46,8 @@ export function FractionBar({
 }) {
   const safeMax = max > 0 ? max : 0;
   const v = Math.max(0, value);
-  const overrun = safeMax > 0 && over === "tail" && v > safeMax;
+  // Nothing to set against (no stock at all) and something wanted is all overrun.
+  const overrun = over === "tail" && v > safeMax && v > 0;
   // With a tail the whole bar is the value, and the maximum is the mark inside it.
   const whole = overrun ? v : safeMax;
   const fillPct = whole > 0 ? Math.min(100, (Math.min(v, safeMax) / whole) * 100) : 0;

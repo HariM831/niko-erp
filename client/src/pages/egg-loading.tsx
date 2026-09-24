@@ -14,7 +14,8 @@ import { AlertTriangle, Loader2, Truck, X } from "lucide-react";
 import { api, formatMoney } from "../api";
 import { SearchSelect } from "../components/search-select";
 import { EggOrdersTable, isStruck, type OrderLine } from "../components/egg-orders-table";
-import { EGG_SIZE_LABEL, VISIBLE_EGG_SIZES, isDirectRate } from "@shared/egg-sizes";
+import { EGG_SIZES, EGG_SIZE_LABEL, VISIBLE_EGG_SIZES, isDirectRate, type EggSize } from "@shared/egg-sizes";
+import { FractionBar } from "../components/ui/fraction-bar";
 import { localYmd } from "../lib/utils";
 import { DateInput } from "../components/date-input";
 
@@ -78,6 +79,60 @@ const SIZE_LABEL: Record<string, string> = EGG_SIZE_LABEL;
 
 const inputCls = "h-9 w-full rounded-md border border-border bg-background px-2 text-sm";
 
+const LOADED_FIELD: Record<EggSize, keyof Dispatch> = {
+  small: "loadedSmall",
+  medium: "loadedMedium",
+  large: "loadedLarge",
+  xl: "loadedXl",
+  jumbo: "loadedJumbo",
+  brown: "loadedBrown",
+  niko: "loadedNiko",
+};
+const loadedOf = (d: Dispatch, z: EggSize) => Number(d[LOADED_FIELD[z]] ?? 0) || 0;
+
+/**
+ * Each size's stock against what is still due in it. The line above compares
+ * totals, which hides the shortage that matters — plenty of Medium says
+ * nothing about a Large order. An order booked by count alone is counted as
+ * Large, the way its price is estimated; the loading dialog corrects it to
+ * the truck.
+ */
+function StockAgainstDue({ data, due }: { data: DayData; due: DayLine[] }) {
+  const dueBy: Record<string, number> = {};
+  for (const l of due) {
+    const split = l.sizes && Object.keys(l.sizes).length ? l.sizes : { large: l.boxes };
+    for (const [z, q] of Object.entries(split)) dueBy[z] = (dueBy[z] ?? 0) + (q ?? 0);
+  }
+  const rows = SIZES.filter((z) => (data.stockBySize?.[z] ?? 0) > 0 || (dueBy[z] ?? 0) > 0);
+  if (!rows.length) return null;
+  return (
+    <div className="table-surface mb-4 grid gap-x-8 gap-y-1.5 px-4 py-3 sm:grid-cols-2">
+      {rows.map((z) => {
+        const have = data.stockBySize?.[z] ?? 0;
+        const want = dueBy[z] ?? 0;
+        const short = want - have;
+        return (
+          <div key={z} className="flex items-center gap-3 text-xs">
+            <span className="w-16 shrink-0 font-medium">{SIZE_LABEL[z]}</span>
+            <FractionBar
+              value={want}
+              max={have}
+              over="tail"
+              tone={short > 0 ? "danger" : "success"}
+              title={`${want} boxes due, ${have} in store`}
+            />
+            <span className={`w-36 shrink-0 text-right tabular-nums ${short > 0 ? "font-semibold text-destructive" : "text-muted-foreground"}`}>
+              {short > 0
+                ? `${short.toLocaleString("en-IN")} short`
+                : `due ${want.toLocaleString("en-IN")} of ${have.toLocaleString("en-IN")}`}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function EggLoadingPage() {
   const today = localYmd();
   const [date, setDate] = useState(today);
@@ -105,6 +160,11 @@ export function EggLoadingPage() {
   }, []);
 
   const due = (data?.lines ?? []).filter((l) => !l.voided && l.exception?.kind !== "skip" && !l.dispatch);
+  const live = dispatches.filter((d) => d.status !== "void");
+  const loadedBoxes = live.reduce((a, d) => a + EGG_SIZES.reduce((b, z) => b + loadedOf(d, z), 0), 0);
+  // The sizes on screen, plus a hidden one only when something was loaded in it
+  // today — hidden grades are kept in the data and reported, never dropped.
+  const loadedCols = EGG_SIZES.filter((z) => SIZES.includes(z) || dispatches.some((d) => loadedOf(d, z) > 0));
 
   return (
     <div className="p-4 md:p-6">
@@ -155,6 +215,7 @@ export function EggLoadingPage() {
         </div>
       )}
 
+      {!loading && data?.stockBySize && <StockAgainstDue data={data} due={due} />}
       {!loading && data && !data.benchmark && (
         <div className="mb-3 flex items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
           <AlertTriangle className="h-4 w-4" />
@@ -232,13 +293,11 @@ export function EggLoadingPage() {
               <thead className="table-head">
                 <tr>
                   <th className="table-th text-left">Customer</th>
-                  <th className="table-th text-right">S</th>
-                  <th className="table-th text-right">M</th>
-                  <th className="table-th text-right">L</th>
-                  <th className="table-th text-right">XL</th>
-                  <th className="table-th text-right">J</th>
-                  <th className="table-th text-right">Br</th>
-                  <th className="table-th text-right">N</th>
+                  {loadedCols.map((z) => (
+                    <th key={z} className="table-th text-right">
+                      {SIZE_LABEL[z]}
+                    </th>
+                  ))}
                   <th className="table-th text-left">Vehicle</th>
                   <th className="table-th text-left">Invoice</th>
                   <th className="table-th text-right">Amount</th>
@@ -248,13 +307,11 @@ export function EggLoadingPage() {
                 {dispatches.map((d) => (
                   <tr key={d.id} className={`border-b border-border/60 last:border-0 ${d.status === "void" ? "line-through opacity-40" : ""}`}>
                     <td className="px-3 py-2 font-medium">{d.customerName}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{d.loadedSmall || ""}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{d.loadedMedium || ""}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{d.loadedLarge || ""}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{d.loadedXl || ""}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{d.loadedJumbo || ""}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{d.loadedBrown || ""}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{d.loadedNiko || ""}</td>
+                    {loadedCols.map((z) => (
+                      <td key={z} className="px-3 py-2 text-right tabular-nums">
+                        {loadedOf(d, z) || ""}
+                      </td>
+                    ))}
                     <td className="px-3 py-2 text-muted-foreground">
                       {d.vehicleNumber} · {d.driverName}
                     </td>
@@ -264,12 +321,38 @@ export function EggLoadingPage() {
                 ))}
                 {!dispatches.length && (
                   <tr>
-                    <td colSpan={10} className="px-3 py-6 text-center text-muted-foreground">
+                    <td colSpan={loadedCols.length + 4} className="px-3 py-6 text-center text-muted-foreground">
                       Nothing loaded yet.
                     </td>
                   </tr>
                 )}
               </tbody>
+              {/* What went out today — a void is struck off above and counted in
+                  nothing here. */}
+              {live.length > 0 && (
+                <tfoot>
+                  <tr className="border-t border-border bg-muted/40 text-sm font-semibold">
+                    <td className="px-3 py-2">
+                      Total
+                      <span className="ml-1.5 font-normal text-muted-foreground">
+                        {live.length} {live.length === 1 ? "truck" : "trucks"} · {loadedBoxes.toLocaleString("en-IN")} boxes
+                      </span>
+                    </td>
+                    {loadedCols.map((z) => {
+                      const n = live.reduce((a, d) => a + loadedOf(d, z), 0);
+                      return (
+                        <td key={z} className="px-3 py-2 text-right tabular-nums">
+                          {n ? n.toLocaleString("en-IN") : ""}
+                        </td>
+                      );
+                    })}
+                    <td className="px-3 py-2" colSpan={2} />
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {formatMoney(live.reduce((a, d) => a + Number(d.invoiceTotal), 0))}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         </>
