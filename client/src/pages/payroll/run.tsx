@@ -524,7 +524,8 @@ function RunsChart({ runs }: { runs: Run[] }) {
     }));
   if (data.length < 2) return null;
   const money = (v: number) => formatMoney(v);
-  const axis = (v: number) => (v >= 1e5 ? `${(v / 1e5).toFixed(v >= 1e6 ? 0 : 1)} L` : `${Math.round(v / 1e3)} k`);
+  // Lakh on the axis, trimmed: "12 L", "4.5 L", "0" — not "8.0 L" or "0 k".
+  const axis = (v: number) => (v === 0 ? "0" : v >= 1e5 ? `${+(v / 1e5).toFixed(1)} L` : `${Math.round(v / 1e3)} k`);
   return (
     <div className="mb-3 rounded-lg bg-white px-3 pb-2 pt-3 shadow-sm">
       <div className="h-[200px]">
@@ -534,7 +535,7 @@ function RunsChart({ runs }: { runs: Run[] }) {
             <XAxis dataKey="label" tick={{ fontSize: 10 }} />
             <YAxis tick={{ fontSize: 10 }} tickFormatter={axis} width={44} />
             <Tooltip formatter={(v: number, n: string) => [money(v), n]} />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Legend wrapperStyle={{ fontSize: 11 }} itemSorter={null} formatter={(v: string) => <span className="text-gray-600">{v}</span>} />
             <Bar dataKey="net" name="Net pay" stackId="g" fill="var(--color-brand-500)" isAnimationActive={false}>
               {data.map((d, i) => <Cell key={i} fillOpacity={d.draft ? 0.4 : 1} />)}
             </Bar>

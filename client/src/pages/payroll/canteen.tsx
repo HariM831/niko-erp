@@ -444,7 +444,7 @@ function PlatesByDay({ days }: { days: NonNullable<Report["days"]> }) {
             <XAxis dataKey="label" tick={{ fontSize: 10 }} />
             <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
             <Tooltip formatter={(v: number, n: string) => [`${v} plates`, n]} />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Legend wrapperStyle={{ fontSize: 11 }} itemSorter={null} formatter={(v: string) => <span className="text-gray-600">{v}</span>} />
             <Bar dataKey="breakfast" name="Breakfast" stackId="m" fill="var(--color-brand-200)" isAnimationActive={false} />
             <Bar dataKey="lunch" name="Lunch" stackId="m" fill="var(--color-brand-500)" isAnimationActive={false} />
             <Bar dataKey="dinner" name="Dinner" stackId="m" fill="var(--color-soil-600)" radius={[3, 3, 0, 0]} isAnimationActive={false} />
