@@ -28,6 +28,7 @@ import { api, formatMoney } from "../api";
 import { useAuth } from "../auth";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { FractionBar } from "@/components/ui/fraction-bar";
+import { Sparkline as SparkSvg, type SparkColors } from "@/components/ui/sparkline";
 import { BirdComfortTile } from "../components/house-status";
 
 /* ── Shape of /api/boss-view ───────────────────────────────────────────── */
@@ -237,6 +238,16 @@ function Metric({
   );
 }
 
+/** The shared Sparkline in this page's own yolk / soil colours. */
+const YOLK_SPARK: SparkColors = {
+  line: "var(--color-yolk-500)",
+  fill: "var(--color-yolk-50)",
+  dashed: "var(--color-yolk-600)",
+  band: "var(--color-yolk-100)",
+  join: "var(--color-soil-200)",
+  reference: "var(--color-soil-400)",
+};
+
 /** A slim progress bar in the yolk ramp, on a soil track — the shared
     FractionBar in this page's own colours (see docs/ui-visuals-plan.md). */
 function Bar({ pct }: { pct: number }) {
@@ -341,8 +352,6 @@ function Sparkline({
   const [horizon, setHorizon] = useState<(typeof HORIZONS)[number]>(7);
   if (points.length < 2) return <div className="text-xs text-soil-400">Not enough benchmark history for a line.</div>;
 
-  const w = 320;
-  const h = 60;
   // With a forecast, history scales with the horizon chosen. Without one,
   // the tile stays the thirty-day sparkline it has always been rather than
   // silently shrinking to a fortnight.
@@ -358,28 +367,6 @@ function Sparkline({
     .filter((p) => p.date > lastActual.date && p.date > today)
     .slice(0, horizon);
 
-  const values = [...hist.map((p) => p.price), ...ahead.flatMap((p) => [p.p10, p.p90])];
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = max - min || 1;
-  const total = hist.length + ahead.length;
-  const x = (i: number) => (i / (total - 1)) * w;
-  const y = (v: number) => h - 6 - ((v - min) / span) * (h - 12);
-
-  const histPath = hist.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.price).toFixed(1)}`).join(" ");
-  const joinX = x(hist.length - 1);
-  // The dashed half starts at the last actual point, so the line is continuous.
-  const fcPath = ahead.length
-    ? `M${joinX.toFixed(1)},${y(lastActual.price).toFixed(1)} ` +
-      ahead.map((p, i) => `L${x(hist.length + i).toFixed(1)},${y(p.p50).toFixed(1)}`).join(" ")
-    : "";
-  const band = ahead.length
-    ? `M${joinX.toFixed(1)},${y(lastActual.price).toFixed(1)} ` +
-      ahead.map((p, i) => `L${x(hist.length + i).toFixed(1)},${y(p.p90).toFixed(1)}`).join(" ") +
-      " " +
-      [...ahead].reverse().map((p, i) => `L${x(total - 1 - i).toFixed(1)},${y(p.p10).toFixed(1)}`).join(" ") +
-      " Z"
-    : "";
 
   const avg = ahead.length ? ahead.reduce((a, p) => a + p.p50, 0) / ahead.length : null;
   const move = avg == null ? null : ((avg - lastActual.price) / lastActual.price) * 100;
@@ -409,25 +396,11 @@ function Sparkline({
           </div>
         )}
       </div>
-      <svg viewBox={`0 0 ${w} ${h}`} className="h-14 w-full" preserveAspectRatio="none">
-        <path d={`${histPath} L${joinX},${h} L0,${h} Z`} fill="var(--color-yolk-50)" />
-        {band && <path d={band} fill="var(--color-yolk-100)" opacity={0.7} />}
-        <path d={histPath} fill="none" stroke="var(--color-yolk-500)" strokeWidth={1.75} vectorEffect="non-scaling-stroke" />
-        {fcPath && (
-          <path
-            d={fcPath}
-            fill="none"
-            stroke="var(--color-yolk-600)"
-            strokeWidth={1.5}
-            strokeDasharray="3 2.5"
-            vectorEffect="non-scaling-stroke"
-          />
-        )}
-        {ahead.length > 0 && (
-          <line x1={joinX} y1={2} x2={joinX} y2={h - 2} stroke="var(--color-soil-200)" strokeWidth={1} vectorEffect="non-scaling-stroke" />
-        )}
-        <circle cx={joinX} cy={y(lastActual.price)} r={3} fill="var(--color-yolk-600)" />
-      </svg>
+      <SparkSvg
+        points={hist.map((p) => ({ x: p.date, y: p.price }))}
+        ahead={ahead.map((p) => ({ x: p.date, y: p.p50, lo: p.p10, hi: p.p90 }))}
+        colors={YOLK_SPARK}
+      />
       <div className="mt-1 flex justify-between text-[11px] text-soil-400">
         <span>
           {dmy(hist[0]!.date)} · ₹{num(hist[0]!.price, 2)}

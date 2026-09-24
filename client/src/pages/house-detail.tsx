@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type ReactElement } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useLocation, useRoute } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { KpiCard } from "@/components/ui/kpi-card";
@@ -13,26 +13,10 @@ import { ArrowLeft, Plus, Bird, Calendar, Scale, Droplets, Wheat, AlertTriangle,
 import { useApp } from "@/lib/store";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-/* The chart strokes below are literals because SVG cannot read a Tailwind
-   class. They are niko's palette: amber-500 for feed, brand-500 for water,
-   brand-600 for eggs, and gray-400 dashed for the standard. */
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip as RechartsTooltip,
-  ResponsiveContainer,
-  Legend,
-} from "recharts";
-
-/**
- * recharts 3 types the Tooltip's `formatter` and `labelFormatter` far more
- * tightly than the version these charts were written against. Widening the
- * component in one place keeps the six call sites exactly as they were.
- */
-const Tooltip = RechartsTooltip as unknown as (props: Record<string, unknown>) => ReactElement;
+/* The chart strokes are literals because SVG cannot read a Tailwind class.
+   They are niko's palette: amber-500 for feed, brand-500 for water,
+   brand-600 for eggs; the shared chart draws the standard grey dashed. */
+import { StandardLine } from "@/components/ui/standard-line";
 import { getAgeRefStock, isBatchActive } from "@/lib/bird-batches";
 import { BhHouseCard, type LiveShed } from "@/components/iot-widgets";
 import { api } from "@/api";
@@ -1232,47 +1216,16 @@ export function HouseDetailPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="h-[200px] sm:h-[250px] md:h-[300px]">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={chartData}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis 
-                            dataKey="date" 
-                            tick={{ fontSize: 10 }} 
-                            label={{ value: 'Last 14 days', position: 'bottom', fontSize: 10, offset: -5 }}
-                          />
-                          <YAxis tick={{ fontSize: 10 }} />
-                          <Tooltip 
-                            formatter={(value: number, name: string) => [
-                              `${value} g`, 
-                              name === 'Standard' ? 'Standard' : 'Actual'
-                            ]}
-                            labelFormatter={(label: string, items: Array<{ payload?: { ageWeeks?: number } }>) => `${label} · week ${items?.[0]?.payload?.ageWeeks ?? '–'}`}
-                          />
-                          <Legend />
-                          <Line 
-                            type="monotone" 
-                            dataKey="feedPerBird" 
-                            stroke="#f98a12" 
-                            strokeWidth={2}
-                            dot={{ r: 3 }}
-                            name="Actual"
-                          />
-                          {breedStandards.length > 0 && (
-                            <Line 
-                              type="monotone" 
-                              dataKey="stdFeed" 
-                              stroke="#9ca3af" 
-                              strokeWidth={2}
-                              strokeDasharray="5 5"
-                              dot={false}
-                              name="Standard"
-                              connectNulls
-                            />
-                          )}
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
+                    <StandardLine
+                      data={chartData}
+                      xKey="date"
+                      actualKey="feedPerBird"
+                      standardKey={breedStandards.length > 0 ? "stdFeed" : undefined}
+                      unit="g"
+                      xLabel="Last 14 days"
+                      stroke="#f98a12"
+                      tooltipLabel={(r) => `${r.date} · week ${r.ageWeeks ?? '–'}`}
+                    />
                   </CardContent>
                 </Card>
 
@@ -1284,47 +1237,16 @@ export function HouseDetailPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="h-[200px] sm:h-[250px] md:h-[300px]">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={chartData}>
-                          <CartesianGrid strokeDasharray="3 3" />
-                          <XAxis 
-                            dataKey="date" 
-                            tick={{ fontSize: 10 }} 
-                            label={{ value: 'Last 14 days', position: 'bottom', fontSize: 10, offset: -5 }}
-                          />
-                          <YAxis tick={{ fontSize: 10 }} />
-                          <Tooltip 
-                            formatter={(value: number, name: string) => [
-                              `${value} ml`, 
-                              name === 'Standard' ? 'Standard' : 'Actual'
-                            ]}
-                            labelFormatter={(label: string, items: Array<{ payload?: { ageWeeks?: number } }>) => `${label} · week ${items?.[0]?.payload?.ageWeeks ?? '–'}`}
-                          />
-                          <Legend />
-                          <Line 
-                            type="monotone" 
-                            dataKey="waterPerBird" 
-                            stroke="#6b5a3f" 
-                            strokeWidth={2}
-                            dot={{ r: 3 }}
-                            name="Actual"
-                          />
-                          {breedStandards.length > 0 && (
-                            <Line 
-                              type="monotone" 
-                              dataKey="stdWater" 
-                              stroke="#9ca3af" 
-                              strokeWidth={2}
-                              strokeDasharray="5 5"
-                              dot={false}
-                              name="Standard"
-                              connectNulls
-                            />
-                          )}
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
+                    <StandardLine
+                      data={chartData}
+                      xKey="date"
+                      actualKey="waterPerBird"
+                      standardKey={breedStandards.length > 0 ? "stdWater" : undefined}
+                      unit="ml"
+                      xLabel="Last 14 days"
+                      stroke="#6b5a3f"
+                      tooltipLabel={(r) => `${r.date} · week ${r.ageWeeks ?? '–'}`}
+                    />
                   </CardContent>
                 </Card>
 
@@ -1337,47 +1259,17 @@ export function HouseDetailPage() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <div className="h-[200px] sm:h-[250px] md:h-[300px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <LineChart data={chartData}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis 
-                              dataKey="date" 
-                              tick={{ fontSize: 10 }} 
-                              label={{ value: 'Last 14 days', position: 'bottom', fontSize: 10, offset: -5 }}
-                            />
-                            <YAxis tick={{ fontSize: 10 }} domain={[0, 100]} />
-                            <Tooltip 
-                              formatter={(value: number, name: string) => [
-                                `${value}%`, 
-                                name === 'Standard' ? 'Standard' : 'Actual'
-                              ]}
-                              labelFormatter={(label: string, items: Array<{ payload?: { ageWeeks?: number } }>) => `${label} · week ${items?.[0]?.payload?.ageWeeks ?? '–'}`}
-                            />
-                            <Legend />
-                            <Line 
-                              type="monotone" 
-                              dataKey="eggPercent" 
-                              stroke="#e06d05" 
-                              strokeWidth={2}
-                              dot={{ r: 3 }}
-                              name="Actual"
-                            />
-                            {breedStandards.length > 0 && (
-                              <Line 
-                                type="monotone" 
-                                dataKey="stdEggPercent" 
-                                stroke="#9ca3af" 
-                                strokeWidth={2}
-                                strokeDasharray="5 5"
-                                dot={false}
-                                name="Standard"
-                                connectNulls
-                              />
-                            )}
-                          </LineChart>
-                        </ResponsiveContainer>
-                      </div>
+                      <StandardLine
+                        data={chartData}
+                        xKey="date"
+                        actualKey="eggPercent"
+                        standardKey={breedStandards.length > 0 ? "stdEggPercent" : undefined}
+                        unit="%"
+                        xLabel="Last 14 days"
+                        domain={[0, 100]}
+                        stroke="#e06d05"
+                        tooltipLabel={(r) => `${r.date} · week ${r.ageWeeks ?? '–'}`}
+                      />
                     </CardContent>
                   </Card>
                 )}
