@@ -11,7 +11,17 @@
  * label — and the vendor's English and Chinese sit in a hover, so a call with
  * the vendor still has a shared vocabulary.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactElement } from "react";
+import {
+  Bar,
+  CartesianGrid,
+  ComposedChart,
+  Line,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { useLocation, useRoute } from "wouter";
 import { ArrowLeft, Camera, Check, ClipboardList, RefreshCw, Settings2, Wifi, WifiOff, X } from "lucide-react";
 import { api, ApiError } from "../api";
@@ -776,6 +786,7 @@ function TablePage({ page }: { page: PageLive }) {
   });
   return (
     <div className="overflow-x-auto">
+      {isLadder && <LadderShape rows={shown} fanCols={fanCols} values={page.values} />}
       <table className="text-[12.5px]">
         <thead>
           <tr className="text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -859,6 +870,84 @@ function TablePage({ page }: { page: PageLive }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * recharts 3 types the Tooltip's formatters more tightly than this chart needs;
+ * widened once, as the shed-conditions charts do.
+ */
+const Tooltip = RechartsTooltip as unknown as (props: Record<string, unknown>) => ReactElement;
+
+/**
+ * The ladder's shape: how many fan groups each step runs, as bars, and how
+ * far above target it starts, as a line. Twenty-five rows of glyphs answer
+ * "which fans does step 14 run"; this answers "does the ladder climb evenly,
+ * or jump", which the grid only answers to someone who counts.
+ *
+ * The start figure restarts partway up on a tunnel shed, where the inlets
+ * hand over to the curtain. The note says so from the page's own values rather
+ * than naming a phase, so a ladder set up differently is not described wrongly.
+ */
+function LadderShape({
+  rows,
+  fanCols,
+  values,
+}: {
+  rows: Row[];
+  fanCols: Column[];
+  values: Record<string, string>;
+}) {
+  const val = (r: Row, key: string) => {
+    const reg = r.cells[key];
+    const v = reg ? Number(values[reg]) : NaN;
+    return Number.isFinite(v) ? v : null;
+  };
+  const data = rows.map((r) => ({
+    step: r.label,
+    fans: fanCols.filter((c) => (val(r, c.key) ?? 0) !== 0).length,
+    offset: val(r, "tempOffset"),
+    inlets: val(r, "xcRate") ?? 0,
+    curtain: val(r, "mlRate") ?? 0,
+  }));
+  if (data.length < 2 || !fanCols.length) return null;
+  // Where the inlets have shut and the curtain has opened, when that happens.
+  const handover = data.findIndex((d, i) => i > 0 && d.curtain > 0 && d.inlets === 0 && data[i - 1]!.inlets > 0);
+  const top = data.reduce((m, d) => Math.max(m, d.fans), 0);
+  return (
+    <div className="min-w-[520px] border-b border-soil-100/70 px-2 pb-2 pt-3">
+      <div className="mb-1 px-1 text-[12px] font-semibold text-soil-900">Ladder shape</div>
+      <div className="h-[180px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: -18 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+            <XAxis dataKey="step" tick={{ fontSize: 10 }} interval={0} />
+            <YAxis yAxisId="fans" tick={{ fontSize: 10 }} allowDecimals={false} domain={[0, Math.max(top, 1)]} />
+            <YAxis yAxisId="deg" orientation="right" tick={{ fontSize: 10 }} unit="°" width={34} />
+            <Tooltip
+              labelFormatter={(l: string) => `Step ${l}`}
+              formatter={(v: number, name: string) => (name === "Starts above target" ? [`${v}°C`, name] : [`${v} of ${fanCols.length}`, name])}
+            />
+            <Bar yAxisId="fans" dataKey="fans" name="Fan groups running" fill="#6b5a3f" radius={[2, 2, 0, 0]} isAnimationActive={false} />
+            <Line
+              yAxisId="deg"
+              dataKey="offset"
+              name="Starts above target"
+              stroke="#f59e0b"
+              strokeWidth={2}
+              dot={{ r: 2 }}
+              type="linear"
+              isAnimationActive={false}
+            />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+      <p className="mt-1 px-1 text-[11px] leading-snug text-muted-foreground">
+        Bars are the fan groups each step runs, of the {fanCols.length} the ladder uses; the amber line is how far above target the step starts.
+        {handover > 0 &&
+          ` The line restarts at step ${data[handover]!.step}, where the inlets have closed and the curtain opens.`}
+      </p>
     </div>
   );
 }

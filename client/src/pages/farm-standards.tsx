@@ -16,7 +16,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { ApiError, api } from "../api";
 import { SearchSelect } from "../components/search-select";
-import { STANDARD_METRICS, STANDARD_SOURCES } from "@shared/schema/breeds";
+import { STANDARD_METRICS, STANDARD_SOURCES, type StandardMetric } from "@shared/schema/breeds";
+import { StandardLine } from "../components/ui/standard-line";
 import {
   Banner,
   EmptyRow,
@@ -367,6 +368,11 @@ function CurveDialog({
   const [weeks, setWeeks] = useState(20);
   const [rows, setRows] = useState<Record<number, Record<string, string>>>({});
   const [saved, setSaved] = useState<string | null>(null);
+  /* The curve as it stands in the grid, drawn as it is typed. A pinned
+     standard is what every "vs guide" figure on the farm screens reads, so a
+     slipped decimal — 9.2 for 92 — should show as a spike here, before it is
+     saved, not as a red shed next week. */
+  const [previewKey, setPreviewKey] = useState<StandardMetric>("layPct");
 
   const { data: points } = useQuery<Point[]>({
     queryKey: ["standard-points", set.id],
@@ -469,6 +475,8 @@ function CurveDialog({
           {saved && <span className="text-[12px] text-green-700">{saved}</span>}
         </div>
 
+        <CurvePreview rows={rows} weekList={weekList} metric={previewKey} onMetric={setPreviewKey} />
+
         <div className="max-h-[420px] overflow-auto rounded border border-gray-200 bg-white">
           <table className="text-[12px]">
             <thead className="table-head sticky top-0">
@@ -526,6 +534,67 @@ function CurveDialog({
           none.
         </span>
       </div>
+    </div>
+  );
+}
+
+/**
+ * One metric of the curve being edited, week by week. A week left blank is a
+ * gap in the line, not a zero, which is also how the save treats it.
+ */
+function CurvePreview({
+  rows,
+  weekList,
+  metric,
+  onMetric,
+}: {
+  rows: Record<number, Record<string, string>>;
+  weekList: number[];
+  metric: StandardMetric;
+  onMetric: (m: StandardMetric) => void;
+}) {
+  const def = STANDARD_METRICS.find((m) => m.key === metric)!;
+  const data = weekList.map((w) => {
+    const raw = rows[w]?.[metric]?.trim();
+    const n = raw ? Number(raw) : NaN;
+    return { week: w, value: Number.isFinite(n) ? n : null };
+  });
+  const filled = data.filter((d) => d.value != null).length;
+  return (
+    <div className="mb-3 rounded border border-gray-200 bg-white px-3 pb-2 pt-2.5">
+      <div className="mb-1 flex flex-wrap items-center gap-1">
+        {STANDARD_METRICS.map((m) => (
+          <button
+            key={m.key}
+            type="button"
+            onClick={() => onMetric(m.key)}
+            className={`rounded px-2 py-0.5 text-[11px] font-medium transition ${
+              m.key === metric ? "bg-brand-50 text-brand-700" : "text-gray-500 hover:bg-gray-50"
+            }`}
+          >
+            {m.label}
+          </button>
+        ))}
+        <span className="ml-auto text-[11px] tabular-nums text-gray-400">
+          {filled} of {weekList.length} weeks filled
+        </span>
+      </div>
+      {filled < 2 ? (
+        <p className="py-6 text-center text-[12px] text-gray-400">
+          Fill two weeks of {def.label.toLowerCase()} to see its curve.
+        </p>
+      ) : (
+        <StandardLine
+          data={data}
+          xKey="week"
+          actualKey="value"
+          actualName={`${def.label} (${def.unit})`}
+          unit={def.unit}
+          xLabel="Age (weeks)"
+          heightClass="h-[170px]"
+          tooltipLabel={(r) => `Week ${r.week}`}
+        />
+      )}
     </div>
   );
 }

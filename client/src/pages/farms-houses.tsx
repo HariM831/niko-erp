@@ -40,6 +40,7 @@ import {
   isBatchActive,
 } from "../lib/bird-batches";
 import { DateInput } from "../components/date-input";
+import { Sparkline } from "../components/ui/sparkline";
 
 interface Breed {
   id: string;
@@ -470,6 +471,22 @@ function buildShedMetrics(
       ? (weekTotalMort / (weekAvgBirds * last7Records.length)) * 100
       : 0;
 
+  // Lay % for each of the last fourteen days on file, oldest first — the
+  // board's one figure that says which way a shed is going rather than where
+  // it is today. A day's rate is that day's eggs over that day's birds, so a
+  // transfer mid-fortnight does not bend the line.
+  const layTrend =
+    shed.type === "layer" && closingStock > 0
+      ? dayRecords
+          .filter((r) => r.date <= displayDate)
+          .sort((a, b) => a.date.localeCompare(b.date))
+          .slice(-14)
+          .map((r) => {
+            const birds = calculateClosingStock(shedStocks, allRecords, r.date);
+            return { x: r.date, y: birds > 0 ? ((r.eggsProduced || 0) / birds) * 100 : 0 };
+          })
+      : [];
+
   return {
     shed,
     closingStock,
@@ -499,6 +516,7 @@ function buildShedMetrics(
     actualMortalityPct,
     weekAvgMortPct,
     hasRecord: !!dateRecord,
+    layTrend,
   };
 }
 
@@ -925,6 +943,7 @@ export function FarmsHousesPage() {
                       Age
                     </Th>
                     <Th>Eggs %</Th>
+                    <Th>14 days</Th>
                     <Th>Feed (g/b)</Th>
                     <Th>Water (ml/b)</Th>
                     <Th>Mort</Th>
@@ -958,6 +977,9 @@ export function FarmsHousesPage() {
                           <span className="text-muted-foreground">—</span>
                         )}
                       </td>
+                      <td className="px-3 py-2">
+                        <LayTrend m={m} className="ml-auto h-6 w-24" />
+                      </td>
                       <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
                         {m.feedPerBirdG > 0 ? fmtNum(m.feedPerBirdG, 0) : "—"}
                       </td>
@@ -982,6 +1004,7 @@ export function FarmsHousesPage() {
                     <td className="px-3 py-2 text-right tabular-nums">
                       {layerAgg.avgEggPct.toFixed(1)}%
                     </td>
+                    <td className="px-3 py-2" />
                     <td className="px-3 py-2 text-right tabular-nums">
                       {layerAgg.avgFeedPerBirdG > 0
                         ? fmtNum(layerAgg.avgFeedPerBirdG, 0)
@@ -1783,6 +1806,27 @@ function MetricCard({
 
 type ShedMetrics = ReturnType<typeof buildShedMetrics>;
 
+/**
+ * A layer shed's last fourteen days of lay %, with the guide for its current
+ * week as a dashed rule. Nothing for pullets or an empty shed; a single day
+ * on file is a dash, not a dot pretending to be a trend.
+ */
+function LayTrend({ m, className }: { m: ShedMetrics; className: string }) {
+  if (!m.layTrend.length) return null;
+  const last = m.layTrend[m.layTrend.length - 1]!;
+  const guide = m.stdEggPct > 0 ? ` · guide ${m.stdEggPct.toFixed(1)}%` : "";
+  return (
+    <span className="block" title={`Lay % over the last ${m.layTrend.length} days on file, ${last.y.toFixed(1)}% on the last${guide}`}>
+      <Sparkline
+        points={m.layTrend}
+        reference={m.stdEggPct > 0 ? m.stdEggPct : null}
+        className={className}
+        empty="—"
+      />
+    </span>
+  );
+}
+
 interface ShedRowProps {
   metrics: ShedMetrics;
   onTileClick: (type: ModalType) => void;
@@ -1817,6 +1861,7 @@ function ShedRow({ metrics, onTileClick, onShedClick }: ShedRowProps) {
             {m.ageWeeks !== null && ` · ${m.ageWeeks}w`}
           </div>
         </div>
+        <LayTrend m={m} className="h-5 w-20 shrink-0" />
         <ChevronRight className="h-3.5 w-3.5 flex-shrink-0 text-gray-300 group-hover:text-yolk-600" />
       </button>
 
