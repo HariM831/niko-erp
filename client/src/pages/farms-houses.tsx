@@ -41,6 +41,7 @@ import {
 } from "../lib/bird-batches";
 import { DateInput } from "../components/date-input";
 import { Sparkline } from "../components/ui/sparkline";
+import { FractionBar } from "../components/ui/fraction-bar";
 
 interface Breed {
   id: string;
@@ -487,6 +488,17 @@ function buildShedMetrics(
           })
       : [];
 
+  // What the shed eats in a day, from the last seven days on file — the divisor
+  // for how long the silo lasts. Days with no intake recorded are left out
+  // rather than counted as a day of fasting.
+  const intakeDays = dayRecords
+    .filter((r) => r.date <= displayDate && (r.feedIntakeKg || 0) > 0)
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 7);
+  const avgDailyFeedKg = intakeDays.length
+    ? intakeDays.reduce((sum, r) => sum + (r.feedIntakeKg || 0), 0) / intakeDays.length
+    : 0;
+
   return {
     shed,
     closingStock,
@@ -517,6 +529,7 @@ function buildShedMetrics(
     weekAvgMortPct,
     hasRecord: !!dateRecord,
     layTrend,
+    avgDailyFeedKg,
   };
 }
 
@@ -793,6 +806,7 @@ export function FarmsHousesPage() {
       return shedNumber(a.shed.name) - shedNumber(b.shed.name) || a.shed.name.localeCompare(b.shed.name);
     });
 
+  const iotFor = (shedId: string) => iot?.board.find((r) => r.houseId === shedId) ?? null;
   const layerSheds = inOrder(housesFound(shedMetrics.filter((m) => m.shed.type === "layer")));
   const pulletSheds = inOrder(housesFound(shedMetrics.filter((m) => m.shed.type === "pullet")));
 
@@ -945,6 +959,7 @@ export function FarmsHousesPage() {
                     <Th>Eggs %</Th>
                     <Th>14 days</Th>
                     <Th>Feed (g/b)</Th>
+                    <Th>Silo</Th>
                     <Th>Water (ml/b)</Th>
                     <Th>Mort</Th>
                   </tr>
@@ -983,6 +998,9 @@ export function FarmsHousesPage() {
                       <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
                         {m.feedPerBirdG > 0 ? fmtNum(m.feedPerBirdG, 0) : "—"}
                       </td>
+                      <td className="px-3 py-2">
+                        <FeedCover m={m} row={iotFor(m.shed.id)} />
+                      </td>
                       <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
                         {m.waterPerBirdMl > 0
                           ? fmtNum(m.waterPerBirdMl, 0)
@@ -1010,6 +1028,7 @@ export function FarmsHousesPage() {
                         ? fmtNum(layerAgg.avgFeedPerBirdG, 0)
                         : "—"}
                     </td>
+                    <td className="px-3 py-2" />
                     <td className="px-3 py-2 text-right tabular-nums">
                       {layerAgg.avgWaterPerBirdMl > 0
                         ? fmtNum(layerAgg.avgWaterPerBirdMl, 0)
@@ -1319,6 +1338,7 @@ export function FarmsHousesPage() {
                 <ShedRow
                   key={m.shed.id}
                   metrics={m}
+                  silo={iotFor(m.shed.id)}
                   onTileClick={(type) => openModal(m.shed, type)}
                   onShedClick={() => openShed(m.shed.id)}
                 />
@@ -1807,6 +1827,52 @@ function MetricCard({
 type ShedMetrics = ReturnType<typeof buildShedMetrics>;
 
 /**
+ * Sheds whose silo load cells read under the true weight until they are
+ * re-bolted — Hari, 6 Sep 2026. Their cover is shown as a floor ("at least")
+ * and never raised as short. Take a shed off this list when it is fixed.
+ */
+const SILO_READS_LOW = new Set(["L2", "L3"]);
+
+/**
+ * How long a shed's silo lasts: the controller's silo weight over what the
+ * shed has eaten a day this past week. The mill delivers most days, so under
+ * a day is the one figure that means the next load has to come today.
+ */
+function coverOf(m: ShedMetrics, silo: IotRow | null | undefined) {
+  if (!silo || silo.siloKg == null || m.avgDailyFeedKg <= 0 || m.closingStock <= 0) return null;
+  if (silo.siloStale) return { days: null, text: "stale", low: false, floor: false };
+  const days = silo.siloKg / m.avgDailyFeedKg;
+  const floor = SILO_READS_LOW.has(m.shed.name);
+  const text = `${floor ? "≥ " : ""}${days.toFixed(1)} d`;
+  return { days, text, low: !floor && days < 1, floor };
+}
+
+function FeedCover({ m, row }: { m: ShedMetrics; row: IotRow | null }) {
+  const c = coverOf(m, row);
+  if (!c) return <span className="block text-right text-muted-foreground">—</span>;
+  const kg = row?.siloKg != null ? `${fmtNum(row.siloKg)} kg in the silo` : "";
+  const eats = `${fmtNum(m.avgDailyFeedKg)} kg a day this past week`;
+  if (c.days == null) {
+    return (
+      <span className="block text-right text-[12px] text-muted-foreground line-through" title="The silo weight has stopped moving">
+        stale
+      </span>
+    );
+  }
+  const title = `${kg}, ${eats}${c.floor ? ". This silo reads under its true weight, so it lasts at least this long" : ""}`;
+  return (
+    <span className="flex items-center justify-end gap-2" title={title}>
+      <span className="w-14">
+        <FractionBar value={c.days} max={3} tone={c.low ? "danger" : c.floor ? "warning" : "brand"} />
+      </span>
+      <span className={`whitespace-nowrap text-[12px] tabular-nums ${c.low ? "font-semibold text-destructive" : "text-muted-foreground"}`}>
+        {c.text}
+      </span>
+    </span>
+  );
+}
+
+/**
  * A layer shed's last fourteen days of lay %, with the guide for its current
  * week as a dashed rule. Nothing for pullets or an empty shed; a single day
  * on file is a dash, not a dot pretending to be a trend.
@@ -1829,11 +1895,12 @@ function LayTrend({ m, className }: { m: ShedMetrics; className: string }) {
 
 interface ShedRowProps {
   metrics: ShedMetrics;
+  silo?: IotRow | null;
   onTileClick: (type: ModalType) => void;
   onShedClick: () => void;
 }
 
-function ShedRow({ metrics, onTileClick, onShedClick }: ShedRowProps) {
+function ShedRow({ metrics, onTileClick, onShedClick, silo }: ShedRowProps) {
   const m = metrics;
   const eggBg =
     m.eggColor === "green"
@@ -1859,6 +1926,7 @@ function ShedRow({ metrics, onTileClick, onShedClick }: ShedRowProps) {
           <div className="text-[10px] leading-tight text-muted-foreground">
             {m.closingStock > 0 ? `${fmtNum(m.closingStock)} birds` : "Empty"}
             {m.ageWeeks !== null && ` · ${m.ageWeeks}w`}
+            {coverOf(m, silo) && ` · silo ${coverOf(m, silo)!.text}`}
           </div>
         </div>
         <LayTrend m={m} className="h-5 w-20 shrink-0" />
