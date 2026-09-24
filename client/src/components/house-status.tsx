@@ -151,9 +151,10 @@ export function HourStrip({ hours, tall }: { hours: HourCell[]; tall?: boolean }
 /* ── Home: the whole farm in one line, one click to refresh ─────────────── */
 
 export function BirdComfortTile() {
-  const { data, isLoading, isError, checkNow, checking, note } = useFarmStatus();
-  // No farms permission, or the module is off: the tile stays away, like People.
-  if (isError) return null;
+  const { data, isLoading, error, checkNow, checking, note } = useFarmStatus();
+  // No farms permission: the tile stays away, like People. Any other failure is
+  // shown — a tile that vanished on a server error looked like no tile at all.
+  if (error instanceof ApiError && error.status === 403) return null;
 
   return (
     <div className="rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
@@ -189,7 +190,11 @@ export function BirdComfortTile() {
         </div>
       </div>
       {note && <div className="mb-2 rounded-lg bg-amber-50 px-3 py-1.5 text-[11px] text-amber-800">{note}</div>}
-      {isLoading || !data ? (
+      {error ? (
+        <div className="py-4 text-[12px] text-rose-600">
+          Could not read the sheds' status: {error instanceof Error ? error.message : "unknown error"}. Try Check now.
+        </div>
+      ) : isLoading || !data ? (
         <div className="py-4 text-[12px] text-soil-400">Reading the sheds…</div>
       ) : !data.houses.length ? (
         <div className="py-4 text-[12px] text-soil-400">No house has a controller linked yet.</div>
