@@ -24,7 +24,8 @@ import { SearchSelect } from "./search-select";
 import { QC_PARAMETERS, qcParameterDef } from "@shared/feed";
 import { localYmd } from "../lib/utils";
 import { DateInput } from "./date-input";
-import { BandStrip, type Band, type BandTick } from "./ui/band-strip";
+import { BandStrip } from "./ui/band-strip";
+import { specAxis, specBands, specTicks } from "../lib/spec-bands";
 
 interface SpecParam {
   parameter: string;
@@ -102,44 +103,6 @@ const toDraft = (p: SpecParam): Draft => ({
   isNew: false,
 });
 
-/**
- * An axis wide enough to show the bands with room either side, so a limit at
- * the very edge of the data does not sit flush against the end of the bar.
- */
-function axisOf(d: Draft) {
-  const vals = [num(d.target), num(d.warnAt), num(d.rejectAt)].filter((v): v is number => v != null);
-  if (!vals.length) return null;
-  const lo = Math.min(...vals);
-  const hi = Math.max(...vals);
-  const pad = Math.max((hi - lo) * 0.5, Math.max(Math.abs(hi), 1) * 0.1);
-  return { lo: Math.floor(lo - pad), hi: Math.ceil(hi + pad) };
-}
-
-/**
- * Pass, warning and reject as spans of the axis, in the parameter's own units.
- *
- * A "max" parameter runs green → amber → red left to right; a "min" runs the
- * other way. A missing limit does not leave a hole — the band beside it takes
- * the space, because a spec with no reject limit really does pass everything
- * above the warning.
- */
-function bandsOf(d: Draft, ax: { lo: number; hi: number }): Band[] {
-  const warn = num(d.warnAt);
-  const rej = num(d.rejectAt);
-  const out: Band[] = [];
-
-  if (d.direction === "max") {
-    out.push({ tone: "pass", from: ax.lo, to: warn ?? rej ?? ax.hi });
-    if (warn != null) out.push({ tone: "warn", from: warn, to: rej ?? ax.hi });
-    if (rej != null) out.push({ tone: "fail", from: rej, to: ax.hi });
-  } else {
-    if (rej != null) out.push({ tone: "fail", from: ax.lo, to: rej });
-    if (warn != null) out.push({ tone: "warn", from: rej ?? ax.lo, to: warn });
-    out.push({ tone: "pass", from: warn ?? rej ?? ax.lo, to: ax.hi });
-  }
-  return out.filter((b) => b.to > b.from);
-}
-
 /** The same ordering the server refuses to save, checked as you type. */
 function bandProblem(d: Draft): string | null {
   const seq = [num(d.target), num(d.warnAt), num(d.rejectAt)].filter((v): v is number => v != null);
@@ -155,18 +118,11 @@ function bandProblem(d: Draft): string | null {
 
 /** The spec's limits as bands and ticks, drawn by the shared BandStrip. */
 function BandBar({ d }: { d: Draft }) {
-  const ax = axisOf(d);
+  const ax = specAxis(d);
   if (!ax) {
     return <div className="my-2 h-2.5 rounded bg-gray-100" />;
   }
-  const target = num(d.target);
-  const warn = num(d.warnAt);
-  const rej = num(d.rejectAt);
-  const ticks: BandTick[] = [];
-  if (target != null) ticks.push({ at: target, label: `▲ ${target}`, tone: "pass" });
-  if (warn != null) ticks.push({ at: warn, tone: "warn" });
-  if (rej != null) ticks.push({ at: rej, tone: "fail" });
-  return <BandStrip className="mb-2 mt-1" lo={ax.lo} hi={ax.hi} bands={bandsOf(d, ax)} ticks={ticks} unit={d.unit} />;
+  return <BandStrip className="mb-2 mt-1" lo={ax.lo} hi={ax.hi} bands={specBands(d, ax)} ticks={specTicks(d)} unit={d.unit} />;
 }
 
 export function ItemQualitySpec({ itemId }: { itemId: string }) {

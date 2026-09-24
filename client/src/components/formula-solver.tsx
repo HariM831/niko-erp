@@ -21,6 +21,7 @@
  * a buyer holds a quote against.
  */
 import { useEffect, useMemo, useState } from "react";
+import { BandStrip, type Band } from "./ui/band-strip";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Calculator, Plus, X } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
@@ -386,7 +387,10 @@ export function FormulaSolver({
                               (p.maxValue == null || got <= p.maxValue + 0.005));
                           return (
                             <tr key={p.nutrient} className="border-b border-gray-100">
-                              <td className="px-2 py-1">{nutrientLabel(p.nutrient)}</td>
+                              <td className="px-2 py-1">
+                                {nutrientLabel(p.nutrient)}
+                                <Headroom min={p.minValue} max={p.maxValue} got={got} />
+                              </td>
                               <td className="px-1 py-1 text-right text-gray-500">
                                 {p.minValue ?? "—"}
                               </td>
@@ -789,6 +793,32 @@ function SaveDialog({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Where the solved value sits in its requirement: the min–max window as the
+ * pass band, outside it as fail, the value as the mark. A mix that just
+ * scrapes its protein and one with room to spare read the same as a green
+ * number; here the first sits on the edge.
+ */
+function Headroom({ min, max, got }: { min: number | null; max: number | null; got: number | undefined }) {
+  if (got == null || (min == null && max == null)) return null;
+  const vals = [min, max, got].filter((v): v is number => v != null);
+  const span = Math.max(...vals) - Math.min(...vals);
+  const pad = Math.max(span * 0.3, Math.abs(Math.max(...vals)) * 0.05, 0.01);
+  const lo = Math.min(...vals) - pad;
+  const hi = Math.max(...vals) + pad;
+  const bands: Band[] = [
+    { from: lo, to: min ?? lo, tone: "fail" },
+    { from: min ?? lo, to: max ?? hi, tone: "pass" },
+    { from: max ?? hi, to: hi, tone: "fail" },
+  ];
+  const title = `${min != null ? `min ${min}` : "no min"} · ${max != null ? `max ${max}` : "no max"} · got ${got.toFixed(2)}`;
+  return (
+    <div className="mt-0.5 w-24" title={title}>
+      <BandStrip lo={lo} hi={hi} bands={bands} marker={got} compact />
     </div>
   );
 }

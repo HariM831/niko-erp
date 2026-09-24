@@ -49,6 +49,7 @@ export function BandStrip({
   markerLabel,
   unit = "",
   ends = true,
+  compact = false,
   className = "",
 }: {
   lo: number;
@@ -63,17 +64,20 @@ export function BandStrip({
   unit?: string;
   /** Show lo and hi at the ends of the tick row. */
   ends?: boolean;
+  /** A thin strip with no tick row, for a table cell; the caller puts the figures in a title. */
+  compact?: boolean;
   className?: string;
 }) {
+  const h = compact ? "h-1.5" : "h-2.5";
   if (!(hi > lo)) {
-    return <div className={`h-2.5 rounded bg-gray-100 ${className}`} />;
+    return <div className={`${h} rounded bg-gray-100 ${className}`} />;
   }
   const pct = (v: number) => Math.max(0, Math.min(100, ((v - lo) / (hi - lo)) * 100));
   const hasMarker = marker != null && Number.isFinite(marker);
 
   return (
     <div className={className}>
-      <div className="relative h-2.5 overflow-hidden rounded bg-gray-100">
+      <div className={`relative ${h} overflow-hidden rounded bg-gray-100`}>
         {bands
           .filter((b) => b.to > b.from)
           .map((b, i) => (
@@ -93,6 +97,7 @@ export function BandStrip({
       </div>
       {/* Only the ends of the axis carry the unit — repeating it on every tick
           crowds four labels into a bar that is often 300px wide. */}
+      {!compact && (
       <div className="relative mt-0.5 h-4 text-[10px] text-gray-400">
         {ends && <span className="absolute left-0">{lo}</span>}
         {ticks.map((t, i) => (
@@ -119,6 +124,7 @@ export function BandStrip({
           </span>
         )}
       </div>
+      )}
     </div>
   );
 }

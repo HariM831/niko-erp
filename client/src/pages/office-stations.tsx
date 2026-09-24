@@ -22,6 +22,8 @@ import { useLocalSearch } from "../components/search-context";
 import { matchesTerm } from "../lib/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api } from "../api";
+import { BandStrip } from "../components/ui/band-strip";
+import { specAxis, specBands, specTicks } from "../lib/spec-bands";
 import { useAuth } from "../auth";
 import { StatusBadge } from "../components/status-badge";
 import { FeedTransferForm } from "../components/feed-transfer-form";
@@ -259,6 +261,23 @@ function bandOf(p: QcParam): string {
 }
 
 /**
+ * The spec under a reading box: pass, flag and reject as widths, the reading
+ * as a mark on them. "target 12 · flag > 14 · reject > 16" asked the
+ * technician to do the comparison; the strip shows how close to reject the
+ * number being typed is. The words stay, on hover.
+ */
+function QcStrip({ p, raw }: { p: QcParam; raw: string | undefined }) {
+  const reading = raw != null && raw.trim() !== "" && Number.isFinite(Number(raw)) ? Number(raw) : null;
+  const ax = specAxis(p, reading);
+  if (!ax) return <div className="mt-0.5 text-[10px] leading-tight text-gray-400">{bandOf(p)}</div>;
+  return (
+    <div className="mt-1" title={bandOf(p)}>
+      <BandStrip lo={ax.lo} hi={ax.hi} bands={specBands(p, ax)} ticks={specTicks(p)} marker={reading} ends={false} />
+    </div>
+  );
+}
+
+/**
  * Station 3. Readings in, verdict out.
  *
  * The technician never picks pass or reject — they enter what the instrument
@@ -416,7 +435,7 @@ function QcPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
                           inputMode="decimal"
                           className="input text-right"
                         />
-                        <div className="mt-0.5 text-[10px] leading-tight text-gray-400">{bandOf(p)}</div>
+                        <QcStrip p={p} raw={readings[l.id]?.[p.parameter]} />
                       </div>
                     ))}
                   </div>

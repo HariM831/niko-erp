@@ -10,6 +10,8 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api } from "../api";
+import { FractionBar } from "../components/ui/fraction-bar";
+import { ProportionBar } from "../components/ui/proportion-bar";
 import { StatusBadge } from "../components/status-badge";
 import { useLocalSearch } from "../components/search-context";
 import { matchesTerm } from "../lib/utils";
@@ -257,6 +259,16 @@ export function SettlementPage() {
                         )}
                       </div>
                     )}
+                    {l.status !== "qc_rejected" && Number(l.billQuantityKg) > 0 && (
+                      <div className="mt-1 w-40">
+                        <FractionBar
+                          value={Number(l.allocatedNetKg ?? 0)}
+                          max={Number(l.billQuantityKg)}
+                          tone={Number(l.shortageKg) > 0 ? "warning" : "success"}
+                          title={`${kg(l.allocatedNetKg)} received of ${kg(l.billQuantityKg)} billed`}
+                        />
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -318,6 +330,21 @@ export function SettlementPage() {
                       </div>
                     );
                   })}
+                </div>
+              )}
+
+              {/* The goods value, split into what is paid and what is held back —
+                  the deductions as widths beside the payment rather than a
+                  column of figures to subtract in one's head. */}
+              {charging.length > 0 && ctx.goodsValue > 0 && (
+                <div className="mt-3">
+                  <ProportionBar
+                    total={ctx.goodsValue}
+                    segments={[
+                      { label: "Net payable", value: Math.max(0, netPayable), display: inr(Math.max(0, netPayable)), tone: "brand" },
+                      ...charging.map((d) => ({ label: d.name, value: d.amount, display: `−${inr(d.amount)}`, tone: "warning" as const })),
+                    ]}
+                  />
                 </div>
               )}
 

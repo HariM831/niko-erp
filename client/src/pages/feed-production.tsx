@@ -7,7 +7,8 @@
  * VOID — journal reversed, feed withdrawn — not a draft stage in front of every
  * real run.
  */
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactElement } from "react";
+import { Bar, BarChart, CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from "recharts";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Factory, Plus, X } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
@@ -283,6 +284,8 @@ export function FeedProductionPage() {
             </div>
           </div>
 
+          {!searching && <ProductionTrend rows={found} costs={costs} />}
+
           {searching && !byDay.length && (
             <p className="p-4 text-center text-[13px] text-gray-400">
               {term ? <>No run matches “{term}”.</> : "No run matches the search."}
@@ -361,6 +364,111 @@ export function FeedProductionPage() {
         </div>
       </div>
       {adv.dialog}
+    </div>
+  );
+}
+
+/**
+ * recharts 3 types the Tooltip's formatters more tightly than these charts
+ * need; widened once, as the shed-conditions charts do.
+ */
+const Tooltip = RechartsTooltip as unknown as (props: Record<string, unknown>) => ReactElement;
+
+/* A formula each, in the page's own ramps; past five they share "Other". */
+const SERIES = [
+  "var(--color-brand-500)",
+  "var(--color-soil-600)",
+  "var(--color-brand-200)",
+  "var(--color-soil-400)",
+  "var(--color-brand-700)",
+];
+const OTHER = "var(--color-soil-200)";
+
+const dayShift = (iso: string, days: number) => {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+};
+
+/**
+ * The last fortnight of milling: kilos a day, stacked by formula — are we
+ * keeping up — and, for whoever may see costs, each formula's cost per
+ * finished kilo day by day. The page already holds every run; the three day
+ * cards below showed three days of them.
+ */
+function ProductionTrend({ rows, costs }: { rows: ProductionRow[]; costs: boolean }) {
+  const live = rows.filter((r) => r.status !== "void" && r.outputKg != null);
+  if (!live.length) return null;
+  const end = live.reduce((m, r) => (r.orderDate > m ? r.orderDate : m), live[0]!.orderDate);
+  const days = Array.from({ length: 14 }, (_, i) => dayShift(end, i - 13));
+  const recent = live.filter((r) => r.orderDate >= days[0]!);
+  const byFormula = new Map<string, number>();
+  for (const r of recent) byFormula.set(r.formulaName, (byFormula.get(r.formulaName) ?? 0) + Number(r.outputKg));
+  const ranked = [...byFormula.entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n);
+  const named = ranked.slice(0, SERIES.length);
+  const hasOther = ranked.length > named.length;
+  const keyOf = (name: string) => (named.includes(name) ? name : "Other");
+  const kgData = days.map((day) => {
+    const row: Record<string, number | string> = { label: formatDate(day).slice(0, 6) };
+    for (const r of recent.filter((x) => x.orderDate === day)) {
+      const k = keyOf(r.formulaName);
+      row[k] = (Number(row[k]) || 0) + Number(r.outputKg);
+    }
+    return row;
+  });
+  // Cost per kg: the day's input and overhead over the day's output, per formula.
+  const costData = days.map((day) => {
+    const row: Record<string, number | string | null> = { label: formatDate(day).slice(0, 6) };
+    for (const name of named) {
+      const runs = recent.filter((x) => x.orderDate === day && x.formulaName === name && x.costPerKg != null);
+      const kgOut = runs.reduce((a, x) => a + Number(x.outputKg), 0);
+      const value = runs.reduce((a, x) => a + Number(x.costPerKg) * Number(x.outputKg), 0);
+      row[name] = kgOut > 0 ? +(value / kgOut).toFixed(2) : null;
+    }
+    return row;
+  });
+  const showCost = costs && recent.some((r) => r.costPerKg != null);
+  const tonnes = (v: number) => `${+(v / 1000).toFixed(1)} t`;
+  const legend = <Legend wrapperStyle={{ fontSize: 11 }} itemSorter={null} formatter={(v: string) => <span className="text-gray-600">{v}</span>} />;
+  return (
+    <div className={`mb-3 grid gap-3 ${showCost ? "lg:grid-cols-2" : ""}`}>
+      <div className="card px-3 pb-2 pt-3">
+        <div className="mb-1 px-1 text-[12px] font-semibold text-gray-700">Made a day, last 14 days</div>
+        <div className="h-[190px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={kgData} margin={{ top: 4, right: 8, bottom: 0, left: -6 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 10 }} interval={1} />
+              <YAxis tick={{ fontSize: 10 }} tickFormatter={tonnes} width={40} />
+              <Tooltip formatter={(v: number, n: string) => [kg(v), n]} />
+              {legend}
+              {named.map((n, i) => (
+                <Bar key={n} dataKey={n} name={n} stackId="kg" fill={SERIES[i]} isAnimationActive={false} />
+              ))}
+              {hasOther && <Bar dataKey="Other" name="Other formulas" stackId="kg" fill={OTHER} isAnimationActive={false} />}
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+      {showCost && (
+        <div className="card px-3 pb-2 pt-3">
+          <div className="mb-1 px-1 text-[12px] font-semibold text-gray-700">Cost per finished kg</div>
+          <div className="h-[190px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={costData} margin={{ top: 4, right: 8, bottom: 0, left: -6 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 10 }} interval={1} />
+                <YAxis tick={{ fontSize: 10 }} domain={["auto", "auto"]} tickFormatter={(v: number) => `₹${v}`} width={44} />
+                <Tooltip formatter={(v: number, n: string) => [`${inr(v)}/kg`, n]} />
+                {legend}
+                {named.map((n, i) => (
+                  <Line key={n} dataKey={n} name={n} stroke={SERIES[i]} strokeWidth={2} dot={{ r: 2 }} connectNulls isAnimationActive={false} />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
