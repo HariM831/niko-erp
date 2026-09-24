@@ -692,7 +692,13 @@ export function FixedAssetDetailPage({ id }: { id: string }) {
           )}
         </div>
 
-        {asset.schedule.length > 0 && <ValueOverTime cost={Number(asset.cost)} start={asset.depreciationStartDate} schedule={asset.schedule} />}
+        {asset.schedule.length > 0 && (
+          <ValueOverTime
+            cost={Number(asset.cost) - Number(asset.openingAccumulated || 0)}
+            start={asset.depreciationStartDate}
+            schedule={asset.schedule}
+          />
+        )}
 
         <h2 className="mb-2 text-sm font-semibold">Depreciation Schedule</h2>
         {asset.schedule.length === 0 ? (
@@ -859,7 +865,9 @@ function DisposeDialog({
 const Tooltip = RechartsTooltip as unknown as (props: Record<string, unknown>) => ReactElement;
 
 /**
- * The asset's value at each depreciation date, from its cost down — Zoho's
+ * The asset's value at each depreciation date, from its cost less any
+ * depreciation brought in with it (so the last point is the net book value)
+ * down — Zoho's
  * Depreciation tab draws the same: the depreciation date along the bottom,
  * the asset's current value up the side (Zoho Books help, Fixed Assets).
  */
