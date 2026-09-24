@@ -107,6 +107,7 @@ iotRouter.get("/status", requirePermission("farms", "view"), async (_req, res) =
       houseId: h.houseId,
       code: h.code,
       purpose: h.purpose,
+      site: h.site,
       verdict: v.verdict,
       reasons: v.reasons,
       now: {
@@ -148,6 +149,7 @@ async function buildBoard() {
       purpose: houses.purpose,
       displayOrder: houses.displayOrder,
       device: houses.bhDeviceId,
+      site: sql<string | null>`(SELECT name FROM locations WHERE id = ${houses.locationId})`,
       tagId: iotReadings.tagId,
       value: iotReadings.value,
       unit: iotReadings.unit,
@@ -162,6 +164,8 @@ async function buildBoard() {
     houseId: string;
     code: string;
     purpose: string;
+    /** The site the house stands on, from its location; the home tile groups by it. */
+    site: string | null;
     device: string | null;
     fetchedAt: Date | null;
     tempC: number | null;
@@ -218,6 +222,7 @@ async function buildBoard() {
         houseId: r.houseId,
         code: r.code,
         purpose: r.purpose,
+        site: r.site,
         device: r.device,
         fetchedAt: null,
         tempC: null,

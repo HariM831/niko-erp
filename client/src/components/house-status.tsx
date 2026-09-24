@@ -55,6 +55,8 @@ export interface HouseStatus {
   houseId: string;
   code: string;
   purpose: string;
+  /** The site the house stands on; the home tile groups by it. */
+  site: string | null;
   verdict: Verdict;
   reasons: string[];
   now: {
@@ -148,12 +150,49 @@ export function HourStrip({ hours, tall }: { hours: HourCell[]; tall?: boolean }
   );
 }
 
-/* ── Home: the whole farm in one line, one click to refresh ─────────────── */
+/* ── Home: summary first, exceptions only; a site opens into its day ────── */
+
+/** When the shed's current non-ok spell began, from the hour cells: the start of the trailing run of hours at or above watch. */
+function sinceWhen(h: HouseStatus): string | null {
+  if (h.verdict === "ok" || h.verdict === "offline" || !h.day) return null;
+  const cells = h.day.hours;
+  let i = cells.length - 1;
+  while (i > 0 && cells[i - 1]!.level && cells[i - 1]!.level !== "ok") i--;
+  return cells[i]?.start ?? null;
+}
+
+/** The share of shed-hours in the last day that were comfortable, across a set of sheds. */
+function okShare(sheds: HouseStatus[]): number | null {
+  let ok = 0;
+  let all = 0;
+  for (const h of sheds) {
+    if (!h.day) continue;
+    ok += h.day.hoursByLevel.ok;
+    all += h.day.hoursCovered;
+  }
+  return all ? Math.round((ok / all) * 100) : null;
+}
+
+const RANK: Record<Verdict, number> = { ok: 0, offline: 1, watch: 2, severe: 3, critical: 4 };
+const worstOf = (sheds: HouseStatus[]): Verdict => sheds.reduce<Verdict>((w, h) => (RANK[h.verdict] > RANK[w] ? h.verdict : w), "ok");
+const dayMonth = (iso: string | null) =>
+  iso ? new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short" }).format(new Date(iso)) : "—";
 
 export function BirdComfortTile() {
   const { data, isLoading, isError, checkNow, checking, note } = useFarmStatus();
+  const [open, setOpen] = useState<string | null>(null);
   // No farms permission, or the module is off: the tile stays away, like People.
   if (isError) return null;
+
+  const sites = new Map<string, HouseStatus[]>();
+  for (const h of data?.houses ?? []) {
+    const k = h.site ?? "Farm";
+    sites.set(k, [...(sites.get(k) ?? []), h]);
+  }
+  const attention = (data?.houses ?? []).filter((h) => h.verdict !== "ok" && h.verdict !== "offline").sort((a, b) => RANK[b.verdict] - RANK[a.verdict]);
+  const offline = (data?.houses ?? []).filter((h) => h.verdict === "offline");
+  const fine = (data?.houses ?? []).length - attention.length - offline.length;
+  const opened = open ? sites.get(open) : undefined;
 
   return (
     <div className="rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
@@ -163,22 +202,10 @@ export function BirdComfortTile() {
             <Thermometer size={15} />
           </span>
           <h2 className="text-[14px] font-bold text-soil-900">Bird comfort</h2>
-          {data && (
-            <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${VERDICT[data.overall].chip}`}>
-              {data.overall === "ok" ? "All sheds OK" : VERDICT[data.overall].label}
-            </span>
-          )}
+          {data && data.overall !== "ok" && <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${VERDICT[data.overall].chip}`}>{VERDICT[data.overall].label}</span>}
         </div>
         <div className="flex items-center gap-3">
-          {data && (
-            <span className="text-[11px] text-soil-400">
-              {(["ok", "watch", "severe", "critical", "offline"] as Verdict[])
-                .filter((v) => data.counts[v])
-                .map((v) => `${data.counts[v]} ${VERDICT[v].label.toLowerCase()}`)
-                .join(" · ")}{" "}
-              · as of {hhmm(data.at)}
-            </span>
-          )}
+          {data && <span className="text-[11px] text-soil-400">as of {hhmm(data.at)}</span>}
           <button
             onClick={checkNow}
             disabled={checking}
@@ -194,39 +221,119 @@ export function BirdComfortTile() {
       ) : !data.houses.length ? (
         <div className="py-4 text-[12px] text-soil-400">No house has a controller linked yet.</div>
       ) : (
-        <div className="grid gap-2 sm:grid-cols-2 2xl:grid-cols-4">
-          {data.houses.map((h) => (
-            <Link
-              key={h.houseId}
-              href={`/farms/controls/${h.houseId}`}
-              className="block min-w-0 rounded-xl border border-soil-100 px-3 py-2.5 transition hover:bg-yolk-50"
-            >
-              <div className="flex items-center gap-2">
-                <Dot v={h.verdict} />
-                <span className="text-[13px] font-bold text-soil-900">{h.code}</span>
-                <span className={`rounded-full px-1.5 text-[10px] font-bold ${VERDICT[h.verdict].chip}`}>{VERDICT[h.verdict].label}</span>
-                <span className="ml-auto text-[12px] font-semibold tabular-nums text-soil-800">
-                  {num(h.now.tempC, 1, "°")}
-                  <span className="font-normal text-soil-400"> · {num(h.now.humidityPct, 0, "%")}</span>
+        <>
+          {/* One figure per site: the share of shed-hours that were comfortable in the last day. Tap a site for its day. */}
+          <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+            {[...sites].map(([site, sheds]) => {
+              const share = okShare(sheds);
+              const worst = worstOf(sheds);
+              const live = sheds.filter((h) => h.verdict !== "offline").length;
+              const shown: Verdict = worst === "offline" && live ? "ok" : worst;
+              const isOpen = open === site;
+              return (
+                <button
+                  key={site}
+                  onClick={() => setOpen(isOpen ? null : site)}
+                  aria-expanded={isOpen}
+                  className={`rounded-xl border px-3 py-2.5 text-left transition hover:bg-yolk-50 ${isOpen ? "border-yolk-300 bg-yolk-50/60" : "border-soil-100"}`}
+                >
+                  <div className="text-[10.5px] font-semibold uppercase tracking-wide text-soil-400">
+                    {site} · {sheds.length} shed{sheds.length === 1 ? "" : "s"}
+                  </div>
+                  <div className="mt-0.5 flex items-baseline gap-2">
+                    <span className="text-[22px] font-bold tabular-nums leading-tight text-soil-900">{share == null ? "—" : `${share}%`}</span>
+                    <span className={`rounded-full px-1.5 text-[10px] font-bold ${VERDICT[shown].chip}`}>{VERDICT[shown].label}</span>
+                  </div>
+                  <div className="text-[11px] text-soil-500">
+                    of shed-hours comfortable, last 24 h
+                    {live < sheds.length ? ` · ${sheds.length - live} controller${sheds.length - live === 1 ? "" : "s"} off` : ""}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Only the sheds that need a look, one line each, worst first. */}
+          {attention.length > 0 && (
+            <div className="mt-3 grid gap-1.5">
+              {attention.map((h) => {
+                const since = sinceWhen(h);
+                const why = [h.reasons.join(" · "), h.now.tempC != null ? num(h.now.tempC, 1, "°") : "", h.now.fans != null ? `${h.now.fans} fans` : ""].filter(Boolean).join(" · ");
+                return (
+                  <Link
+                    key={h.houseId}
+                    href={`/farms/controls/${h.houseId}`}
+                    className={`grid grid-cols-[auto_44px_1fr] items-center gap-2.5 rounded-lg px-3 py-1.5 text-[12.5px] transition hover:brightness-95 sm:grid-cols-[auto_44px_1fr_auto] ${VERDICT[h.verdict].chip}`}
+                  >
+                    <Dot v={h.verdict} />
+                    <span className="font-bold">{h.code}</span>
+                    <span className="truncate text-soil-700" title={why}>
+                      {why}
+                    </span>
+                    <span className="hidden whitespace-nowrap text-[11px] text-soil-500 sm:inline">{since ? `since ${hhmm(since)}` : ""}</span>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-soil-500">
+            {fine > 0 && (
+              <span className="flex items-center gap-1.5">
+                <Dot v="ok" className="h-2 w-2" />
+                {attention.length ? `${fine} other shed${fine === 1 ? "" : "s"}` : `All ${fine} shed${fine === 1 ? "" : "s"}`} comfortable through the last 24 hours.
+              </span>
+            )}
+            {offline.length > 0 && (
+              <span className="flex items-center gap-1.5" title={offline.map((h) => `${h.code}: ${h.reasons.join(", ")}`).join(" · ")}>
+                <Dot v="offline" className="h-2 w-2" />
+                {offline.map((h) => h.code).join(", ")} controller{offline.length === 1 ? "" : "s"} off
+                {offline.length === 1 && offline[0]!.now.at ? ` since ${dayMonth(offline[0]!.now.at)}` : ""}.
+              </span>
+            )}
+          </div>
+
+          {/* A site, opened: every shed's day as a strip, one row each. */}
+          {open && opened && (
+            <div className="mt-3 border-t border-soil-100 pt-3">
+              <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2 text-[10.5px] font-semibold uppercase tracking-wide text-soil-400">
+                <span>{open} · last 24 hours</span>
+                <span className="flex gap-3 font-normal normal-case tracking-normal">
+                  {(["ok", "watch", "severe", "critical"] as Level[]).map((l) => (
+                    <span key={l} className="flex items-center gap-1">
+                      <Dot v={l} className="h-2 w-2" />
+                      {VERDICT[l].label}
+                    </span>
+                  ))}
                 </span>
               </div>
-              <div className="mt-1 truncate text-[11px] text-soil-600" title={h.reasons.join(" · ")}>
-                {h.reasons.length
-                  ? h.reasons.join(" · ")
-                  : `feels-like ${num(h.now.feelsLikeC, 1, " °C")} · target ${num(h.now.targetTempC, 1, " °C")}`}
+              <div className="grid gap-1">
+                {opened.map((h) => (
+                  <Link
+                    key={h.houseId}
+                    href={`/farms/controls/${h.houseId}`}
+                    className="grid grid-cols-[34px_1fr_50px] items-center gap-2.5 rounded-md px-1 py-0.5 hover:bg-yolk-50 sm:grid-cols-[34px_1fr_50px_64px]"
+                    title={h.reasons.join(" · ") || `feels-like ${num(h.now.feelsLikeC, 1, " °C")}`}
+                  >
+                    <span className="flex items-center gap-1.5 text-[12px] font-bold text-soil-900">
+                      <Dot v={h.verdict} className="h-2 w-2" />
+                      {h.code}
+                    </span>
+                    {h.day ? <HourStrip hours={h.day.hours} /> : <span className="h-2.5 rounded-sm bg-soil-100" />}
+                    <span className="text-right text-[12px] tabular-nums text-soil-700">{h.verdict === "offline" ? "off" : num(h.now.tempC, 1, "°")}</span>
+                    <span className="hidden text-right text-[11px] tabular-nums text-soil-400 sm:inline">{h.now.fans != null ? `${h.now.fans} fans` : ""}</span>
+                  </Link>
+                ))}
               </div>
-              {h.day && (
-                <div className="mt-2">
-                  <HourStrip hours={h.day.hours} />
-                  <div className="mt-1 flex justify-between text-[10px] text-soil-400">
-                    <span>24 h: {h.day.worst === "ok" ? "comfortable throughout" : `${VERDICT[h.day.worst].label.toLowerCase()} at ${hhmm(h.day.worstAt)}`}</span>
-                    <span>now</span>
-                  </div>
-                </div>
-              )}
-            </Link>
-          ))}
-        </div>
+              <div className="mt-1 grid grid-cols-[34px_1fr_50px] gap-2.5 text-[10px] text-soil-400 sm:grid-cols-[34px_1fr_50px_64px]">
+                <span />
+                <span className="flex justify-between">
+                  <span>{hhmm(opened[0]?.day?.from ?? null)} yesterday</span>
+                  <span>now</span>
+                </span>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
