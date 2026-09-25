@@ -29,6 +29,10 @@ interface Location {
   pincode: string | null;
   phone: string | null;
   inCharge: string | null;
+  /** Where it is, for placing a punch; null until somebody fills it in. */
+  latitude: number | null;
+  longitude: number | null;
+  radiusM: number | null;
   notes: string | null;
   isActive: boolean;
 }
@@ -177,6 +181,9 @@ function LocationEditor({
     pincode: location?.pincode ?? "",
     phone: location?.phone ?? "",
     inCharge: location?.inCharge ?? "",
+    latitude: location?.latitude != null ? String(location.latitude) : "",
+    longitude: location?.longitude != null ? String(location.longitude) : "",
+    radiusM: location?.radiusM != null ? String(location.radiusM) : "",
     notes: location?.notes ?? "",
     isActive: location?.isActive ?? true,
   });
@@ -254,6 +261,44 @@ function LocationEditor({
             options={TYPES.map((t) => ({ id: t.key, label: t.label }))}
           />
         </div>
+        <div className="col-span-2">
+          <label className="label">Latitude</label>
+          <input
+            value={form.latitude}
+            onChange={(e) => set({ latitude: e.target.value })}
+            placeholder="26.64319"
+            inputMode="decimal"
+            className="input tabular-nums"
+          />
+        </div>
+        <div className="col-span-2">
+          <label className="label">Longitude</label>
+          <input
+            value={form.longitude}
+            onChange={(e) => set({ longitude: e.target.value })}
+            placeholder="92.61556"
+            inputMode="decimal"
+            className="input tabular-nums"
+          />
+        </div>
+        <div className="col-span-2">
+          <label className="label">Reach (m)</label>
+          <input
+            value={form.radiusM}
+            onChange={(e) => set({ radiusM: e.target.value })}
+            placeholder="5000"
+            inputMode="numeric"
+            className="input tabular-nums"
+          />
+        </div>
+        {/* Said once, under the three: a punch knows its coordinates and
+            nothing else, and this is what turns them into a place. */}
+        <p className="col-span-6 -mt-1 text-[12px] text-gray-500">
+          A punch at the gate records only its coordinates. Fill these in and the attendance calendar
+          shows which site each punch was made at; leave them blank and it shows none. The reach is
+          how far from the point still counts as being here — 5,000 m suits a farm.
+        </p>
+
         <div className="col-span-2">
           <label className="label">In Charge</label>
           <input

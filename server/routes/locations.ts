@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { asc, eq, ne, sql } from "drizzle-orm";
 import { z } from "zod";
+import { forgetSites } from "../services/punch-sites";
 import { locations } from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
@@ -25,6 +26,15 @@ const locationSchema = z.object({
   pincode: z.string().max(10).optional(),
   phone: z.string().max(20).optional(),
   inCharge: z.string().optional(),
+  /**
+   * Where this place actually is, and how far around it still counts as being
+   * here. A punch carries raw GPS and nothing else; these are what turn that
+   * into "at the mill" rather than "somewhere in Assam". Left blank, the site
+   * simply never claims a punch — better a missing letter than a wrong one.
+   */
+  latitude: z.coerce.number().min(-90).max(90).nullish(),
+  longitude: z.coerce.number().min(-180).max(180).nullish(),
+  radiusM: z.coerce.number().int().min(50).max(50_000).nullish(),
   notes: z.string().optional(),
   isActive: z.boolean().optional(),
 });
@@ -57,6 +67,7 @@ locationsRouter.post(
           .returning();
         return created!;
       });
+      forgetSites();
       res.status(201).json(row);
     } catch (err) {
       const message = err instanceof Error ? err.message : "";
@@ -111,6 +122,7 @@ locationsRouter.patch(
           .returning();
         return updated!;
       });
+      forgetSites();
       res.json(row);
     } catch (err) {
       const message = err instanceof Error ? err.message : "";
@@ -136,5 +148,6 @@ locationsRouter.delete("/:id", requirePermission("settings", "delete"), async (r
   // Nothing references locations yet. Once the operational modules do, this
   // becomes a usage check rather than a straight delete.
   await db.delete(locations).where(eq(locations.id, existing.id));
+  forgetSites();
   res.json({ ok: true });
 });
