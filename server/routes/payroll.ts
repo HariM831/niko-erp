@@ -36,7 +36,7 @@ import { photoThumbnail, photoThumbnails } from "../services/photo";
 import { syncNightShiftBreakfast } from "../services/canteen";
 import { clashMessage, findIdClash, isAcceptableUpload, normAadhaar, normPan } from "../services/identity";
 import { isUsableEmbedding, judgeCapture, roundEmbedding, taughtCapturesByEmployee } from "../services/face-gallery";
-import { adviseOn, buildFaceHealth, formatFaceHealth } from "../services/face-health";
+import { adviseOn, buildFaceHealth, faceStandings, formatFaceHealth } from "../services/face-health";
 import { looseNumber, nonBlank, timeOfDay, validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
 import {
@@ -585,6 +585,16 @@ payrollRouter.get("/face-health", view, async (req, res) => {
     return;
   }
   res.json(report);
+});
+
+/**
+ * Whose face needs taking again, judged over the last 60 days at the gate and
+ * the canteen. The enrolment screen wears this as a badge, so the list keeps
+ * itself rather than being asked for.
+ */
+payrollRouter.get("/face-standings", view, async (req, res) => {
+  const days = Math.min(365, Math.max(7, Number(req.query.days) || 60));
+  res.json(await faceStandings(db, days));
 });
 
 payrollRouter.get("/employees/gallery", gatePerm, async (req, res) => {

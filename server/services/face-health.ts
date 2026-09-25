@@ -119,6 +119,132 @@ export interface FaceHealth {
   advice: string[];
 }
 
+/**
+ * Whose face needs taking again — the same arithmetic as `strugglers`, but
+ * per person, over both places a face is read, and reduced to a verdict the
+ * enrolment screen can show as a badge.
+ *
+ * The two places fail for different reasons and must be judged apart. The gate
+ * is a person standing still in daylight, so a face that fails THERE is a bad
+ * enrolment. The canteen is a queue at 8pm with a plate in each hand, and a
+ * face that reads well at the gate and badly over the counter is telling you
+ * about the lamp above the counter, not about the photograph. So a poor
+ * canteen record alone says "watch", never "take a new photograph".
+ *
+ * Thin evidence says nothing at all: a person with four scans who failed twice
+ * is not a pattern, and putting them on a list wastes somebody's morning.
+ */
+export type FaceVerdict = "no_face" | "reenrol" | "watch" | "ok" | "thin";
+
+export interface FaceStanding {
+  employeeId: string;
+  empCode: string;
+  name: string;
+  gateScans: number;
+  gateFailures: number;
+  gateRate: number | null;
+  gateScore: number | null;
+  canteenPlates: number;
+  canteenByHand: number;
+  canteenRate: number | null;
+  verdict: FaceVerdict;
+  /** One line saying why, for the badge's tooltip. */
+  why: string;
+}
+
+/** Enough scans for a rate to mean anything. */
+const ENOUGH = 10;
+/** Above this share of hand-picked names at the gate, the enrolment is the problem. */
+const REENROL_AT = 0.3;
+const WATCH_AT = 0.15;
+
+export async function faceStandings(conn: Conn, days = 60): Promise<FaceStanding[]> {
+  const rows = (
+    await conn.execute(sql`
+      WITH gate AS (
+        SELECT p.employee_id,
+               count(*)::int AS scans,
+               count(*) FILTER (WHERE p.method = 'manual' AND coalesce(p.manual_reason, 'no_match') = 'no_match')::int AS failures,
+               avg(p.match_score) AS score
+          FROM punches p
+         WHERE p.punch_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - ${days}::int
+           AND NOT ${HR_RESOLVED}
+         GROUP BY p.employee_id
+      ),
+      cant AS (
+        SELECT s.employee_id,
+               count(*)::int AS plates,
+               count(*) FILTER (WHERE s.state = 'name_matched')::int AS by_hand
+          FROM canteen_servings s
+         WHERE s.employee_id IS NOT NULL
+           AND s.meal_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - ${days}::int
+         GROUP BY s.employee_id
+      )
+      SELECT e.id AS "employeeId", e.emp_code AS "empCode", e.name,
+             (e.face_descriptor IS NOT NULL) AS enrolled,
+             coalesce(g.scans, 0)::int AS "gateScans",
+             coalesce(g.failures, 0)::int AS "gateFailures",
+             g.score::float8 AS "gateScore",
+             coalesce(c.plates, 0)::int AS "canteenPlates",
+             coalesce(c.by_hand, 0)::int AS "canteenByHand"
+        FROM employees e
+        LEFT JOIN gate g ON g.employee_id = e.id
+        LEFT JOIN cant c ON c.employee_id = e.id
+       WHERE e.is_active
+    `)
+  ).rows as Array<{
+    employeeId: string; empCode: string; name: string; enrolled: boolean;
+    gateScans: number; gateFailures: number; gateScore: number | null;
+    canteenPlates: number; canteenByHand: number;
+  }>;
+
+  return rows.map((r) => {
+    const gateRate = r.gateScans ? r.gateFailures / r.gateScans : null;
+    const canteenRate = r.canteenPlates ? r.canteenByHand / r.canteenPlates : null;
+    let verdict: FaceVerdict;
+    let why: string;
+    if (!r.enrolled) {
+      verdict = "no_face";
+      why = "No face on file — every punch is a name picked by hand.";
+    } else if (r.gateScans < ENOUGH) {
+      // The canteen can still speak up, but only loudly and only to say "watch".
+      if (r.canteenPlates >= ENOUGH && (canteenRate ?? 0) >= 0.5) {
+        verdict = "watch";
+        why = `${pct(canteenRate!)} of plates went out on a tapped name, and the gate has too few scans to judge.`;
+      } else {
+        verdict = "thin";
+        why = "Too few scans to say anything yet.";
+      }
+    } else if (gateRate! >= REENROL_AT) {
+      verdict = "reenrol";
+      why = `The gate failed to recognise them on ${pct(gateRate!)} of ${r.gateScans} scans — that is the photograph, not the light.`;
+    } else if (gateRate! >= WATCH_AT || (canteenRate != null && r.canteenPlates >= ENOUGH && canteenRate >= 0.5)) {
+      verdict = "watch";
+      why =
+        gateRate! >= WATCH_AT
+          ? `${pct(gateRate!)} of gate scans needed a name picked by hand.`
+          : `The gate is fine (${pct(gateRate!)}) but ${pct(canteenRate!)} of plates went out on a tapped name — look at the light over the counter first.`;
+    } else {
+      verdict = "ok";
+      why = `${pct(gateRate!)} of gate scans needed a hand.`;
+    }
+    return {
+      employeeId: r.employeeId,
+      empCode: r.empCode,
+      name: r.name,
+      gateScans: r.gateScans,
+      gateFailures: r.gateFailures,
+      gateRate,
+      gateScore: r.gateScore,
+      canteenPlates: r.canteenPlates,
+      canteenByHand: r.canteenByHand,
+      canteenRate,
+      verdict,
+      why,
+    };
+  });
+}
+
 export async function buildFaceHealth(conn: Conn, days = 30): Promise<FaceHealth> {
   const window = sql`p.punch_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - ${days}::int`;
 

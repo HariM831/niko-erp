@@ -19,6 +19,25 @@ import { Avatar, Badge, Empty, ErrorBanner, PageHeader, Pager, Spinner, Td, Th, 
 
 type RowState = { status: "working" } | { status: "done" } | { status: "error"; message: string } | undefined;
 
+/**
+ * How each person's face is actually faring at the gate and the canteen, from
+ * the punches themselves — nobody records a failed scan, but a name picked by
+ * hand IS one. "Re-enrol" is said only on the gate's evidence: a face that
+ * works at the gate and fails over the canteen counter is about the light
+ * there, and a new photograph would not fix it.
+ */
+interface Standing {
+  employeeId: string;
+  gateScans: number;
+  gateFailures: number;
+  gateRate: number | null;
+  canteenPlates: number;
+  canteenByHand: number;
+  canteenRate: number | null;
+  verdict: "no_face" | "reenrol" | "watch" | "ok" | "thin";
+  why: string;
+}
+
 export function PayrollFaceEnrollmentPage() {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
@@ -28,6 +47,15 @@ export function PayrollFaceEnrollmentPage() {
   const [batch, setBatch] = useState<{ running: boolean; done: number; total: number }>({ running: false, done: 0, total: 0 });
 
   const empQ = useEmployees();
+  const standQ = useQuery({
+    queryKey: ["payroll", "face-standings"],
+    queryFn: () => api<Standing[]>("/api/payroll/face-standings?days=60"),
+    staleTime: 5 * 60_000,
+  });
+  const standing = useMemo(
+    () => new Map((standQ.data ?? []).map((s) => [s.employeeId, s])),
+    [standQ.data],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -38,11 +66,24 @@ export function PayrollFaceEnrollmentPage() {
   }, []);
 
   const active = empQ.data ?? [];
+  const needsReenrol = (standQ.data ?? []).filter((s) => s.verdict === "reenrol").length;
   // What enrolment work is left, and where: the page's search is about state
   // (who has a face, who has only a photo) far more than about names.
   const fields = useMemo<SearchField[]>(
     () => [
       { key: "employee", label: "Employee", kind: "employee" },
+      {
+        key: "standing",
+        label: "How it is doing",
+        kind: "select",
+        options: [
+          { value: "reenrol", label: "Needs a new photograph" },
+          { value: "watch", label: "Worth watching" },
+          { value: "ok", label: "Recognised reliably" },
+          { value: "thin", label: "Too few scans to say" },
+          { value: "no_face", label: "No face on file" },
+        ],
+      },
       {
         key: "enrolled",
         label: "Face",
@@ -90,6 +131,8 @@ export function PayrollFaceEnrollmentPage() {
           switch (key) {
             case "employee":
               return e.id;
+            case "standing":
+              return standing.get(e.id)?.verdict ?? "thin";
             case "enrolled":
               return e.hasFace ? "yes" : "no";
             case "photo":
@@ -101,7 +144,7 @@ export function PayrollFaceEnrollmentPage() {
           }
         },
       ),
-    [active, search, fields, adv.criteria],
+    [active, search, fields, adv.criteria, standing],
   );
   const paged = usePaged(filtered);
 
@@ -206,6 +249,9 @@ export function PayrollFaceEnrollmentPage() {
           before that line was dropped for pushing content below the fold. */}
       <p className="mb-2 text-[12px] tabular-nums text-gray-500">
         {stats.enrolled} enrolled · {stats.pending} with a photo waiting · {stats.noPhoto} without a photo
+        {needsReenrol > 0 && (
+          <> · <span className="font-medium text-red-600">{needsReenrol} need a new photograph</span></>
+        )}
       </p>
 
       <div className="table-surface">
@@ -214,7 +260,7 @@ export function PayrollFaceEnrollmentPage() {
         ) : (
           <table className="w-full">
             <thead className="table-head">
-              <tr><Th>Employee</Th><Th>Department</Th><Th>Photo</Th><Th>Face</Th><Th /></tr>
+              <tr><Th>Employee</Th><Th>Department</Th><Th>Photo</Th><Th>Face</Th><Th>How it is doing</Th><Th /></tr>
             </thead>
             <tbody>
               {paged.page.map((e) => {
@@ -241,6 +287,9 @@ export function PayrollFaceEnrollmentPage() {
                         <Badge tone="amber">not enrolled</Badge>
                       )}
                     </Td>
+                    <Td>
+                      <FaceStanding s={standing.get(e.id)} />
+                    </Td>
                     <Td right>
                       <span className="flex justify-end gap-1">
                         {e.hasPhoto && !e.hasFace && (
@@ -262,12 +311,47 @@ export function PayrollFaceEnrollmentPage() {
                   </tr>
                 );
               })}
-              {!paged.page.length && <tr><Td colSpan={5}><Empty>No employees match.</Empty></Td></tr>}
+              {!paged.page.length && <tr><Td colSpan={6}><Empty>No employees match.</Empty></Td></tr>}
             </tbody>
           </table>
         )}
         <Pager total={paged.total} offset={paged.offset} onChange={paged.setOffset} />
       </div>
     </div>
+  );
+}
+
+/**
+ * How a person's face is faring, in one badge. Silent where there is nothing
+ * to say — a page of grey "too few scans" chips would bury the seven people
+ * who actually need a photograph taking again.
+ */
+function FaceStanding({ s }: { s: Standing | undefined }) {
+  if (!s || s.verdict === "thin") return <span className="text-[12px] text-gray-300">—</span>;
+  const detail =
+    `${s.why}` +
+    (s.gateScans ? ` Gate: ${s.gateFailures} of ${s.gateScans} by hand.` : "") +
+    (s.canteenPlates ? ` Canteen: ${s.canteenByHand} of ${s.canteenPlates}.` : "");
+  if (s.verdict === "reenrol") {
+    return (
+      <span title={detail} className="inline-flex cursor-help items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 text-[12px] font-medium text-red-700">
+        <AlertTriangle size={12} /> needs a new photograph
+      </span>
+    );
+  }
+  if (s.verdict === "no_face") {
+    return <Badge tone="amber">no face on file</Badge>;
+  }
+  if (s.verdict === "watch") {
+    return (
+      <span title={detail} className="cursor-help text-[12px] text-amber-700">
+        worth watching
+      </span>
+    );
+  }
+  return (
+    <span title={detail} className="text-[12px] text-gray-400">
+      recognised {s.gateRate != null ? `${((1 - s.gateRate) * 100).toFixed(0)}%` : ""}
+    </span>
   );
 }
