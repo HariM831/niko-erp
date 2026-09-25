@@ -400,6 +400,7 @@ const settingsPatch = z.object({
   slPerMonth: looseNumber(z.number().min(0).max(10)).optional(),
   compOffValidityDays: looseNumber(z.number().int().min(1).max(365)).optional(),
   reviewBelowScore: looseNumber(z.number().min(0).max(1)).optional(),
+  keepAllPunchPhotos: z.boolean().optional(),
 });
 
 payrollRouter.patch("/settings", settingsPerm, validateBody(settingsPatch), async (req, res) => {
@@ -1040,11 +1041,18 @@ payrollRouter.post("/punches", gatePerm, validateBody(punchBody), async (req, re
       }
       const punchDay = carry?.day ?? today;
       const type = carry ? "out" : (b.type ?? (last?.type === "in" ? "out" : "in"));
-      // The photo is kept only when someone might need to look at it: a manual
-      // punch, or a face match below the review threshold.
-      const [settings] = await tx.select({ reviewBelowScore: payrollSettings.reviewBelowScore }).from(payrollSettings);
+      // The photo is kept when someone might need to look at it — a manual punch,
+      // or a face match below the review threshold — or always, when the mill
+      // has asked for every face to be kept.
+      const [settings] = await tx
+        .select({
+          reviewBelowScore: payrollSettings.reviewBelowScore,
+          keepAllPunchPhotos: payrollSettings.keepAllPunchPhotos,
+        })
+        .from(payrollSettings);
       const review = settings?.reviewBelowScore ?? 0.72;
-      const keepPhoto = b.method === "manual" || (b.matchScore != null && b.matchScore < review);
+      const keepPhoto =
+        settings?.keepAllPunchPhotos || b.method === "manual" || (b.matchScore != null && b.matchScore < review);
       const [punch] = await tx
         .insert(punches)
         .values({

@@ -41,6 +41,7 @@ interface Settings {
   slPerMonth: number;
   compOffValidityDays: number;
   reviewBelowScore: number;
+  keepAllPunchPhotos: boolean;
 }
 
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -521,6 +522,22 @@ export function PolicyTab() {
               {numInput("reviewBelowScore")}
             </Field>
           </div>
+          {/* About 30 KB a punch: worth saying out loud before a year of them
+              is sitting in every backup. */}
+          <label className="mt-3 flex items-start gap-2 text-[13px]">
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={!!form.keepAllPunchPhotos}
+              onChange={(e) => set("keepAllPunchPhotos", e.target.checked)}
+            />
+            <span>
+              Keep the photograph of every punch
+              <span className="block text-[12px] text-gray-500">
+                Not only the doubtful ones. Each is about 30 KB, so a year of them runs to a few gigabytes.
+              </span>
+            </span>
+          </label>
         </div>
       </div>
       <div className="mt-4 flex items-center gap-3">

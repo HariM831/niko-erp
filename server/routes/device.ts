@@ -236,14 +236,22 @@ export async function deviceConfig(conn: Conn, device: DeviceWithSite) {
     device.role === "gate"
       ? (await conn.select({ name: wageRoles.name }).from(wageRoles).where(eq(wageRoles.isActive, true))).map((r) => r.name).sort()
       : [];
-  const [settings] = await conn.select({ reviewBelowScore: payrollSettings.reviewBelowScore }).from(payrollSettings).limit(1);
+  const [settings] = await conn
+    .select({ reviewBelowScore: payrollSettings.reviewBelowScore, keepAllPunchPhotos: payrollSettings.keepAllPunchPhotos })
+    .from(payrollSettings)
+    .limit(1);
 
   return {
     pins: pinRows.map((p) => ({ id: p.id, name: p.name, saltHex: p.saltHex, pinHash: p.pinHash, canUnlock: p.canUnlock, canAuthorise: p.canAuthorise })),
     mealWindows,
     reasonCodes: reasonRows.map((r) => ({ code: r.code, label: r.label, requiresText: r.requiresText })),
     wageRoles: wageRoleNames,
-    thresholds: { reviewBelowScore: settings?.reviewBelowScore ?? 0.72 },
+    // A device drops the snapshot it does not need to send; it can only do
+    // that if it is told which punches need one.
+    thresholds: {
+      reviewBelowScore: settings?.reviewBelowScore ?? 0.72,
+      keepAllPunchPhotos: settings?.keepAllPunchPhotos ?? false,
+    },
     // Fixed for v1 — the same numbers Amino shipped; not yet admin-tunable.
     sync: { rushWindows: [[7, 0, 10, 0], [12, 0, 14, 0], [16, 0, 18, 0]], rushIntervalMs: 10_000, idleIntervalMs: 300_000 },
     version: {
@@ -414,8 +422,12 @@ export async function applyEvents(conn: Conn, device: DeviceWithSite, rawEvents:
   const out: EventResult = { accepted: [], corrected: [], duplicates: [], rejected: [] };
   const ordered = [...events].sort((a, b) => (num(a?.ts) ?? 0) - (num(b?.ts) ?? 0));
 
-  const [settings] = await conn.select({ reviewBelowScore: payrollSettings.reviewBelowScore }).from(payrollSettings).limit(1);
+  const [settings] = await conn
+    .select({ reviewBelowScore: payrollSettings.reviewBelowScore, keepAllPunchPhotos: payrollSettings.keepAllPunchPhotos })
+    .from(payrollSettings)
+    .limit(1);
   const reviewBelow = settings?.reviewBelowScore ?? 0.72;
+  const keepAll = settings?.keepAllPunchPhotos ?? false;
 
   // The day's punches per person, loaded once and extended as the batch lands,
   // so the alternation rule sees the batch's own earlier events.
@@ -494,7 +506,7 @@ export async function applyEvents(conn: Conn, device: DeviceWithSite, rawEvents:
         const score = num(evt.matchScore);
         const photo = typeof (evt.photo ?? evt.photoUrl) === "string" ? (evt.photo ?? evt.photoUrl) : null;
         // The photo is kept only where someone will ever look at it.
-        const keepPhoto = method === "manual" || (score !== null && score < reviewBelow);
+        const keepPhoto = keepAll || method === "manual" || (score !== null && score < reviewBelow);
         await conn
           .insert(punches)
           .values({

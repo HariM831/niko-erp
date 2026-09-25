@@ -729,6 +729,13 @@
       "when": 1790323435357,
       "tag": "0100_location_coordinates",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1790323953927,
+      "tag": "0101_keep_all_punch_photos",
+      "breakpoints": true
     }
   ]
 }

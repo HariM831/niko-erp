@@ -218,6 +218,15 @@ export const payrollSettings = pgTable("payroll_settings", {
   compOffValidityDays: integer("comp_off_validity_days").notNull().default(30),
   /** A face match under this score keeps its photo for review. */
   reviewBelowScore: real("review_below_score").notNull().default(0.72),
+  /**
+   * Keep the photograph of EVERY punch, not only the doubtful ones.
+   *
+   * Off by default: a face snapshot is about 30 KB, and a year of punches at
+   * this farm is some 200,000 of them — gigabytes of pictures nobody opens,
+   * carried by every backup. On, when the gate is being watched closely or a
+   * dispute is running, and every punch keeps its face.
+   */
+  keepAllPunchPhotos: boolean("keep_all_punch_photos").notNull().default(false),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
