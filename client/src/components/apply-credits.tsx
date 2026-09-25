@@ -89,11 +89,13 @@ export function ApplyCreditsDialog({
     mutationFn: () =>
       api(`${base(side, documentId)}/apply-credits`, {
         method: "POST",
-        body: JSON.stringify({
+        // api() serialises the body itself; handing it a string would post a
+        // JSON string containing JSON.
+        body: {
           applications: offer.credits
             .filter((c) => Number(amounts[c.id] || 0) > 0)
             .map((c) => ({ kind: c.kind, id: c.id, amount: Number(amounts[c.id]).toFixed(2) })),
-        }),
+        },
       }),
     onSuccess: async () => {
       await qc.invalidateQueries();
