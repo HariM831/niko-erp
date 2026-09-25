@@ -12,6 +12,7 @@ import { Router } from "express";
 import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { feedStandardParams, feedStandards, formulas, itemNutrients, items, lifeStage } from "@shared/schema";
+import { formulatorBounds, isSolvedOn, scalesWithIntake, withDerivedNutrients } from "@shared/feed";
 import { db } from "../db";
 import { holds, requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
@@ -64,11 +65,14 @@ feedFormulatorRouter.get(
       stage,
       version: standard.version,
       referenceIntakeG: standard.referenceIntakeG == null ? null : Number(standard.referenceIntakeG),
-      params: params.map((p) => ({
-        nutrient: p.nutrient,
-        minValue: p.minValue == null ? null : Number(p.minValue),
-        maxValue: p.maxValue == null ? null : Number(p.maxValue),
-      })),
+      // As the formulator reads it: Met+Cys and a fibre row added.
+      params: formulatorBounds(
+        params.map((p) => ({
+          nutrient: p.nutrient,
+          minValue: p.minValue == null ? null : Number(p.minValue),
+          maxValue: p.maxValue == null ? null : Number(p.maxValue),
+        })),
+      ),
     });
   },
 );
@@ -128,13 +132,17 @@ async function loadInputs(stage: (typeof lifeStage.enumValues)[number], itemIds:
     return p && p.ratePerKg > 0 ? p.ratePerKg : null;
   };
   const nutrientsOf = (id: string) =>
-    Object.fromEntries(nutrientRows.filter((n) => n.itemId === id).map((n) => [n.nutrient, Number(n.value)]));
+    withDerivedNutrients(
+      Object.fromEntries(nutrientRows.filter((n) => n.itemId === id).map((n) => [n.nutrient, Number(n.value)])),
+    );
 
-  const bounds = params.map((p) => ({
-    nutrient: p.nutrient,
-    minValue: p.minValue == null ? null : Number(p.minValue),
-    maxValue: p.maxValue == null ? null : Number(p.maxValue),
-  }));
+  const bounds = formulatorBounds(
+    params.map((p) => ({
+      nutrient: p.nutrient,
+      minValue: p.minValue == null ? null : Number(p.minValue),
+      maxValue: p.maxValue == null ? null : Number(p.maxValue),
+    })),
+  );
   const prefs = await getPreferences(db);
   return { standard, bounds, materialRows, priceOf, priceMap, nutrientsOf, prefs };
 }
@@ -181,7 +189,7 @@ feedFormulatorRouter.post(
     const ref = standard.referenceIntakeG == null ? null : Number(standard.referenceIntakeG);
     const factor = ref != null && body.intakeG ? ref / body.intakeG : 1;
     const sc = (v: number | null) => (v == null ? null : Math.round(v * factor * 1000) / 1000);
-    const scaled = factor === 1 ? bounds : bounds.map((b) => ({ nutrient: b.nutrient, minValue: sc(b.minValue), maxValue: sc(b.maxValue) }));
+    const scaled = factor === 1 ? bounds : bounds.map((b) => (scalesWithIntake(b.nutrient) ? { nutrient: b.nutrient, minValue: sc(b.minValue), maxValue: sc(b.maxValue) } : b));
 
     const eased: Array<{ nutrient: string; from: { min: number | null; max: number | null }; to: { min: number | null; max: number | null } }> = [];
     const heldTo = scaled.map((b) => {
@@ -197,6 +205,11 @@ feedFormulatorRouter.post(
       return { nutrient: b.nutrient, ...to };
     });
 
+    /**
+     * Held to the six the mill formulates on (shared/feed.ts SOLVE_ON); the
+     * rest of the standard is worked out for the solved mix and marked met or
+     * missed on the screen, but never binds.
+     */
     const result = solveLeastCost({
       ingredients: materialRows.map((m) => ({
         id: m.id,
@@ -206,10 +219,17 @@ feedFormulatorRouter.post(
         minPercent: body.limits?.[m.id]?.min ?? null,
         maxPercent: body.limits?.[m.id]?.max ?? null,
       })),
-      standard: heldTo,
+      standard: heldTo.filter((b) => isSolvedOn(b.nutrient)),
       moistureRetention: Number(prefs.millMoistureRetention),
       overheadPerKg: Number(prefs.millOverheadPerKg),
     });
+    if (result.feasible) {
+      for (const b of heldTo) {
+        let total = 0;
+        for (const m of materialRows) total += ((result.solution[m.id] ?? 0) * (nutrientsOf(m.id)[b.nutrient] ?? 0)) / 100;
+        result.nutritionAnalysis[b.nutrient] = Math.round(total * 1000) / 1000;
+      }
+    }
 
     /**
      * When a solve fails, the first thing to rule out is a material that
@@ -283,7 +303,8 @@ feedFormulatorRouter.post(
   async (req, res) => {
     const body = req.body as z.infer<typeof analyseBody>;
     const { standard, bounds, materialRows, priceOf, priceMap, nutrientsOf, prefs } = await loadInputs(body.stage, body.itemIds, body.itemIds);
-    const bound = bounds.filter((b) => b.minValue != null || b.maxValue != null).map((b) => b.nutrient);
+    // What a material can do for the solve: the bounded figures it is held to.
+    const bound = bounds.filter((b) => (b.minValue != null || b.maxValue != null) && isSolvedOn(b.nutrient)).map((b) => b.nutrient);
 
     const nutritionAnalysis: Record<string, number> = {};
     for (const b of bounds) {

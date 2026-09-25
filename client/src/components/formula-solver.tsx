@@ -25,7 +25,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Calculator, Lock, LockOpen, Plus, X } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
 import { SearchSelect } from "./search-select";
-import { LIFE_STAGES, LIFE_STAGE_LABELS, NUTRIENTS, nutrientLabel, type LifeStage } from "@shared/feed";
+import { LIFE_STAGES, LIFE_STAGE_LABELS, NUTRIENTS, isSolvedOn, nutrientLabel, scalesWithIntake, type LifeStage } from "@shared/feed";
 import { localYmd } from "../lib/utils";
 
 interface Material {
@@ -226,7 +226,12 @@ export function FormulaSolver({
   const scaling = canScale && byIntake;
   const factor = scaling ? refIntake! / actualIntake! : 1;
   const sc = (v: number | null) => (v == null ? null : Math.round(v * factor * 1000) / 1000);
-  const params = (standard?.params ?? []).map((p) => (factor === 1 ? p : { ...p, minValue: sc(p.minValue), maxValue: sc(p.maxValue) }));
+  const params = (standard?.params ?? []).map((p) => (factor === 1 || !scalesWithIntake(p.nutrient) ? p : { ...p, minValue: sc(p.minValue), maxValue: sc(p.maxValue) }));
+  /** A row with a limit on it. Fibre may come with none, shown for its value alone. */
+  const limited = (p: { minValue: number | null; maxValue: number | null }) => p.minValue != null || p.maxValue != null;
+  const heldParams = params.filter((p) => isSolvedOn(p.nutrient));
+  const checkedParams = params.filter((p) => !isSolvedOn(p.nutrient) && limited(p));
+  const fibreUnset = params.some((p) => p.nutrient === "cf" && !limited(p));
   const written = new Map((standard?.params ?? []).map((p) => [p.nutrient, p]));
 
   const current = groups?.find((g) => g.name === selected);
@@ -370,6 +375,58 @@ export function FormulaSolver({
   const addable = (materials ?? []).filter((m) => !pool.includes(m.id));
   const heldTo = new Map((result?.standard ?? []).map((b) => [b.nutrient, b]));
   const easedKeys = new Set((result?.eased ?? []).map((e) => e.nutrient));
+
+  /**
+   * One nutrient against the standard. A held row is what the solve answers
+   * to, so a miss there is red; a checked row is information, so a miss is
+   * amber and never blocks a solve.
+   */
+  const row = (p: (typeof params)[number], held: boolean) => {
+    const vn = hasNow ? nowQ.data?.nutritionAnalysis[p.nutrient] : undefined;
+    const vs = solvedAnalysis?.[p.nutrient];
+    const hit = clash.has(p.nutrient);
+    const eased = easedKeys.has(p.nutrient);
+    const hasLimit = limited(p);
+    return (
+      <tr key={p.nutrient} className={`border-b border-gray-100 ${hit ? "bg-red-50/70" : ""}`} style={hit ? { boxShadow: "inset 3px 0 0 #dc2626" } : undefined}>
+        <td className={`px-2 py-1 ${held ? "font-medium text-gray-900" : "text-gray-600"}`}>{nutrientLabel(p.nutrient)}</td>
+        <td
+          className="px-1.5 py-1 text-right tabular-nums text-gray-600"
+          title={scaling && written.get(p.nutrient) && scalesWithIntake(p.nutrient) ? `Written as ${askedText(p.nutrient, written.get(p.nutrient)!)} for ${refIntake} g/bird/day` : undefined}
+        >
+          {hasLimit ? askedText(p.nutrient, p) : <span className="text-gray-400">no limit set</span>}
+          {eased && (
+            <span className="ml-1 rounded bg-amber-50 px-1 py-px text-[10px] text-amber-700" title="Eased for this solve only">
+              eased {askedText(p.nutrient, heldTo.get(p.nutrient)!)}
+            </span>
+          )}
+        </td>
+        {hasNow && (
+          <td className="px-1.5 py-1 text-right tabular-nums">
+            {vn == null ? "—" : (
+              <>
+                {fmtN(p.nutrient, vn)}
+                {!feasible && hasLimit && <Verdict ok={within(p, vn)} soft={!held} />}
+              </>
+            )}
+          </td>
+        )}
+        {feasible && (
+          <td className="px-1.5 py-1 text-right tabular-nums">
+            {vs == null ? "…" : (
+              <>
+                {fmtN(p.nutrient, vs)}
+                {hasLimit && <Verdict ok={within(p, vs)} soft={!held} />}
+              </>
+            )}
+          </td>
+        )}
+        <td className="px-2 py-1">
+          {hasLimit && <TwoMarkStrip min={p.minValue} max={p.maxValue} now={vn} solved={vs} />}
+        </td>
+      </tr>
+    );
+  };
 
   // Which rows a failed solve is about.
   const clash = new Set<string>();
@@ -877,11 +934,14 @@ export function FormulaSolver({
                   {scaling && <span className="ml-1.5 text-[11px] font-normal text-gray-500">at {actualIntake!.toFixed(1)} g/bird/day</span>}
                 </span>
                 <span className="text-[11px] text-gray-400">
-                  {feasible && solvedAnalysis
-                    ? `solved mix meets ${params.filter((p) => within(heldTo.get(p.nutrient) ?? p, solvedAnalysis[p.nutrient] ?? 0) && within(p, solvedAnalysis[p.nutrient] ?? 0)).length} of ${params.length}`
-                    : hasNow && nowQ.data
-                      ? `live recipe misses ${params.filter((p) => !within(p, nowQ.data!.nutritionAnalysis[p.nutrient] ?? 0)).length} of ${params.length}`
-                      : ""}
+                  {(() => {
+                    const a = feasible && solvedAnalysis ? solvedAnalysis : hasNow && nowQ.data ? nowQ.data.nutritionAnalysis : null;
+                    if (!a) return "";
+                    const held = heldParams.filter(limited);
+                    const ok = (p: (typeof params)[number]) =>
+                      within(p, a[p.nutrient] ?? 0) && (!feasible || within(heldTo.get(p.nutrient) ?? p, a[p.nutrient] ?? 0));
+                    return `${feasible && solvedAnalysis ? "solved mix" : "live recipe"} meets ${held.filter(ok).length} of ${held.length} held · ${checkedParams.filter(ok).length} of ${checkedParams.length} checked`;
+                  })()}
                 </span>
               </div>
               <div className="overflow-x-auto">
@@ -896,51 +956,10 @@ export function FormulaSolver({
                     </tr>
                   </thead>
                   <tbody>
-                    {params.map((p) => {
-                      const vn = hasNow ? nowQ.data?.nutritionAnalysis[p.nutrient] : undefined;
-                      const vs = solvedAnalysis?.[p.nutrient];
-                      const hit = clash.has(p.nutrient);
-                      const eased = easedKeys.has(p.nutrient);
-                      return (
-                        <tr key={p.nutrient} className={`border-b border-gray-100 ${hit ? "bg-red-50/70" : ""}`} style={hit ? { boxShadow: "inset 3px 0 0 #dc2626" } : undefined}>
-                          <td className="px-2 py-1">{nutrientLabel(p.nutrient)}</td>
-                          <td
-                            className="px-1.5 py-1 text-right tabular-nums text-gray-600"
-                            title={scaling && written.get(p.nutrient) ? `Written as ${askedText(p.nutrient, written.get(p.nutrient)!)} for ${refIntake} g/bird/day` : undefined}
-                          >
-                            {askedText(p.nutrient, p)}
-                            {eased && (
-                              <span className="ml-1 rounded bg-amber-50 px-1 py-px text-[10px] text-amber-700" title="Eased for this solve only">
-                                eased {askedText(p.nutrient, heldTo.get(p.nutrient)!)}
-                              </span>
-                            )}
-                          </td>
-                          {hasNow && (
-                            <td className="px-1.5 py-1 text-right tabular-nums">
-                              {vn == null ? "—" : (
-                                <>
-                                  {fmtN(p.nutrient, vn)}
-                                  {!feasible && <Verdict ok={within(p, vn)} />}
-                                </>
-                              )}
-                            </td>
-                          )}
-                          {feasible && (
-                            <td className="px-1.5 py-1 text-right tabular-nums">
-                              {vs == null ? "…" : (
-                                <>
-                                  {fmtN(p.nutrient, vs)}
-                                  <Verdict ok={within(p, vs)} />
-                                </>
-                              )}
-                            </td>
-                          )}
-                          <td className="px-2 py-1">
-                            <TwoMarkStrip min={p.minValue} max={p.maxValue} now={vn} solved={vs} />
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {params.length > 0 && <SectionRow cols={2 + (hasNow ? 1 : 0) + (feasible ? 1 : 0) + 1} title="Held by the solve" note="the mix is solved to meet these" />}
+                    {heldParams.map((p) => row(p, true))}
+                    {checkedParams.length > 0 && <SectionRow cols={2 + (hasNow ? 1 : 0) + (feasible ? 1 : 0) + 1} title="Checked" note="shown met or not, never held" />}
+                    {checkedParams.map((p) => row(p, false))}
                     {!params.length && (
                       <tr>
                         <td colSpan={5} className="px-2 py-3 text-center text-gray-400">No standard set for this stage.</td>
@@ -949,6 +968,11 @@ export function FormulaSolver({
                   </tbody>
                 </table>
               </div>
+              {fibreUnset && (
+                <div className="border-t border-gray-100 px-3 py-2 text-[11.5px] text-amber-700">
+                  Crude fibre has no limit in the {LIFE_STAGE_LABELS[stage]} standard, so the solve cannot hold it. Set a maximum under Settings › Feed Standards.
+                </div>
+              )}
               {params.length > 0 && (
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-gray-100 px-3 py-2 text-[11px] text-gray-500">
                   {hasNow && (
@@ -1068,11 +1092,26 @@ export function FormulaSolver({
   );
 }
 
-function Verdict({ ok }: { ok: boolean }) {
+/** Met or missed. `soft` for a checked figure: a miss is worth seeing, not alarming. */
+function Verdict({ ok, soft = false }: { ok: boolean; soft?: boolean }) {
   return (
-    <span className={`ml-1.5 rounded px-1 py-px text-[10px] font-semibold ${ok ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
-      {ok ? "met" : "short"}
+    <span
+      className={`ml-1.5 rounded px-1 py-px text-[10px] font-semibold ${ok ? "bg-green-50 text-green-700" : soft ? "bg-amber-50 text-amber-700" : "bg-red-50 text-red-700"}`}
+    >
+      {ok ? "met" : soft ? "not met" : "short"}
     </span>
+  );
+}
+
+/** A band across the nutrient table naming the group below it. */
+function SectionRow({ cols, title, note }: { cols: number; title: string; note: string }) {
+  return (
+    <tr className="border-b border-gray-100 bg-gray-50/70">
+      <td colSpan={cols} className="px-2 py-1 text-[11px]">
+        <span className="font-semibold uppercase tracking-wide text-gray-600">{title}</span>
+        <span className="ml-2 text-gray-400">{note}</span>
+      </td>
+    </tr>
   );
 }
 
