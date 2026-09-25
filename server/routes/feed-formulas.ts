@@ -23,6 +23,7 @@ import { db } from "../db";
 import { holds, requirePermission } from "../lib/rbac";
 import { nonBlank, validateBody } from "../lib/validate";
 import { getPreferences } from "../services/preferences";
+import { materialPrices } from "../services/feed-prices";
 
 export const feedFormulasRouter = Router();
 
@@ -201,67 +202,18 @@ feedFormulasRouter.get("/matrix", requirePermission("feed_mill", "formulas"), as
              fl.item_id              AS "itemId",
              i.name                  AS "itemName",
              fl.quantity_kg::float8  AS "quantityKg",
-             last.rate::float8       AS "lastRate",
-             last.landed::float8     AS "landed",
-             last.bill_date::text    AS "pricedOn",
-             i.unit                  AS "unit",
-             i.unit_bag_weight_kg::float8 AS "packKg",
-             i.cost_price::float8    AS "standing"
+             i.unit                  AS "unit"
         FROM formula_lines fl
         JOIN items i ON i.id = fl.item_id
-        -- The most recent time this material was actually bought. Delivered
-        -- cost where the carriage has been matched to the load, the bill rate
-        -- where it has not.
-        LEFT JOIN LATERAL (
-          SELECT bl.rate,
-                 NULLIF(bl.landed_unit_cost, 0) AS landed,
-                 b.bill_date
-            FROM bill_lines bl
-            JOIN bills b ON b.id = bl.bill_id
-           WHERE bl.item_id = fl.item_id
-             AND b.status <> 'void'
-             AND bl.quantity > 0
-             AND bl.rate > 0
-           ORDER BY b.bill_date DESC, bl.id DESC
-           LIMIT 1
-        ) last ON true
        WHERE fl.formula_id IN (${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)})
     `)
   ).rows as Array<{
-    formulaId: string; itemId: string; itemName: string; quantityKg: number;
-    lastRate: number | null; landed: number | null; pricedOn: string | null;
-    unit: string; packKg: number | null; standing: number | null;
+    formulaId: string; itemId: string; itemName: string; quantityKg: number; unit: string;
   }>;
 
-  /**
-   * What a kilo of this material costs, and how confidently.
-   *
-   * In order of what it is worth: the delivered cost of the last load, then
-   * what that load cost before carriage, and only then the standing price
-   * somebody typed on the item — which is where this used to start and stop.
-   * Those typed figures had gone stale unnoticed: maize said 22.00 against a
-   * last bill of 25.30, methionine 283 against 492, and limestone and one of
-   * the soyas said nothing at all.
-   *
-   * A material bought by the pack is divided by what the pack weighs — the
-   * premix is 679 a four-kilo pack, so 169.75 a kilo. Read straight it would
-   * cost four times the entire mix. Where the pack weight is not recorded
-   * there is no honest conversion, so it gets no rate rather than a wrong one.
-   */
-  const priceOf = (l: (typeof lines)[number]) => {
-    const perPack = l.unit !== "kg";
-    const packKg = l.packKg ?? 0;
-    if (perPack && packKg <= 0) {
-      return { ratePerKg: 0, basis: "not per kg" as const, pricedOn: null as string | null, packKg: null as number | null };
-    }
-    const toKg = (v: number) => (perPack ? v / packKg : v);
-    const pack = perPack ? packKg : null;
-    if (l.landed != null) return { ratePerKg: toKg(l.landed), basis: "delivered" as const, pricedOn: l.pricedOn, packKg: pack };
-    if (l.lastRate != null) return { ratePerKg: toKg(l.lastRate), basis: "last bill" as const, pricedOn: l.pricedOn, packKg: pack };
-    if (l.standing) return { ratePerKg: toKg(l.standing), basis: "standing price" as const, pricedOn: null, packKg: pack };
-    return { ratePerKg: 0, basis: "never bought" as const, pricedOn: null, packKg: pack };
-  };
-  const priced = new Map(lines.map((l) => [l.itemId, priceOf(l)]));
+  // What a kilo of each material costs, and how confidently — the one rule
+  // every feed screen prices by (services/feed-prices.ts).
+  const priced = await materialPrices(db, [...new Set(lines.map((l) => l.itemId))]);
 
   const itemIds = [...new Set(lines.map((l) => l.itemId))];
   const analyses = itemIds.length

@@ -16,7 +16,7 @@ import { db } from "../db";
 import { holds, requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { getPreferences } from "../services/preferences";
-import { stockOnHand } from "../services/inventory";
+import { materialPrices } from "../services/feed-prices";
 import { solveLeastCost } from "../services/formulator";
 
 export const feedFormulatorRouter = Router();
@@ -76,10 +76,9 @@ const fixedAt = (l: { min?: number; max?: number } | undefined) =>
 
 /**
  * What both the solve and the analysis read: the live standard for a stage, and
- * for each material its name, nutrient profile and price — priced the way
- * production will cost it: weighted average from the stock ledger where it holds
- * a balance, the item's cost price where it does not. A solve priced one way and
- * a batch costed another would promise a ₹/kg the ledger then refuses to deliver.
+ * for each material its name, nutrient profile and price — from its last
+ * purchase, the same rule as the formula comparison, so a mix costs the same on
+ * both screens.
  *
  * `include` names materials to load even when they are not marked feed
  * ingredients — the analysis of a recipe that holds a pigment, and a solve with
@@ -117,17 +116,14 @@ async function loadInputs(stage: (typeof lifeStage.enumValues)[number], itemIds:
         .where(inArray(itemNutrients.itemId, materialRows.map((m) => m.id)))
     : [];
 
-  const levels = await stockOnHand(db);
-  const byItem = new Map(levels.map((l) => [l.itemId, l]));
+  // Priced by the rule every feed screen uses (services/feed-prices.ts): the
+  // last load's delivered cost, then its bill rate, then the typed price, per
+  // kilo for a material bought by the pack. No honest figure is unpriced,
+  // never zero — a ₹0 material would flood every mix.
+  const priceMap = await materialPrices(db, materialRows.map((m) => m.id));
   const priceOf = (m: (typeof materialRows)[number]): number | null => {
-    const held = byItem.get(m.id);
-    if (held && Number(held.quantity) > 0 && Number(held.value) > 0) {
-      return Number(held.value) / Number(held.quantity);
-    }
-    // Zero is unpriced, not free: a ₹0 material would flood every mix, so
-    // the solver sits it out — and saying so beats dropping it silently.
-    const cost = m.costPrice == null ? null : Number(m.costPrice);
-    return cost != null && cost > 0 ? cost : null;
+    const p = priceMap.get(m.id);
+    return p && p.ratePerKg > 0 ? p.ratePerKg : null;
   };
   const nutrientsOf = (id: string) =>
     Object.fromEntries(nutrientRows.filter((n) => n.itemId === id).map((n) => [n.nutrient, Number(n.value)]));
@@ -138,7 +134,7 @@ async function loadInputs(stage: (typeof lifeStage.enumValues)[number], itemIds:
     maxValue: p.maxValue == null ? null : Number(p.maxValue),
   }));
   const prefs = await getPreferences(db);
-  return { standard, bounds, materialRows, priceOf, nutrientsOf, prefs };
+  return { standard, bounds, materialRows, priceOf, priceMap, nutrientsOf, prefs };
 }
 
 const easeSchema = z
@@ -197,6 +193,29 @@ feedFormulatorRouter.post(
       overheadPerKg: Number(prefs.millOverheadPerKg),
     });
 
+    /**
+     * When a solve fails, the first thing to rule out is a material that
+     * would have met the shortfall but sat out for want of a price. Easing a
+     * bound to what the rest can reach is the wrong fix for that — Layer 1
+     * "reaching" 0.36% calcium with the limestone unpriced — so each clashing
+     * nutrient names the unpriced materials richer in it than the standard asks.
+     */
+    const dropped = materialRows.filter((m) => priceOf(m) == null && !locked.includes(m.id));
+    const clashKeys = new Set(
+      (result.feasible ? [] : result.blockers ?? []).flatMap((b) => (b.kind === "inclusion" ? [] : [b.key, ...(b.with ?? []).map((w) => w.key)])),
+    );
+    const leftOutRich = [...clashKeys]
+      .map((k) => {
+        const floor = heldTo.find((b) => b.nutrient === k)?.minValue;
+        return {
+          nutrient: k,
+          materials: dropped
+            .filter((m) => floor != null && (nutrientsOf(m.id)[k] ?? 0) > floor)
+            .map((m) => ({ name: m.name, value: nutrientsOf(m.id)[k]! })),
+        };
+      })
+      .filter((x) => x.materials.length > 0);
+
     // The solve runs on prices either way — it is a least-cost mix — but what
     // things cost is shown only to those who hold feed_mill.costs.
     const costs = holds(req.session.user?.permissions, "feed_mill", "costs");
@@ -215,6 +234,7 @@ feedFormulatorRouter.post(
        */
       standard: heldTo,
       eased,
+      leftOutRich,
       ...(costs ? { prices: Object.fromEntries(materialRows.map((m) => [m.id, priceOf(m)])) } : {}),
       unpriced: materialRows.filter((m) => priceOf(m) == null).map((m) => m.name),
     });
@@ -243,7 +263,7 @@ feedFormulatorRouter.post(
   validateBody(analyseBody),
   async (req, res) => {
     const body = req.body as z.infer<typeof analyseBody>;
-    const { standard, bounds, materialRows, priceOf, nutrientsOf, prefs } = await loadInputs(body.stage, body.itemIds, body.itemIds);
+    const { standard, bounds, materialRows, priceOf, priceMap, nutrientsOf, prefs } = await loadInputs(body.stage, body.itemIds, body.itemIds);
     const bound = bounds.filter((b) => b.minValue != null || b.maxValue != null).map((b) => b.nutrient);
 
     const nutritionAnalysis: Record<string, number> = {};
@@ -272,6 +292,7 @@ feedFormulatorRouter.post(
           name: m.name,
           feedIngredient: m.isFeedIngredient,
           priced: priceOf(m) != null,
+          ...(costs ? { priceBasis: priceMap.get(m.id)?.basis ?? "never bought", pricedOn: priceMap.get(m.id)?.pricedOn ?? null } : {}),
           measured: Object.keys(n).length,
           contributes: bound.some((k) => (n[k] ?? 0) !== 0),
         };

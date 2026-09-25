@@ -90,6 +90,8 @@ interface SolveResponse {
   unpriced: string[];
   /** Bounds moved for this solve only, from what the standard asks to what the solve was held to. */
   eased?: Array<{ nutrient: string; from: { min: number | null; max: number | null }; to: { min: number | null; max: number | null } }>;
+  /** For a failed solve: unpriced materials richer in a clashing nutrient than the standard asks — price them before easing anything. */
+  leftOutRich?: Array<{ nutrient: string; materials: Array<{ name: string; value: number }> }>;
 }
 
 interface StandardResponse {
@@ -113,6 +115,8 @@ interface MaterialInfo {
   measured: number;
   /** Carries a value for some nutrient the standard bounds. An additive does not. */
   contributes: boolean;
+  priceBasis?: "delivered" | "last bill" | "standing price" | "never bought" | "not per kg";
+  pricedOn?: string | null;
 }
 interface AnalyseResponse {
   standardVersion: number | null;
@@ -320,6 +324,10 @@ export function FormulaSolver({
   const solvedAnalysis = feasible ? (editedChanged ? solQ.data?.nutritionAnalysis : result!.nutritionAnalysis) : undefined;
   const solvedCost = feasible ? (editedChanged ? solQ.data?.costPerKg : result!.costPerKg) : undefined;
   const nowCost = hasNow ? nowQ.data?.costPerKg : undefined;
+  // A cost that counts an unpriced material as free has to say so.
+  const unpricedIds = new Set(pool.filter((id) => info.get(id) && !info.get(id)!.priced));
+  const nowUnpriced = pool.filter((id) => unpricedIds.has(id) && (nowMix[id] ?? 0) > 0);
+  const solvedUnpriced = feasible ? pool.filter((id) => unpricedIds.has(id) && (solvedMix[id] ?? 0) > 0) : [];
 
   const addable = (materials ?? []).filter((m) => !pool.includes(m.id));
   const params = standard?.params ?? [];
@@ -396,10 +404,20 @@ export function FormulaSolver({
           <div className="flex flex-wrap items-baseline gap-x-2 tabular-nums">
             <span className="text-[10.5px] font-semibold uppercase tracking-wide text-gray-400">Per finished kg</span>
             {nowCost != null && <span className="text-[15px] font-bold">{inr(nowCost)}</span>}
+            {nowCost != null && nowUnpriced.length > 0 && (
+              <span className="text-[11px] text-amber-700" title="These have no price, so the cost counts them as free">
+                excl. {joinWords(nowUnpriced.map(nameOf))}
+              </span>
+            )}
             {solvedCost != null && (
               <>
                 {nowCost != null && <span className="text-gray-400">→</span>}
                 <span className="text-[15px] font-bold">{inr(solvedCost)}</span>
+                {solvedUnpriced.length > 0 && (
+                  <span className="text-[11px] text-amber-700" title="Locked without a price, so the cost counts them as free">
+                    excl. {joinWords(solvedUnpriced.map(nameOf))}
+                  </span>
+                )}
                 {nowCost != null && Math.abs(solvedCost - nowCost) >= 0.005 && (
                   <span
                     className={`rounded-full px-2 py-0.5 text-[11.5px] font-semibold ${
@@ -477,7 +495,7 @@ export function FormulaSolver({
             <div className="flex flex-wrap gap-2 text-[12px]">
               {noPrice.length > 0 && (
                 <span className="rounded-md border border-red-200 bg-red-50 px-2.5 py-1 text-red-700">
-                  No price — {names(noPrice)} {noPrice.length === 1 ? "is" : "are"} left out of a solve. Give {noPrice.length === 1 ? "it" : "them"} a cost price or stock on hand.
+                  No price — {names(noPrice)} {noPrice.length === 1 ? "has" : "have"} never been billed and carr{noPrice.length === 1 ? "ies" : "y"} no price on the item, so a solve leaves {noPrice.length === 1 ? "it" : "them"} out.
                 </span>
               )}
               {lockedNoPrice.length > 0 && (
@@ -525,6 +543,20 @@ export function FormulaSolver({
           {result && !result.feasible && (
             <div className="rounded-xl border border-red-200 bg-red-50/60 p-3.5">
               <div className="text-[13px] font-semibold text-red-700">{result.message}</div>
+              {(result.leftOutRich ?? []).length > 0 && (
+                <div className="mt-2 rounded-lg border border-amber-200 bg-white px-3 py-2 text-[12.5px] text-amber-800">
+                  <span className="font-semibold">Price these first. </span>
+                  {joinWords(
+                    (() => {
+                      const seen = new Map<string, string[]>();
+                      for (const r of result.leftOutRich!) for (const m of r.materials) seen.set(m.name, [...(seen.get(m.name) ?? []), `${fmtN(r.nutrient, m.value)} ${nutrientLabel(r.nutrient)}`]);
+                      return [...seen].map(([n, what]) => `${n} (${what.join(", ")})`);
+                    })(),
+                  )}{" "}
+                  {(result.leftOutRich ?? []).flatMap((r) => r.materials).length === 1 ? "carries" : "carry"} what this solve is short of, but
+                  {" "}has no price, so the solve left it out. Easing a bound works around a material that is only missing a price.
+                </div>
+              )}
               {(result.blockers ?? []).map((b) => (
                 <div key={`${b.key}:${b.with?.map((w) => w.key).join(",") ?? ""}`} className="mt-2 border-l-2 border-red-300 pl-2.5">
                   <div className="text-[13px] font-medium text-gray-900">
@@ -613,7 +645,18 @@ export function FormulaSolver({
                             )}
                           </td>
                           {costs && (
-                            <td className="px-1 py-1 text-right tabular-nums text-gray-500">
+                            <td
+                              className={`px-1 py-1 text-right tabular-nums ${m?.priceBasis === "standing price" ? "text-amber-700" : "text-gray-500"}`}
+                              title={
+                                m?.priceBasis === "delivered" || m?.priceBasis === "last bill"
+                                  ? `${m.priceBasis === "delivered" ? "Delivered cost of the last load" : "Last bill"}, ${m.pricedOn ? formatDate(m.pricedOn) : ""}`
+                                  : m?.priceBasis === "standing price"
+                                    ? "Never billed — the price typed on the item"
+                                    : m?.priceBasis === "not per kg"
+                                      ? "Bought by the pack with no pack weight on the item — no honest price per kg"
+                                      : "Never bought and no price on the item"
+                              }
+                            >
                               {prices?.[id] == null ? "—" : Number(prices[id]).toFixed(2)}
                             </td>
                           )}
