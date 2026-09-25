@@ -13,6 +13,7 @@
  * saying so. Older than that is a question for the day summaries.
  */
 import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { istTime } from "../lib/utils";
 import { useLocation, useRoute } from "wouter";
 import { ArrowLeft } from "lucide-react";
 import {
@@ -177,7 +178,7 @@ export function ShedConditionsPage() {
   const tickLabel = (t: number) => {
     const d = new Date(t);
     return hours <= 24
-      ? d.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })
+      ? istTime(d)
       : d.toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit" });
   };
   const fullLabel = (t: number) =>

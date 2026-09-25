@@ -17,6 +17,7 @@
  * one way to attach a file in niko and this is not a second one.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { istTime } from "../lib/utils";
 import { Camera, CameraOff, Download, RefreshCw } from "lucide-react";
 import { SearchSelect } from "./search-select";
 
@@ -437,7 +438,7 @@ export function WeighbridgeCamera({
               <div key={s.id} className="w-40 shrink-0">
                 <img src={s.url} alt="" className="w-full rounded-md border border-gray-200" />
                 <div className="mt-1 text-[11px] tabular-nums text-gray-500">
-                  {s.at.toLocaleTimeString("en-IN")} · {Math.round(s.file.size / 1024)} KB
+                  {istTime(s.at, { second: "2-digit" })} · {Math.round(s.file.size / 1024)} KB
                 </div>
                 {s.note && (
                   <div className="truncate font-mono text-[11px] text-brand-700" title={s.note}>

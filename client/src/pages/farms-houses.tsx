@@ -33,7 +33,7 @@ import {
 } from "lucide-react";
 import { api } from "../api";
 import { useLocalSearch } from "../components/search-context";
-import { matchesTerm } from "../lib/utils";
+import { istTime, matchesTerm } from "../lib/utils";
 import {
   getBatchAgeRefDate,
   getAgeRefStock,
@@ -1169,7 +1169,7 @@ export function FarmsHousesPage() {
             </div>
             <div className="text-[11px] text-muted-foreground">
               {iot.poll?.at
-                ? `read ${new Date(iot.poll.at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}`
+                ? `read ${istTime(iot.poll.at)}`
                 : "never read"}
               {iot.poll && !iot.poll.ok && <span className="ml-1 text-destructive">· last poll failed</span>}
             </div>

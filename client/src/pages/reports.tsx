@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { api } from "../api";
 import { SearchSelect } from "../components/search-select";
-import { localYmd } from "../lib/utils";
+import { istTime, localYmd } from "../lib/utils";
 import { DateInput } from "../components/date-input";
 
 /**
@@ -168,10 +168,7 @@ function markVisited(key: string) {
 const visitedLabel = (iso: string | undefined) => {
   if (!iso) return "-";
   const d = new Date(iso);
-  return `${dmy(localYmd(d))} ${d.toLocaleTimeString("en-IN", {
-    hour: "2-digit",
-    minute: "2-digit",
-  })}`;
+  return `${dmy(localYmd(d))} ${istTime(d)}`;
 };
 
 export function ReportsPage() {

@@ -37,3 +37,38 @@ export function matchesTerm(term: string, fields: Array<string | null | undefine
   const re = new RegExp(`(^|[^\\p{L}\\p{N}])${escaped}`, "iu");
   return fields.some((f) => !!f && re.test(f));
 }
+
+/**
+ * A moment, read in the farm's own clock.
+ *
+ * Everything niko records happens in Assam, so a time on the screen means IST
+ * whoever is looking — a director reading the gate from Dubai must not see a
+ * shift starting at 06:30. Left to the browser these render in whatever zone
+ * the viewer's laptop is set to, which is right in Nabil and wrong anywhere
+ * else, and silently so. [[dates-never-toisostring]] is the same rule for the
+ * other direction.
+ */
+const IST = "Asia/Kolkata";
+
+export const istTime = (at: string | number | Date | null | undefined, opts: Intl.DateTimeFormatOptions = {}) =>
+  at == null
+    ? "—"
+    : new Date(at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: IST, ...opts });
+
+export const istDateTime = (at: string | number | Date | null | undefined, opts: Intl.DateTimeFormatOptions = {}) =>
+  at == null
+    ? "—"
+    : new Date(at).toLocaleString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone: IST,
+        ...opts,
+      });
+
+export const istDateOf = (at: string | number | Date | null | undefined) =>
+  at == null
+    ? "—"
+    : new Date(at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric", timeZone: IST });

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { istDateOf } from "../lib/utils";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageSquare, Send, Trash2 } from "lucide-react";
 import { api } from "../api";
@@ -21,7 +22,7 @@ function timeAgo(iso: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  return istDateOf(iso);
 }
 
 /** Inline comment timeline — used by the drawer and the contact Comments tab. */

@@ -856,7 +856,10 @@ officeRouter.get(
         SELECT count(*)::int AS runs,
                coalesce(sum(batch_count), 0)::int AS batches
           FROM production_orders
-         WHERE (created_at AT TIME ZONE 'Asia/Kolkata')::date = ${today}
+         -- created_at holds UTC without a zone, so it is named UTC before
+         -- being read in IST. Converted in one step it lands 5½ hours early,
+         -- and a run made before 05:30 counted as yesterday's.
+         WHERE ((created_at AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Kolkata')::date = ${today}
       `).then((r) => r.rows as Array<{ runs: number; batches: number }>);
       out.productionToday = prod ?? { runs: 0, batches: 0 };
 
