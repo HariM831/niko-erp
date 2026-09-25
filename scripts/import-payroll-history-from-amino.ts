@@ -260,10 +260,12 @@ await db.transaction(async (tx) => {
     if (!employeeId) continue;
     const photoUrl = await inhale(row.photo_file);
     if (photoUrl) photoCount++;
-    // Amino's own account of where the punch came from. niko's punch has no
-    // such column — its devices are its own — so it is said in the note,
-    // where HR already looks for "how did this row get here".
-    const note = [s(row.resolution_note), `Amino ${s(row.source) ?? "import"}`].filter(Boolean).join(" · ");
+    // ONLY what HR actually wrote. The note is not a free field: a note with
+    // no `resolvedAt` is how niko says "HR closed this day by hand", and the
+    // face-health reading throws those rows out — so stamping "Amino browser"
+    // on all 16,835 punches made every one of them invisible to it. Where the
+    // punch came from is already said by the day's own source, `import`.
+    const note = s(row.resolution_note);
     const done = await tx
       .insert(punches)
       .values({
