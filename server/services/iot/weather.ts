@@ -55,7 +55,9 @@ export async function outsideHumidityByHour(): Promise<Map<number, number>> {
 
 /** The outside humidity for the hour a reading was taken, or null when the service has nothing for it. */
 export function outsideHumidityAt(hours: Map<number, number>, at: Date): number | null {
-  const key = Math.floor(at.getTime() / 3_600_000) * 3_600_000;
+  // The service's hours begin on the IST hour, which is the UTC half-hour: round in IST, then back.
+  const IST = 5.5 * 3_600_000;
+  const key = Math.floor((at.getTime() + IST) / 3_600_000) * 3_600_000 - IST;
   return hours.get(key) ?? null;
 }
 
