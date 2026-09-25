@@ -178,11 +178,13 @@ function buildModel(ingredients: SolveIngredient[], standard: SolveStandard[]): 
  */
 /** What a bound asks for, in words: "2737–2842", "at least 17.58", "at most 5". */
 function askedOf(std: SolveStandard): string {
+  // A bound scaled to an intake carries more decimals than anyone asked for.
+  const f = (v: number) => (std.nutrient === "me" ? String(Math.round(v)) : String(Number(v.toFixed(3))));
   return std.minValue != null && std.maxValue != null
-    ? `${std.minValue}–${std.maxValue}`
+    ? `${f(std.minValue)}–${f(std.maxValue)}`
     : std.minValue != null
-      ? `at least ${std.minValue}`
-      : `at most ${std.maxValue}`;
+      ? `at least ${f(std.minValue)}`
+      : `at most ${f(std.maxValue!)}`;
 }
 
 /**

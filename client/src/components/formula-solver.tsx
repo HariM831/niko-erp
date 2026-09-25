@@ -151,8 +151,10 @@ function useSettled<T>(value: T, ms: number): T {
 const pct2 = (n: number) => n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const dpOf = (key: string) => (key === "me" ? 0 : 3);
 const fmtN = (key: string, v: number) => v.toLocaleString("en-IN", { minimumFractionDigits: dpOf(key), maximumFractionDigits: dpOf(key) });
+/** Room for the solver's three-decimal rounding, so a figure held exactly at its bound reads met. */
+const tol = (v: number) => Math.max(0.0006, Math.abs(v) * 1e-4);
 const within = (b: { minValue: number | null; maxValue: number | null }, v: number) =>
-  (b.minValue == null || v >= b.minValue - 1e-9) && (b.maxValue == null || v <= b.maxValue + 1e-9);
+  (b.minValue == null || v >= b.minValue - tol(b.minValue)) && (b.maxValue == null || v <= b.maxValue + tol(b.maxValue));
 const askedText = (key: string, b: { minValue: number | null; maxValue: number | null }) =>
   b.minValue != null && b.maxValue != null
     ? `${fmtN(key, b.minValue)}–${fmtN(key, b.maxValue)}`
@@ -968,10 +970,18 @@ export function FormulaSolver({
           </div>
 
           {feasible && result!.unmeasured.length > 0 && (
-            <p className="text-[12px] text-amber-700">
-              Counted as zero, so the mix may be short:{" "}
-              {result!.unmeasured.map((u) => `${u.ingredientName} (${u.nutrients.map(nutrientLabel).join(", ")})`).join(" · ")}
-            </p>
+            <details className="text-[12px] text-amber-700">
+              <summary className="cursor-pointer">
+                Counted as zero where no figure is on file — {joinWords(result!.unmeasured.map((u) => u.ingredientName))}
+              </summary>
+              <div className="mt-1 space-y-0.5 pl-4">
+                {result!.unmeasured.map((u) => (
+                  <div key={u.ingredientName}>
+                    {u.ingredientName}: {u.nutrients.map(nutrientLabel).join(", ")}
+                  </div>
+                ))}
+              </div>
+            </details>
           )}
 
           {feasible && (hasNow || (result!.shadowPrices?.length ?? 0) > 0) && (
