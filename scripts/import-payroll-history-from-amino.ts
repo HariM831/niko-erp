@@ -65,6 +65,7 @@ import {
   shifts,
 } from "@shared/schema";
 import { db } from "../server/db";
+import { istDate, recomputeRange } from "../server/services/day-resolution";
 
 const arg = (name: string) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -587,6 +588,20 @@ await db.transaction(async (tx) => {
   say(
     `  canteen             ${canteenCount} canteen, ${windowCount} windows, ${eligibleCount} eligibility, ${servingCount} servings (${guestCount} guests)`,
   );
+
+  /* ── The open month ─────────────────────────────────────────────────────
+   * Amino closed July and August; September it never resolved, so those days
+   * arrive as punches and nothing else. niko resolves a day when a punch
+   * comes through its own gate — these did not — so the month is resolved
+   * here, once, with niko's own rules. Imported and HR-set days are left
+   * exactly as they are, so this cannot touch what Amino counted.
+   */
+  const [y, m] = exp.lastClosedMonth.split("-").map(Number);
+  const firstOpen = m === 12 ? `${y! + 1}-01-01` : `${y}-${String(m! + 1).padStart(2, "0")}-01`;
+  const today = istDate();
+  const resolved =
+    firstOpen <= today ? await recomputeRange(tx, firstOpen, today, [...person.values()]) : { rows: 0, employees: 0 };
+  say(`  open month          ${resolved.rows} days resolved by niko, ${firstOpen} to ${today}`);
 
   if (photosMissing) problem(`${photosMissing} punch photograph(s) not in the folder — rows imported without them`);
   say();
