@@ -8,6 +8,7 @@ import { CommentsButton } from "../components/comments";
 import { JournalSection } from "../components/journal-section";
 import { CustomFieldsDisplay } from "../components/custom-fields";
 import { billNo, localYmd } from "../lib/utils";
+import { ApplyCreditsDialog, useCredits } from "../components/apply-credits";
 
 /** A vendor credit applied to the bill being viewed. */
 interface AppliedCredit {
@@ -322,6 +323,7 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
   const [error, setError] = useState<string | null>(null);
 
   const [busy, setBusy] = useState(false);
+  const [creditsOpen, setCreditsOpen] = useState(false);
 
   const { data: prefs } = useQuery({
     queryKey: ["preferences"],
@@ -333,6 +335,19 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
     enabled: !!config,
   });
   const contactId = (doc?.customerId ?? doc?.vendorId) as string | undefined;
+
+  /**
+   * What this party has spare — an advance already paid, a credit note not yet
+   * used. Asked for only where it could be used: a paid or void document has
+   * nothing to settle, and the question costs a round trip.
+   */
+  const creditSide = kind === "bill" ? "vendor" : kind === "invoice" ? "customer" : null;
+  const settleable =
+    !!creditSide &&
+    Number(doc?.balanceDue ?? 0) > 0 &&
+    (doc?.status === "open" || doc?.status === "sent" || doc?.status === "partially_paid");
+  const { data: credits } = useCredits(creditSide ?? "vendor", id, settleable);
+  const creditsAvailable = Number(credits?.total ?? 0) > 0;
 
   /*
    * Scale the sheet to the screen rather than reflow it.
@@ -493,6 +508,14 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
           >
             PDF/Print
           </button>
+          {settleable && creditsAvailable && (
+            <button
+              onClick={() => setCreditsOpen(true)}
+              className="rounded px-2.5 py-1.5 font-medium text-brand-700 hover:bg-brand-50"
+            >
+              Apply Credits
+            </button>
+          )}
           {visibleActions.map((a) => (
             <button
               key={a.label}
@@ -509,6 +532,22 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
       </header>
 
       {error && <p className="border-b bg-red-50 px-6 py-2 text-sm text-red-700 print:hidden">{error}</p>}
+
+      {/*
+        Money already on this party's ledger, said plainly on the document it
+        could settle. Without it the only offer here is Record Payment, and
+        paying an advance a second time is exactly what that leads to.
+      */}
+      {settleable && creditsAvailable && (
+        <div className="flex items-center gap-2 border-b bg-amber-50 px-6 py-2 text-[13px] print:hidden">
+          <span className="text-amber-900">
+            Credits available: <strong className="tabular-nums">{formatMoney(credits!.total)}</strong>
+          </span>
+          <button onClick={() => setCreditsOpen(true)} className="font-medium text-brand-700 hover:underline">
+            Apply now
+          </button>
+        </div>
+      )}
 
       {doc.status === "sent" && kind === "invoice" && Number(doc.balanceDue) > 0 && (
         <div className="flex items-center justify-between border-b bg-brand-50/60 px-6 py-2.5 text-[13px] print:hidden">
@@ -958,6 +997,15 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
           </div>
         </div>
       </div>
+      {creditsOpen && credits && creditSide && (
+        <ApplyCreditsDialog
+          side={creditSide}
+          documentId={id}
+          offer={credits}
+          onClose={() => setCreditsOpen(false)}
+          onApplied={() => setCreditsOpen(false)}
+        />
+      )}
     </div>
   );
 }

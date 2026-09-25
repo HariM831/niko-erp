@@ -75,6 +75,7 @@ import {
 } from "../services/payment-file";
 import { syncPurchaseRates } from "../services/purchases";
 import { istDate } from "../services/day-resolution";
+import { applyCredits, creditsFor, type Application } from "../services/apply-credits";
 
 export const purchasesRouter = Router();
 
@@ -752,6 +753,44 @@ purchasesRouter.patch(
           .returning();
         return updated!;
       });
+      res.json(result);
+    } catch (err) {
+      if (!handlePostingError(err, res)) throw err;
+    }
+  },
+);
+
+/** What this bill could be settled with: the vendor's advances and open credits. */
+purchasesRouter.get("/bills/:id/credits", requirePermission("purchases", "view"), async (req, res) => {
+  try {
+    res.json(await creditsFor("vendor", req.params.id!));
+  } catch (err) {
+    if (!handlePostingError(err, res)) throw err;
+  }
+});
+
+/**
+ * Settle a bill with money already paid, or with a credit note — Zoho's
+ * "Apply Credits". Recording a second payment for an advance already sent is
+ * what this exists to stop.
+ */
+purchasesRouter.post(
+  "/bills/:id/apply-credits",
+  requirePermission("purchases", "edit"),
+  validateBody(
+    z.object({
+      applications: z
+        .array(z.object({ kind: z.enum(["advance", "credit"]), id: z.string().uuid(), amount: money }))
+        .min(1)
+        .max(100),
+    }),
+  ),
+  async (req, res) => {
+    const body = req.body as { applications: Application[] };
+    try {
+      const result = await db.transaction(async (tx) =>
+        applyCredits(tx, "vendor", req.params.id!, body.applications),
+      );
       res.json(result);
     } catch (err) {
       if (!handlePostingError(err, res)) throw err;

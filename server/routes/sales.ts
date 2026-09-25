@@ -22,6 +22,7 @@ import { unapplyInvoicePayments, voidDispatchForInvoice } from "../services/egg-
 import { advancedSearch, listLimit, quickSearch } from "../services/document-search";
 import { customerPaymentSearch, invoiceSearch } from "../services/search-specs";
 import { getPreferences } from "../services/preferences";
+import { applyCredits, creditsFor, type Application } from "../services/apply-credits";
 import {
   applyDefaultSalesAccounts,
   computeDocumentTotals,
@@ -508,6 +509,45 @@ salesRouter.post(
           .returning();
         return updated!;
       });
+      res.json(result);
+    } catch (err) {
+      if (err instanceof PostingError) return res.status(422).json({ error: err.message });
+      throw err;
+    }
+  },
+);
+
+/** What this invoice could be settled with: the customer's advances and open credit notes. */
+salesRouter.get("/invoices/:id/credits", requirePermission("sales", "view"), async (req, res) => {
+  try {
+    res.json(await creditsFor("customer", req.params.id!));
+  } catch (err) {
+    if (err instanceof PostingError) return res.status(422).json({ error: err.message });
+    throw err;
+  }
+});
+
+/**
+ * Settle an invoice with money already received, or with a credit note —
+ * Zoho's "Apply Credits", and the mirror of the same call on a bill.
+ */
+salesRouter.post(
+  "/invoices/:id/apply-credits",
+  requirePermission("sales", "edit"),
+  validateBody(
+    z.object({
+      applications: z
+        .array(z.object({ kind: z.enum(["advance", "credit"]), id: z.string().uuid(), amount: money }))
+        .min(1)
+        .max(100),
+    }),
+  ),
+  async (req, res) => {
+    const body = req.body as { applications: Application[] };
+    try {
+      const result = await db.transaction(async (tx) =>
+        applyCredits(tx, "customer", req.params.id!, body.applications),
+      );
       res.json(result);
     } catch (err) {
       if (err instanceof PostingError) return res.status(422).json({ error: err.message });
