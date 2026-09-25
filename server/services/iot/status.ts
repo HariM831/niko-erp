@@ -27,12 +27,15 @@ const STALE_MS = 20 * 60_000;
 
 /**
  * How much wetter than the outside air a shed may be before it is a watch.
- * The pads and the birds both add water; a few points over the air coming
- * in is normal, more says the pads are running in air that cannot take it
- * or the fans are not carrying the birds' moisture out. Decided 25
- * September 2026: a fixed 82% line was a watch on every monsoon afternoon.
+ * The birds breathe water into the air and the pads add more: over the week
+ * to 25 September 2026 the sheds ran a median 12 to 17 points above the
+ * outside air with the pads off and 3 to 8 with them on, and the 90th
+ * percentile was about 25. Twenty catches the unusual tenth — a shed not
+ * carrying its moisture out — and leaves the rest to the wet-bulb check,
+ * which is where humidity actually hurts the birds. The old fixed 82% line
+ * was a watch on every monsoon afternoon.
  */
-const RH_OVER_OUTSIDE = 5;
+const RH_OVER_OUTSIDE = 20;
 /** When the weather service has no figure for the hour, the old fixed line. */
 const RH_FIXED = 82;
 
