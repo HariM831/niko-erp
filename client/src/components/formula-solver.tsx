@@ -63,6 +63,7 @@ interface Blocker {
   best: number | null;
   detail: string;
   with?: Array<{ key: string; asked: string }>;
+  easeTo?: number | null;
 }
 
 interface SolveResponse {
@@ -579,9 +580,11 @@ export function FormulaSolver({
                   </div>
                   {b.kind !== "inclusion" && (
                     <div className="mt-1.5 flex flex-wrap gap-2">
-                      {b.best != null && (
-                        <button onClick={() => easeTo(b.key, b.best!)} className="btn-secondary h-7 text-[12px]">
-                          Try with {nutrientLabel(b.key)} at {fmtN(b.key, b.best)} — this solve only
+                      {/* Eased to what every OTHER bound allows, so the one click lands on a
+                          mix — the clash group's own figure can still leave another bound short. */}
+                      {(b.easeTo ?? (b.kind === "nutrient" ? b.best : null)) != null && (
+                        <button onClick={() => easeTo(b.key, (b.easeTo ?? b.best)!)} className="btn-secondary h-7 text-[12px]">
+                          Try with {nutrientLabel(b.key)} at {fmtN(b.key, (b.easeTo ?? b.best)!)} — this solve only
                         </button>
                       )}
                       <button

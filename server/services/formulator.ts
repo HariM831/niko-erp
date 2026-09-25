@@ -82,6 +82,13 @@ export interface Blocker {
   detail: string;
   /** For a conflict: the other bounds in the group, with what each asked. `best` is then the most (or least) of `key` a mix reaches while meeting them. */
   with?: Array<{ key: string; asked: string }>;
+  /**
+   * Where to ease `key` for a mix to exist with every OTHER bound held — the
+   * one-click "try it eased". Not `best`, which only holds the clash group:
+   * easing Layer 1's energy to the group's 2,696 still left cystine short.
+   * Null when even that cannot be met.
+   */
+  easeTo?: number | null;
 }
 
 export interface SolveResult {
@@ -272,6 +279,8 @@ function diagnose(priced: SolveIngredient[], standard: SolveStandard[]): Blocker
     if (group.length >= 2 && !still.feasible) {
       const [lead, ...others] = group;
       const best = reach(priced, lead!, others);
+      const all = standard.filter((s) => s.minValue != null || s.maxValue != null);
+      const easeTo = reach(priced, lead!, all.filter((s) => s !== lead));
       const names = group.map((g) => g.nutrient).join(", ");
       out.push({
         kind: "conflict",
@@ -280,6 +289,7 @@ function diagnose(priced: SolveIngredient[], standard: SolveStandard[]): Blocker
         asked: askedOf(lead!),
         best,
         with: others.map((o) => ({ key: o.nutrient, asked: askedOf(o) })),
+        easeTo,
         detail:
           best == null
             ? `${names} can each be met alone, not all together.`
