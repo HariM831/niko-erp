@@ -362,15 +362,18 @@ export function FormulaSolver({
     });
 
   /** Ease the lead bound of a failed solve to what the materials reach — this solve only. */
-  const easeTo = (key: string, best: number) => {
+  /** The eased figure itself — rounded inward so it stays reachable, and the same number the button shows. */
+  const easedValue = (key: string, best: number): { min?: number; max?: number } | null => {
     const b = params.find((p) => p.nutrient === key);
-    if (!b) return;
+    if (!b) return null;
     const step = key === "me" ? 1 : 0.001;
-    const next: Ease = { ...ease };
-    if (b.minValue != null && best < b.minValue) next[key] = { min: Math.floor(best / step) * step };
-    else if (b.maxValue != null && best > b.maxValue) next[key] = { max: Math.ceil(best / step) * step };
-    else return;
-    runSolve(next);
+    if (b.minValue != null && best < b.minValue) return { min: Number((Math.floor(best / step) * step).toFixed(3)) };
+    if (b.maxValue != null && best > b.maxValue) return { max: Number((Math.ceil(best / step) * step).toFixed(3)) };
+    return null;
+  };
+  const easeTo = (key: string, best: number) => {
+    const e = easedValue(key, best);
+    if (e) runSolve({ ...ease, [key]: e });
   };
 
   const inputCls = "h-6 w-[52px] rounded border border-gray-200 px-1 text-right text-[11px] tabular-nums disabled:bg-gray-50 disabled:text-gray-400";
@@ -584,7 +587,7 @@ export function FormulaSolver({
                           mix — the clash group's own figure can still leave another bound short. */}
                       {(b.easeTo ?? (b.kind === "nutrient" ? b.best : null)) != null && (
                         <button onClick={() => easeTo(b.key, (b.easeTo ?? b.best)!)} className="btn-secondary h-7 text-[12px]">
-                          Try with {nutrientLabel(b.key)} at {fmtN(b.key, (b.easeTo ?? b.best)!)} — this solve only
+                          Try with {nutrientLabel(b.key)} at {(() => { const e = easedValue(b.key, (b.easeTo ?? b.best)!); return fmtN(b.key, e?.min ?? e?.max ?? (b.easeTo ?? b.best)!); })()} — this solve only
                         </button>
                       )}
                       <button
