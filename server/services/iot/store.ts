@@ -33,6 +33,7 @@ import {
   tagIdsFor,
   unpackHistoryRow,
   type BhTagValue,
+  fetchDeviceStatus,
 } from "./bhfarm";
 import { climbSince, type CounterSample } from "./counters";
 import { istDate, istDaysAgo } from "../day-resolution";
@@ -512,6 +513,19 @@ export interface PollResult {
  * from a working one until somebody needs the data, and by then the vendor's
  * window has closed.
  */
+/**
+ * The last poll's values per house, as one string, to catch a frozen feed.
+ *
+ * When the farm's link to the vendor platform drops, the platform keeps
+ * answering every poll with the last values it holds, stamped with the poll
+ * time, and nothing in the answer says so. On the night of 24–25 September
+ * 2026 that went on for twelve hours and niko stored 142 identical samples a
+ * shed as if the night had happened. Three thousand live tags, temperatures
+ * to a tenth and counters that climb, never come back identical twice
+ * running; when they do, the feed is frozen and the sample is not written.
+ */
+const lastFingerprint = new Map<string, string>();
+
 export async function pollOnce(): Promise<PollResult> {
   const [log] = await db.insert(iotPollLog).values({}).returning({ id: iotPollLog.id });
   const result: PollResult = { houses: 0, tags: 0, readings: 0, skipped: [] };
@@ -537,6 +551,19 @@ export async function pollOnce(): Promise<PollResult> {
       }
       const readings = await fetchCurrentValues(tags);
       const at = new Date();
+      // The platform's own word first: a controller it cannot reach has nothing new to say.
+      const status = await fetchDeviceStatus(device.houseCode).catch(() => null);
+      if (status && !status.isLiving) {
+        result.skipped.push(`${house.code}: controller not reachable, readings not stored`);
+        continue;
+      }
+      // Then the readings themselves: identical to the last poll means a frozen feed, whatever the platform says.
+      const fingerprint = readings.map((r) => `${r.tagId}=${r.value}`).join("|");
+      if (lastFingerprint.get(house.id) === fingerprint) {
+        result.skipped.push(`${house.code}: readings identical to the last poll, not stored`);
+        continue;
+      }
+      lastFingerprint.set(house.id, fingerprint);
       const kept = await saveReadings(house.id, readings, at);
       await writeDay(house.id, dayOf(at), [readings]);
 
