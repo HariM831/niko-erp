@@ -100,7 +100,7 @@ async function loadInputs(stage: (typeof lifeStage.enumValues)[number], itemIds:
     : [];
 
   const materialRows = await db
-    .select({ id: items.id, name: items.name, costPrice: items.costPrice, isFeedIngredient: items.isFeedIngredient })
+    .select({ id: items.id, name: items.name, costPrice: items.costPrice, isFeedIngredient: items.isFeedIngredient, fixedDose: items.fixedDose })
     .from(items)
     .where(
       itemIds?.length
@@ -314,6 +314,7 @@ feedFormulatorRouter.post(
           ...(costs ? { priceBasis: priceMap.get(m.id)?.basis ?? "never bought", pricedOn: priceMap.get(m.id)?.pricedOn ?? null } : {}),
           measured: Object.keys(n).length,
           contributes: bound.some((k) => (n[k] ?? 0) !== 0),
+          fixedDose: m.fixedDose,
         };
       }),
     });

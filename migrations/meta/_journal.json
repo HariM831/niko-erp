@@ -715,6 +715,13 @@
       "when": 1790314320297,
       "tag": "0101_feed_standard_intake",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1790315502180,
+      "tag": "0102_item_fixed_dose",
+      "breakpoints": true
     }
   ]
 }

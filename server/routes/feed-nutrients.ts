@@ -51,6 +51,7 @@ async function profile(itemId: string) {
       // Whether the formulator may reach it: shown beside the figures, because
       // a complete analysis on an item nobody can solve with is wasted work.
       isFeedIngredient: items.isFeedIngredient,
+      fixedDose: items.fixedDose,
     })
     .from(items)
     .where(eq(items.id, itemId));
@@ -125,11 +126,22 @@ feedNutrientsRouter.get(
 feedNutrientsRouter.post(
   "/:itemId/mark",
   requirePermission("feed_mill", "nutrients"),
-  validateBody(z.object({ isFeedIngredient: z.boolean() })),
+  // Either switch on its own: whether the formulator may reach the item, and
+  // whether it is dosed at a set amount rather than solved for.
+  validateBody(
+    z
+      .object({ isFeedIngredient: z.boolean().optional(), fixedDose: z.boolean().optional() })
+      .refine((b) => b.isFeedIngredient != null || b.fixedDose != null, "Nothing to change"),
+  ),
   async (req, res) => {
+    const body = req.body as { isFeedIngredient?: boolean; fixedDose?: boolean };
     const [row] = await db
       .update(items)
-      .set({ isFeedIngredient: req.body.isFeedIngredient, updatedAt: new Date() })
+      .set({
+        ...(body.isFeedIngredient != null ? { isFeedIngredient: body.isFeedIngredient } : {}),
+        ...(body.fixedDose != null ? { fixedDose: body.fixedDose } : {}),
+        updatedAt: new Date(),
+      })
       .where(eq(items.id, req.params.itemId!))
       .returning({ id: items.id, name: items.name });
     if (!row) return res.status(404).json({ error: "Item not found" });

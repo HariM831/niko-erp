@@ -65,6 +65,15 @@ export const items = pgTable("items", {
   isFeedIngredient: boolean("is_feed_ingredient").notNull().default(false),
 
   /**
+   * Dosed at a set amount, never by the least-cost arithmetic — a premix, an
+   * enzyme, a pigment. A premix's profile is matrix values valid only at its
+   * dose (Mixiblend P: 18,750 kcal and 20.6% lysine a kilo, true at 0.4% of
+   * the mix); left free, a solve used it at 1.5% as a cheap source of both.
+   * The formulator opens these locked at their amount in the recipe.
+   */
+  fixedDose: boolean("fixed_dose").notNull().default(false),
+
+  /**
    * What kind of thing this is, for segregation and the module gates. Null
    * means nobody has said yet — honest for a ninety-item master imported from
    * Zoho, and a null is excluded from every category-gated picker.

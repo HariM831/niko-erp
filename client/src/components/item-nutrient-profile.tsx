@@ -38,6 +38,7 @@ interface Profile {
     unit: string;
     costPrice: string | null;
     isFeedIngredient: boolean;
+    fixedDose?: boolean;
   };
   values: ProfileRow[];
 }
@@ -58,8 +59,8 @@ export function ItemNutrientProfile({ itemId }: { itemId: string }) {
   const [saved, setSaved] = useState<string | null>(null);
 
   const markIngredient = useMutation({
-    mutationFn: (isFeedIngredient: boolean) =>
-      api(`/api/feed/nutrients/${itemId}/mark`, { method: "POST", body: { isFeedIngredient } }),
+    mutationFn: (body: { isFeedIngredient?: boolean; fixedDose?: boolean }) =>
+      api(`/api/feed/nutrients/${itemId}/mark`, { method: "POST", body }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["feed-nutrients"] });
       void qc.invalidateQueries({ queryKey: ["item", itemId] });
@@ -157,10 +158,24 @@ export function ItemNutrientProfile({ itemId }: { itemId: string }) {
                       <input
                         type="checkbox"
                         checked={profile.item.isFeedIngredient ?? false}
-                        onChange={(e) => markIngredient.mutate(e.target.checked)}
+                        onChange={(e) => markIngredient.mutate({ isFeedIngredient: e.target.checked })}
                         className="h-3.5 w-3.5 accent-brand-500"
                       />
                       Available to the formulator
+                    </label>
+
+                    {/* A premix's figures are matrix values, true only at its dose. */}
+                    <label
+                      className="flex cursor-pointer items-center gap-1.5 text-[12px] text-gray-600"
+                      title="A premix, enzyme or pigment: the formulator holds it at its amount in the recipe instead of solving for it"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={profile.item.fixedDose ?? false}
+                        onChange={(e) => markIngredient.mutate({ fixedDose: e.target.checked })}
+                        className="h-3.5 w-3.5 accent-brand-500"
+                      />
+                      Fixed-dose additive
                     </label>
                     <span className="text-[12px] text-gray-500">
                       {measuredCount} of {NUTRIENTS.length} nutrients on file

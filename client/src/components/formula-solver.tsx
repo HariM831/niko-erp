@@ -124,6 +124,8 @@ interface MaterialInfo {
   measured: number;
   /** Carries a value for some nutrient the standard bounds. An additive does not. */
   contributes: boolean;
+  /** Dosed at a set amount — a premix, enzyme or pigment — so it opens locked. */
+  fixedDose?: boolean;
   priceBasis?: "delivered" | "last bill" | "standing price" | "never bought" | "not per kg";
   pricedOn?: string | null;
 }
@@ -277,9 +279,10 @@ export function FormulaSolver({
   };
 
   /**
-   * Additives open locked: a line whose item carries nothing the standard
-   * bounds, and that has no limit of its own, is fixed at its amount in the
-   * live recipe. Once per formula version and stage, so an unlock sticks.
+   * Additives open locked: a line whose item is marked a fixed-dose additive
+   * (a premix, whose figures are matrix values true only at its dose), or
+   * carries nothing the standard bounds, and has no limit of its own, is fixed
+   * at its amount in the live recipe. Once per formula version and stage, so an unlock sticks.
    */
   useEffect(() => {
     if (!nowQ.data || !current?.active) return;
@@ -291,7 +294,7 @@ export function FormulaSolver({
       for (const l of current.active!.lines) {
         const m = info.get(l.itemId);
         const own = prev[l.itemId];
-        if (!m || m.contributes || (own && (own.min.trim() || own.max.trim()))) continue;
+        if (!m || (m.contributes && !m.fixedDose) || (own && (own.min.trim() || own.max.trim()))) continue;
         const at = (nowMix[l.itemId] ?? 0).toFixed(2);
         next[l.itemId] = { min: at, max: at };
       }
