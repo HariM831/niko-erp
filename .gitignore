@@ -24,6 +24,11 @@ farm-export.tgz
 # Amino people export — Aadhar numbers, bank details, faces. Never in git.
 people-export/
 
+# Where a freshly downloaded Amino export is unpacked to be read and imported.
+# Same reason: staff Aadhar numbers, bank details, face vectors, punch photos.
+amino-import/
+payroll-export/
+
 # TimesFM venv for the egg price forecast — weights and torch, never committed.
 .venv-timesfm/
 
