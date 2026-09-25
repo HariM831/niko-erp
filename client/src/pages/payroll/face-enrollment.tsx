@@ -269,7 +269,7 @@ export function PayrollFaceEnrollmentPage() {
                   <tr key={e.id} className="table-row">
                     <Td>
                       <span className="flex items-center gap-2">
-                        <Avatar name={e.name} size="sm" src={e.hasPhoto ? `/api/payroll/employees/${e.id}/photo` : null} />
+                        <Avatar name={e.name} size="sm" src={e.hasPhoto ? `/api/payroll/employees/${e.id}/photo?v=${e.photoHash ?? ""}` : null} />
                         <span className="font-medium">{e.name}</span>
                         <span className="text-[11px] text-gray-400">{e.empCode}</span>
                       </span>

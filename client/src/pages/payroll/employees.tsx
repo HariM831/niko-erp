@@ -18,6 +18,7 @@ import {
   Avatar, Badge, Empty, EmployeeRow, ErrorBanner, Field, PageHeader, Pager, Spinner, Td, Th, dmy, fileToDataUrl, num, useEmployees, useErr, usePaged,
 } from "../../components/payroll/ui";
 import { DateInput } from "../../components/date-input";
+import { getFaceEmbedding, loadFaceEngine, loadImage } from "../../lib/face";
 
 interface Department { id: string; name: string; isActive: boolean; designations: { id: string; name: string; displayOrder: number; isActive: boolean }[] }
 interface WageRole { id: string; name: string; dailyRate: number; isActive: boolean }
@@ -313,7 +314,7 @@ export function PayrollEmployeesPage() {
               {paged.page.map((e) => (
                 <tr key={e.id} className="table-row cursor-pointer" onClick={() => setEditing(e.id)}>
                   <Td className="col-fill"><span className="flex items-center gap-2">
-                      <Avatar name={e.name} size="sm" src={e.hasPhoto ? `/api/payroll/employees/${e.id}/photo` : null} />
+                      <Avatar name={e.name} size="sm" src={e.hasPhoto ? `/api/payroll/employees/${e.id}/photo?v=${e.photoHash ?? ""}` : null} />
                       <span className="font-medium">{e.name}</span>
                       {!e.isActive && <Badge tone="gray">inactive</Badge>}
                     </span>
@@ -431,7 +432,7 @@ function EmployeeEditor({ id, departments, onClose, onSaved }: {
   // shared cards do exist, so it can be saved anyway, on purpose, this once.
   const [sharedId, setSharedId] = useState<{ message: string; field: string } | null>(null);
   const save = useMutation({
-    mutationFn: (allowSharedId: boolean = false) => {
+    mutationFn: async (allowSharedId: boolean = false) => {
       const body = {
         ...form,
         ...(allowSharedId && { allowSharedId: true }),
@@ -462,9 +463,16 @@ function EmployeeEditor({ id, departments, onClose, onSaved }: {
         openingCl: Number(form.openingCl) || 0,
         openingSl: Number(form.openingSl) || 0,
       };
-      return id
+      const saved = await (id
         ? api<EmployeeFull>(`/api/payroll/employees/${id}`, { method: "PATCH", body })
-        : api<EmployeeFull>("/api/payroll/employees", { method: "POST", body });
+        : api<EmployeeFull>("/api/payroll/employees", { method: "POST", body }));
+      // The face goes with the photograph it was read from, and only then: a
+      // vector saved against a picture that failed to save would be a face
+      // nobody can see the reason for.
+      if (newFace) {
+        await api(`/api/payroll/employees/${saved.id}/face`, { method: "POST", body: { descriptor: newFace } });
+      }
+      return saved;
     },
     onSuccess: () => { setSharedId(null); onSaved(); qc.invalidateQueries({ queryKey: ["payroll", "employee", id] }); onClose(); },
     onError: (e) => {
@@ -491,10 +499,41 @@ function EmployeeEditor({ id, departments, onClose, onSaved }: {
     onError: fail,
   });
 
+  /**
+   * A new photograph is a new face.
+   *
+   * The picture and the vector the gate matches against are two different
+   * things, and changing one here used to leave the other as it was: HR
+   * replaced a photograph, the list still showed the old one, and the gate
+   * carried on failing to recognise the person — which is exactly the
+   * complaint. So the new photograph is read for a face as it is picked, and
+   * the vector is saved with it.
+   */
+  const [faceNote, setFaceNote] = useState<string | null>(null);
+  const [newFace, setNewFace] = useState<number[] | null>(null);
+
   const pickFile = async (key: "photoUrl" | "panDocUrl" | "aadharDocUrl", file: File | undefined) => {
     if (!file) return;
     try {
-      set(key, await fileToDataUrl(file, key === "photoUrl" ? 512 : 1200));
+      const dataUrl = await fileToDataUrl(file, key === "photoUrl" ? 512 : 1200);
+      set(key, dataUrl);
+      if (key !== "photoUrl") return;
+      setNewFace(null);
+      setFaceNote("Reading the face…");
+      try {
+        await loadFaceEngine();
+        const face = await getFaceEmbedding(await loadImage(dataUrl));
+        if (!face.ok || !face.embedding) {
+          setFaceNote("No face found in that photograph — it will be saved as the picture, and the enrolled face left as it was.");
+        } else if (face.faceCount > 1) {
+          setFaceNote("More than one face in that photograph — the enrolled face is left as it was.");
+        } else {
+          setNewFace(face.embedding);
+          setFaceNote("A face was read from it; saving will enrol it.");
+        }
+      } catch {
+        setFaceNote("The face engine did not load, so only the picture will be saved.");
+      }
     } catch (x) { fail(x); }
   };
 
@@ -698,6 +737,7 @@ function EmployeeEditor({ id, departments, onClose, onSaved }: {
                       </div>
                     </div>
                     <div className="mt-1 text-[11px] text-gray-400">Resized to 512 px. Used for face enrolment and the gate.</div>
+                    {faceNote && <div className="mt-1 text-[11px] text-brand-700">{faceNote}</div>}
                   </div>
                   <DocField label="PAN card" value={form.panDocUrl} onPick={(f) => void pickFile("panDocUrl", f)} onClear={() => set("panDocUrl", null)} />
                   <DocField label="Aadhaar card" value={form.aadharDocUrl} onPick={(f) => void pickFile("aadharDocUrl", f)} onClear={() => set("aadharDocUrl", null)} />

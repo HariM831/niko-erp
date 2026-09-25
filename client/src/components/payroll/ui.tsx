@@ -275,6 +275,8 @@ export interface EmployeeRow {
   esiEnabled: boolean;
   isActive: boolean;
   hasPhoto: boolean;
+  /** The photograph's fingerprint; the avatar's URL carries it so a new one shows at once. */
+  photoHash: string | null;
   hasFace: boolean;
   shift: { id: string; name: string } | string | null;
 }

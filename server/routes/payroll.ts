@@ -505,6 +505,13 @@ payrollRouter.get("/employees", view, async (req, res) => {
       esiEnabled: employees.esiEnabled,
       isActive: employees.isActive,
       hasPhoto: sql<boolean>`${employees.photoUrl} IS NOT NULL`,
+      /**
+       * The photograph's fingerprint, which the avatar hangs on its URL. The
+       * thumbnail is cached hard at both ends — a new photograph under the
+       * same address showed the old face for five minutes, which reads as
+       * "my change did not save".
+       */
+      photoHash: employees.photoHash,
       hasFace: sql<boolean>`${employees.faceDescriptor} IS NOT NULL`,
       shift: sql<string | null>`(
         SELECT s.name FROM shift_assignments a JOIN shifts s ON s.id = a.shift_id
@@ -798,7 +805,12 @@ payrollRouter.get("/employees/:id/photo", view, async (req, res) => {
   const thumb = await photoThumbnail(row?.photoUrl ?? null, row?.photoHash);
   if (!thumb) return res.status(404).json({ error: "No photo" });
   res.setHeader("Content-Type", "image/jpeg");
-  res.setHeader("Cache-Control", "private, max-age=300");
+  // Named by its content, so a changed photograph is a changed address and
+  // the browser cannot serve yesterday's face. Revalidating keeps a stale
+  // address honest for anyone still holding one.
+  if (row?.photoHash) res.setHeader("ETag", `"${row.photoHash}"`);
+  res.setHeader("Cache-Control", "private, max-age=300, must-revalidate");
+  if (row?.photoHash && req.headers["if-none-match"] === `"${row.photoHash}"`) return res.status(304).end();
   res.send(thumb);
 });
 
