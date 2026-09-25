@@ -95,6 +95,15 @@ export const feedStandards = pgTable(
     version: integer("version").notNull().default(1),
     effectiveFrom: date("effective_from").notNull(),
     isActive: boolean("is_active").notNull().default(true),
+    /**
+     * The daily feed intake (g/bird/day) the concentrations are written for.
+     * A laying hen's needs are per bird per day, so the same needs at a
+     * different intake are a different concentration — Hy-Line tabulates Layer
+     * 1 at 85-105 g and holds 95 as typical. A solve for sheds eating 86 g
+     * scales every figure by 95/86. Null for a standard written as plain
+     * concentrations (the rearing diets), which is never scaled.
+     */
+    referenceIntakeG: numeric("reference_intake_g", { precision: 6, scale: 1 }),
     notes: text("notes"),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at").notNull().defaultNow(),

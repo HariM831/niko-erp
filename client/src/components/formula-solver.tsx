@@ -98,6 +98,8 @@ interface SolveResponse {
 interface StandardResponse {
   stage: LifeStage;
   version: number | null;
+  /** g/bird/day the figures are written for; null for a standard never scaled. */
+  referenceIntakeG?: number | null;
   params: Array<{ nutrient: string; minValue: number | null; maxValue: number | null }>;
 }
 
@@ -108,6 +110,12 @@ const num = (v: string) => (v.trim() === "" ? null : Number(v));
 /** "a", "a and b", "a, b and c". */
 const joinWords = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
 
+interface IntakeResponse {
+  formula: string;
+  transfers: { from: string; to: string } | null;
+  houses: Array<{ houseId: string; code: string; receivedKg: number; days: number; from: string | null; to: string | null; birds: number | null; intakeG: number | null }>;
+  intakeG: number | null;
+}
 interface MaterialInfo {
   id: string;
   name: string;
@@ -181,6 +189,8 @@ export function FormulaSolver({
   const [solvedWith, setSolvedWith] = useState("");
   const [edited, setEdited] = useState<Record<string, string>>({});
   const [ease, setEase] = useState<Ease>({});
+  /** Scale the standard to what the sheds on this feed eat — on unless turned off. */
+  const [byIntake, setByIntake] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saveOpen, setSaveOpen] = useState(false);
   const addRef = useRef<HTMLDivElement>(null);
@@ -198,6 +208,22 @@ export function FormulaSolver({
     queryKey: ["feed-standard", stage],
     queryFn: () => api(`/api/feed/formulator/standard/${stage}`),
   });
+  // What the sheds on this formula eat — from the feed transfers and their
+  // last seven days of records — and the standard scaled to it. A layer
+  // standard is written for one intake; birds eating less need it denser.
+  const intakeQ = useQuery<IntakeResponse>({
+    queryKey: ["formulator-intake", selected],
+    queryFn: () => api(`/api/feed/formulator/intake?formula=${encodeURIComponent(selected ?? "")}`),
+    enabled: !!selected,
+  });
+  const refIntake = standard?.referenceIntakeG ?? null;
+  const actualIntake = intakeQ.data?.intakeG ?? null;
+  const canScale = refIntake != null && actualIntake != null && actualIntake > 0;
+  const scaling = canScale && byIntake;
+  const factor = scaling ? refIntake! / actualIntake! : 1;
+  const sc = (v: number | null) => (v == null ? null : Math.round(v * factor * 1000) / 1000);
+  const params = (standard?.params ?? []).map((p) => (factor === 1 ? p : { ...p, minValue: sc(p.minValue), maxValue: sc(p.maxValue) }));
+  const written = new Map((standard?.params ?? []).map((p) => [p.nutrient, p]));
 
   const current = groups?.find((g) => g.name === selected);
   const lines = current?.active?.lines ?? [];
@@ -278,14 +304,20 @@ export function FormulaSolver({
         .map(([id, v]) => [id, { min: num(v.min) ?? undefined, max: num(v.max) ?? undefined }])
         .filter(([, v]) => (v as { min?: number; max?: number }).min != null || (v as { min?: number; max?: number }).max != null),
     );
-  const inputsKey = JSON.stringify([stage, pool, limits]);
+  const inputsKey = JSON.stringify([stage, pool, limits, scaling ? actualIntake : null]);
   const stale = !!result && solvedWith !== inputsKey;
 
   const solve = useMutation({
     mutationFn: (withEase: Ease) =>
       api<SolveResponse>("/api/feed/formulator/solve", {
         method: "POST",
-        body: { stage, itemIds: pool, limits: limitsBody(), ...(Object.keys(withEase).length ? { ease: withEase } : {}) },
+        body: {
+          stage,
+          itemIds: pool,
+          limits: limitsBody(),
+          ...(Object.keys(withEase).length ? { ease: withEase } : {}),
+          ...(scaling ? { intakeG: actualIntake } : {}),
+        },
       }),
     onSuccess: (r) => {
       setResult(r);
@@ -331,7 +363,6 @@ export function FormulaSolver({
   const solvedUnpriced = feasible ? pool.filter((id) => unpricedIds.has(id) && (solvedMix[id] ?? 0) > 0) : [];
 
   const addable = (materials ?? []).filter((m) => !pool.includes(m.id));
-  const params = standard?.params ?? [];
   const heldTo = new Map((result?.standard ?? []).map((b) => [b.nutrient, b]));
   const easedKeys = new Set((result?.eased ?? []).map((e) => e.nutrient));
 
@@ -521,6 +552,59 @@ export function FormulaSolver({
                 <span className="rounded-md border border-soil-200 bg-soil-50 px-2.5 py-1 text-soil-600">
                   {lockedCount} locked at a fixed amount
                 </span>
+              )}
+            </div>
+          )}
+
+          {selected && intakeQ.data && (
+            <div className="rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-[12.5px] text-gray-700">
+              {intakeQ.data.houses.length === 0 ? (
+                <span className="text-gray-500">No feed transfers of {selected} on file, so there is no intake to scale the standard to — it is used as written.</span>
+              ) : (
+                <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-2">
+                  <div className="min-w-0 space-y-0.5">
+                    <div>
+                      Fed to <span className="font-semibold">{joinWords(intakeQ.data.houses.map((h) => h.code))}</span>
+                      <span className="text-gray-500">
+                        {" "}(transfers {intakeQ.data.transfers ? `${formatDate(intakeQ.data.transfers.from)} – ${formatDate(intakeQ.data.transfers.to)}` : ""})
+                      </span>
+                      {actualIntake != null && (
+                        <>
+                          , eating <span className="font-semibold tabular-nums">{actualIntake.toFixed(1)} g</span> a bird a day over their last 7 days
+                        </>
+                      )}
+                      .
+                    </div>
+                    <div className="flex flex-wrap gap-x-3 text-[11.5px] text-gray-500">
+                      {intakeQ.data.houses.map((h) => (
+                        <span key={h.houseId} className="tabular-nums">
+                          {h.code}: {h.intakeG == null ? "no records" : `${h.intakeG.toFixed(1)} g`}
+                          {h.birds != null && ` · ${h.birds.toLocaleString("en-IN")} birds`}
+                          {h.from && h.to && ` · ${formatDate(h.from)} – ${formatDate(h.to)}`}
+                        </span>
+                      ))}
+                    </div>
+                    {canScale && (
+                      <div className="text-[11.5px] text-gray-500">
+                        {LIFE_STAGE_LABELS[stage]} is written for {refIntake} g
+                        {scaling
+                          ? `, so every requirement is ×${factor.toFixed(3)} (${refIntake} ÷ ${actualIntake!.toFixed(1)}) — energy included, since the guide gives it per bird per day.`
+                          : " — the requirements below are as written."}
+                        {scaling && Math.abs(actualIntake! - refIntake!) > 10 && (
+                          <span className="ml-1 text-amber-700">
+                            That is outside the guide's own table ({refIntake! - 10}–{refIntake! + 10} g), so the figures are scaled beyond it.
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  {canScale && (
+                    <label className="flex shrink-0 items-center gap-2 text-[12px] text-gray-600">
+                      <input type="checkbox" checked={byIntake} onChange={(e) => setByIntake(e.target.checked)} className="accent-brand-500" />
+                      Scale to this intake
+                    </label>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -785,6 +869,7 @@ export function FormulaSolver({
                 <span className="text-[13px] font-semibold">
                   Against {LIFE_STAGE_LABELS[stage]}
                   {standard?.version && <span className="ml-1.5 text-[11px] font-normal text-gray-400">v{standard.version}</span>}
+                  {scaling && <span className="ml-1.5 text-[11px] font-normal text-gray-500">at {actualIntake!.toFixed(1)} g/bird/day</span>}
                 </span>
                 <span className="text-[11px] text-gray-400">
                   {feasible && solvedAnalysis
@@ -814,7 +899,10 @@ export function FormulaSolver({
                       return (
                         <tr key={p.nutrient} className={`border-b border-gray-100 ${hit ? "bg-red-50/70" : ""}`} style={hit ? { boxShadow: "inset 3px 0 0 #dc2626" } : undefined}>
                           <td className="px-2 py-1">{nutrientLabel(p.nutrient)}</td>
-                          <td className="px-1.5 py-1 text-right tabular-nums text-gray-600">
+                          <td
+                            className="px-1.5 py-1 text-right tabular-nums text-gray-600"
+                            title={scaling && written.get(p.nutrient) ? `Written as ${askedText(p.nutrient, written.get(p.nutrient)!)} for ${refIntake} g/bird/day` : undefined}
+                          >
                             {askedText(p.nutrient, p)}
                             {eased && (
                               <span className="ml-1 rounded bg-amber-50 px-1 py-px text-[10px] text-amber-700" title="Eased for this solve only">

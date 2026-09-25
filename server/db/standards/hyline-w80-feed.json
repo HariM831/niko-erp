@@ -25,7 +25,7 @@
           "min": 2950
         },
         "cp": {
-          "min": 20.0
+          "min": 20
         },
         "ca": {
           "min": 1.05
@@ -111,7 +111,7 @@
           "min": 2650
         },
         "cp": {
-          "min": 16.0
+          "min": 16
         },
         "ca": {
           "min": 0.9
@@ -192,6 +192,7 @@
       "stage": "layer_1",
       "diet": "Layer 1",
       "note": "Guide page 27. First egg until peak, at the guide's typical intake of 95 g/bird/day. Concentrations rise if the flock eats less and fall if it eats more — the guide tabulates 85 to 105 g. Energy is printed as 260-270 kcal/bird/day, which at 95 g is 2,737-2,842 kcal/kg. Calcium and phosphorus are the guide's first-egg-to-32-weeks figures.",
+      "referenceIntakeG": 95,
       "params": {
         "me": {
           "min": 2737,
@@ -236,13 +237,14 @@
       "stage": "layer_2",
       "diet": "Layer 2",
       "note": "Guide page 27. Peak down to 90% lay, at the typical intake of 100 g/bird/day. Energy 270-280 kcal/bird/day is 2,700-2,800 kcal/kg at that intake. Calcium and phosphorus are the guide's weeks 33-55 figures.",
+      "referenceIntakeG": 100,
       "params": {
         "me": {
           "min": 2700,
           "max": 2800
         },
         "cp": {
-          "min": 16.0
+          "min": 16
         },
         "ca": {
           "min": 4.3
@@ -280,6 +282,7 @@
       "stage": "layer_3",
       "diet": "Layer 3",
       "note": "Guide page 27. 89-85% lay, at the typical intake of 105 g/bird/day. Energy 270-280 kcal/bird/day is 2,571-2,667 kcal/kg at that intake. Calcium and phosphorus are the guide's weeks 56-85 figures. The mill makes no Layer 3 feed today.",
+      "referenceIntakeG": 105,
       "params": {
         "me": {
           "min": 2571,

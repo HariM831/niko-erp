@@ -48,6 +48,8 @@ interface Diet {
   stage: string;
   diet: string;
   note: string;
+  /** The g/bird/day the concentrations are written for; layer diets only. */
+  referenceIntakeG?: number;
   params: Record<string, { min?: number; max?: number }>;
 }
 interface File {
@@ -221,7 +223,7 @@ async function main() {
         id = latest.id;
         await tx
           .update(feedStandards)
-          .set({ isActive: true, effectiveFrom: f.effectiveFrom })
+          .set({ isActive: true, effectiveFrom: f.effectiveFrom, referenceIntakeG: d.referenceIntakeG?.toString() ?? null })
           .where(eq(feedStandards.id, id));
         await tx.delete(feedStandardParams).where(eq(feedStandardParams.standardId, id));
       } else {
@@ -238,6 +240,7 @@ async function main() {
             version: (latest?.version ?? 0) + 1,
             effectiveFrom: f.effectiveFrom,
             isActive: true,
+            referenceIntakeG: d.referenceIntakeG?.toString() ?? null,
             notes,
           })
           .returning({ id: feedStandards.id });

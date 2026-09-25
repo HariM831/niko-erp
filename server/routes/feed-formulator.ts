@@ -9,14 +9,15 @@
  * a stale browser cannot solve against last week's prices.
  */
 import { Router } from "express";
-import { and, asc, eq, inArray, or } from "drizzle-orm";
+import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { feedStandardParams, feedStandards, itemNutrients, items, lifeStage } from "@shared/schema";
+import { feedStandardParams, feedStandards, formulas, itemNutrients, items, lifeStage } from "@shared/schema";
 import { db } from "../db";
 import { holds, requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { getPreferences } from "../services/preferences";
 import { materialPrices } from "../services/feed-prices";
+import { istDate } from "../services/day-resolution";
 import { solveLeastCost } from "../services/formulator";
 
 export const feedFormulatorRouter = Router();
@@ -48,10 +49,10 @@ feedFormulatorRouter.get(
       return res.status(404).json({ error: "No such life stage" });
     }
     const [standard] = await db
-      .select({ id: feedStandards.id, version: feedStandards.version })
+      .select({ id: feedStandards.id, version: feedStandards.version, referenceIntakeG: feedStandards.referenceIntakeG })
       .from(feedStandards)
       .where(and(eq(feedStandards.stage, stage), eq(feedStandards.isActive, true)));
-    if (!standard) return res.json({ stage, version: null, params: [] });
+    if (!standard) return res.json({ stage, version: null, referenceIntakeG: null, params: [] });
 
     const params = await db
       .select()
@@ -62,6 +63,7 @@ feedFormulatorRouter.get(
     res.json({
       stage,
       version: standard.version,
+      referenceIntakeG: standard.referenceIntakeG == null ? null : Number(standard.referenceIntakeG),
       params: params.map((p) => ({
         nutrient: p.nutrient,
         minValue: p.minValue == null ? null : Number(p.minValue),
@@ -86,7 +88,7 @@ const fixedAt = (l: { min?: number; max?: number } | undefined) =>
  */
 async function loadInputs(stage: (typeof lifeStage.enumValues)[number], itemIds: string[] | undefined, include: string[] = []) {
   const [standard] = await db
-    .select({ id: feedStandards.id, version: feedStandards.version })
+    .select({ id: feedStandards.id, version: feedStandards.version, referenceIntakeG: feedStandards.referenceIntakeG })
     .from(feedStandards)
     .where(and(eq(feedStandards.stage, stage), eq(feedStandards.isActive, true)));
   const params = standard
@@ -141,7 +143,11 @@ const easeSchema = z
   .record(z.string().max(40), z.object({ min: z.number().nullable().optional(), max: z.number().nullable().optional() }))
   .optional();
 
-const solveBody = solveSchema.extend({ ease: easeSchema });
+const solveBody = solveSchema.extend({
+  ease: easeSchema,
+  /** g/bird/day the sheds on this feed actually eat; scales the standard from its reference intake. */
+  intakeG: z.number().min(20).max(300).optional(),
+});
 
 feedFormulatorRouter.post(
   "/solve",
@@ -165,8 +171,20 @@ feedFormulatorRouter.post(
      * to go back with it, with what moved listed, so the screen and the save
      * dialog can both say the mix does not meet the standard as written.
      */
+    /**
+     * A layer standard is a daily need written as a concentration at one
+     * intake. Sheds eating less need it denser, more need it thinner: every
+     * figure — energy included, which Hy-Line prints per bird per day — is
+     * scaled by reference intake over actual. The guide's own table by intake
+     * follows this to its rounding. Easing, if any, applies after.
+     */
+    const ref = standard.referenceIntakeG == null ? null : Number(standard.referenceIntakeG);
+    const factor = ref != null && body.intakeG ? ref / body.intakeG : 1;
+    const sc = (v: number | null) => (v == null ? null : Math.round(v * factor * 1000) / 1000);
+    const scaled = factor === 1 ? bounds : bounds.map((b) => ({ nutrient: b.nutrient, minValue: sc(b.minValue), maxValue: sc(b.maxValue) }));
+
     const eased: Array<{ nutrient: string; from: { min: number | null; max: number | null }; to: { min: number | null; max: number | null } }> = [];
-    const heldTo = bounds.map((b) => {
+    const heldTo = scaled.map((b) => {
       const e = body.ease?.[b.nutrient];
       if (!e) return b;
       const to = {
@@ -235,6 +253,7 @@ feedFormulatorRouter.post(
       standard: heldTo,
       eased,
       leftOutRich,
+      intake: ref != null && body.intakeG ? { referenceIntakeG: ref, intakeG: body.intakeG, factor: Math.round(factor * 10000) / 10000 } : null,
       ...(costs ? { prices: Object.fromEntries(materialRows.map((m) => [m.id, priceOf(m)])) } : {}),
       unpriced: materialRows.filter((m) => priceOf(m) == null).map((m) => m.name),
     });
@@ -300,3 +319,85 @@ feedFormulatorRouter.post(
     });
   },
 );
+
+/**
+ * What the birds on a formula actually eat.
+ *
+ * Which sheds eat it comes from the feed transfers: every shed that received
+ * the formula's feed in the seven days up to its latest transfer. Each shed's
+ * intake is its feed over its average birds across its own last seven days
+ * on file; the formula's is the same across all of them together, so a big
+ * shed counts for more than a small one. The layer standards are written for
+ * one intake (Hy-Line's typical), and the solve scales them to this.
+ */
+feedFormulatorRouter.get("/intake", requirePermission("feed_mill", "view"), async (req, res) => {
+  const name = typeof req.query.formula === "string" ? req.query.formula : "";
+  if (!name) return res.status(400).json({ error: "Name a formula" });
+  const [f] = await db
+    .select({ itemId: formulas.outputItemId })
+    .from(formulas)
+    .where(and(eq(formulas.name, name), eq(formulas.isActive, true)))
+    .limit(1);
+  if (!f) return res.json({ formula: name, houses: [], intakeG: null, transfers: null });
+
+  const sheds = (
+    await db.execute(sql`
+      WITH last AS (
+        SELECT max(transfer_date) AS d FROM feed_transfers
+         WHERE item_id = ${f.itemId} AND status::text <> 'void' AND to_house_id IS NOT NULL
+      )
+      SELECT t.to_house_id AS "houseId", h.code AS "code", sum(t.quantity_kg)::float8 AS "kg",
+             min(t.transfer_date)::text AS "from", max(t.transfer_date)::text AS "to"
+        FROM feed_transfers t
+        JOIN last ON true
+        JOIN houses h ON h.id = t.to_house_id
+       WHERE t.item_id = ${f.itemId} AND t.status::text <> 'void'
+         AND t.transfer_date > last.d - 7 AND t.transfer_date <= last.d
+       GROUP BY 1, 2
+       ORDER BY 2
+    `)
+  ).rows as Array<{ houseId: string; code: string; kg: number; from: string; to: string }>;
+  if (!sheds.length) return res.json({ formula: name, houses: [], intakeG: null, transfers: null });
+
+  const today = istDate();
+  const days = (
+    await db.execute(sql`
+      SELECT house_id AS "houseId", day::text AS "day", sum(feed_kg)::float8 AS "feedKg",
+             sum((opening_birds + closing_birds) / 2.0)::float8 AS "birds"
+        FROM flock_day
+       WHERE house_id IN (${sql.join(sheds.map((s) => sql`${s.houseId}::uuid`), sql`, `)})
+         AND feed_kg IS NOT NULL AND feed_kg > 0 AND day <= ${today}
+       GROUP BY 1, 2
+       ORDER BY 1, 2 DESC
+    `)
+  ).rows as Array<{ houseId: string; day: string; feedKg: number; birds: number }>;
+
+  let feed = 0;
+  let birdDays = 0;
+  const houses = sheds.map((s) => {
+    const own = days.filter((d) => d.houseId === s.houseId).slice(0, 7);
+    const kgFed = own.reduce((a, d) => a + d.feedKg, 0);
+    const birds = own.reduce((a, d) => a + d.birds, 0);
+    feed += kgFed;
+    birdDays += birds;
+    return {
+      houseId: s.houseId,
+      code: s.code,
+      receivedKg: Math.round(s.kg),
+      days: own.length,
+      from: own.at(-1)?.day ?? null,
+      to: own[0]?.day ?? null,
+      birds: own.length ? Math.round(birds / own.length) : null,
+      intakeG: birds > 0 ? Math.round((kgFed * 1000 * 10) / birds) / 10 : null,
+    };
+  });
+  res.json({
+    formula: name,
+    transfers: {
+      from: sheds.reduce((m, s) => (s.from < m ? s.from : m), sheds[0]!.from),
+      to: sheds.reduce((m, s) => (s.to > m ? s.to : m), sheds[0]!.to),
+    },
+    houses,
+    intakeG: birdDays > 0 ? Math.round((feed * 1000 * 10) / birdDays) / 10 : null,
+  });
+});
