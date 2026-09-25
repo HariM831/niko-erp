@@ -9,6 +9,13 @@ import { gstStateCode, validateBody } from "../lib/validate";
 
 export const locationsRouter = Router();
 
+/**
+ * A point is stored as an exact decimal, not a float: a coordinate typed by a
+ * person is a decimal, and drizzle hands numeric columns strings. Null clears
+ * it, which is how a site stops claiming punches.
+ */
+const point = (v: number | null | undefined) => (v == null ? v : String(v));
+
 const locationSchema = z.object({
   code: z
     .string()
@@ -32,9 +39,9 @@ const locationSchema = z.object({
    * into "at the mill" rather than "somewhere in Assam". Left blank, the site
    * simply never claims a punch — better a missing letter than a wrong one.
    */
-  latitude: z.coerce.number().min(-90).max(90).nullish(),
-  longitude: z.coerce.number().min(-180).max(180).nullish(),
-  radiusM: z.coerce.number().int().min(50).max(50_000).nullish(),
+  latitude: z.coerce.number().min(-90).max(90).nullable().optional(),
+  longitude: z.coerce.number().min(-180).max(180).nullable().optional(),
+  radiusM: z.coerce.number().int().min(50).max(50_000).optional(),
   notes: z.string().optional(),
   isActive: z.boolean().optional(),
 });
@@ -52,7 +59,8 @@ locationsRouter.post(
   requirePermission("settings", "create"),
   validateBody(locationSchema),
   async (req, res) => {
-    const body = req.body as z.infer<typeof locationSchema>;
+    const { latitude, longitude, ...rest } = req.body as z.infer<typeof locationSchema>;
+    const body = { ...rest, latitude: point(latitude), longitude: point(longitude) };
     const code = body.code.toUpperCase();
     try {
       const row = await db.transaction(async (tx) => {
@@ -87,7 +95,12 @@ locationsRouter.patch(
   requirePermission("settings", "edit"),
   validateBody(locationSchema.partial()),
   async (req, res) => {
-    const body = req.body as Partial<z.infer<typeof locationSchema>>;
+    const { latitude, longitude, ...rest } = req.body as Partial<z.infer<typeof locationSchema>>;
+    const body = {
+      ...rest,
+      ...(latitude !== undefined && { latitude: point(latitude) }),
+      ...(longitude !== undefined && { longitude: point(longitude) }),
+    };
     const existing = await db.query.locations.findFirst({
       where: eq(locations.id, req.params.id!),
     });

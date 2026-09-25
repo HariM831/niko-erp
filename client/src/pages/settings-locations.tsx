@@ -37,6 +37,27 @@ interface Location {
   isActive: boolean;
 }
 
+/**
+ * A coordinate as people actually have it to hand.
+ *
+ * Google Maps hands out 26°38'35.5"N 92°36'55.9"E and a phone hands out
+ * 26.643194 — both are the same place, and asking somebody to convert one to
+ * the other by hand is how a farm ends up in the Bay of Bengal. Degrees,
+ * minutes and seconds are read here; a plain decimal passes straight through.
+ * Anything else returns null and the field stays as typed, unsaved.
+ */
+export function parseCoordinate(raw: string): number | null {
+  const t = raw.trim();
+  if (!t) return null;
+  const plain = Number(t);
+  if (Number.isFinite(plain)) return plain;
+  const m = t.match(/^(\d+(?:\.\d+)?)\s*[°d:\s]\s*(?:(\d+(?:\.\d+)?)\s*['′m:\s]\s*)?(?:(\d+(?:\.\d+)?)\s*["″s]?\s*)?([NSEW])?$/i);
+  if (!m) return null;
+  const deg = Number(m[1]) + Number(m[2] ?? 0) / 60 + Number(m[3] ?? 0) / 3600;
+  const hemi = m[4]?.toUpperCase();
+  return hemi === "S" || hemi === "W" ? -deg : deg;
+}
+
 const TYPES = [
   { key: "farm", label: "Farm" },
   { key: "feed_mill", label: "Feed Mill" },
@@ -194,9 +215,25 @@ function LocationEditor({
   const submit = async () => {
     setBusy(true);
     setError(null);
-    const body = Object.fromEntries(
+    const body: Record<string, unknown> = Object.fromEntries(
       Object.entries(form).map(([k, v]) => [k, v === "" ? undefined : v]),
     );
+    // Typed as degrees or as a decimal; stored as a decimal either way. An
+    // emptied box clears the point, which stops the site claiming punches.
+    for (const k of ["latitude", "longitude"] as const) {
+      const typed = form[k].trim();
+      if (!typed) {
+        body[k] = location ? null : undefined;
+        continue;
+      }
+      const parsed = parseCoordinate(typed);
+      if (parsed == null) {
+        setBusy(false);
+        setError(`${k === "latitude" ? "Latitude" : "Longitude"} is not a coordinate: "${typed}"`);
+        return;
+      }
+      body[k] = parsed;
+    }
     try {
       if (location) {
         await api(`/api/locations/${location.id}`, { method: "PATCH", body });
@@ -296,7 +333,14 @@ function LocationEditor({
         <p className="col-span-6 -mt-1 text-[12px] text-gray-500">
           A punch at the gate records only its coordinates. Fill these in and the attendance calendar
           shows which site each punch was made at; leave them blank and it shows none. The reach is
-          how far from the point still counts as being here — 5,000 m suits a farm.
+          how far from the point still counts as being here — 5,000 m suits a farm. Either form does:
+          26.643194 or 26°38&apos;35.5&quot;N.
+          {(form.latitude.trim() || form.longitude.trim()) && (
+            <span className="ml-1 text-gray-600">
+              Reads as {parseCoordinate(form.latitude)?.toFixed(6) ?? "?"},{" "}
+              {parseCoordinate(form.longitude)?.toFixed(6) ?? "?"}.
+            </span>
+          )}
         </p>
 
         <div className="col-span-2">
