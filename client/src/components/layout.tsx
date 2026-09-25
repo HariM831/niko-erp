@@ -21,8 +21,10 @@ import {
   Bird,
   Menu,
   MoreHorizontal,
+  PanelLeftClose,
   X,
 } from "lucide-react";
+import { useStoredToggle } from "../lib/use-stored-toggle";
 import { useAuth } from "../auth";
 import { TopBar } from "./topbar";
 import { SearchProvider, useSearchContext } from "./search-context";
@@ -55,6 +57,7 @@ function SidebarBody({
   openGroup,
   setOpenGroup,
   onNavigate,
+  onHide,
   user,
   logout,
 }: {
@@ -63,6 +66,8 @@ function SidebarBody({
   openGroup: string | null;
   setOpenGroup: (v: string | null) => void;
   onNavigate: () => void;
+  /** Desktop only: tuck the rail away. The top bar brings it back. */
+  onHide?: () => void;
   user: ReturnType<typeof useAuth>["user"];
   logout: () => Promise<void> | void;
 }) {
@@ -75,10 +80,20 @@ function SidebarBody({
 
   return (
     <>
-      <div className="flex h-14 items-center px-4">
+      <div className="flex h-14 items-center justify-between px-4">
         {/* brand-500 rather than 600: the deeper step goes muddy on the rail's
             dark ground, in either accent. */}
         <LogoMark className="h-8" color="bg-brand-500" />
+        {onHide && (
+          <button
+            onClick={onHide}
+            className="rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-sidebar-hover hover:text-white"
+            title="Hide sidebar"
+            aria-label="Hide sidebar"
+          >
+            <PanelLeftClose size={16} />
+          </button>
+        )}
       </div>
       <nav className="flex-1 overflow-y-auto px-2.5 py-2 text-[13px]">
         {navItems.map((item) => {
@@ -223,6 +238,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
   });
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  // The desktop rail can be put away for a wide screen like the formulator.
+  const [railHidden, setRailHidden] = useStoredToggle("niko.sidebar.hidden", false);
 
   const isGroupActive = (item: NavItem) =>
     item.children?.some((c) => location.startsWith(c.path)) ?? false;
@@ -297,17 +314,20 @@ export function AppLayout({ children }: { children: ReactNode }) {
     <SearchProvider>
       <div className="flex h-screen overflow-hidden">
         {/* Desktop rail */}
-        <aside className="hidden w-[218px] flex-col bg-sidebar text-gray-400 print:hidden lg:flex">
-          <SidebarBody
-            navItems={navItems}
-            location={location}
-            openGroup={openGroup}
-            setOpenGroup={setOpenGroup}
-            onNavigate={() => {}}
-            user={user}
-            logout={logout}
-          />
-        </aside>
+        {!railHidden && (
+          <aside className="hidden w-[218px] shrink-0 flex-col bg-sidebar text-gray-400 print:hidden lg:flex">
+            <SidebarBody
+              navItems={navItems}
+              location={location}
+              openGroup={openGroup}
+              setOpenGroup={setOpenGroup}
+              onNavigate={() => {}}
+              onHide={() => setRailHidden(true)}
+              user={user}
+              logout={logout}
+            />
+          </aside>
+        )}
 
         {/* Mobile drawer — the same rail, slid in over the page */}
         {drawerOpen && (
@@ -345,7 +365,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
           {/* The desktop bar carries search and the org switcher. On a phone it
               would take a third of the screen, so it stays behind lg. */}
           <div className="hidden lg:block">
-            <TopBar />
+            <TopBar onShowSidebar={railHidden ? () => setRailHidden(false) : undefined} />
           </div>
 
           {/* pb-24 clears the bottom bar. Without it the last row of every

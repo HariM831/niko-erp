@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Bell, ChevronDown, Plus } from "lucide-react";
+import { Bell, ChevronDown, PanelLeftOpen, Plus } from "lucide-react";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { QuickSearch } from "./quick-search";
@@ -38,7 +38,8 @@ const QUICK_CREATE: Array<{ group: string; items: Array<{ label: string; path: s
   },
 ];
 
-export function TopBar() {
+/** `onShowSidebar` is given only while the sidebar is hidden, and brings it back. */
+export function TopBar({ onShowSidebar }: { onShowSidebar?: () => void } = {}) {
   const [, navigate] = useLocation();
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
@@ -67,6 +68,16 @@ export function TopBar() {
         than offering a search that would go nowhere.
       */}
       <div className="flex min-w-0 flex-1 items-center gap-4">
+        {onShowSidebar && (
+          <button
+            onClick={onShowSidebar}
+            className="btn-ghost -ml-2 shrink-0 p-2"
+            title="Show sidebar"
+            aria-label="Show sidebar"
+          >
+            <PanelLeftOpen size={17} />
+          </button>
+        )}
         {config && (
           <QuickSearch
             title={config.title}

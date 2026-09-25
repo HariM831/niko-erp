@@ -15,7 +15,8 @@
  */
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, Plus } from "lucide-react";
+import { useStoredToggle } from "../lib/use-stored-toggle";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { useLocalSearch } from "../components/search-context";
@@ -34,6 +35,9 @@ export function FeedFormulasPage() {
   /** null = the comparison. "" = a formula that does not exist yet. */
   const [selected, setSelected] = useState<string | null>(null);
   const { can } = useAuth();
+  // The list can be put away to give the workbench the width; a picker in the
+  // header then does its job.
+  const [listHidden, setListHidden] = useStoredToggle("niko.formulas.list-hidden", false);
 
   const { data: groups } = useQuery<FormulaGroup[]>({
     queryKey: ["feed-formulas"],
@@ -57,9 +61,33 @@ export function FeedFormulasPage() {
   return (
     <div className="flex h-full flex-col">
       <header className="page-header flex flex-wrap items-start justify-between gap-2 px-4 py-3 sm:px-6">
-        <div>
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            onClick={() => setListHidden(!listHidden)}
+            className="btn-ghost -ml-2 shrink-0 p-1.5"
+            title={listHidden ? "Show the formula list" : "Hide the formula list"}
+            aria-label={listHidden ? "Show the formula list" : "Hide the formula list"}
+          >
+            {listHidden ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+          </button>
           <h1 className="text-lg font-semibold">Formulas</h1>
-          </div>
+          {listHidden && (
+            <select
+              value={selected ?? "__all"}
+              onChange={(e) => setSelected(e.target.value === "__all" ? null : e.target.value)}
+              className="input ml-2 h-8 w-auto min-w-0 py-0 text-[13px]"
+              aria-label="Formula"
+            >
+              <option value="__all">All formulas</option>
+              {groups?.map((g) => (
+                <option key={g.name} value={g.name}>
+                  {g.name}
+                </option>
+              ))}
+              {selected === "" && <option value="">New formula</option>}
+            </select>
+          )}
+        </div>
         <button
           onClick={() => setSelected("")}
           className="btn-secondary flex shrink-0 items-center gap-1"
@@ -69,7 +97,7 @@ export function FeedFormulasPage() {
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        <aside className="flex shrink-0 gap-2 overflow-x-auto border-b bg-white p-2 lg:w-56 lg:flex-col lg:gap-0 lg:overflow-x-visible lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-0">
+        <aside className={`${listHidden ? "hidden" : "flex"} shrink-0 gap-2 overflow-x-auto border-b bg-white p-2 lg:w-56 lg:flex-col lg:gap-0 lg:overflow-x-visible lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-0`}>
           {entry(null, "All formulas", can("feed_mill", "costs") ? "Side by side, with cost per kg" : "Side by side")}
           {shownGroups?.map((g) => (
             <div key={g.name}>
@@ -91,7 +119,7 @@ export function FeedFormulasPage() {
         </aside>
 
         <main className="min-w-0 flex-1 overflow-y-auto bg-surface p-3 lg:p-5">
-          <div className="mx-auto max-w-5xl">
+          <div className={`mx-auto ${listHidden ? "max-w-7xl" : "max-w-5xl"}`}>
             {selected === null ? (
               <FormulaMatrix onPick={(n) => setSelected(n)} />
             ) : (
