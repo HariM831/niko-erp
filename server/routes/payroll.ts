@@ -59,6 +59,7 @@ import {
   onRollsDuring,
   withinService,
 } from "../services/day-resolution";
+import { siteForPoint, siteLegend } from "../services/punch-sites";
 import { applyLeave, approveLeave, deleteLeave, leaveBalance, leavesInRange, rejectLeave } from "../services/leave";
 import {
   advanceOutstanding,
@@ -1158,9 +1159,40 @@ payrollRouter.get("/punches/open", view, async (req, res) => {
   // midnight until he leaves, his entry is "dangling on a past day" by the
   // calendar and perfectly in order by the shift.
   const inProgress = new Set((await carriedEntries(db)).map((c) => c.inPunch.id));
+
+  /*
+   * A day somebody has already settled is not HR's to work through.
+   *
+   * Two settle it. A month that has been paid — its payroll run confirmed — is
+   * closed: reopening a forgotten punch-out from July changes a figure that is
+   * in somebody's bank account. And a day whose row was imported or set by
+   * hand has already been ruled on, by Amino's own resolver or by HR here; the
+   * missing `out` behind it is history, not a question.
+   *
+   * Without this the Amino import put 159 settled days from July and August on
+   * the list — a queue nobody could ever empty.
+   */
+  const closed = await db
+    .select({ month: payrollRuns.month, year: payrollRuns.year })
+    .from(payrollRuns)
+    .where(eq(payrollRuns.status, "confirmed"));
+  const closedMonths = new Set(closed.map((r) => `${r.year}-${String(r.month).padStart(2, "0")}`));
+  const settled = await db
+    .select({ employeeId: attendanceDays.employeeId, day: attendanceDays.day })
+    .from(attendanceDays)
+    .where(inArray(attendanceDays.source, ["import", "manual"]));
+  const settledSet = new Set(settled.map((r) => `${r.employeeId}|${r.day}`));
+
   res.json(
     last
-      .filter((p) => p.type === "in" && !p.resolvedAt && !inProgress.has(p.id))
+      .filter(
+        (p) =>
+          p.type === "in" &&
+          !p.resolvedAt &&
+          !inProgress.has(p.id) &&
+          !closedMonths.has(p.punchDate.slice(0, 7)) &&
+          !settledSet.has(`${p.employeeId}|${p.punchDate}`),
+      )
       .sort((a, b) => (a.punchDate < b.punchDate ? 1 : -1)),
   );
 });
@@ -1282,15 +1314,31 @@ payrollRouter.get("/attendance/employee/:id", view, async (req, res) => {
   const punchesByDay = new Map<string, typeof punchRows>();
   for (const p of punchRows) punchesByDay.set(p.punchDate, [...(punchesByDay.get(p.punchDate) ?? []), p]);
 
+  const ctx = await loadContext(db, from, to, [employeeId]);
+  const assignments = ctx.assignmentsByEmp.get(employeeId) ?? [];
+
+  // The site letter is worked out from each punch's own coordinates, so a day
+  // spent at the mill reads differently from a day at the farm.
+  const siteOf = new Map<string, { code: string; name: string } | null>();
+  for (const p of punchRows) {
+    const site = await siteForPoint(p.latitude, p.longitude);
+    siteOf.set(p.id, site ? { code: site.code, name: site.name } : null);
+  }
+
   const totals = emptyTotals();
   const days: Record<number, unknown> = {};
   for (const r of dayRows) {
     addToTotals(totals, r.status);
+    // The shift the day was judged against, which is the assignment in force
+    // THAT day — a roster change mid-month must not re-read the days before it.
+    const dayShift = shiftForDate(r.day, assignments, ctx.shiftById) ?? null;
     days[Number(r.day.slice(8))] = {
       status: r.status,
       source: r.source,
       hours: r.workedHours,
       note: r.note,
+      shiftName: dayShift?.name ?? null,
+      shiftWindow: dayShift ? `${dayShift.startTime}–${dayShift.endTime}` : null,
       punches: (punchesByDay.get(r.day) ?? []).map((p) => ({
         id: p.id,
         type: p.type,
@@ -1298,15 +1346,15 @@ payrollRouter.get("/attendance/employee/:id", view, async (req, res) => {
         method: p.method,
         matchScore: p.matchScore,
         photoUrl: p.photoUrl,
+        site: siteOf.get(p.id) ?? null,
         location: p.latitude != null ? { latitude: p.latitude, longitude: p.longitude, accuracyM: p.accuracyM } : null,
       })),
     };
   }
 
-  const ctx = await loadContext(db, from, to, [employeeId]);
-  const shift = shiftForDate(to, ctx.assignmentsByEmp.get(employeeId) ?? [], ctx.shiftById) ?? null;
+  const shift = shiftForDate(to, assignments, ctx.shiftById) ?? null;
   const leaves = await leavesInRange(db, employeeId, from, to);
-  res.json({ days, totals, shift, leaves });
+  res.json({ days, totals, shift, leaves, siteLegend: await siteLegend() });
 });
 
 const overrideBody = z.object({

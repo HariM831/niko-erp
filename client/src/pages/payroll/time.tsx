@@ -28,14 +28,22 @@ import {
 import { DateInput, TimeInput } from "../../components/date-input";
 
 /* ── shared types ──────────────────────────────────────────────────────── */
-interface DayCell { status: AttStatus; source: string; hours: number }
+interface DayCell { status: AttStatus; source: string; hours: number; note?: string | null; shiftName?: string | null; shiftWindow?: string | null }
 interface Totals { P: number; H: number; A: number; WO: number; HO: number; L: number; paid: number; lop: number }
-interface Punch { id: string; type: "in" | "out"; punchedAt: string; method: string; matchScore: number | null; photoUrl: string | null; location: string | null }
+interface Punch {
+  id: string; type: "in" | "out"; punchedAt: string; method: string; matchScore: number | null;
+  photoUrl: string | null;
+  /** Which site the coordinates put this punch at; null when it carried no GPS. */
+  site: { code: string; name: string } | null;
+  location: { latitude: number; longitude: number; accuracyM: number | null } | null;
+}
 interface EmployeeMonth {
   days: Record<string, DayCell & { punches: Punch[] }>;
   totals: Totals;
   shift: { id: string; name: string; startTime: string; endTime: string; weeklyOffDays: number[] } | null;
   leaves: { id: string; leaveType: string; fromDate: string; toDate: string; status: string }[];
+  /** Every site that can show a letter, for the legend under the calendar. */
+  siteLegend: Array<{ code: string; name: string }>;
 }
 interface MonthGrid {
   days: number[];
@@ -171,6 +179,16 @@ export function PayrollTimePage() {
 }
 
 /* ── Calendar ──────────────────────────────────────────────────────────── */
+/** The site letter beside a punch time: "08:08 am N". Nothing when there was no GPS. */
+function SiteMark({ site }: { site: { code: string; name: string } | null }) {
+  if (!site) return null;
+  return (
+    <span className="ml-0.5 font-semibold text-gray-600" title={site.name}>
+      {site.code}
+    </span>
+  );
+}
+
 function CalendarTab() {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
@@ -179,6 +197,8 @@ function CalendarTab() {
   const [employeeId, setEmployeeId] = useState("");
   const eff = employeeId || empQ.data?.[0]?.id || "";
   const [dayOpen, setDayOpen] = useState<number | null>(null);
+  /** A day the dialog handed over to "apply for leave", already filled in. */
+  const [leaveFor, setLeaveFor] = useState<{ employeeId: string; day: string } | null>(null);
 
   const calQ = useQuery({
     queryKey: ["payroll", "att-employee", eff, year, month],
@@ -254,7 +274,14 @@ function CalendarTab() {
                     {cell && cell.punches?.length > 0 && (
                       <div className="mt-1 text-[10px] tabular-nums text-gray-500">
                         {fmtTime(cell.punches[0]!.punchedAt)}
-                        {cell.punches.length > 1 && <> – {fmtTime(cell.punches[cell.punches.length - 1]!.punchedAt)}</>}
+                        <SiteMark site={cell.punches[0]!.site} />
+                        {cell.punches.length > 1 && (
+                          <>
+                            {" – "}
+                            {fmtTime(cell.punches[cell.punches.length - 1]!.punchedAt)}
+                            <SiteMark site={cell.punches[cell.punches.length - 1]!.site} />
+                          </>
+                        )}
                       </div>
                     )}
                     {cell && cell.hours > 0 && <div className="text-[10px] tabular-nums text-gray-400">{num(cell.hours, 1)} h</div>}
@@ -263,6 +290,16 @@ function CalendarTab() {
                 );
               })}
             </div>
+            {(calQ.data?.siteLegend?.length ?? 0) > 1 && (
+              <div className="mt-2 flex flex-wrap gap-3 border-t border-gray-100 pt-2 text-[11px] text-gray-500">
+                <span className="font-medium text-gray-600">Site:</span>
+                {calQ.data!.siteLegend.map((x) => (
+                  <span key={x.code}>
+                    <span className="font-semibold text-gray-700">{x.code}</span> {x.name}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </>
       )}
@@ -274,9 +311,24 @@ function CalendarTab() {
           day={ymd(year, month, dayOpen)}
           cell={calQ.data?.days[String(dayOpen)] ?? null}
           onClose={() => setDayOpen(null)}
+          onLeave={() => {
+            setLeaveFor({ employeeId: eff, day: ymd(year, month, dayOpen) });
+            setDayOpen(null);
+          }}
           onChanged={() => {
             qc.invalidateQueries({ queryKey: ["payroll", "att-employee"] });
             qc.invalidateQueries({ queryKey: ["payroll", "att-month"] });
+          }}
+        />
+      )}
+
+      {leaveFor && (
+        <ApplyLeaveDialog
+          preset={leaveFor}
+          onClose={() => setLeaveFor(null)}
+          onSaved={() => {
+            setLeaveFor(null);
+            qc.invalidateQueries({ queryKey: ["payroll"] });
           }}
         />
       )}
@@ -284,13 +336,15 @@ function CalendarTab() {
   );
 }
 
-function DayDialog({ employeeId, employeeName, day, cell, onClose, onChanged }: {
+function DayDialog({ employeeId, employeeName, day, cell, onClose, onChanged, onLeave }: {
   employeeId: string;
   employeeName: string;
   day: string;
   cell: (DayCell & { punches: Punch[] }) | null;
   onClose: () => void;
   onChanged: () => void;
+  /** Hand this day to the leave form, filled in. */
+  onLeave?: () => void;
 }) {
   const { err, setErr, fail } = useErr();
   const [status, setStatus] = useState<AttStatus>(cell?.status ?? "P");
@@ -316,18 +370,36 @@ function DayDialog({ employeeId, employeeName, day, cell, onClose, onChanged }: 
           <div className="mb-2 text-[13px] text-gray-600">
             Currently <StatusChip status={cell.status} small /> from <span className="font-medium">{cell.source}</span>
             {cell.hours > 0 && <> · {num(cell.hours, 1)} h worked</>}
+            {/* Which shift the day was judged against — the assignment in force
+                that day, not today's. A late arrival only means anything
+                against the shift it was late for. */}
+            {cell.shiftName && (
+              <div className="text-[12px] text-gray-500">
+                Shift: {cell.shiftName}
+                {cell.shiftWindow && <> ({cell.shiftWindow})</>}
+              </div>
+            )}
+            {cell.note && <div className="text-[12px] text-gray-500">{cell.note}</div>}
           </div>
         ) : (
           <div className="mb-2 text-[13px] text-gray-400">No attendance row for this day yet.</div>
         )}
         {cell && cell.punches.length > 0 && (
           <div className="mb-3 space-y-1 rounded-md bg-gray-50 p-2 text-[12px]">
+            <div className="pb-0.5 font-medium text-gray-600">All punches ({cell.punches.length})</div>
             {cell.punches.map((p) => (
               <div key={p.id} className="flex items-center gap-2">
                 <Badge tone={p.type === "in" ? "green" : "gray"}>{p.type.toUpperCase()}</Badge>
                 <span className="tabular-nums">{fmtDateTime(p.punchedAt)}</span>
+                {p.site && <span className="font-semibold text-gray-600" title={p.site.name}>{p.site.code}</span>}
                 <span className="text-gray-400">{p.method}{p.matchScore != null ? ` ${(p.matchScore * 100).toFixed(0)}%` : ""}</span>
-                {p.photoUrl && <img src={p.photoUrl} alt="" className="ml-auto h-7 w-7 rounded object-cover" />}
+                {/* The face the gate saw, big enough to recognise: a thumbnail
+                    the size of a full stop settles nothing. */}
+                {p.photoUrl && (
+                  <a href={p.photoUrl} target="_blank" rel="noreferrer" className="ml-auto shrink-0">
+                    <img src={p.photoUrl} alt="The face at the gate" className="h-14 w-14 rounded object-cover ring-1 ring-gray-200" />
+                  </a>
+                )}
               </div>
             ))}
           </div>
@@ -344,6 +416,11 @@ function DayDialog({ employeeId, employeeName, day, cell, onClose, onChanged }: 
         <Field label="Note" className="mt-2">
           <input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why the change" />
         </Field>
+        {onLeave && (
+          <button className="mt-2 text-[13px] font-medium text-brand-700 hover:underline" onClick={onLeave}>
+            Apply for leave on this day
+          </button>
+        )}
         <div className="mt-4 flex items-center justify-between">
           {cell?.source === "manual" ? (
             <button className="btn-ghost text-red-600" disabled={clear.isPending} onClick={() => clear.mutate()}>
@@ -737,10 +814,22 @@ function LeaveTab({ term, criteria }: { term: string; criteria: Criteria }) {
   );
 }
 
-function ApplyLeaveDialog({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+function ApplyLeaveDialog({ onClose, onSaved, preset }: {
+  onClose: () => void;
+  onSaved: () => void;
+  /** Opened from a day on the calendar: that person, that one day. */
+  preset?: { employeeId: string; day: string };
+}) {
   const { err, setErr, fail } = useErr();
   const year = Number(istToday().slice(0, 4));
-  const [form, setForm] = useState({ employeeId: "", leaveType: "CL" as Leave["leaveType"], fromDate: "", toDate: "", reason: "", compOffWorkDate: "" });
+  const [form, setForm] = useState({
+    employeeId: preset?.employeeId ?? "",
+    leaveType: "CL" as Leave["leaveType"],
+    fromDate: preset?.day ?? "",
+    toDate: preset?.day ?? "",
+    reason: "",
+    compOffWorkDate: "",
+  });
   const balQ = useQuery({
     queryKey: ["payroll", "leave-balance", form.employeeId, year],
     queryFn: () => api<Balance>(`/api/payroll/leave/balance/${form.employeeId}?year=${year}`),

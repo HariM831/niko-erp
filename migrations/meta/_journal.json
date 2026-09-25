@@ -722,6 +722,13 @@
       "when": 1790315502180,
       "tag": "0102_item_fixed_dose",
       "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1790323435357,
+      "tag": "0100_location_coordinates",
+      "breakpoints": true
     }
   ]
 }
