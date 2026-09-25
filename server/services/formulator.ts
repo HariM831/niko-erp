@@ -291,7 +291,11 @@ function diagnose(priced: SolveIngredient[], standard: SolveStandard[]): Blocker
 }
 
 export function solveLeastCost(opts: SolveOptions): SolveResult {
-  const priced = opts.ingredients.filter((i) => i.costPerKg != null && i.costPerKg > 0);
+  // A material fixed at an exact percentage is in the mix whatever it costs —
+  // a lock is a decision, not a price question — so it is solved even when
+  // unpriced (costed at zero, which cannot flood a mix it is pinned in).
+  const fixed = (i: SolveIngredient) => i.minPercent != null && i.maxPercent != null && i.minPercent === i.maxPercent;
+  const priced = opts.ingredients.filter((i) => (i.costPerKg != null && i.costPerKg > 0) || fixed(i));
   const empty: SolveResult = {
     feasible: false,
     solution: {},
@@ -368,6 +372,8 @@ export function solveLeastCost(opts: SolveOptions): SolveResult {
   const shadowPrices: ShadowPrice[] = [];
   for (const ing of priced) {
     if ((solution[ing.id] ?? 0) > 0) continue;
+    // A locked, unpriced material has no price to break even against.
+    if (ing.costPerKg == null || fixed(ing)) continue;
     const forced = buildModel(priced, opts.standard);
     forced.constraints[`force_${ing.id}`] = { min: 1 };
     forced.variables[`i_${ing.id}`]![`force_${ing.id}`] = 1;

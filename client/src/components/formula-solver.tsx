@@ -20,13 +20,12 @@
  * left out, the price at which it would start earning its place — which is what
  * a buyer holds a quote against.
  */
-import { useEffect, useMemo, useState } from "react";
-import { BandStrip, type Band } from "./ui/band-strip";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Calculator, Plus, X } from "lucide-react";
+import { Calculator, Lock, LockOpen, Plus, X } from "lucide-react";
 import { ApiError, api, formatDate } from "../api";
 import { SearchSelect } from "./search-select";
-import { LIFE_STAGES, LIFE_STAGE_LABELS, nutrientLabel, type LifeStage } from "@shared/feed";
+import { LIFE_STAGES, LIFE_STAGE_LABELS, NUTRIENTS, nutrientLabel, type LifeStage } from "@shared/feed";
 import { localYmd } from "../lib/utils";
 
 interface Material {
@@ -89,6 +88,8 @@ interface SolveResponse {
   standard: Array<{ nutrient: string; minValue: number | null; maxValue: number | null }>;
   prices?: Record<string, number | null>;
   unpriced: string[];
+  /** Bounds moved for this solve only, from what the standard asks to what the solve was held to. */
+  eased?: Array<{ nutrient: string; from: { min: number | null; max: number | null }; to: { min: number | null; max: number | null } }>;
 }
 
 interface StandardResponse {
@@ -104,6 +105,60 @@ const num = (v: string) => (v.trim() === "" ? null : Number(v));
 /** "a", "a and b", "a, b and c". */
 const joinWords = (xs: string[]) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs[xs.length - 1]}`);
 
+interface MaterialInfo {
+  id: string;
+  name: string;
+  feedIngredient: boolean;
+  priced: boolean;
+  measured: number;
+  /** Carries a value for some nutrient the standard bounds. An additive does not. */
+  contributes: boolean;
+}
+interface AnalyseResponse {
+  standardVersion: number | null;
+  nutritionAnalysis: Record<string, number>;
+  costs: boolean;
+  rawCostPerKg?: number;
+  costPerKg?: number;
+  prices?: Record<string, number | null>;
+  materials: MaterialInfo[];
+}
+type Ease = Record<string, { min?: number | null; max?: number | null }>;
+
+/** A value that settles `ms` after the last change — the edited mix is re-read once typing pauses. */
+function useSettled<T>(value: T, ms: number): T {
+  const [v, setV] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setV(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return v;
+}
+
+const pct2 = (n: number) => n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const dpOf = (key: string) => (key === "me" ? 0 : 3);
+const fmtN = (key: string, v: number) => v.toLocaleString("en-IN", { minimumFractionDigits: dpOf(key), maximumFractionDigits: dpOf(key) });
+const within = (b: { minValue: number | null; maxValue: number | null }, v: number) =>
+  (b.minValue == null || v >= b.minValue - 1e-9) && (b.maxValue == null || v <= b.maxValue + 1e-9);
+const askedText = (key: string, b: { minValue: number | null; maxValue: number | null }) =>
+  b.minValue != null && b.maxValue != null
+    ? `${fmtN(key, b.minValue)}–${fmtN(key, b.maxValue)}`
+    : b.minValue != null
+      ? `≥ ${fmtN(key, b.minValue)}`
+      : b.maxValue != null
+        ? `≤ ${fmtN(key, b.maxValue)}`
+        : "—";
+
+/**
+ * The formulator workbench — docs/formulator-workbench-plan.md.
+ *
+ * The live recipe and the solved mix side by side against the stage's
+ * standard, what the difference costs, and everything that would quietly
+ * change a solve (no price, no analysis, not a feed ingredient) said before
+ * Solve is pressed. Additives the standard never asks for — premix, salt,
+ * a pigment — open locked at their amount, since a least-cost solve would
+ * otherwise drop them as pure cost.
+ */
 export function FormulaSolver({
   selected,
   onSaved,
@@ -118,9 +173,13 @@ export function FormulaSolver({
   const [pool, setPool] = useState<string[]>([]);
   const [limits, setLimits] = useState<Record<string, { min: string; max: string }>>({});
   const [result, setResult] = useState<SolveResponse | null>(null);
+  const [solvedWith, setSolvedWith] = useState("");
   const [edited, setEdited] = useState<Record<string, string>>({});
+  const [ease, setEase] = useState<Ease>({});
   const [error, setError] = useState<string | null>(null);
   const [saveOpen, setSaveOpen] = useState(false);
+  const addRef = useRef<HTMLDivElement>(null);
+  const defaultsFor = useRef<string | null>(null);
 
   const { data: materials } = useQuery<Material[]>({
     queryKey: ["feed-nutrients"],
@@ -136,11 +195,13 @@ export function FormulaSolver({
   });
 
   const current = groups?.find((g) => g.name === selected);
+  const lines = current?.active?.lines ?? [];
 
   /** Opening a formula loads its own materials and its own inclusion limits. */
   useEffect(() => {
     setResult(null);
     setEdited({});
+    setEase({});
     setError(null);
     if (!current?.active) {
       if (selected !== null) setPool([]);
@@ -161,24 +222,70 @@ export function FormulaSolver({
     if (current.active.stage) setStage(current.active.stage);
   }, [current, selected]);
 
+  /** The live recipe as percentages of its own lines, so it always adds to 100. */
+  const nowMix = useMemo(() => {
+    const total = lines.reduce((s, l) => s + Number(l.quantityKg), 0);
+    return total > 0 ? Object.fromEntries(lines.map((l) => [l.itemId, (Number(l.quantityKg) / total) * 100])) : {};
+  }, [lines]);
+  const hasNow = lines.length > 0;
+
+  const nowQ = useQuery<AnalyseResponse>({
+    queryKey: ["formulator-analyse", stage, pool.join(","), "now", JSON.stringify(nowMix)],
+    queryFn: () => api("/api/feed/formulator/analyse", { method: "POST", body: { stage, itemIds: pool, mix: nowMix } }),
+    enabled: pool.length > 0,
+  });
+  const info = useMemo(() => new Map((nowQ.data?.materials ?? []).map((m) => [m.id, m])), [nowQ.data]);
+  const costs = !!(nowQ.data?.costs ?? result?.costs);
+  const prices = result?.prices ?? nowQ.data?.prices;
+
+  const isLocked = (id: string) => {
+    const l = limits[id];
+    return !!l && l.min.trim() !== "" && l.min.trim() === l.max.trim();
+  };
+
+  /**
+   * Additives open locked: a line whose item carries nothing the standard
+   * bounds, and that has no limit of its own, is fixed at its amount in the
+   * live recipe. Once per formula version and stage, so an unlock sticks.
+   */
+  useEffect(() => {
+    if (!nowQ.data || !current?.active) return;
+    const key = `${current.name}:${current.active.version}:${stage}`;
+    if (defaultsFor.current === key) return;
+    defaultsFor.current = key;
+    setLimits((prev) => {
+      const next = { ...prev };
+      for (const l of current.active!.lines) {
+        const m = info.get(l.itemId);
+        const own = prev[l.itemId];
+        if (!m || m.contributes || (own && (own.min.trim() || own.max.trim()))) continue;
+        const at = (nowMix[l.itemId] ?? 0).toFixed(2);
+        next[l.itemId] = { min: at, max: at };
+      }
+      return next;
+    });
+  }, [nowQ.data, current, stage, info, nowMix]);
+
+  const limitsBody = () =>
+    Object.fromEntries(
+      Object.entries(limits)
+        .filter(([id]) => pool.includes(id))
+        .map(([id, v]) => [id, { min: num(v.min) ?? undefined, max: num(v.max) ?? undefined }])
+        .filter(([, v]) => (v as { min?: number; max?: number }).min != null || (v as { min?: number; max?: number }).max != null),
+    );
+  const inputsKey = JSON.stringify([stage, pool, limits]);
+  const stale = !!result && solvedWith !== inputsKey;
+
   const solve = useMutation({
-    mutationFn: () =>
+    mutationFn: (withEase: Ease) =>
       api<SolveResponse>("/api/feed/formulator/solve", {
         method: "POST",
-        body: {
-          stage,
-          itemIds: pool,
-          limits: Object.fromEntries(
-            Object.entries(limits)
-              .filter(([id]) => pool.includes(id))
-              .map(([id, v]) => [id, { min: num(v.min) ?? undefined, max: num(v.max) ?? undefined }])
-              .filter(([, v]) => (v as { min?: number; max?: number }).min != null || (v as { min?: number; max?: number }).max != null),
-          ),
-        },
+        body: { stage, itemIds: pool, limits: limitsBody(), ...(Object.keys(withEase).length ? { ease: withEase } : {}) },
       }),
     onSuccess: (r) => {
       setResult(r);
-      setEdited(Object.fromEntries(Object.entries(r.solution).map(([id, pct]) => [id, String(pct)])));
+      setSolvedWith(inputsKey);
+      setEdited(Object.fromEntries(Object.entries(r.solution).map(([id, p]) => [id, String(p)])));
       setError(null);
     },
     onError: (e) => {
@@ -186,430 +293,619 @@ export function FormulaSolver({
       setError(e instanceof ApiError ? e.message : "Could not solve");
     },
   });
+  const runSolve = (withEase: Ease = ease) => {
+    setEase(withEase);
+    solve.mutate(withEase);
+  };
 
   const byId = useMemo(() => new Map((materials ?? []).map((m) => [m.id, m])), [materials]);
-  // A formula line whose item is not marked a feed ingredient is not in the
-  // materials list, so its name comes from the line — it used to show as "—".
-  const lineName = useMemo(
-    () => new Map((current?.active?.lines ?? []).map((l) => [l.itemId, l.itemName])),
-    [current],
-  );
-  const nameOf = (id: string) => byId.get(id)?.name ?? lineName.get(id) ?? "—";
+  const lineName = useMemo(() => new Map(lines.map((l) => [l.itemId, l.itemName])), [lines]);
+  const nameOf = (id: string) => info.get(id)?.name ?? byId.get(id)?.name ?? lineName.get(id) ?? "—";
 
-  const mixPct = useMemo(
-    () => Object.entries(edited).map(([id, v]) => ({ id, pct: Number(v) || 0 })).filter((x) => x.pct > 0),
+  const solvedMix = useMemo(
+    () => Object.fromEntries(Object.entries(edited).map(([id, v]) => [id, Number(v) || 0])),
     [edited],
   );
+  const mixPct = Object.entries(solvedMix).map(([id, p]) => ({ id, pct: p })).filter((x) => x.pct > 0);
   const mixTotal = mixPct.reduce((s, x) => s + x.pct, 0);
+  const feasible = !!result?.feasible;
+  const editedChanged =
+    feasible && Object.keys({ ...result!.solution, ...solvedMix }).some((id) => Math.abs((solvedMix[id] ?? 0) - (result!.solution[id] ?? 0)) > 0.0005);
+  const settled = useSettled(JSON.stringify(solvedMix), 300);
+  const solQ = useQuery<AnalyseResponse>({
+    queryKey: ["formulator-analyse", stage, pool.join(","), "solved", settled],
+    queryFn: () => api("/api/feed/formulator/analyse", { method: "POST", body: { stage, itemIds: pool, mix: JSON.parse(settled) } }),
+    enabled: feasible && editedChanged,
+  });
+  const solvedAnalysis = feasible ? (editedChanged ? solQ.data?.nutritionAnalysis : result!.nutritionAnalysis) : undefined;
+  const solvedCost = feasible ? (editedChanged ? solQ.data?.costPerKg : result!.costPerKg) : undefined;
+  const nowCost = hasNow ? nowQ.data?.costPerKg : undefined;
 
   const addable = (materials ?? []).filter((m) => !pool.includes(m.id));
+  const params = standard?.params ?? [];
+  const heldTo = new Map((result?.standard ?? []).map((b) => [b.nutrient, b]));
+  const easedKeys = new Set((result?.eased ?? []).map((e) => e.nutrient));
+
+  // Which rows a failed solve is about.
+  const clash = new Set<string>();
+  for (const b of result && !result.feasible ? result.blockers ?? [] : []) {
+    if (b.kind !== "inclusion") clash.add(b.key);
+    for (const w of b.with ?? []) clash.add(w.key);
+  }
+
+  // Before Solve: everything that would quietly change the answer.
+  const leftOut = (id: string) => {
+    const m = info.get(id);
+    return !!m && !isLocked(id) && (!m.feedIngredient || !m.priced);
+  };
+  const noPrice = pool.filter((id) => info.get(id) && !info.get(id)!.priced && info.get(id)!.feedIngredient && !isLocked(id));
+  const lockedNoPrice = pool.filter((id) => info.get(id) && !info.get(id)!.priced && isLocked(id));
+  const notFeed = pool.filter((id) => info.get(id) && !info.get(id)!.feedIngredient && !isLocked(id));
+  const noNutrients = pool.filter((id) => info.get(id)?.measured === 0 && !leftOut(id));
+  const lockedCount = pool.filter(isLocked).length;
+  const names = (ids: string[]) => joinWords(ids.map(nameOf));
+
+  const toggleLock = (id: string) =>
+    setLimits((s) => {
+      if (isLocked(id)) return { ...s, [id]: { min: "", max: "" } };
+      const at = (nowMix[id] ?? solvedMix[id] ?? 0).toFixed(2);
+      return { ...s, [id]: { min: at, max: at } };
+    });
+
+  /** Ease the lead bound of a failed solve to what the materials reach — this solve only. */
+  const easeTo = (key: string, best: number) => {
+    const b = params.find((p) => p.nutrient === key);
+    if (!b) return;
+    const step = key === "me" ? 1 : 0.001;
+    const next: Ease = { ...ease };
+    if (b.minValue != null && best < b.minValue) next[key] = { min: Math.floor(best / step) * step };
+    else if (b.maxValue != null && best > b.maxValue) next[key] = { max: Math.ceil(best / step) * step };
+    else return;
+    runSolve(next);
+  };
+
+  const inputCls = "h-6 w-[52px] rounded border border-gray-200 px-1 text-right text-[11px] tabular-nums disabled:bg-gray-50 disabled:text-gray-400";
+  const saveReady = feasible && Math.abs(mixTotal - 100) <= 0.05;
 
   return (
     <>
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <span className="text-[15px] font-semibold text-gray-900">
-                {selected ?? "New formula"}
-              </span>
-              {current?.active && (
-                <span className="text-[12px] text-gray-500">v{current.active.version}</span>
-              )}
-              <span className="ml-2 text-[12px] text-gray-500">solve against</span>
-              <SearchSelect
-                value={stage}
-                onChange={(id) => {
-                  if (!id || id === stage) return;
-                  setStage(id as LifeStage);
-                  setResult(null);
-                }}
-                options={LIFE_STAGES.map((s) => ({ id: s, label: LIFE_STAGE_LABELS[s] }))}
-                allowClear={false}
-                keepOrder
-                className="w-44"
-                buttonClassName="input h-8 py-0 text-[13px]"
-              />
-              <button
-                onClick={() => solve.mutate()}
-                disabled={solve.isPending || pool.length === 0 || !standard?.params.length}
-                className="btn-primary ml-auto flex shrink-0 items-center gap-1.5"
-              >
-                <Calculator size={14} />
-                {solve.isPending ? "Solving…" : "Solve"}
-              </button>
-            </div>
-
-            {selected && (
-              <div className="mb-3 flex gap-1 border-b border-gray-200">
-                {(["solve", "history"] as const).map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => setTab(t)}
-                    className={`-mb-px border-b-2 px-3 py-1.5 text-[13px] ${
-                      tab === t
-                        ? "border-brand-500 font-semibold text-brand-700"
-                        : "border-transparent text-gray-500 hover:text-gray-800"
+      {/* The bar: which recipe, against what, what the solve changes in money, and the two actions. */}
+      <div className="sticky top-0 z-10 mb-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
+        <div className="flex items-baseline gap-2">
+          <span className="text-[15px] font-semibold text-gray-900">{selected || "New formula"}</span>
+          {current?.active && <span className="text-[12px] text-gray-500">v{current.active.version}</span>}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[12px] text-gray-500">against</span>
+          <SearchSelect
+            value={stage}
+            onChange={(id) => {
+              if (!id || id === stage) return;
+              setStage(id as LifeStage);
+              setResult(null);
+              setEase({});
+            }}
+            options={LIFE_STAGES.map((s) => ({ id: s, label: LIFE_STAGE_LABELS[s] }))}
+            allowClear={false}
+            keepOrder
+            className="w-40"
+            buttonClassName="input h-8 py-0 text-[13px]"
+          />
+        </div>
+        {costs && (nowCost != null || solvedCost != null) && (
+          <div className="flex flex-wrap items-baseline gap-x-2 tabular-nums">
+            <span className="text-[10.5px] font-semibold uppercase tracking-wide text-gray-400">Per finished kg</span>
+            {nowCost != null && <span className="text-[15px] font-bold">{inr(nowCost)}</span>}
+            {solvedCost != null && (
+              <>
+                {nowCost != null && <span className="text-gray-400">→</span>}
+                <span className="text-[15px] font-bold">{inr(solvedCost)}</span>
+                {nowCost != null && Math.abs(solvedCost - nowCost) >= 0.005 && (
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[11.5px] font-semibold ${
+                      solvedCost > nowCost ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"
                     }`}
                   >
-                    {t === "solve" ? "Solver" : `History (${current?.history.length ?? 0})`}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {tab === "history" && current ? (
-              <div className="card p-4">
-                {current.history.map((h) => (
-                  <div
-                    key={h.version}
-                    className="flex justify-between border-b border-gray-100 py-2 text-[13px] last:border-0"
-                  >
-                    <span>
-                      v{h.version}
-                      {h.isActive && <span className="ml-1.5 text-[11px] text-green-700">live</span>}
-                      <span className="ml-2 text-gray-500">{h.lineCount} materials</span>
-                    </span>
-                    <span className="text-[11px] text-gray-400">
-                      {formatDate(h.effectiveFrom)} · {h.createdByName ?? "—"} · {h.producedOrders}{" "}
-                      order{h.producedOrders === 1 ? "" : "s"} produced
-                    </span>
-                  </div>
-                ))}
-                {!current.history.length && (
-                  <p className="text-[13px] text-gray-400">No versions yet.</p>
-                )}
-              </div>
-            ) : (
-              <>
-                {error && (
-                  <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">
-                    {error}
-                  </div>
-                )}
-
-                {!standard?.params.length && (
-                  <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800">
-                    {LIFE_STAGE_LABELS[stage]} has no live feed standard, so there is nothing to
-                    solve against. Set one under Settings → Feed Mill → Feed Standards.
-                  </div>
-                )}
-
-                <div className="grid gap-3 lg:grid-cols-2">
-                  <div className="card overflow-hidden">
-                    <div className="border-b border-gray-100 px-3 py-2 text-[13px] font-semibold">
-                      Materials considered
-                    </div>
-                    <table className="w-full text-[12px]">
-                      <thead className="table-head">
-                        <tr className="border-b border-gray-100">
-                          <th className="px-2 py-1 text-left font-medium">Material</th>
-                          <th className="w-[52px] px-1 py-1 text-right font-medium">min %</th>
-                          <th className="w-[52px] px-1 py-1 text-right font-medium">max %</th>
-                          <th className="w-6" />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {pool.map((id) => (
-                          <tr key={id} className="border-b border-gray-100">
-                            <td className="px-2 py-1">
-                              {nameOf(id)}
-                              {!byId.has(id) && materials && (
-                                <span
-                                  className="ml-1.5 rounded bg-gray-100 px-1 py-px text-[10px] text-gray-500"
-                                  title="Not marked as a feed ingredient, so the solver leaves it out. Mark it on the item's Nutrition tab to include it."
-                                >
-                                  not a feed ingredient
-                                </span>
-                              )}
-                              {byId.has(id) && (byId.get(id)?.measured ?? 0) < 20 && (
-                                <span
-                                  className="ml-1 cursor-help text-amber-600"
-                                  title={`Only ${byId.get(id)?.measured ?? 0} of 20 nutrients on file — the rest count as zero`}
-                                >
-                                  *
-                                </span>
-                              )}
-                            </td>
-                            {(["min", "max"] as const).map((k) => (
-                              <td key={k} className="px-1 py-0.5">
-                                <input
-                                  value={limits[id]?.[k] ?? ""}
-                                  onChange={(e) =>
-                                    setLimits((s) => ({
-                                      ...s,
-                                      [id]: { min: "", max: "", ...s[id], [k]: e.target.value },
-                                    }))
-                                  }
-                                  inputMode="decimal"
-                                  className="input h-6 px-1 text-right text-[11px]"
-                                />
-                              </td>
-                            ))}
-                            <td className="pr-1">
-                              <button
-                                onClick={() => setPool((p) => p.filter((x) => x !== id))}
-                                title="Take out of the pool"
-                                className="text-gray-300 hover:text-red-600"
-                              >
-                                <X size={13} />
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                        {!pool.length && (
-                          <tr>
-                            <td colSpan={4} className="px-2 py-3 text-center text-gray-400">
-                              Add the materials you are willing to buy.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                    <div className="border-t border-gray-100 p-2">
-                      <SearchSelect
-                        value={null}
-                        onChange={(id) => id && setPool((p) => [...p, id])}
-                        options={addable.map((m) => ({ id: m.id, label: m.name }))}
-                        placeholder="+ Add material…"
-                        allowClear={false}
-                        buttonClassName="input h-7 py-0 text-[12px]"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="card overflow-hidden">
-                    <div className="border-b border-gray-100 px-3 py-2">
-                      <span className="text-[13px] font-semibold">
-                        Requirements — {LIFE_STAGE_LABELS[stage]}
-                      </span>
-                      {standard?.version && (
-                        <span className="ml-2 text-[11px] text-gray-400">v{standard.version}</span>
-                      )}
-                    </div>
-                    <table className="w-full text-[12px]">
-                      <thead className="table-head">
-                        <tr className="border-b border-gray-100">
-                          <th className="px-2 py-1 text-left font-medium">Nutrient</th>
-                          <th className="w-[54px] px-1 py-1 text-right font-medium">min</th>
-                          <th className="w-[54px] px-1 py-1 text-right font-medium">max</th>
-                          <th className="w-[62px] px-2 py-1 text-right font-medium">got</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(standard?.params ?? []).map((p) => {
-                          const got = result?.nutritionAnalysis[p.nutrient];
-                          // Judged against the bounds the SOLVE was held to, so
-                          // a standard edited since cannot make a saved mix
-                          // look wrong on a screen that never re-solved.
-                          const ok =
-                            got == null ||
-                            ((p.minValue == null || got >= p.minValue - 0.005) &&
-                              (p.maxValue == null || got <= p.maxValue + 0.005));
-                          return (
-                            <tr key={p.nutrient} className="border-b border-gray-100">
-                              <td className="px-2 py-1">
-                                {nutrientLabel(p.nutrient)}
-                                <Headroom min={p.minValue} max={p.maxValue} got={got} />
-                              </td>
-                              <td className="px-1 py-1 text-right text-gray-500">
-                                {p.minValue ?? "—"}
-                              </td>
-                              <td className="px-1 py-1 text-right text-gray-500">
-                                {p.maxValue ?? "—"}
-                              </td>
-                              <td
-                                className={`px-2 py-1 text-right tabular-nums ${
-                                  got == null ? "text-gray-300" : ok ? "text-green-700" : "text-red-600"
-                                }`}
-                              >
-                                {got == null ? "—" : got.toFixed(2)}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                        {!standard?.params.length && (
-                          <tr>
-                            <td colSpan={4} className="px-2 py-3 text-center text-gray-400">
-                              No standard set for this stage.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* The solver leaves out anything it cannot cost. It said so in the
-                    response and the screen never did — which left an infeasible
-                    solve blamed on the standard when two materials were missing. */}
-                {result && result.unpriced.length > 0 && (
-                  <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
-                    <span className="font-semibold">Left out — no price: </span>
-                    {result.unpriced.join(", ")}. Give {result.unpriced.length === 1 ? "it" : "them"} a cost price or stock on hand
-                    to include {result.unpriced.length === 1 ? "it" : "them"}.
-                  </div>
-                )}
-
-                {result && !result.feasible && (
-                  <div className="card mt-3 border-red-200 p-4">
-                    <div className="text-[13px] font-semibold text-red-700">{result.message}</div>
-                    {/* The whole point of the diagnosis: what to change. */}
-                    {(result.blockers ?? []).map((b) => (
-                      <div key={`${b.key}:${b.with?.map((w) => w.key).join(",") ?? ""}`} className="mt-2 border-l-2 border-red-300 pl-2.5">
-                        <div className="text-[13px] font-medium text-gray-900">
-                          {b.kind === "conflict" && b.with
-                            ? joinWords([b.key, ...b.with.map((w) => w.key)].map(nutrientLabel))
-                            : b.kind === "nutrient"
-                              ? nutrientLabel(b.key)
-                              : b.label}
-                          <span className="ml-2 text-[12px] font-normal text-gray-500">
-                            asked {b.asked}
-                            {b.with?.map((w) => <span key={w.key}>, {w.asked}</span>)}
-                          </span>
-                        </div>
-                        <div className="text-[12px] text-gray-600">
-                          {b.kind === "conflict" && b.with
-                            ? b.best == null
-                              ? "Each can be met alone, not all together. Loosen one, or add a material richer in them."
-                              : `Each can be met alone, not all together. Meeting the others, the best ${nutrientLabel(b.key)} these materials reach is ${b.best}. Loosen one, or add a material richer in them.`
-                            : b.detail}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {result?.feasible && (
-                  <>
-                    <div className="card mt-3 overflow-hidden">
-                      <div className="flex items-baseline justify-between border-b border-gray-100 px-3 py-2">
-                        <span className="text-[13px] font-semibold">Solved mix — 100 kg</span>
-                        <span className="text-[12px] text-gray-500">
-                          {result.costs && <>raw {inr(result.rawCostPerKg ?? 0)}/kg · </>}standard v{result.standardVersion}
-                        </span>
-                      </div>
-                      <table className="w-full text-[13px]">
-                        <tbody>
-                          {Object.keys(result.solution).map((id) => (
-                            <tr key={id} className="border-b border-gray-100">
-                              <td className="px-3 py-1">{nameOf(id)}</td>
-                              {result.prices && (
-                                <td className="w-[70px] px-2 py-1 text-right text-[12px] text-gray-500">
-                                  {result.prices[id] == null ? "—" : inr(result.prices[id]!)}
-                                </td>
-                              )}
-                              <td className="w-[86px] px-2 py-0.5">
-                                <input
-                                  value={edited[id] ?? ""}
-                                  onChange={(e) =>
-                                    setEdited((s) => ({ ...s, [id]: e.target.value }))
-                                  }
-                                  inputMode="decimal"
-                                  className="input h-7 text-right text-[12px]"
-                                />
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                        <tfoot>
-                          <tr className="border-t border-gray-200">
-                            <td className="px-3 py-2 font-semibold">Total</td>
-                            {result.costs && <td />}
-                            <td
-                              className={`px-2 py-2 text-right font-semibold tabular-nums ${
-                                Math.abs(mixTotal - 100) < 0.05 ? "text-gray-900" : "text-red-600"
-                              }`}
-                            >
-                              {mixTotal.toFixed(2)}%
-                            </td>
-                          </tr>
-                          {result.costs && (
-                            <tr>
-                              <td className="px-3 py-2 text-[14px] font-semibold">
-                                Cost per finished kg
-                              </td>
-                              <td />
-                              <td className="px-2 py-2 text-right text-[15px] font-semibold">
-                                {inr(result.costPerKg ?? 0)}
-                              </td>
-                            </tr>
-                          )}
-                        </tfoot>
-                      </table>
-                      <div className="flex items-center gap-2 border-t border-gray-100 p-2.5">
-                        <button
-                          onClick={() => setSaveOpen(true)}
-                          disabled={Math.abs(mixTotal - 100) > 0.05}
-                          className="btn-primary"
-                        >
-                          {current ? `Save as ${current.name} v${(current.active?.version ?? 0) + 1}` : "Save as new formula"}
-                        </button>
-                        {Math.abs(mixTotal - 100) > 0.05 && (
-                          <span className="text-[12px] text-red-600">
-                            The mix must add to 100% before it can be saved.
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {result.unmeasured.length > 0 && (
-                      <p className="mt-2 text-[12px] text-amber-700">
-                        Counted as zero, so the mix may be short:{" "}
-                        {result.unmeasured
-                          .map((u) => `${u.ingredientName} (${u.nutrients.map(nutrientLabel).join(", ")})`)
-                          .join(" · ")}
-                      </p>
-                    )}
-
-                    {result.shadowPrices && (
-                    <div className="card mt-3 overflow-hidden">
-                      <div className="border-b border-gray-100 px-3 py-2">
-                        <div className="text-[13px] font-semibold">
-                          What it would take to use the rest
-                        </div>
-                        <div className="text-[12px] text-gray-500">
-                          Break-even price — buy under this and the mix gets cheaper
-                        </div>
-                      </div>
-                      <table className="w-full text-[13px]">
-                        <tbody>
-                          {result.shadowPrices.map((s) => (
-                            <tr key={s.ingredientId} className="border-b border-gray-100 last:border-0">
-                              <td className="px-3 py-1.5">{s.ingredientName}</td>
-                              <td className="w-[80px] px-2 py-1.5 text-right text-[12px] text-gray-500">
-                                {inr(s.currentPrice)}
-                              </td>
-                              <td className="w-[88px] px-2 py-1.5 text-right tabular-nums">
-                                {s.breakEvenPrice == null ? "—" : inr(s.breakEvenPrice)}
-                              </td>
-                              <td className="px-2 py-1.5 text-[12px] text-gray-500">{s.insight}</td>
-                            </tr>
-                          ))}
-                          {!result.shadowPrices.length && (
-                            <tr>
-                              <td className="px-3 py-3 text-center text-[12px] text-gray-400">
-                                Every priced material is already in the mix.
-                              </td>
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                    )}
-                  </>
+                    {solvedCost > nowCost ? "+" : "−"}
+                    {inr(Math.abs(solvedCost - nowCost))} · {solvedCost > nowCost ? "+" : "−"}₹
+                    {Math.round(Math.abs(solvedCost - nowCost) * 1000).toLocaleString("en-IN")} a tonne
+                  </span>
                 )}
               </>
             )}
+          </div>
+        )}
+        <div className="ml-auto flex gap-2">
+          <button
+            onClick={() => runSolve()}
+            disabled={solve.isPending || pool.length === 0 || !params.length}
+            className={feasible && !stale ? "btn-secondary flex items-center gap-1.5" : "btn-primary flex items-center gap-1.5"}
+          >
+            <Calculator size={14} />
+            {solve.isPending ? "Solving…" : result ? "Solve again" : "Solve"}
+          </button>
+          <button onClick={() => setSaveOpen(true)} disabled={!saveReady} className="btn-primary">
+            {current ? `Save as v${(current.active?.version ?? 0) + 1}` : "Save as new formula"}
+          </button>
+        </div>
+      </div>
 
-      {saveOpen && result?.feasible && (
+      {selected && (
+        <div className="mb-3 flex gap-1 border-b border-gray-200">
+          {(["solve", "history"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`-mb-px border-b-2 px-3 py-1.5 text-[13px] ${
+                tab === t ? "border-brand-500 font-semibold text-brand-700" : "border-transparent text-gray-500 hover:text-gray-800"
+              }`}
+            >
+              {t === "solve" ? "Workbench" : `History (${current?.history.length ?? 0})`}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {tab === "history" && current ? (
+        <div className="card p-4">
+          {current.history.map((h) => (
+            <div key={h.version} className="flex justify-between border-b border-gray-100 py-2 text-[13px] last:border-0">
+              <span>
+                v{h.version}
+                {h.isActive && <span className="ml-1.5 text-[11px] text-green-700">live</span>}
+                <span className="ml-2 text-gray-500">{h.lineCount} materials</span>
+              </span>
+              <span className="text-[11px] text-gray-400">
+                {formatDate(h.effectiveFrom)} · {h.createdByName ?? "—"} · {h.producedOrders} order{h.producedOrders === 1 ? "" : "s"} produced
+              </span>
+            </div>
+          ))}
+          {!current.history.length && <p className="text-[13px] text-gray-400">No versions yet.</p>}
+        </div>
+      ) : (
+        <div className="grid gap-3">
+          {error && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">{error}</div>}
+          {!params.length && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800">
+              {LIFE_STAGE_LABELS[stage]} has no live feed standard, so there is nothing to solve against. Set one under Settings →
+              Feed Mill → Feed Standards.
+            </div>
+          )}
+
+          {/* Readiness — said before Solve, not discovered after it. */}
+          {pool.length > 0 && nowQ.data && (noPrice.length + lockedNoPrice.length + notFeed.length + noNutrients.length + lockedCount > 0) && (
+            <div className="flex flex-wrap gap-2 text-[12px]">
+              {noPrice.length > 0 && (
+                <span className="rounded-md border border-red-200 bg-red-50 px-2.5 py-1 text-red-700">
+                  No price — {names(noPrice)} {noPrice.length === 1 ? "is" : "are"} left out of a solve. Give {noPrice.length === 1 ? "it" : "them"} a cost price or stock on hand.
+                </span>
+              )}
+              {lockedNoPrice.length > 0 && (
+                <span className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-amber-800">
+                  Locked without a price — {names(lockedNoPrice)}: in the mix, left out of the cost.
+                </span>
+              )}
+              {noNutrients.length > 0 && (
+                <span className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1 text-amber-800">
+                  No nutrients on file — {names(noNutrients)}: counted as zero.
+                </span>
+              )}
+              {notFeed.length > 0 && (
+                <span className="rounded-md border border-soil-200 bg-soil-50 px-2.5 py-1 text-soil-600">
+                  Not a feed ingredient — {names(notFeed)}: left out unless locked.
+                </span>
+              )}
+              {lockedCount > 0 && (
+                <span className="rounded-md border border-soil-200 bg-soil-50 px-2.5 py-1 text-soil-600">
+                  {lockedCount} locked at a fixed amount
+                </span>
+              )}
+            </div>
+          )}
+
+          {stale && (
+            <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-[12px] text-gray-600">
+              The materials or their limits have changed since this solve — Solve again to see the effect.
+            </div>
+          )}
+
+          {feasible && (result!.eased ?? []).length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-800">
+              <span>
+                Solved with{" "}
+                {joinWords(result!.eased!.map((e) => `${nutrientLabel(e.nutrient)} eased to ${askedText(e.nutrient, { minValue: e.to.min, maxValue: e.to.max })}`))}
+                {" — "}this solve only; the {LIFE_STAGE_LABELS[stage]} standard is unchanged and this mix does not meet it.
+              </span>
+              <button onClick={() => runSolve({})} className="btn-ghost h-7 text-[12px]">
+                Solve to the standard
+              </button>
+            </div>
+          )}
+
+          {result && !result.feasible && (
+            <div className="rounded-xl border border-red-200 bg-red-50/60 p-3.5">
+              <div className="text-[13px] font-semibold text-red-700">{result.message}</div>
+              {(result.blockers ?? []).map((b) => (
+                <div key={`${b.key}:${b.with?.map((w) => w.key).join(",") ?? ""}`} className="mt-2 border-l-2 border-red-300 pl-2.5">
+                  <div className="text-[13px] font-medium text-gray-900">
+                    {b.kind === "conflict" && b.with
+                      ? joinWords([b.key, ...b.with.map((w) => w.key)].map(nutrientLabel))
+                      : b.kind === "nutrient"
+                        ? nutrientLabel(b.key)
+                        : b.label}
+                    <span className="ml-2 text-[12px] font-normal text-gray-500">
+                      asked {b.asked}
+                      {b.with?.map((w) => <span key={w.key}>, {w.asked}</span>)}
+                    </span>
+                  </div>
+                  <div className="text-[12px] text-gray-600">
+                    {b.kind === "conflict" && b.with
+                      ? b.best == null
+                        ? "Each can be met alone, not all together."
+                        : `Each can be met alone, not all together. Meeting the others, the best ${nutrientLabel(b.key)} these materials reach is ${b.best}.`
+                      : b.detail}
+                  </div>
+                  {b.kind !== "inclusion" && (
+                    <div className="mt-1.5 flex flex-wrap gap-2">
+                      {b.best != null && (
+                        <button onClick={() => easeTo(b.key, b.best!)} className="btn-secondary h-7 text-[12px]">
+                          Try with {nutrientLabel(b.key)} at {fmtN(b.key, b.best)} — this solve only
+                        </button>
+                      )}
+                      <button
+                        onClick={() => addRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })}
+                        className="btn-ghost h-7 text-[12px]"
+                      >
+                        Add a material richer in {b.kind === "conflict" ? "them" : "it"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+            {/* ── Materials ── */}
+            <div className="card overflow-hidden">
+              <div className="flex items-baseline justify-between border-b border-gray-100 px-3 py-2">
+                <span className="text-[13px] font-semibold">Materials</span>
+                <span className="text-[11px] text-gray-400">% of the mix{costs ? " · ₹ per kg as bought" : ""}</span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full whitespace-nowrap text-[12px]">
+                  <thead className="table-head">
+                    <tr className="border-b border-gray-100">
+                      <th className="px-2 py-1 text-left font-medium">Material</th>
+                      {costs && <th className="px-1 py-1 text-right font-medium">₹/kg</th>}
+                      <th className="px-1 py-1 text-center font-medium" title="Fix at an exact percentage">Lock</th>
+                      <th className="px-1 py-1 text-right font-medium">Min</th>
+                      <th className="px-1 py-1 text-right font-medium">Max</th>
+                      {hasNow && <th className="px-1.5 py-1 text-right font-medium">Now</th>}
+                      {feasible && <th className="px-1.5 py-1 text-right font-medium">Solved</th>}
+                      {feasible && hasNow && <th className="px-1.5 py-1 text-right font-medium">Change</th>}
+                      <th className="w-6" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pool.map((id) => {
+                      const m = info.get(id);
+                      const locked = isLocked(id);
+                      const out = leftOut(id);
+                      const now = nowMix[id] ?? 0;
+                      const sol = solvedMix[id] ?? 0;
+                      const d = sol - now;
+                      return (
+                        <tr key={id} className={`border-b border-gray-100 ${out ? "text-gray-400" : ""}`}>
+                          <td className="px-2 py-1">
+                            <span className={`font-medium ${out ? "line-through" : "text-gray-900"}`}>{nameOf(id)}</span>
+                            {m && !m.feedIngredient && (
+                              <span className="ml-1.5 rounded bg-soil-100 px-1 py-px text-[10px] text-soil-600" title="Not marked as a feed ingredient — mark it on the item's Nutrition tab, or lock it to keep it in the mix">
+                                not a feed ingredient
+                              </span>
+                            )}
+                            {m && !m.priced && <span className="ml-1.5 rounded bg-red-50 px-1 py-px text-[10px] text-red-700">no price</span>}
+                            {m && m.measured === 0 && m.feedIngredient && <span className="ml-1.5 rounded bg-amber-50 px-1 py-px text-[10px] text-amber-700">no nutrients</span>}
+                            {m && m.measured > 0 && m.measured < NUTRIENTS.length && (
+                              <span className="ml-1 cursor-help text-amber-600" title={`Only ${m.measured} of ${NUTRIENTS.length} nutrients on file — the rest count as zero`}>
+                                *
+                              </span>
+                            )}
+                          </td>
+                          {costs && (
+                            <td className="px-1 py-1 text-right tabular-nums text-gray-500">
+                              {prices?.[id] == null ? "—" : Number(prices[id]).toFixed(2)}
+                            </td>
+                          )}
+                          <td className="px-1 py-0.5 text-center">
+                            <button
+                              onClick={() => toggleLock(id)}
+                              aria-pressed={locked}
+                              title={locked ? `Locked at ${limits[id]?.min}% — click to free it` : "Lock at its amount in the recipe"}
+                              className={`inline-grid h-6 w-6 place-items-center rounded border ${
+                                locked ? "border-soil-900 bg-soil-900 text-white" : "border-gray-200 text-gray-300 hover:text-gray-500"
+                              }`}
+                            >
+                              {locked ? <Lock size={12} /> : <LockOpen size={12} />}
+                            </button>
+                          </td>
+                          {(["min", "max"] as const).map((k) => (
+                            <td key={k} className="px-1 py-0.5 text-right">
+                              <input
+                                value={limits[id]?.[k] ?? ""}
+                                disabled={locked}
+                                onChange={(e) => setLimits((s) => ({ ...s, [id]: { min: "", max: "", ...s[id], [k]: e.target.value } }))}
+                                inputMode="decimal"
+                                aria-label={`${k} % for ${nameOf(id)}`}
+                                className={inputCls}
+                              />
+                            </td>
+                          ))}
+                          {hasNow && <td className="px-1.5 py-1 text-right tabular-nums">{now > 0 ? pct2(now) : <span className="text-gray-300">—</span>}</td>}
+                          {feasible && (
+                            <td className="px-1.5 py-0.5 text-right">
+                              {out ? (
+                                <span className="text-[11px]">left out</span>
+                              ) : (
+                                <input
+                                  value={edited[id] ?? "0"}
+                                  onChange={(e) => setEdited((s) => ({ ...s, [id]: e.target.value }))}
+                                  inputMode="decimal"
+                                  aria-label={`Solved % for ${nameOf(id)}`}
+                                  className={`h-6 w-[62px] rounded border px-1 text-right text-[12px] font-semibold tabular-nums ${
+                                    Math.abs(sol - (result!.solution[id] ?? 0)) > 0.0005 ? "border-yolk-400 bg-yolk-50" : "border-gray-200"
+                                  }`}
+                                />
+                              )}
+                            </td>
+                          )}
+                          {feasible && hasNow && (
+                            <td className="px-1.5 py-1 text-right">
+                              {out || Math.abs(d) < 0.005 ? (
+                                <span className="text-gray-300">—</span>
+                              ) : (
+                                <span className="inline-flex items-center justify-end gap-1.5">
+                                  <span className={`h-1.5 rounded-full ${d > 0 ? "bg-yolk-500" : "bg-soil-400"}`} style={{ width: `${Math.min(56, Math.abs(d) * 3)}px` }} />
+                                  <span className={`w-11 text-right tabular-nums ${d > 0 ? "text-yolk-700" : "text-soil-600"}`}>
+                                    {d > 0 ? "+" : "−"}
+                                    {pct2(Math.abs(d))}
+                                  </span>
+                                </span>
+                              )}
+                            </td>
+                          )}
+                          <td className="pr-1">
+                            <button
+                              onClick={() => setPool((p) => p.filter((x) => x !== id))}
+                              className="text-gray-300 hover:text-red-600"
+                              title="Take out of consideration"
+                            >
+                              <X size={13} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {!pool.length && (
+                      <tr>
+                        <td colSpan={9} className="px-2 py-3 text-center text-gray-400">
+                          Add the materials you are willing to buy.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                  {pool.length > 0 && (hasNow || feasible) && (
+                    <tfoot>
+                      <tr className="border-t border-gray-200 bg-gray-50 font-semibold">
+                        <td className="px-2 py-1.5">Total</td>
+                        {costs && <td />}
+                        <td />
+                        <td />
+                        <td />
+                        {hasNow && <td className="px-1.5 py-1.5 text-right tabular-nums">100.00</td>}
+                        {feasible && (
+                          <td className={`px-1.5 py-1.5 text-right tabular-nums ${Math.abs(mixTotal - 100) <= 0.05 ? "" : "text-red-600"}`}>
+                            {pct2(mixTotal)}
+                          </td>
+                        )}
+                        {feasible && hasNow && <td />}
+                        <td />
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+              <div ref={addRef} className="border-t border-gray-100 p-2">
+                <SearchSelect
+                  value={null}
+                  onChange={(id) => id && setPool((p) => [...p, id])}
+                  options={addable.map((m) => ({ id: m.id, label: m.name }))}
+                  placeholder="+ Add material…"
+                  allowClear={false}
+                  buttonClassName="input h-7 py-0 text-[12px]"
+                />
+              </div>
+              {feasible && Math.abs(mixTotal - 100) > 0.05 && (
+                <div className="border-t border-gray-100 px-3 py-2 text-[12px] text-red-600">The mix must add to 100% before it can be saved.</div>
+              )}
+            </div>
+
+            {/* ── Against the standard ── */}
+            <div className="card overflow-hidden">
+              <div className="flex items-baseline justify-between border-b border-gray-100 px-3 py-2">
+                <span className="text-[13px] font-semibold">
+                  Against {LIFE_STAGE_LABELS[stage]}
+                  {standard?.version && <span className="ml-1.5 text-[11px] font-normal text-gray-400">v{standard.version}</span>}
+                </span>
+                <span className="text-[11px] text-gray-400">
+                  {feasible && solvedAnalysis
+                    ? `solved mix meets ${params.filter((p) => within(heldTo.get(p.nutrient) ?? p, solvedAnalysis[p.nutrient] ?? 0) && within(p, solvedAnalysis[p.nutrient] ?? 0)).length} of ${params.length}`
+                    : hasNow && nowQ.data
+                      ? `live recipe misses ${params.filter((p) => !within(p, nowQ.data!.nutritionAnalysis[p.nutrient] ?? 0)).length} of ${params.length}`
+                      : ""}
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full whitespace-nowrap text-[12px]">
+                  <thead className="table-head">
+                    <tr className="border-b border-gray-100">
+                      <th className="px-2 py-1 text-left font-medium">Nutrient</th>
+                      <th className="px-1.5 py-1 text-right font-medium">Asked</th>
+                      {hasNow && <th className="px-1.5 py-1 text-right font-medium">Now</th>}
+                      {feasible && <th className="px-1.5 py-1 text-right font-medium">Solved</th>}
+                      <th className="px-2 py-1 text-left font-medium">Where it sits</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {params.map((p) => {
+                      const vn = hasNow ? nowQ.data?.nutritionAnalysis[p.nutrient] : undefined;
+                      const vs = solvedAnalysis?.[p.nutrient];
+                      const hit = clash.has(p.nutrient);
+                      const eased = easedKeys.has(p.nutrient);
+                      return (
+                        <tr key={p.nutrient} className={`border-b border-gray-100 ${hit ? "bg-red-50/70" : ""}`} style={hit ? { boxShadow: "inset 3px 0 0 #dc2626" } : undefined}>
+                          <td className="px-2 py-1">{nutrientLabel(p.nutrient)}</td>
+                          <td className="px-1.5 py-1 text-right tabular-nums text-gray-600">
+                            {askedText(p.nutrient, p)}
+                            {eased && (
+                              <span className="ml-1 rounded bg-amber-50 px-1 py-px text-[10px] text-amber-700" title="Eased for this solve only">
+                                eased {askedText(p.nutrient, heldTo.get(p.nutrient)!)}
+                              </span>
+                            )}
+                          </td>
+                          {hasNow && (
+                            <td className="px-1.5 py-1 text-right tabular-nums">
+                              {vn == null ? "—" : (
+                                <>
+                                  {fmtN(p.nutrient, vn)}
+                                  {!feasible && <Verdict ok={within(p, vn)} />}
+                                </>
+                              )}
+                            </td>
+                          )}
+                          {feasible && (
+                            <td className="px-1.5 py-1 text-right tabular-nums">
+                              {vs == null ? "…" : (
+                                <>
+                                  {fmtN(p.nutrient, vs)}
+                                  <Verdict ok={within(p, vs)} />
+                                </>
+                              )}
+                            </td>
+                          )}
+                          <td className="px-2 py-1">
+                            <TwoMarkStrip min={p.minValue} max={p.maxValue} now={vn} solved={vs} />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {!params.length && (
+                      <tr>
+                        <td colSpan={5} className="px-2 py-3 text-center text-gray-400">No standard set for this stage.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {params.length > 0 && (
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-gray-100 px-3 py-2 text-[11px] text-gray-500">
+                  {hasNow && (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="inline-block h-2.5 w-2.5 rounded-full border-2 border-soil-600 bg-white" /> Live recipe
+                    </span>
+                  )}
+                  {feasible && (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="inline-block h-2.5 w-2.5 rounded-full bg-yolk-600" /> Solved mix
+                    </span>
+                  )}
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-block h-2 w-4 rounded-sm bg-green-200" /> Inside the standard
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-block h-2 w-4 rounded-sm bg-red-200" /> Outside it
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {feasible && result!.unmeasured.length > 0 && (
+            <p className="text-[12px] text-amber-700">
+              Counted as zero, so the mix may be short:{" "}
+              {result!.unmeasured.map((u) => `${u.ingredientName} (${u.nutrients.map(nutrientLabel).join(", ")})`).join(" · ")}
+            </p>
+          )}
+
+          {feasible && (hasNow || (result!.shadowPrices?.length ?? 0) > 0) && (
+            <div className="grid items-start gap-3 lg:grid-cols-2">
+              {hasNow && (
+                <div className="card overflow-hidden">
+                  <div className="flex items-baseline justify-between border-b border-gray-100 px-3 py-2">
+                    <span className="text-[13px] font-semibold">What v{(current?.active?.version ?? 0) + 1} changes</span>
+                    <span className="text-[11px] text-gray-400">points of the mix</span>
+                  </div>
+                  <div className="grid gap-1 px-3 py-2 text-[12.5px]">
+                    {pool
+                      .map((id) => ({ id, d: (solvedMix[id] ?? 0) - (nowMix[id] ?? 0) }))
+                      .filter((x) => Math.abs(x.d) >= 0.05 && !leftOut(x.id))
+                      .sort((a, b) => b.d - a.d)
+                      .map(({ id, d }) => (
+                        <div key={id} className="flex justify-between gap-3">
+                          <span>
+                            {nameOf(id)}
+                            {(solvedMix[id] ?? 0) < 0.005 && <span className="ml-1.5 rounded bg-soil-100 px-1 py-px text-[10px] text-soil-600">out</span>}
+                            {(nowMix[id] ?? 0) < 0.005 && <span className="ml-1.5 rounded bg-yolk-100 px-1 py-px text-[10px] text-yolk-700">new</span>}
+                          </span>
+                          <span className={`tabular-nums ${d > 0 ? "text-yolk-700" : "text-soil-600"}`}>
+                            {d > 0 ? "+" : "−"}
+                            {pct2(Math.abs(d))}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+              {(result!.shadowPrices?.length ?? 0) > 0 && (
+                <div className="card overflow-hidden">
+                  <div className="border-b border-gray-100 px-3 py-2">
+                    <div className="text-[13px] font-semibold">Left out, and what would bring it back</div>
+                    <div className="text-[11px] text-gray-400">Break-even price — buy under it and the mix gets cheaper</div>
+                  </div>
+                  <div className="grid gap-2.5 px-3 py-2.5">
+                    {result!.shadowPrices!.map((s) => (
+                      <div key={s.ingredientId} className="grid grid-cols-[minmax(0,1fr)_140px] items-center gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-[12.5px] font-medium">{s.ingredientName}</div>
+                          <div className="text-[11.5px] text-gray-500">
+                            {s.breakEvenPrice == null ? s.insight : `now ${inr(s.currentPrice)} · comes back under ${inr(s.breakEvenPrice)}`}
+                          </div>
+                        </div>
+                        {s.breakEvenPrice != null && <PriceGap now={s.currentPrice} breakEven={s.breakEvenPrice} />}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {saveOpen && feasible && (
         <SaveDialog
           formulaName={current?.name ?? ""}
           existing={current?.active ?? null}
           stage={stage}
           mix={mixPct.map((m) => ({ itemId: m.id, name: nameOf(m.id), pct: m.pct }))}
           limits={limits}
+          eased={(result!.eased ?? []).map((e) => `${nutrientLabel(e.nutrient)} at ${askedText(e.nutrient, { minValue: e.to.min, maxValue: e.to.max })}`)}
           onClose={() => setSaveOpen(false)}
           onSaved={(msg) => {
             setSaveOpen(false);
             setResult(null);
+            setEase({});
+            defaultsFor.current = null;
             void qc.invalidateQueries({ queryKey: ["feed-formulas"] });
             void qc.invalidateQueries({ queryKey: ["feed-formula-matrix"] });
             setError(null);
@@ -619,6 +915,56 @@ export function FormulaSolver({
         />
       )}
     </>
+  );
+}
+
+function Verdict({ ok }: { ok: boolean }) {
+  return (
+    <span className={`ml-1.5 rounded px-1 py-px text-[10px] font-semibold ${ok ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>
+      {ok ? "met" : "short"}
+    </span>
+  );
+}
+
+/**
+ * A nutrient's window with the live recipe (hollow) and the solved mix
+ * (solid) marked on it — how far each sits inside or outside, not only
+ * whether. The shared BandStrip carries one marker; this needs two.
+ */
+function TwoMarkStrip({ min, max, now, solved }: { min: number | null; max: number | null; now?: number; solved?: number }) {
+  const vals = [min, max, now, solved].filter((v): v is number => v != null && Number.isFinite(v));
+  if (!vals.length || (min == null && max == null)) return null;
+  const lo0 = Math.min(...vals);
+  const hi0 = Math.max(...vals);
+  const pad = Math.max((hi0 - lo0) * 0.25, Math.abs(hi0) * 0.04, 0.001);
+  const lo = lo0 - pad;
+  const hi = hi0 + pad;
+  const W = 130;
+  const x = (v: number) => 4 + ((v - lo) / (hi - lo)) * (W - 8);
+  const a = min != null ? x(min) : 4;
+  const b = max != null ? x(max) : W - 4;
+  return (
+    <svg width={W} height={16} viewBox={`0 0 ${W} 16`} className="block" aria-hidden>
+      <rect x={4} y={5} width={W - 8} height={6} rx={3} fill="#fecaca" />
+      <rect x={a} y={5} width={Math.max(2, b - a)} height={6} fill="#bbf7d0" />
+      {now != null && Number.isFinite(now) && <circle cx={x(now)} cy={8} r={3.8} fill="#fff" stroke="#6b5a3f" strokeWidth={2} />}
+      {solved != null && Number.isFinite(solved) && <circle cx={x(solved)} cy={8} r={3.4} fill="#e06d05" />}
+    </svg>
+  );
+}
+
+/** Today's price against the break-even: how far a quote has to fall. */
+function PriceGap({ now, breakEven }: { now: number; breakEven: number }) {
+  const W = 140;
+  const top = Math.max(now, breakEven) * 1.05;
+  const x = (v: number) => 4 + (v / top) * (W - 8);
+  return (
+    <svg width={W} height={16} viewBox={`0 0 ${W} 16`} className="block" aria-hidden>
+      <rect x={4} y={5} width={W - 8} height={6} rx={3} fill="#f1ebdd" />
+      <rect x={4} y={5} width={Math.max(2, x(breakEven) - 4)} height={6} rx={3} fill="#bbf7d0" />
+      <circle cx={x(breakEven)} cy={8} r={3.4} fill="#15803d" />
+      <circle cx={x(now)} cy={8} r={3.4} fill="#6b5a3f" />
+    </svg>
   );
 }
 
@@ -637,6 +983,7 @@ function SaveDialog({
   stage,
   mix,
   limits,
+  eased,
   onClose,
   onSaved,
 }: {
@@ -645,6 +992,8 @@ function SaveDialog({
   stage: LifeStage;
   mix: Array<{ itemId: string; name: string; pct: number }>;
   limits: Record<string, { min: string; max: string }>;
+  /** Bounds this solve was eased on — the saved mix does not meet the standard as written. */
+  eased: string[];
   onClose: () => void;
   onSaved: (name: string) => void;
 }) {
@@ -728,6 +1077,12 @@ function SaveDialog({
         {error && (
           <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">
             {error}
+          </div>
+        )}
+
+        {eased.length > 0 && (
+          <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-800">
+            Solved with {eased.join(" and ")}, eased for this solve — this mix does not meet the standard as written.
           </div>
         )}
 
@@ -833,32 +1188,6 @@ function SaveDialog({
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-/**
- * Where the solved value sits in its requirement: the min–max window as the
- * pass band, outside it as fail, the value as the mark. A mix that just
- * scrapes its protein and one with room to spare read the same as a green
- * number; here the first sits on the edge.
- */
-function Headroom({ min, max, got }: { min: number | null; max: number | null; got: number | undefined }) {
-  if (got == null || (min == null && max == null)) return null;
-  const vals = [min, max, got].filter((v): v is number => v != null);
-  const span = Math.max(...vals) - Math.min(...vals);
-  const pad = Math.max(span * 0.3, Math.abs(Math.max(...vals)) * 0.05, 0.01);
-  const lo = Math.min(...vals) - pad;
-  const hi = Math.max(...vals) + pad;
-  const bands: Band[] = [
-    { from: lo, to: min ?? lo, tone: "fail" },
-    { from: min ?? lo, to: max ?? hi, tone: "pass" },
-    { from: max ?? hi, to: hi, tone: "fail" },
-  ];
-  const title = `${min != null ? `min ${min}` : "no min"} · ${max != null ? `max ${max}` : "no max"} · got ${got.toFixed(2)}`;
-  return (
-    <div className="mt-0.5 w-24" title={title}>
-      <BandStrip lo={lo} hi={hi} bands={bands} marker={got} compact />
     </div>
   );
 }
