@@ -67,3 +67,25 @@ Read off staging's Layer 1 on 24 Sep 2026:
 - Editing the standard from this screen.
 - Scenarios saved side by side.
 - Any change to production or costing.
+
+## What the solve is held to (25 Sep 2026)
+
+The solve binds six figures only: ME, calcium, available phosphorus, dig.
+lysine, dig. Met+Cys and crude fibre (`SOLVE_ON` in shared/feed.ts). Every
+other figure in the standard is worked out for the live and solved mix and
+shown under "Checked" as met or not met, in amber, never red. It never binds
+and never blocks a solve.
+
+- **Met+Cys** is derived: a material's methionine plus cystine, and the
+  standard's methionine plus cystine rows (the loader stored cystine as
+  (Met+Cys) − Met, so the sum is the guide's figure).
+- **Crude fibre** is a ceiling on bulk, so it is not scaled with intake. The
+  Hy-Line guide gives no fibre figure. Until a maximum is set in Settings ›
+  Feed Standards the row shows the mix's fibre with "no limit set".
+- **Additives open locked** when they carry none of the six (or are marked
+  fixed-dose). Threonine or valine sources would now open locked too.
+- **Watch for uncapped supplements.** With cystine no longer held on its own,
+  DL-Methionine (3,564 kcal/kg on file, above maize) is an energy source to
+  the solver. An energy-starved solve with no cap on it pours it in: Layer 1
+  eased to the frontier came out 57% DL-Methionine. A max on its formula line
+  (0.5% tried) gives a sane answer.
