@@ -99,13 +99,19 @@ const at = (v: unknown): Date | null => {
   return new Date(/[Zz]|[+-]\d\d:?\d\d$/.test(iso) ? iso : `${iso}Z`);
 };
 
-/** A photograph travels as a file beside the JSON and is stored as niko stores its own. */
-const inhale = async (file: unknown, sub: string): Promise<string | null> => {
+/**
+ * A photograph travels as a file beside the JSON and is stored as niko stores
+ * its own — a data URL on the row. The export writes the path from the folder
+ * root ("photos/punch/x.jpg"), so it is joined as given.
+ */
+let photosMissing = 0;
+const inhale = async (file: unknown): Promise<string | null> => {
   if (typeof file !== "string" || !file) return null;
   try {
-    const buf = await readFile(path.join(DIR, "photos", sub, file));
+    const buf = await readFile(path.join(DIR, file));
     return `data:image/jpeg;base64,${buf.toString("base64")}`;
   } catch {
+    photosMissing++;
     return null;
   }
 };
@@ -114,6 +120,10 @@ say("\n  IMPORT PAYROLL HISTORY FROM AMINO");
 say(`  export of ${exp.exportedAt} — months to ${exp.lastClosedMonth} resolved in full`);
 say();
 
+/** Thrown by the dry run's deliberate rollback, and by nothing else. */
+class DryRun extends Error {}
+
+try {
 await db.transaction(async (tx) => {
   /* ── Who is who ─────────────────────────────────────────────────────────
    * Salaried people match on their code. Daily-wage workers have none in
@@ -247,7 +257,7 @@ await db.transaction(async (tx) => {
   for (const { row, worker } of punchRows) {
     const employeeId = person.get(String(worker ? row.worker_id : row.employee_id));
     if (!employeeId) continue;
-    const photoUrl = await inhale(row.photo_file, "punch");
+    const photoUrl = await inhale(row.photo_file);
     if (photoUrl) photoCount++;
     // Amino's own account of where the punch came from. niko's punch has no
     // such column — its devices are its own — so it is said in the note,
@@ -578,13 +588,16 @@ await db.transaction(async (tx) => {
     `  canteen             ${canteenCount} canteen, ${windowCount} windows, ${eligibleCount} eligibility, ${servingCount} servings (${guestCount} guests)`,
   );
 
+  if (photosMissing) problem(`${photosMissing} punch photograph(s) not in the folder — rows imported without them`);
   say();
   if (!APPLY) {
     say(`  dry run rolled back — nothing written${problems ? ` (${problems} problems above)` : ""}`);
-    tx.rollback();
-  } else {
-    say(`  applied${problems ? ` with ${problems} problems noted above` : ""}`);
+    throw new DryRun();
   }
+  say(`  applied${problems ? ` with ${problems} problems noted above` : ""}`);
 });
+} catch (err) {
+  if (!(err instanceof DryRun)) throw err;
+}
 
 process.exit(0);
