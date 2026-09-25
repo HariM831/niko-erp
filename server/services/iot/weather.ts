@@ -26,6 +26,39 @@ export interface Weather {
 
 let cache: { w: Weather; at: number } | null = null;
 
+/**
+ * Outside humidity hour by hour, yesterday and today, so a shed's humidity
+ * can be judged against the air that came in at that hour rather than a
+ * fixed line. Fetched at most every thirty minutes.
+ */
+let rhCache: { hours: Map<number, number>; at: number } | null = null;
+export async function outsideHumidityByHour(): Promise<Map<number, number>> {
+  if (rhCache && Date.now() - rhCache.at < 30 * 60_000) return rhCache.hours;
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${LAT}&longitude=${LON}&hourly=relative_humidity_2m&past_days=1&forecast_days=1&timezone=Asia%2FKolkata`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error(`open-meteo ${res.status}`);
+    const j = (await res.json()) as { hourly: { time: string[]; relative_humidity_2m: Array<number | null> } };
+    const hours = new Map<number, number>();
+    j.hourly.time.forEach((t, i) => {
+      const v = j.hourly.relative_humidity_2m[i];
+      // the service stamps IST wall-clock time; keyed on the UTC millisecond of that hour
+      if (v != null) hours.set(new Date(`${t}:00+05:30`).getTime(), v);
+    });
+    rhCache = { hours, at: Date.now() };
+    return hours;
+  } catch (e) {
+    console.warn(`[weather] humidity by hour: ${e instanceof Error ? e.message : e}`);
+    return rhCache?.hours ?? new Map();
+  }
+}
+
+/** The outside humidity for the hour a reading was taken, or null when the service has nothing for it. */
+export function outsideHumidityAt(hours: Map<number, number>, at: Date): number | null {
+  const key = Math.floor(at.getTime() / 3_600_000) * 3_600_000;
+  return hours.get(key) ?? null;
+}
+
 export async function outsideWeather(): Promise<Weather | null> {
   if (cache && Date.now() - cache.at < 10 * 60_000) return cache.w;
   try {

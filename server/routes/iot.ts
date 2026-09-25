@@ -101,7 +101,7 @@ iotRouter.get("/status", requirePermission("farms", "view"), async (_req, res) =
   const order: Verdict[] = ["ok", "watch", "severe", "critical", "offline"];
   const counts = Object.fromEntries(order.map((v) => [v, 0])) as Record<Verdict, number>;
   const rows = sheds.map((h) => {
-    const v = verdictNow(h);
+    const v = verdictNow(h, Date.now(), b.weather?.humidityPct ?? null);
     counts[v.verdict]++;
     return {
       houseId: h.houseId,

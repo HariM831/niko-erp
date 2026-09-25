@@ -18,14 +18,26 @@ import { iotHouseSample } from "@shared/schema";
 import { db } from "../../db";
 import { heatIndex, ladderFans } from "./controls";
 import { houseFeelsLike, LEVELS, type Level, type LevelName } from "./feels-like";
+import { outsideHumidityAt, outsideHumidityByHour } from "./weather";
 
 export type Verdict = LevelName | "offline";
 
 /** A reading older than this is not "now". The poll runs every five minutes. */
 const STALE_MS = 20 * 60_000;
 
+/**
+ * How much wetter than the outside air a shed may be before it is a watch.
+ * The pads and the birds both add water; a few points over the air coming
+ * in is normal, more says the pads are running in air that cannot take it
+ * or the fans are not carrying the birds' moisture out. Decided 25
+ * September 2026: a fixed 82% line was a watch on every monsoon afternoon.
+ */
+const RH_OVER_OUTSIDE = 5;
+/** When the weather service has no figure for the hour, the old fixed line. */
+const RH_FIXED = 82;
+
 /** The instrument checks, as a level and a reason. Shared by "now" and the 24-hour replay. */
-function instrumentChecks(t: number | null, target: number | null, rh: number | null, co2: number | null): Array<{ level: Level; reason: string }> {
+function instrumentChecks(t: number | null, target: number | null, rh: number | null, co2: number | null, outsideRh: number | null = null): Array<{ level: Level; reason: string }> {
   const out: Array<{ level: Level; reason: string }> = [];
   if (t != null && target != null) {
     const d = t - target;
@@ -37,7 +49,11 @@ function instrumentChecks(t: number | null, target: number | null, rh: number | 
     if (co2 > 2500) out.push({ level: 2, reason: `CO₂ ${Math.round(co2)} ppm` });
     else if (co2 > 1500) out.push({ level: 1, reason: `CO₂ ${Math.round(co2)} ppm` });
   }
-  if (rh != null && rh > 82) out.push({ level: 1, reason: `humidity ${Math.round(rh)}%` });
+  if (rh != null) {
+    if (outsideRh != null) {
+      if (rh > outsideRh + RH_OVER_OUTSIDE) out.push({ level: 1, reason: `humidity ${Math.round(rh)}%, outside ${Math.round(outsideRh)}%` });
+    } else if (rh > RH_FIXED) out.push({ level: 1, reason: `humidity ${Math.round(rh)}%` });
+  }
   return out;
 }
 
@@ -52,7 +68,7 @@ export interface NowInput {
 }
 
 /** The verdict on a house from its board row. */
-export function verdictNow(b: NowInput, now = Date.now()): { verdict: Verdict; reasons: string[]; thi: { thi: number; band: string } | null } {
+export function verdictNow(b: NowInput, now = Date.now(), outsideRh: number | null = null): { verdict: Verdict; reasons: string[]; thi: { thi: number; band: string } | null } {
   const thi = heatIndex(b.tempC, b.humidityPct);
   if (b.controllerLive === false) return { verdict: "offline", reasons: ["controller switched off or not reachable"], thi };
   if (!b.fetchedAt || now - b.fetchedAt.getTime() > STALE_MS) {
@@ -67,7 +83,7 @@ export function verdictNow(b: NowInput, now = Date.now()): { verdict: Verdict; r
     level = LEVELS.indexOf(b.feelsLike.band) as Level;
     if (level > 0) reasons.push(`feels-like ${b.feelsLike.bft} °C, wet-bulb ${b.feelsLike.wetBulbC} °C`);
   }
-  for (const c of instrumentChecks(b.tempC, b.targetTempC, b.humidityPct, b.co2Ppm)) {
+  for (const c of instrumentChecks(b.tempC, b.targetTempC, b.humidityPct, b.co2Ppm, outsideRh)) {
     level = Math.max(level, c.level) as Level;
     reasons.push(c.reason);
   }
@@ -129,6 +145,7 @@ const maxOf = (xs: number[]) => (xs.length ? Math.max(...xs) : null);
 
 /** The last 24 hours of each house, replayed sample by sample through the same checks as the verdict. */
 export async function dayStatus(houseIds: string[], now = new Date()): Promise<Map<string, DayStatus>> {
+  const outsideRh = await outsideHumidityByHour();
   const out = new Map<string, DayStatus>();
   if (!houseIds.length) return out;
   const from = new Date(now.getTime() - 24 * 3_600_000);
@@ -196,7 +213,7 @@ export async function dayStatus(houseIds: string[], now = new Date()): Promise<M
       }
       const thi = heatIndex(s.tempC, s.humidityPct);
       if (thi) thiVals.push(thi.thi);
-      for (const c of instrumentChecks(s.tempC, s.targetTempC, s.humidityPct, s.co2Ppm)) {
+      for (const c of instrumentChecks(s.tempC, s.targetTempC, s.humidityPct, s.co2Ppm, outsideHumidityAt(outsideRh, s.at))) {
         if (c.level > level) reason = c.reason;
         level = Math.max(level, c.level) as Level;
       }
