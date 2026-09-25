@@ -52,11 +52,15 @@ export type PersonKind = (typeof PERSON_KINDS)[number];
 export const EXTRA_PLATE_KINDS = ["guest", "second_plate", "override"] as const;
 
 /**
- * How long override/guest audit photos are kept — one salary cycle, so a
- * disputed plate can still be looked at. Sent to devices in config; pruning
- * is a server job.
+ * How long a photograph is kept — a punch's face, a disputed plate.
+ *
+ * Three months: the audit that would ever want to look at one happens well
+ * inside that, and a picture nobody has opened in a quarter is weight in every
+ * backup rather than evidence. The row itself stays for good; only the picture
+ * goes. Sent to devices in config so they clear their own copies on the same
+ * clock; pruning here is the nightly server job.
  */
-export const PHOTO_RETENTION_DAYS = 45;
+export const PHOTO_RETENTION_DAYS = 90;
 
 /** Max events accepted per POST /api/device/events. */
 export const MAX_EVENTS_PER_REQUEST = 200;
