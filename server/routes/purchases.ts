@@ -152,7 +152,15 @@ const poSchema = z.object({
   reference: z.string().optional(),
   notes: z.string().optional(),
   termsAndConditions: z.string().optional(),
-  lines: z.array(lineSchema).min(1).max(200),
+  lines: z
+    .array(
+      lineSchema.extend({
+        /** The line being edited. Absent on a new line, and on every line of a new order. */
+        id: z.string().uuid().optional(),
+      }),
+    )
+    .min(1)
+    .max(200),
 });
 
 /** The gradient hero strip on the Purchase Orders list — same shape as Bills'. */
@@ -225,61 +233,110 @@ purchasesRouter.patch(
   requirePermission("purchases", "edit"),
   validateBody(poSchema.partial()),
   async (req, res) => {
-    const body = req.body as Partial<z.infer<typeof poSchema>>;
+    const body = req.body as PurchaseOrderEdit;
     try {
-      const result = await db.transaction(async (tx) => {
-        const po = await tx.query.purchaseOrders.findFirst({
-          where: eq(purchaseOrders.id, req.params.id!),
-        });
-        if (!po) throw new PostingError("Purchase order not found");
-        if (po.status === "billed" || po.status === "partially_billed") {
-          throw new PostingError("This purchase order has been billed — edit the bill instead");
-        }
-        if (po.status === "cancelled") throw new PostingError("A cancelled purchase order cannot be edited");
-
-        const vendor = await loadVendor(tx, body.vendorId ?? po.vendorId);
-        let totalsPatch = {};
-        if (body.lines) {
-          const resolvedLines = await resolveLineAccounts(tx, body.lines);
-          const totals = await computeDocumentTotals(
-            tx,
-            resolvedLines as DocLineInput[],
-            vendor.placeOfSupplyState,
-          );
-          const { lines: computedLines, ...headerTotals } = totals;
-          await tx.delete(purchaseOrderLines).where(eq(purchaseOrderLines.purchaseOrderId, po.id));
-          await tx.insert(purchaseOrderLines).values(
-            computedLines.map((l, i) => ({
-              ...l,
-              accountId: resolvedLines[i]!.accountId,
-              purchaseOrderId: po.id,
-            })),
-          );
-          totalsPatch = headerTotals;
-        }
-
-        const [updated] = await tx
-          .update(purchaseOrders)
-          .set({
-            vendorId: vendor.id,
-            orderDate: body.orderDate ?? po.orderDate,
-            expectedDeliveryDate: body.expectedDeliveryDate ?? po.expectedDeliveryDate,
-            reference: body.reference ?? po.reference,
-            notes: body.notes ?? po.notes,
-            termsAndConditions: body.termsAndConditions ?? po.termsAndConditions,
-            ...totalsPatch,
-            updatedAt: new Date(),
-          })
-          .where(eq(purchaseOrders.id, po.id))
-          .returning();
-        return updated!;
-      });
+      const result = await db.transaction((tx) => editPurchaseOrder(tx, req.params.id!, body));
       res.json(result);
     } catch (err) {
       if (!handlePostingError(err, res)) throw err;
     }
   },
 );
+
+export type PurchaseOrderEdit = Partial<z.infer<typeof poSchema>>;
+
+/**
+ * Edit an unbilled purchase order in place. The route above is this inside a
+ * transaction; scripts/check-po-edit.ts calls it directly and rolls it back.
+ */
+export async function editPurchaseOrder(tx: Tx, orderId: string, body: PurchaseOrderEdit) {
+  const po = await tx.query.purchaseOrders.findFirst({
+    where: eq(purchaseOrders.id, orderId),
+  });
+  if (!po) throw new PostingError("Purchase order not found");
+  if (po.status === "billed" || po.status === "partially_billed") {
+    throw new PostingError("This purchase order has been billed — edit the bill instead");
+  }
+  if (po.status === "cancelled") throw new PostingError("A cancelled purchase order cannot be edited");
+
+  const vendor = await loadVendor(tx, body.vendorId ?? po.vendorId);
+  let totalsPatch = {};
+  if (body.lines) {
+    const resolvedLines = await resolveLineAccounts(tx, body.lines);
+    const totals = await computeDocumentTotals(
+      tx,
+      resolvedLines as DocLineInput[],
+      vendor.placeOfSupplyState,
+    );
+    const { lines: computedLines, ...headerTotals } = totals;
+
+    /**
+     * Lines are edited in place, not deleted and written again.
+     *
+     * A line is what a truck at the gate is matched to, and what the
+     * delivered and billed counts accumulate on. Rewriting every line on
+     * each save threw those counts away, and once a lorry had been matched
+     * — even one turned back at QC — the database refused the save
+     * outright, because the goods receipt would have pointed at nothing.
+     * So a line that comes back with its id is updated where it stands; a
+     * line without one is new; and a line that is gone is removed only if
+     * no goods receipt names it.
+     */
+    const existing = await tx
+      .select({ id: purchaseOrderLines.id, name: purchaseOrderLines.name })
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, po.id));
+    const existingIds = new Set(existing.map((l) => l.id));
+    const kept = new Set(body.lines.map((l) => l.id).filter((id): id is string => !!id && existingIds.has(id)));
+    const dropped = existing.filter((l) => !kept.has(l.id));
+    if (dropped.length) {
+      const used = await tx
+        .select({
+          poLineId: officeReceiptLines.poLineId,
+          number: officeReceipts.number,
+          vehicle: officeReceipts.vehicleNumber,
+        })
+        .from(officeReceiptLines)
+        .innerJoin(officeReceipts, eq(officeReceipts.id, officeReceiptLines.receiptId))
+        .where(inArray(officeReceiptLines.poLineId, dropped.map((l) => l.id)));
+      if (used.length) {
+        const names = new Map(dropped.map((l) => [l.id, l.name]));
+        throw new PostingError(
+          used
+            .map((u) => `"${names.get(u.poLineId!)}" cannot be removed: goods receipt ${u.number} (${u.vehicle}) was matched to it`)
+            .join("; "),
+        );
+      }
+      await tx.delete(purchaseOrderLines).where(inArray(purchaseOrderLines.id, dropped.map((l) => l.id)));
+    }
+    for (const [i, l] of computedLines.entries()) {
+      const values = { ...l, accountId: resolvedLines[i]!.accountId, purchaseOrderId: po.id };
+      const id = body.lines[i]!.id;
+      if (id && kept.has(id)) {
+        await tx.update(purchaseOrderLines).set(values).where(eq(purchaseOrderLines.id, id));
+      } else {
+        await tx.insert(purchaseOrderLines).values(values);
+      }
+    }
+    totalsPatch = headerTotals;
+  }
+
+  const [updated] = await tx
+    .update(purchaseOrders)
+    .set({
+      vendorId: vendor.id,
+      orderDate: body.orderDate ?? po.orderDate,
+      expectedDeliveryDate: body.expectedDeliveryDate ?? po.expectedDeliveryDate,
+      reference: body.reference ?? po.reference,
+      notes: body.notes ?? po.notes,
+      termsAndConditions: body.termsAndConditions ?? po.termsAndConditions,
+      ...totalsPatch,
+      updatedAt: new Date(),
+    })
+    .where(eq(purchaseOrders.id, po.id))
+    .returning();
+  return updated!;
+}
 
 purchasesRouter.post(
   "/orders",

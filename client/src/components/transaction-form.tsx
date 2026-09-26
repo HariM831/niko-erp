@@ -36,6 +36,13 @@ interface Tax {
 type Account = AccountNode;
 
 export interface FormLine {
+  /**
+   * The saved line this row edits; absent on a row added in this form. Sent
+   * back on save so the server updates the line in place — a purchase order
+   * line is what a truck at the gate was matched to, and rewriting it would
+   * orphan that match.
+   */
+  id?: string;
   itemId?: string;
   accountId?: string;
   name: string;
@@ -172,6 +179,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
     if (existing.lines?.length) {
       setLines(
         existing.lines.map((l) => ({
+          id: (l.id as string) ?? undefined,
           itemId: (l.itemId as string) ?? undefined,
           accountId: (l.accountId as string) ?? undefined,
           name: l.name as string,
@@ -335,6 +343,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
         lines: lines
           .filter((l) => l.name.trim())
           .map((l) => ({
+            ...(editId && l.id ? { id: l.id } : {}),
             itemId: l.itemId || undefined,
             accountId: l.accountId || undefined,
             name: l.name,
