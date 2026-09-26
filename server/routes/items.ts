@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { and, asc, desc, eq, getTableColumns, ilike, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { SALE_CATEGORIES } from "@shared/item-categories";
 import {
@@ -9,6 +9,7 @@ import {
   bills,
   contacts,
   invoiceLines,
+  inventoryTransactions,
   invoices,
   items,
   itemType,
@@ -126,7 +127,25 @@ itemsRouter.get("/", requireReferenceRead, async (req, res) => {
     .where(and(eq(attachments.entityType, "item"), ilike(attachments.mimeType, "image/%")))
     .orderBy(asc(attachments.createdAt));
   const imageByItem = new Map(images.map((a) => [a.entityId, a.id]));
-  res.json(rows.map((r) => ({ ...r, imageId: imageByItem.get(r.id) ?? null })));
+
+  // What each tracked item holds now: its opening figure plus every movement.
+  // The column used to show the opening figure alone, which never moved.
+  const trackedIds = rows.filter((r) => r.trackInventory).map((r) => r.id);
+  const moved = trackedIds.length
+    ? await db
+        .select({ itemId: inventoryTransactions.itemId, qty: sql<string>`sum(${inventoryTransactions.quantity})` })
+        .from(inventoryTransactions)
+        .where(inArray(inventoryTransactions.itemId, trackedIds))
+        .groupBy(inventoryTransactions.itemId)
+    : [];
+  const movedBy = new Map(moved.map((m) => [m.itemId, Number(m.qty)]));
+  res.json(
+    rows.map((r) => ({
+      ...r,
+      imageId: imageByItem.get(r.id) ?? null,
+      stockOnHand: r.trackInventory ? (Number(r.openingStock ?? 0) + (movedBy.get(r.id) ?? 0)).toFixed(3) : null,
+    })),
+  );
 });
 
 itemsRouter.get("/:id", requirePermission("items", "view"), async (req, res) => {

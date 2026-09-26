@@ -43,7 +43,7 @@ import { holds, requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, assertPeriodOpen, reverseJournal } from "../services/posting";
-import { mainStore, moveStock, postInventoryMovement, stockOnHand } from "../services/inventory";
+import { mainStore, moveStock, postInventoryMovement, stockOnHand, stockUnitsPerKg } from "../services/inventory";
 import { getPreferences } from "../services/preferences";
 import { refreshHouse } from "../services/rollup";
 import { istDate } from "../services/day-resolution";
@@ -295,6 +295,8 @@ export async function produceOne(
       itemName: items.name,
       costPrice: items.costPrice,
       tracked: items.trackInventory,
+      unit: items.unit,
+      unitBagWeightKg: items.unitBagWeightKg,
     })
     .from(formulaLines)
     .innerJoin(items, eq(items.id, formulaLines.itemId))
@@ -312,10 +314,23 @@ export async function produceOne(
    */
   const levels = await stockOnHand(tx);
   const held = new Map(levels.map((l) => [l.itemId, l]));
+  /**
+   * A recipe is in kilos; stock is in the item's own unit. A tracked material
+   * counted in packs with no bag weight cannot be taken out by the kilo, so
+   * the batch is refused by name rather than booking kilos as packs.
+   */
+  const noBag = recipe.filter((r) => r.tracked && stockUnitsPerKg(r) == null);
+  if (noBag.length) {
+    throw new PostingError(
+      `${noBag.map((r) => `${r.itemName} is counted in ${r.unit}`).join(", ")} with no bag weight — set it on the item so a kilo can be taken out of stock`,
+    );
+  }
+  const perKg = (r: (typeof recipe)[number]) => (r.tracked ? stockUnitsPerKg(r)! : 1);
+  /** ₹ per KILO: stock is valued per its own unit, so a pack's rate is spread over its weight. */
   const rateOf = (r: (typeof recipe)[number]) => {
     const h = held.get(r.line.itemId);
     if (h && Number(h.quantity) > 0 && Number(h.value) > 0) {
-      return Number(h.value) / Number(h.quantity);
+      return (Number(h.value) / Number(h.quantity)) * perKg(r);
     }
     return Number(r.costPrice ?? 0);
   };
@@ -359,7 +374,8 @@ export async function produceOne(
     .map((r) => ({
       name: r.itemName,
       need: Number(r.line.quantityKg) * run.batchCount,
-      have: Number(held.get(r.line.itemId)?.quantity ?? 0),
+      // In kilos, like the need: a pack item's stock is converted by its bag weight.
+      have: Number(held.get(r.line.itemId)?.quantity ?? 0) / perKg(r),
     }))
     .filter((x) => x.have < x.need - 0.0005);
   if (short.length) {
@@ -435,7 +451,7 @@ export async function produceOne(
         .filter(({ r }) => r.tracked)
         .map(({ r, kgTotal, valueP }) => ({
           itemId: r.line.itemId,
-          quantity: `-${kgTotal.toFixed(3)}`,
+          quantity: `-${(kgTotal * perKg(r)).toFixed(3)}`,
           value: `-${(valueP / 100).toFixed(2)}`,
         })),
       { itemId: formula.outputItemId, quantity: outputKg.toFixed(3), value: (totalP / 100).toFixed(2) },
@@ -514,6 +530,8 @@ feedProductionRouter.post(
             actualKg: productionOrderLines.actualKg,
             value: productionOrderLines.value,
             tracked: items.trackInventory,
+            unit: items.unit,
+            unitBagWeightKg: items.unitBagWeightKg,
           })
           .from(productionOrderLines)
           .innerJoin(items, eq(items.id, productionOrderLines.itemId))
@@ -531,7 +549,8 @@ feedProductionRouter.post(
               .filter((l) => l.tracked)
               .map((l) => ({
                 itemId: l.itemId,
-                quantity: Number(l.actualKg ?? 0).toFixed(3),
+                // Back in the item's own unit, as it went out.
+                quantity: (Number(l.actualKg ?? 0) * (stockUnitsPerKg(l) ?? 1)).toFixed(3),
                 value: Number(l.value ?? 0).toFixed(2),
                 notes: `Void ${order.number}: returned to stock`,
               })),

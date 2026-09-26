@@ -479,6 +479,15 @@ export interface CreateBillArgs {
   tdsSection?: string;
   lines: PurchaseLineInput[];
   postedBy: string;
+  /**
+   * What goes into stock, when the caller knows better than the bill lines.
+   *
+   * A gate settlement does: the bill charges the vendor's printed kilos, but
+   * what came off the lorry is the weighed net, at what the goods finally cost
+   * once their tax is folded in and the deductions are taken off. Omitted, a
+   * bill's tracked goods lines go in as billed.
+   */
+  stockMovements?: Array<{ itemId: string; quantity: string; value: string }>;
 }
 
 /** Shared by direct bill creation and PO conversion. Posts the JE immediately (status "open"). */
@@ -607,7 +616,7 @@ export async function createBill(tx: Tx, args: CreateBillArgs) {
    * never received, so nothing comes back off the pile.
    */
   await moveStock(tx, {
-    movements: await stockLines(tx, c),
+    movements: args.stockMovements ?? (await stockLines(tx, c)),
     transactionDate: args.billDate,
     sourceType: "bill",
     sourceId: bill!.id,

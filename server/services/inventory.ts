@@ -46,6 +46,22 @@ export interface StockMovement {
  * house — pass their own; the rest land in the main store of the site the
  * business runs from, which is where stock with no better answer belongs.
  */
+/**
+ * How many of an item's own stock units one kilogram is.
+ *
+ * The weighbridge and the mill both deal in kilos, but a premix is bought and
+ * counted in packs — Mixiblend P in 4 kg packs — so a kilo off the lorry or
+ * into the mixer is a quarter of a unit of stock. A kilo item is 1. Null when
+ * the item is counted in something else and has no bag weight to convert by:
+ * the caller refuses rather than booking kilos as packs.
+ */
+export function stockUnitsPerKg(item: { unit: string | null; unitBagWeightKg: string | null }): number | null {
+  const unit = (item.unit ?? "").trim().toLowerCase();
+  if (unit === "kg" || unit === "kgs" || unit === "kilogram" || unit === "kilograms") return 1;
+  const bag = Number(item.unitBagWeightKg ?? 0);
+  return bag > 0 ? 1 / bag : null;
+}
+
 export async function mainStore(tx: Tx | Db, locationId?: string | null): Promise<string> {
   const [row] = await tx
     .select({ id: stockLocations.id })

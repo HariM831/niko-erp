@@ -38,6 +38,7 @@ import { validateBody } from "../lib/validate";
 import { nextDocumentNumber, resyncDocumentNumber } from "../lib/numbering";
 import { PostingError, assertPeriodOpen } from "../services/posting";
 import { createBill, loadVendor } from "../services/purchases";
+import { stockUnitsPerKg } from "../services/inventory";
 import {
   ALLOWED_MIME,
   type ImageInput,
@@ -1422,12 +1423,34 @@ async function settlementContext(tx: Tx | typeof db, receiptId: string) {
   const lines = await tx
     .select({
       line: officeReceiptLines,
-      purchaseAccountId: items.purchaseAccountId,
+      itemPurchaseAccountId: items.purchaseAccountId,
+      inventoryAccountId: items.inventoryAccountId,
+      tracked: items.trackInventory,
+      unit: items.unit,
+      unitBagWeightKg: items.unitBagWeightKg,
     })
     .from(officeReceiptLines)
     .leftJoin(items, eq(items.id, officeReceiptLines.itemId))
     .where(eq(officeReceiptLines.receiptId, receiptId))
-    .orderBy(asc(officeReceiptLines.lineNo));
+    .orderBy(asc(officeReceiptLines.lineNo))
+    /**
+     * The account a line is charged to — named for the purchase account, and
+     * that for anything the mill spends. A material that tracks stock is an
+     * asset until it is milled, so its line, its share of their tax and its
+     * deductions all land on the item's stock account, the same as a bill
+     * keyed by hand (services/purchases.ts resolveLineAccounts). Charged to
+     * the purchase account instead, a settled load would be expensed while
+     * production later takes it out of stock, and Feed Stock would run
+     * negative by every tonne that came through the gate. Null leaves the
+     * bill to refuse a tracked item with no stock account, by name.
+     */
+    .then((rows) =>
+      rows.map(({ itemPurchaseAccountId, inventoryAccountId, ...r }) => ({
+        ...r,
+        tracked: !!r.tracked,
+        purchaseAccountId: r.tracked ? inventoryAccountId : itemPurchaseAccountId,
+      })),
+    );
 
   // The vendor's printed tax, spread across the lines by value. Never posted to
   // a tax account — eggs are exempt, so it is part of what the goods cost.
@@ -1733,257 +1756,9 @@ officeRouter.post(
     }),
   ),
   async (req, res) => {
-    const body = req.body as {
-      billTotalVarianceReason?: string;
-      deductions?: Array<{
-        lineId: string; name: string; amount: string; basis?: string;
-        ruleId?: string | null; ruleVersion?: number | null;
-      }>;
-    };
+    const body = req.body as SettleBody;
     try {
-      const out = await db.transaction(async (tx) => {
-        const ctx = await settlementContext(tx, req.params.id!);
-        const { receipt } = ctx;
-        assertTransition(receipt.status, "settled");
-
-        if (!receipt.vendorId) throw new PostingError("This receipt has no vendor");
-        if (!ctx.billLines.length) throw new PostingError("Nothing was unloaded — there is nothing to bill");
-        // A line with no rate would post a bill for nothing at all, quietly.
-        // Better to refuse than to raise a payable a vendor will dispute.
-        // Only the goods have to be priced. The vendor's rounding line is
-        // allowed to be negative, and is not a material anybody can quote.
-        const unpriced = ctx.billLines.filter((l) => l.kind === "goods" && !(l.amount > 0));
-        if (unpriced.length) {
-          throw new PostingError(
-            `${unpriced.map((l) => l.name).join(", ")} has no rate — a bill cannot be raised for nothing`,
-          );
-        }
-
-        // Every line must sit against an order before money moves. The gate
-        // already enforces this, but a line can be edited afterwards.
-        const unmatched = ctx.lines.filter(
-          (l) => l.line.status === "unloaded" && !l.line.poLineId,
-        );
-        if (unmatched.length) {
-          throw new PostingError(`${unmatched.length} line(s) have no purchase order behind them`);
-        }
-
-        const vendor = await loadVendor(tx, receipt.vendorId);
-        const billDate = receipt.vendorBillDate ?? istDate();
-        await assertPeriodOpen(tx, billDate, "bill");
-
-        // What the rules proposed, overlaid with whatever was approved on
-        // screen. An edited amount keeps the rule's own basis alongside the
-        // new figure, so the record shows both what was computed and what a
-        // person decided instead.
-        const approved = (body.deductions ?? []).map((d) => {
-          const computed = ctx.deductions.find(
-            (c) => c.lineId === d.lineId && (d.ruleId ? c.ruleId === d.ruleId : c.name === d.name),
-          );
-          const amount = Number(d.amount);
-          const line = ctx.lines.find((l) => l.line.id === d.lineId);
-          const changed = computed && Math.abs(computed.amount - amount) > 0.005;
-          return {
-            lineId: d.lineId,
-            itemId: computed?.itemId ?? line?.line.itemId ?? null,
-            accountId: computed?.accountId ?? line?.purchaseAccountId ?? null,
-            ruleId: d.ruleId ?? computed?.ruleId ?? null,
-            ruleVersion: d.ruleVersion ?? computed?.ruleVersion ?? null,
-            parameter: computed?.parameter ?? "manual",
-            name: d.name,
-            quantityKg: 1,
-            ratePerKg: amount,
-            amount,
-            basis: changed
-              ? `${computed!.basis} = ₹${computed!.amount.toLocaleString("en-IN")}, adjusted to ₹${amount.toLocaleString("en-IN")}`
-              : (d.basis ?? computed?.basis ?? "entered by hand"),
-          };
-        });
-        const charging = body.deductions ? approved : ctx.deductions;
-        const deductionTotal = Number(charging.reduce((s, d) => s + d.amount, 0).toFixed(2));
-
-        const rupees = (v: number) =>
-          `₹${v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-        /** 2026-08-18 → 18-08-2026, the way the date reads on their paper. */
-        const asDate = (d: string) => d.split("-").reverse().join("-");
-        /**
-         * The note explains the DIFFERENCE, and nothing else.
-         *
-         * A vendor querying this bill six months on wants one thing: why it is
-         * not their figure. So the note names the truck and their bill, then
-         * each deduction with its own arithmetic — short, allowed, charged.
-         *
-         * Gross, tare and net are deliberately absent. They are on the goods
-         * receipt for anyone who needs them, and printing three weights nobody
-         * asked about only buries the one sentence that answers the question.
-         */
-        const explanation = [
-          [
-            receipt.number,
-            receipt.vehicleNumber,
-            receipt.vendorBillNumber ? `their bill ${receipt.vendorBillNumber}` : null,
-            receipt.vendorBillDate ? `dated ${asDate(receipt.vendorBillDate)}` : null,
-          ]
-            .filter(Boolean)
-            .join(" · "),
-          ...(charging.length
-            ? [
-                "",
-                "Deducted",
-                ...charging.map((d) => `  ${d.name}  ${rupees(d.amount)}\n  ${d.basis}`),
-                // Only worth adding up when there is more than one.
-                ...(charging.length > 1 ? [`  Total ${rupees(deductionTotal)}`] : []),
-              ]
-            : []),
-        ].join("\n");
-
-        /**
-         * One bill: the goods at the vendor's own figure, then a negative line
-         * for each thing we are not paying for.
-         *
-         * Deliberately not a bill plus a vendor credit. A credit was never
-         * countersigned or returned, so the second document bought nothing a
-         * line on this one does not — and this way the goods line still ties to
-         * the vendor's invoice figure for figure, with the difference explained
-         * one row below it rather than in another document.
-         */
-        const bill = await createBill(tx, {
-          vendor,
-          billDate,
-          vendorBillNumber: receipt.vendorBillNumber ?? undefined,
-          // Their figure, not ours: our total is theirs less what we deducted.
-          vendorBillTotal: receipt.billTotalAmount ?? undefined,
-          reference: receipt.number,
-          notes: explanation,
-          // Only when the whole truck came from one order; a multi-PO receipt
-          // keeps its links on the receipt lines instead.
-          purchaseOrderId:
-            new Set(ctx.lines.map((l) => l.line.purchaseOrderId).filter(Boolean)).size === 1
-              ? (ctx.lines.find((l) => l.line.purchaseOrderId)?.line.purchaseOrderId ?? undefined)
-              : undefined,
-          lines: [
-            ...ctx.billLines.map((l) => ({
-              itemId: l.itemId ?? undefined,
-              accountId: l.accountId ?? undefined,
-              name: l.name,
-              quantity: l.quantityKg.toFixed(3),
-              // Only the goods are weighed. The vendor's tax and rounding are
-              // sums of money, and "1.00 kg of IGST" is not a thing.
-              unit: l.kind === "goods" ? "kg" : undefined,
-              rate: l.ratePerKg.toFixed(6),
-              // No taxId anywhere: their tax is a cost line, not a tax line,
-              // because there is no input credit to claim against it.
-            })),
-            ...charging.map((d) => ({
-              itemId: d.itemId ?? undefined,
-              // The same purchase account as the goods it reduces, so the
-              // journal nets to one debit instead of a pair that cancel.
-              accountId: d.accountId ?? undefined,
-              name: d.name,
-              // One unit at the deduction's own value: a deduction is a sum of
-              // money, not a quantity of goods going back.
-              quantity: "1.000",
-              rate: (-d.amount).toFixed(6),
-              description: d.basis,
-              // Which rule charged this, and which version of it. Null where a
-              // person entered the figure by hand, which is the truth of it.
-              ruleId: d.ruleId,
-              ruleVersion: d.ruleVersion,
-            })),
-          ],
-          postedBy: req.session.user!.id,
-        });
-
-        // Counters. An unloaded line discharges the order by what the vendor
-        // sent, and is billed for the same — QC rejections were counted at
-        // station 3 and must not be counted again here.
-        for (const l of ctx.lines) {
-          if (l.line.status !== "unloaded" || !l.line.poLineId) continue;
-          await tx
-            .update(purchaseOrderLines)
-            .set({
-              deliveredQuantity: sql`${purchaseOrderLines.deliveredQuantity} + ${l.line.billQuantityKg}`,
-              billedQuantity: sql`${purchaseOrderLines.billedQuantity} + ${l.line.billQuantityKg}`,
-            })
-            .where(eq(purchaseOrderLines.id, l.line.poLineId));
-        }
-
-        await tx
-          .update(officeReceiptLines)
-          .set({ status: "settled" })
-          .where(
-            and(
-              eq(officeReceiptLines.receiptId, receipt.id),
-              eq(officeReceiptLines.status, "unloaded"),
-            ),
-          );
-
-        const [updated] = await tx
-          .update(officeReceipts)
-          .set({
-            status: "settled",
-            billId: bill.id,
-            // Stays null: deductions are lines on the bill now. The column
-            // remains for a credit raised by hand against this receipt.
-            vendorCreditId: null,
-            billTotalVarianceReason: body.billTotalVarianceReason,
-            settledAt: new Date(),
-            settledBy: req.session.user!.id,
-            updatedAt: new Date(),
-          })
-          .where(eq(officeReceipts.id, receipt.id))
-          .returning();
-
-        // Carry the gate photos onto the bill.
-        //
-        // Whoever queries a payable months later needs the bill, the truck and
-        // the weigh slip in front of them without knowing a receipt exists. The
-        // file is COPIED rather than the row re-pointed: two documents each
-        // owning their own file means deleting an attachment from the bill can
-        // never blank the evidence on the receipt.
-        const photos = await tx
-          .select()
-          .from(attachments)
-          .where(
-            and(
-              eq(attachments.entityType, "office_receipt"),
-              eq(attachments.entityId, receipt.id),
-            ),
-          );
-        for (const p of photos) {
-          const copyName = `${randomBytes(16).toString("hex")}${path.extname(p.storedName)}`;
-          try {
-            await copyFile(path.join(UPLOAD_DIR, p.storedName), path.join(UPLOAD_DIR, copyName));
-          } catch {
-            continue; // a missing file must not stop a payable being raised
-          }
-          await tx.insert(attachments).values({
-            entityType: "bill",
-            entityId: bill.id,
-            fileName: p.fileName,
-            storedName: copyName,
-            mimeType: p.mimeType,
-            sizeBytes: p.sizeBytes,
-            uploadedBy: req.session.user!.id,
-            kind: p.kind,
-            capturedAt: p.capturedAt,
-            latitude: p.latitude,
-            longitude: p.longitude,
-            accuracyM: p.accuracyM,
-            locationId: p.locationId,
-          });
-        }
-
-        return {
-          receipt: updated!,
-          bill,
-          // What came off, and what is left to pay. The bill total IS the net
-          // now, so there is no second document to reconcile it against.
-          deducted: deductionTotal.toFixed(2),
-          photosAttached: photos.length,
-          summary: ctx,
-        };
-      });
+      const out = await db.transaction((tx) => settleReceipt(tx, req.params.id!, body, req.session.user!.id));
       res.json(out);
     } catch (err) {
       if (err instanceof TransitionError) return res.status(409).json({ error: err.message });
@@ -1991,6 +1766,295 @@ officeRouter.post(
     }
   },
 );
+
+export type SettleBody = {
+  billTotalVarianceReason?: string;
+  deductions?: Array<{
+    lineId: string; name: string; amount: string; basis?: string;
+    ruleId?: string | null; ruleVersion?: number | null;
+  }>;
+};
+
+/**
+ * Settle a gated-out truck: raise its bill, discharge its orders, take what
+ * came off into stock, and freeze the receipt. The route above is this inside
+ * a transaction; a check script calls it directly and rolls it back.
+ */
+export async function settleReceipt(tx: Tx, receiptId: string, body: SettleBody, userId: string) {
+  const ctx = await settlementContext(tx, receiptId);
+  const { receipt } = ctx;
+  assertTransition(receipt.status, "settled");
+
+  if (!receipt.vendorId) throw new PostingError("This receipt has no vendor");
+  if (!ctx.billLines.length) throw new PostingError("Nothing was unloaded — there is nothing to bill");
+  // A line with no rate would post a bill for nothing at all, quietly.
+  // Better to refuse than to raise a payable a vendor will dispute.
+  // Only the goods have to be priced. The vendor's rounding line is
+  // allowed to be negative, and is not a material anybody can quote.
+  const unpriced = ctx.billLines.filter((l) => l.kind === "goods" && !(l.amount > 0));
+  if (unpriced.length) {
+    throw new PostingError(
+      `${unpriced.map((l) => l.name).join(", ")} has no rate — a bill cannot be raised for nothing`,
+    );
+  }
+
+  // Every line must sit against an order before money moves. The gate
+  // already enforces this, but a line can be edited afterwards.
+  const unmatched = ctx.lines.filter(
+    (l) => l.line.status === "unloaded" && !l.line.poLineId,
+  );
+  if (unmatched.length) {
+    throw new PostingError(`${unmatched.length} line(s) have no purchase order behind them`);
+  }
+
+  const vendor = await loadVendor(tx, receipt.vendorId);
+  const billDate = receipt.vendorBillDate ?? istDate();
+  await assertPeriodOpen(tx, billDate, "bill");
+
+  // What the rules proposed, overlaid with whatever was approved on
+  // screen. An edited amount keeps the rule's own basis alongside the
+  // new figure, so the record shows both what was computed and what a
+  // person decided instead.
+  const approved = (body.deductions ?? []).map((d) => {
+    const computed = ctx.deductions.find(
+      (c) => c.lineId === d.lineId && (d.ruleId ? c.ruleId === d.ruleId : c.name === d.name),
+    );
+    const amount = Number(d.amount);
+    const line = ctx.lines.find((l) => l.line.id === d.lineId);
+    const changed = computed && Math.abs(computed.amount - amount) > 0.005;
+    return {
+      lineId: d.lineId,
+      itemId: computed?.itemId ?? line?.line.itemId ?? null,
+      accountId: computed?.accountId ?? line?.purchaseAccountId ?? null,
+      ruleId: d.ruleId ?? computed?.ruleId ?? null,
+      ruleVersion: d.ruleVersion ?? computed?.ruleVersion ?? null,
+      parameter: computed?.parameter ?? "manual",
+      name: d.name,
+      quantityKg: 1,
+      ratePerKg: amount,
+      amount,
+      basis: changed
+        ? `${computed!.basis} = ₹${computed!.amount.toLocaleString("en-IN")}, adjusted to ₹${amount.toLocaleString("en-IN")}`
+        : (d.basis ?? computed?.basis ?? "entered by hand"),
+    };
+  });
+  const charging = body.deductions ? approved : ctx.deductions;
+  const deductionTotal = Number(charging.reduce((s, d) => s + d.amount, 0).toFixed(2));
+
+  const rupees = (v: number) =>
+    `₹${v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  /** 2026-08-18 → 18-08-2026, the way the date reads on their paper. */
+  const asDate = (d: string) => d.split("-").reverse().join("-");
+  /**
+   * The note explains the DIFFERENCE, and nothing else.
+   *
+   * A vendor querying this bill six months on wants one thing: why it is
+   * not their figure. So the note names the truck and their bill, then
+   * each deduction with its own arithmetic — short, allowed, charged.
+   *
+   * Gross, tare and net are deliberately absent. They are on the goods
+   * receipt for anyone who needs them, and printing three weights nobody
+   * asked about only buries the one sentence that answers the question.
+   */
+  const explanation = [
+    [
+      receipt.number,
+      receipt.vehicleNumber,
+      receipt.vendorBillNumber ? `their bill ${receipt.vendorBillNumber}` : null,
+      receipt.vendorBillDate ? `dated ${asDate(receipt.vendorBillDate)}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · "),
+    ...(charging.length
+      ? [
+          "",
+          "Deducted",
+          ...charging.map((d) => `  ${d.name}  ${rupees(d.amount)}\n  ${d.basis}`),
+          // Only worth adding up when there is more than one.
+          ...(charging.length > 1 ? [`  Total ${rupees(deductionTotal)}`] : []),
+        ]
+      : []),
+  ].join("\n");
+
+  /**
+   * One bill: the goods at the vendor's own figure, then a negative line
+   * for each thing we are not paying for.
+   *
+   * Deliberately not a bill plus a vendor credit. A credit was never
+   * countersigned or returned, so the second document bought nothing a
+   * line on this one does not — and this way the goods line still ties to
+   * the vendor's invoice figure for figure, with the difference explained
+   * one row below it rather than in another document.
+   */
+  /**
+   * What came off the lorry goes into stock: the weighed net per
+   * material, not the kilos on their bill. Valued at what it finally
+   * costs — the goods, its share of their tax and rounding, less the
+   * deductions against it — so Stock on Hand carries the same value the
+   * bill puts on the stock account. Only materials that track stock.
+   */
+  const goodsTotal = ctx.billLines.filter((l) => l.kind === "goods").reduce((s, l) => s + l.amount, 0);
+  const extrasTotal = ctx.billLines.filter((l) => l.kind === "extra").reduce((s, l) => s + l.amount, 0);
+  const inStock = ctx.lines.filter((l) => l.line.status === "unloaded" && l.tracked && l.line.itemId);
+  // The lorry is weighed in kilos; a material counted in packs goes in
+  // by its bag weight, and without one it cannot go in at all.
+  const noBag = inStock.filter((l) => stockUnitsPerKg(l) == null);
+  if (noBag.length) {
+    throw new PostingError(
+      `${noBag.map((l) => `${l.line.itemName ?? "A material"} is counted in ${l.unit}`).join(", ")} with no bag weight — set it on the item so the weighed kilos can go into stock`,
+    );
+  }
+  const stockMovements = inStock
+    .flatMap((l) => {
+      const goods = ctx.billLines.find((b) => b.kind === "goods" && b.lineId === l.line.id)?.amount ?? 0;
+      const share = goodsTotal > 0 ? (extrasTotal * goods) / goodsTotal : 0;
+      const off = charging.filter((d) => d.lineId === l.line.id).reduce((s, d) => s + d.amount, 0);
+      const kg = Number(l.line.allocatedNetKg ?? l.line.billQuantityKg);
+      const value = goods + share - off;
+      if (!(kg > 0) || !(value > 0)) return [];
+      return [{ itemId: l.line.itemId!, quantity: (kg * stockUnitsPerKg(l)!).toFixed(3), value: value.toFixed(2) }];
+    });
+
+  const bill = await createBill(tx, {
+    vendor,
+    billDate,
+    stockMovements,
+    // The goods land at the site the lorry came to.
+    stockLocationOf: receipt.locationId,
+    vendorBillNumber: receipt.vendorBillNumber ?? undefined,
+    // Their figure, not ours: our total is theirs less what we deducted.
+    vendorBillTotal: receipt.billTotalAmount ?? undefined,
+    reference: receipt.number,
+    notes: explanation,
+    // Only when the whole truck came from one order; a multi-PO receipt
+    // keeps its links on the receipt lines instead.
+    purchaseOrderId:
+      new Set(ctx.lines.map((l) => l.line.purchaseOrderId).filter(Boolean)).size === 1
+        ? (ctx.lines.find((l) => l.line.purchaseOrderId)?.line.purchaseOrderId ?? undefined)
+        : undefined,
+    lines: [
+      ...ctx.billLines.map((l) => ({
+        itemId: l.itemId ?? undefined,
+        accountId: l.accountId ?? undefined,
+        name: l.name,
+        quantity: l.quantityKg.toFixed(3),
+        // Only the goods are weighed. The vendor's tax and rounding are
+        // sums of money, and "1.00 kg of IGST" is not a thing.
+        unit: l.kind === "goods" ? "kg" : undefined,
+        rate: l.ratePerKg.toFixed(6),
+        // No taxId anywhere: their tax is a cost line, not a tax line,
+        // because there is no input credit to claim against it.
+      })),
+      ...charging.map((d) => ({
+        itemId: d.itemId ?? undefined,
+        // The same purchase account as the goods it reduces, so the
+        // journal nets to one debit instead of a pair that cancel.
+        accountId: d.accountId ?? undefined,
+        name: d.name,
+        // One unit at the deduction's own value: a deduction is a sum of
+        // money, not a quantity of goods going back.
+        quantity: "1.000",
+        rate: (-d.amount).toFixed(6),
+        description: d.basis,
+        // Which rule charged this, and which version of it. Null where a
+        // person entered the figure by hand, which is the truth of it.
+        ruleId: d.ruleId,
+        ruleVersion: d.ruleVersion,
+      })),
+    ],
+    postedBy: userId,
+  });
+
+  // Counters. An unloaded line discharges the order by what the vendor
+  // sent, and is billed for the same — QC rejections were counted at
+  // station 3 and must not be counted again here.
+  for (const l of ctx.lines) {
+    if (l.line.status !== "unloaded" || !l.line.poLineId) continue;
+    await tx
+      .update(purchaseOrderLines)
+      .set({
+        deliveredQuantity: sql`${purchaseOrderLines.deliveredQuantity} + ${l.line.billQuantityKg}`,
+        billedQuantity: sql`${purchaseOrderLines.billedQuantity} + ${l.line.billQuantityKg}`,
+      })
+      .where(eq(purchaseOrderLines.id, l.line.poLineId));
+  }
+
+  await tx
+    .update(officeReceiptLines)
+    .set({ status: "settled" })
+    .where(
+      and(
+        eq(officeReceiptLines.receiptId, receipt.id),
+        eq(officeReceiptLines.status, "unloaded"),
+      ),
+    );
+
+  const [updated] = await tx
+    .update(officeReceipts)
+    .set({
+      status: "settled",
+      billId: bill.id,
+      // Stays null: deductions are lines on the bill now. The column
+      // remains for a credit raised by hand against this receipt.
+      vendorCreditId: null,
+      billTotalVarianceReason: body.billTotalVarianceReason,
+      settledAt: new Date(),
+      settledBy: userId,
+      updatedAt: new Date(),
+    })
+    .where(eq(officeReceipts.id, receipt.id))
+    .returning();
+
+  // Carry the gate photos onto the bill.
+  //
+  // Whoever queries a payable months later needs the bill, the truck and
+  // the weigh slip in front of them without knowing a receipt exists. The
+  // file is COPIED rather than the row re-pointed: two documents each
+  // owning their own file means deleting an attachment from the bill can
+  // never blank the evidence on the receipt.
+  const photos = await tx
+    .select()
+    .from(attachments)
+    .where(
+      and(
+        eq(attachments.entityType, "office_receipt"),
+        eq(attachments.entityId, receipt.id),
+      ),
+    );
+  for (const p of photos) {
+    const copyName = `${randomBytes(16).toString("hex")}${path.extname(p.storedName)}`;
+    try {
+      await copyFile(path.join(UPLOAD_DIR, p.storedName), path.join(UPLOAD_DIR, copyName));
+    } catch {
+      continue; // a missing file must not stop a payable being raised
+    }
+    await tx.insert(attachments).values({
+      entityType: "bill",
+      entityId: bill.id,
+      fileName: p.fileName,
+      storedName: copyName,
+      mimeType: p.mimeType,
+      sizeBytes: p.sizeBytes,
+      uploadedBy: userId,
+      kind: p.kind,
+      capturedAt: p.capturedAt,
+      latitude: p.latitude,
+      longitude: p.longitude,
+      accuracyM: p.accuracyM,
+      locationId: p.locationId,
+    });
+  }
+
+  return {
+    receipt: updated!,
+    bill,
+    // What came off, and what is left to pay. The bill total IS the net
+    // now, so there is no second document to reconcile it against.
+    deducted: deductionTotal.toFixed(2),
+    photosAttached: photos.length,
+    summary: ctx,
+  };
+}
 
 /**
  * Correct a receipt.

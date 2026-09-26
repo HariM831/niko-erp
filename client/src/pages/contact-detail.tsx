@@ -678,16 +678,22 @@ const TXN_SECTIONS: Record<
     amountKey?: string;
     /** Bills: Bill# is the vendor's own number and the reference sits beside it, as in Zoho. */
     isBill?: boolean;
+    /**
+     * Payments: what of this one is still spare. Money paid ahead sits here
+     * until it is put against a bill, and until somebody can SEE it they pay
+     * the bill again — which is exactly what happened to SWIFT.
+     */
+    unusedKey?: string;
   }>
 > = {
   customer: [
     { key: "invoices", label: "Invoices", dateKey: "invoiceDate", basePath: "/sales/invoices", balanceKey: "balanceDue" },
-    { key: "payments", label: "Payments Received", dateKey: "paymentDate", basePath: "/sales/payments", amountKey: "amount" },
+    { key: "payments", label: "Payments Received", dateKey: "paymentDate", basePath: "/sales/payments", amountKey: "amount", unusedKey: "unappliedAmount" },
     { key: "creditNotes", label: "Credit Notes", dateKey: "creditNoteDate", basePath: "/sales/credit-notes", balanceKey: "balance" },
   ],
   vendor: [
     { key: "bills", label: "Bills", dateKey: "billDate", basePath: "/purchases/bills", balanceKey: "balanceDue", isBill: true },
-    { key: "payments", label: "Payments Made", dateKey: "paymentDate", basePath: "/purchases/payments", amountKey: "amount" },
+    { key: "payments", label: "Payments Made", dateKey: "paymentDate", basePath: "/purchases/payments", amountKey: "amount", unusedKey: "unappliedAmount" },
     { key: "vendorCredits", label: "Vendor Credits", dateKey: "creditDate", basePath: "/purchases/vendor-credits", balanceKey: "balance" },
   ],
   /**
@@ -697,10 +703,10 @@ const TXN_SECTIONS: Record<
    */
   both: [
     { key: "invoices", label: "Invoices", dateKey: "invoiceDate", basePath: "/sales/invoices", balanceKey: "balanceDue" },
-    { key: "customerPayments", label: "Payments Received", dateKey: "paymentDate", basePath: "/sales/payments", amountKey: "amount" },
+    { key: "customerPayments", label: "Payments Received", dateKey: "paymentDate", basePath: "/sales/payments", amountKey: "amount", unusedKey: "unappliedAmount" },
     { key: "creditNotes", label: "Credit Notes", dateKey: "creditNoteDate", basePath: "/sales/credit-notes", balanceKey: "balance" },
     { key: "bills", label: "Bills", dateKey: "billDate", basePath: "/purchases/bills", balanceKey: "balanceDue", isBill: true },
-    { key: "vendorPayments", label: "Payments Made", dateKey: "paymentDate", basePath: "/purchases/payments", amountKey: "amount" },
+    { key: "vendorPayments", label: "Payments Made", dateKey: "paymentDate", basePath: "/purchases/payments", amountKey: "amount", unusedKey: "unappliedAmount" },
     { key: "vendorCredits", label: "Vendor Credits", dateKey: "creditDate", basePath: "/purchases/vendor-credits", balanceKey: "balance" },
   ],
 };
@@ -725,9 +731,21 @@ export function TransactionsTab({
     <div className="p-6">
       {sections.map((s) => {
         const rows = data?.[s.key] ?? [];
+        // What the whole section still has spare: the figure somebody is
+        // actually after when they ask "is there money sitting with them".
+        const spare = s.unusedKey
+          ? rows.reduce((t, r) => t + Number((r[s.unusedKey!] as string) ?? 0), 0)
+          : 0;
         return (
           <div key={s.key} className="mb-7">
-            <h3 className="mb-2 text-sm font-semibold">{s.label}</h3>
+            <h3 className="mb-2 flex flex-wrap items-baseline gap-2 text-sm font-semibold">
+              {s.label}
+              {spare > 0.004 && (
+                <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[12px] font-medium text-amber-800">
+                  {formatMoney(spare.toFixed(2))} not yet put against a bill
+                </span>
+              )}
+            </h3>
             {!rows.length ? (
               <p className="rounded border border-dashed px-4 py-3 text-[13px] text-gray-400">
                 No {s.label.toLowerCase()} yet.
@@ -742,6 +760,7 @@ export function TransactionsTab({
                     <th className="border-b border-[#ece3d5] px-3 py-2">Status</th>
                     <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Amount</th>
                     {s.balanceKey && <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Balance</th>}
+                    {s.unusedKey && <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Unused</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -763,6 +782,17 @@ export function TransactionsTab({
                       {s.balanceKey && (
                         <td className="px-3 py-2 text-right tabular-nums">
                           {formatMoney((r[s.balanceKey] as string) ?? 0)}
+                        </td>
+                      )}
+                      {s.unusedKey && (
+                        // Nil is the ordinary case and stays grey; anything
+                        // left is money to be applied, and says so.
+                        <td
+                          className={`px-3 py-2 text-right tabular-nums ${
+                            Number((r[s.unusedKey] as string) ?? 0) > 0.004 ? "font-semibold text-amber-800" : "text-gray-400"
+                          }`}
+                        >
+                          {formatMoney((r[s.unusedKey] as string) ?? 0)}
                         </td>
                       )}
                     </tr>

@@ -168,6 +168,8 @@ interface ItemRow {
   purchaseDescription?: string;
   trackInventory?: boolean;
   openingStock?: string;
+  /** Opening plus every movement; null when the item does not track stock. */
+  stockOnHand?: string | null;
   imageId?: string | null;
   isActive: boolean;
 }
@@ -299,7 +301,10 @@ export const ItemsPage = () => (
         portrait: true,
         header: "Stock on Hand",
         align: "right",
-        render: (r) => (r.trackInventory ? Number(r.openingStock ?? 0) : "—"),
+        render: (r) =>
+          r.trackInventory
+            ? `${Number(r.stockOnHand ?? r.openingStock ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 3 })} ${r.unit}`
+            : "—",
       },
       { key: "hsn", header: "HSN/SAC", render: (r) => r.hsnOrSac ?? "—" },
       { key: "unit", header: "Usage Unit", render: (r) => r.unit },

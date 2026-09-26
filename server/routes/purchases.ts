@@ -804,155 +804,162 @@ purchasesRouter.post(
   validateBody(z.object({ voidDate: dateStr })),
   async (req, res) => {
     try {
-      const result = await db.transaction(async (tx) => {
-        const bill = await tx.query.bills.findFirst({ where: eq(bills.id, req.params.id!) });
-        if (!bill) throw new PostingError("Bill not found");
-        if (bill.status === "void") throw new PostingError("Bill is already void");
-        if (toPaise(bill.balanceDue) !== toPaise(bill.total)) {
-          throw new PostingError("Bill has payments or credits applied — unapply them first");
-        }
-        // Both the goods entry and the separate freight entry have to come back off.
-        for (const je of [bill.journalEntryId, bill.freightJournalEntryId]) {
-          if (je) await reverseJournal(tx, je, req.body.voidDate, req.session.user!.id);
-        }
-        const [updated] = await tx
-          .update(bills)
-          .set({ status: "void", balanceDue: "0.00", updatedAt: new Date() })
-          .where(eq(bills.id, bill.id))
-          .returning();
-
-        /**
-         * Stock goes back out with the money.
-         *
-         * The void reverses the journal, so the debit to the stock account is
-         * undone; leave the quantity behind and Stock on Hand claims forty
-         * tonnes of maize the ledger says was never bought.
-         */
-        const stockBack = await tx
-          .select({ itemId: billLines.itemId, quantity: billLines.quantity, amount: billLines.amount })
-          .from(billLines)
-          .innerJoin(items, eq(items.id, billLines.itemId))
-          .where(and(eq(billLines.billId, bill.id), eq(items.trackInventory, true)));
-        await moveStock(tx, {
-          movements: stockBack
-            .filter((l) => Number(l.amount) > 0)
-            .map((l) => ({
-              itemId: l.itemId!,
-              quantity: `-${Number(l.quantity).toFixed(3)}`,
-              value: `-${Number(l.amount).toFixed(2)}`,
-            })),
-          transactionDate: req.body.voidDate,
-          sourceType: "bill",
-          sourceId: bill.id,
-          // The same store the goods went into: reversing them somewhere else
-          // would leave one store long and another short.
-          stockLocationId: stockBack[0]
-            ? ((await tx
-                .select({ id: inventoryTransactions.stockLocationId })
-                .from(inventoryTransactions)
-                .where(
-                  and(
-                    eq(inventoryTransactions.sourceType, "bill"),
-                    eq(inventoryTransactions.sourceId, bill.id),
-                  ),
-                )
-                .limit(1))[0]?.id ?? (await mainStore(tx)))
-            : await mainStore(tx),
-        });
-
-        // The item master's purchase rate follows the latest LIVE bill, so a
-        // void walks it back to the one before.
-        const voidedItems = await tx
-          .select({ itemId: billLines.itemId })
-          .from(billLines)
-          .where(eq(billLines.billId, bill.id));
-        const ids = [...new Set(voidedItems.map((l) => l.itemId).filter((v): v is string => !!v))];
-        if (ids.length) await syncPurchaseRates(tx, ids);
-
-        /**
-         * A goods receipt is settled by its bill, so voiding the bill unsettles
-         * it — the truck is back at "gated out, unpaid" and can be settled
-         * again.
-         *
-         * "Settled" is otherwise terminal, and it should be: nobody re-bills a
-         * truck on a whim. But the freeze belongs to the BILL, not to a flag on
-         * the receipt. Without this the only way to correct a wrong settlement
-         * is to key a bill by hand and leave the receipt pointing at a void
-         * document, which is how a goods receipt and the ledger stop agreeing.
-         */
-        const toReopen = await tx
-          .select({ id: officeReceipts.id, number: officeReceipts.number })
-          .from(officeReceipts)
-          .where(
-            and(eq(officeReceipts.billId, bill.id), eq(officeReceipts.status, "settled")),
-          );
-
-        for (const r of toReopen) {
-          /**
-           * Give the order back what settling took.
-           *
-           * Settling discharges the purchase order by what the vendor sent.
-           * Leave that behind on a void and the order reads as fully delivered
-           * against a bill that no longer exists — the receipt can never be
-           * matched to it again, and re-settling the same truck would discharge
-           * it a second time.
-           */
-          const settledLines = await tx
-            .select({
-              poLineId: officeReceiptLines.poLineId,
-              qty: officeReceiptLines.billQuantityKg,
-            })
-            .from(officeReceiptLines)
-            .where(
-              and(
-                eq(officeReceiptLines.receiptId, r.id),
-                eq(officeReceiptLines.status, "settled"),
-              ),
-            );
-          for (const l of settledLines) {
-            if (!l.poLineId) continue;
-            await tx
-              .update(purchaseOrderLines)
-              .set({
-                deliveredQuantity: sql`GREATEST(0, ${purchaseOrderLines.deliveredQuantity} - ${l.qty})`,
-                billedQuantity: sql`GREATEST(0, ${purchaseOrderLines.billedQuantity} - ${l.qty})`,
-              })
-              .where(eq(purchaseOrderLines.id, l.poLineId));
-          }
-          // The lines go back to unloaded — off the truck, not yet billed.
-          await tx
-            .update(officeReceiptLines)
-            .set({ status: "unloaded" })
-            .where(
-              and(
-                eq(officeReceiptLines.receiptId, r.id),
-                eq(officeReceiptLines.status, "settled"),
-              ),
-            );
-        }
-
-        const reopened = await tx
-          .update(officeReceipts)
-          .set({
-            status: "gate_out",
-            billId: null,
-            settledAt: null,
-            settledBy: null,
-            updatedAt: new Date(),
-          })
-          .where(
-            and(eq(officeReceipts.billId, bill.id), eq(officeReceipts.status, "settled")),
-          )
-          .returning({ number: officeReceipts.number });
-
-        return { ...updated!, reopenedReceipts: reopened.map((r) => r.number) };
-      });
+      const result = await db.transaction((tx) => voidBill(tx, req.params.id!, req.body.voidDate, req.session.user!.id));
       res.json(result);
     } catch (err) {
       if (!handlePostingError(err, res)) throw err;
     }
   },
 );
+
+/**
+ * Void a bill: reverse its journals, take its stock back out, walk the
+ * purchase rates back, and reopen any goods receipt it settled. The route above
+ * is this inside a transaction; a check script calls it directly and rolls it
+ * back.
+ */
+export async function voidBill(tx: Tx, billId: string, voidDate: string, userId: string) {
+  const bill = await tx.query.bills.findFirst({ where: eq(bills.id, billId) });
+  if (!bill) throw new PostingError("Bill not found");
+  if (bill.status === "void") throw new PostingError("Bill is already void");
+  if (toPaise(bill.balanceDue) !== toPaise(bill.total)) {
+    throw new PostingError("Bill has payments or credits applied — unapply them first");
+  }
+  // Both the goods entry and the separate freight entry have to come back off.
+  for (const je of [bill.journalEntryId, bill.freightJournalEntryId]) {
+    if (je) await reverseJournal(tx, je, voidDate, userId);
+  }
+  const [updated] = await tx
+    .update(bills)
+    .set({ status: "void", balanceDue: "0.00", updatedAt: new Date() })
+    .where(eq(bills.id, bill.id))
+    .returning();
+
+  /**
+   * Stock goes back out with the money.
+   *
+   * The void reverses the journal, so the debit to the stock account is
+   * undone; leave the quantity behind and Stock on Hand claims forty
+   * tonnes of maize the ledger says was never bought.
+   *
+   * Read back from the movements the bill actually made, not rebuilt
+   * from its lines: a gate settlement takes in the weighed net at its
+   * landed cost, not the billed kilos, and reversing the billed figure
+   * would leave the shortfall behind as stock that never existed. Per
+   * store, so the goods come out of the store they went into.
+   */
+  const stockBack = await tx
+    .select({
+      itemId: inventoryTransactions.itemId,
+      stockLocationId: inventoryTransactions.stockLocationId,
+      quantity: sql<string>`sum(${inventoryTransactions.quantity})`,
+      value: sql<string>`coalesce(sum(${inventoryTransactions.value}), 0)`,
+    })
+    .from(inventoryTransactions)
+    .where(and(eq(inventoryTransactions.sourceType, "bill"), eq(inventoryTransactions.sourceId, bill.id)))
+    .groupBy(inventoryTransactions.itemId, inventoryTransactions.stockLocationId);
+  await moveStock(tx, {
+    movements: stockBack
+      .filter((m) => Math.abs(Number(m.quantity)) > 0.0005)
+      .map((m) => ({
+        itemId: m.itemId,
+        stockLocationId: m.stockLocationId ?? undefined,
+        quantity: (-Number(m.quantity)).toFixed(3),
+        value: (-Number(m.value)).toFixed(2),
+      })),
+    transactionDate: voidDate,
+    sourceType: "bill",
+    sourceId: bill.id,
+    stockLocationId: await mainStore(tx),
+  });
+
+  // The item master's purchase rate follows the latest LIVE bill, so a
+  // void walks it back to the one before.
+  const voidedItems = await tx
+    .select({ itemId: billLines.itemId })
+    .from(billLines)
+    .where(eq(billLines.billId, bill.id));
+  const ids = [...new Set(voidedItems.map((l) => l.itemId).filter((v): v is string => !!v))];
+  if (ids.length) await syncPurchaseRates(tx, ids);
+
+  /**
+   * A goods receipt is settled by its bill, so voiding the bill unsettles
+   * it — the truck is back at "gated out, unpaid" and can be settled
+   * again.
+   *
+   * "Settled" is otherwise terminal, and it should be: nobody re-bills a
+   * truck on a whim. But the freeze belongs to the BILL, not to a flag on
+   * the receipt. Without this the only way to correct a wrong settlement
+   * is to key a bill by hand and leave the receipt pointing at a void
+   * document, which is how a goods receipt and the ledger stop agreeing.
+   */
+  const toReopen = await tx
+    .select({ id: officeReceipts.id, number: officeReceipts.number })
+    .from(officeReceipts)
+    .where(
+      and(eq(officeReceipts.billId, bill.id), eq(officeReceipts.status, "settled")),
+    );
+
+  for (const r of toReopen) {
+    /**
+     * Give the order back what settling took.
+     *
+     * Settling discharges the purchase order by what the vendor sent.
+     * Leave that behind on a void and the order reads as fully delivered
+     * against a bill that no longer exists — the receipt can never be
+     * matched to it again, and re-settling the same truck would discharge
+     * it a second time.
+     */
+    const settledLines = await tx
+      .select({
+        poLineId: officeReceiptLines.poLineId,
+        qty: officeReceiptLines.billQuantityKg,
+      })
+      .from(officeReceiptLines)
+      .where(
+        and(
+          eq(officeReceiptLines.receiptId, r.id),
+          eq(officeReceiptLines.status, "settled"),
+        ),
+      );
+    for (const l of settledLines) {
+      if (!l.poLineId) continue;
+      await tx
+        .update(purchaseOrderLines)
+        .set({
+          deliveredQuantity: sql`GREATEST(0, ${purchaseOrderLines.deliveredQuantity} - ${l.qty})`,
+          billedQuantity: sql`GREATEST(0, ${purchaseOrderLines.billedQuantity} - ${l.qty})`,
+        })
+        .where(eq(purchaseOrderLines.id, l.poLineId));
+    }
+    // The lines go back to unloaded — off the truck, not yet billed.
+    await tx
+      .update(officeReceiptLines)
+      .set({ status: "unloaded" })
+      .where(
+        and(
+          eq(officeReceiptLines.receiptId, r.id),
+          eq(officeReceiptLines.status, "settled"),
+        ),
+      );
+  }
+
+  const reopened = await tx
+    .update(officeReceipts)
+    .set({
+      status: "gate_out",
+      billId: null,
+      settledAt: null,
+      settledBy: null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(eq(officeReceipts.billId, bill.id), eq(officeReceipts.status, "settled")),
+    )
+    .returning({ number: officeReceipts.number });
+
+  return { ...updated!, reopenedReceipts: reopened.map((r) => r.number) };
+}
 
 // ============================ Payments Made ============================
 
