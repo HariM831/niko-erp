@@ -115,12 +115,18 @@ is what finally lights up the Group Companies page.
 
 ## Order of work
 
-1. Add `--apply`, the rename, the address dedupe and the pincode fix to
-   `scripts/merge-contacts.ts`. Dry-run both LLPs on staging; read the output.
-2. Merge both on staging. Check each contact's Overview, Transactions and
-   Statement tab reads as one account with both sides on it.
-3. Set `houses.owner_id` on L2–L5 once the pairing is known, and confirm the
+1. ~~Add `--apply`, the rename and the address dedupe to
+   `scripts/merge-contacts.ts`; dry-run both LLPs.~~ **Done 26 Sep 2026.** The
+   dry run caught Luit's pincode disagreement by itself.
+2. ~~Merge both on staging.~~ **Done 26 Sep 2026.** 12 rows moved for
+   Nandamuri, 9 for Luit; every balance identical afterwards; the two retired
+   halves are inactive and hold nothing. Luit's pincode corrected to 784149
+   first, so the merge kept the right row.
+3. ~~Decision 2, settled 26 Sep 2026: flag them, and keep the group in AR/AP
+   ageing, marked, with the market on its own line.~~ The ageing change is
+   written; **the flag itself is not set yet** and waits for that code to be
+   live, because flagging first would drop the two LLPs out of ageing as well.
+4. Set `houses.owner_id` on L2–L5 once the pairing is known, and confirm the
    Group Companies picker lists both LLPs.
-4. Decide the flag (decision 2). If yes: set it, and add the marked ageing.
 5. Apply the advances (decision 3), through the app, by hand.
 6. Repeat 1–4 on production as one scripted run, after the Zoho load.

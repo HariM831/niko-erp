@@ -179,9 +179,12 @@ Not built yet — see §5. The export script exists on the Amino repo
 1. The 11 carried system keys from the Zoho chart — confirm before loading.
 2. ~~Invoice numbering.~~ **Settled 19 Sep 2026: continue EG/FD/BD.** Applied
    on staging and proven. See §6.
-3. Group companies: set `is_group_company` on the four contacts; decide whether
-   to apply the advances; whether to rejoin each LLP's two sides. Net position
-   is ₹3,21,27,358 in niko's favour (Nandamuri ₹2,61,11,486, Luit ₹60,15,872).
+3. ~~Group companies.~~ **Settled 26 Sep 2026** — each LLP is now ONE contact
+   of type `both`, flagged as group, and ageing keeps the group marked rather
+   than hiding it. Done on staging; production repeats it after the Zoho load.
+   Still open: who owns which of L2–L5, and whether to apply the advances. Net
+   position ₹3,21,27,358 in niko's favour (Nandamuri ₹2,61,11,486, Luit
+   ₹60,15,872). See `docs/group-companies-plan.md`.
 4. **Mixiblend P datasheet** — whether it carries phytase and at what dose.
    Until it is on file, no mix's available phosphorus can be judged against the
    Hy-Line standard at all.
