@@ -106,6 +106,32 @@ interface ListPageProps<T> {
 }
 
 /**
+ * The sorted column's marker, copied from Zoho Books' own list header
+ * (read off books.zoho.in, 26 Sep 2026).
+ *
+ * A stacked pair of 5px carets, not one arrow: the caret matching the
+ * direction goes near-black and the other stays in the accent colour, so the
+ * control shows both what it is doing and what the next click will do. Zoho
+ * draws it on the SORTED column only — a header you have not clicked carries
+ * no caret at all, not even on hover, and the pointer cursor is the whole
+ * affordance.
+ */
+function SortCarets({ dir }: { dir: "asc" | "desc" }) {
+  const on = "fill-gray-900";
+  const off = "fill-brand-500";
+  return (
+    <span aria-hidden className="inline-flex flex-col leading-none">
+      <svg viewBox="0 0 10 6" className={`h-[5px] w-[5px] ${dir === "asc" ? on : off}`}>
+        <path d="M5 0L10 6H0z" />
+      </svg>
+      <svg viewBox="0 0 10 6" className={`h-[5px] w-[5px] ${dir === "desc" ? on : off}`}>
+        <path d="M5 6L0 0h10z" />
+      </svg>
+    </span>
+  );
+}
+
+/**
  * Books-style list view: "All <Title> ▾" saved-view dropdown, a "+ New"
  * primary action, checkbox column, and a compact full-width table.
  */
@@ -399,19 +425,12 @@ export function ListPage<T>({
                           type="button"
                           onClick={() => toggleSort(c.key)}
                           title={`Sort by ${c.header}`}
-                          className={`group inline-flex w-full items-center gap-1 font-semibold ${
+                          className={`inline-flex w-full items-center gap-1.5 font-semibold ${
                             c.align === "right" ? "justify-end" : ""
-                          } ${active ? "text-brand-600" : "hover:text-gray-900"}`}
+                          }`}
                         >
                           {c.header}
-                          <span
-                            aria-hidden
-                            className={`text-[9px] leading-none transition-opacity ${
-                              active ? "opacity-100" : "opacity-0 group-hover:opacity-40"
-                            }`}
-                          >
-                            {active && sort!.dir === "desc" ? "▼" : "▲"}
-                          </span>
+                          {active && <SortCarets dir={sort!.dir} />}
                         </button>
                       ) : (
                         c.header

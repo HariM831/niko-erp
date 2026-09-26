@@ -41,17 +41,22 @@ export function docColumns(dateKey: string, opts: DocColumnOpts): Column<DocRow>
   const cols: Column<DocRow>[] = [
     // portrait: the four that let you recognise a row on a phone held upright —
     // when, which one, who with, how much. Everything else waits for landscape.
-    { key: "date", header: "Date", portrait: true, render: (r) => shortDate(r[dateKey] as string) },
+    // An ISO date sorts chronologically as plain text, which is the one good
+    // thing about yyyy-mm-dd. Status carries no sort, as in Zoho: ordering a
+    // badge alphabetically puts Draft above Overdue and answers nothing.
+    { key: "date", header: "Date", portrait: true, sort: (r) => r[dateKey] as string, render: (r) => shortDate(r[dateKey] as string) },
     {
       key: "number",
       header: opts.numberHeader ?? "Number",
       portrait: true,
+      sort: (r) => r.number,
       render: (r) => <span className="font-medium text-brand-600">{r.number}</span>,
     },
     {
       key: "contact",
       header: opts.contactHeader ?? "Customer Name",
       portrait: true,
+      sort: (r) => r.contactName,
       render: (r) => <span className="text-gray-800">{r.contactName ?? "—"}</span>,
     },
     {
@@ -61,13 +66,14 @@ export function docColumns(dateKey: string, opts: DocColumnOpts): Column<DocRow>
     },
   ];
   if (opts.dueDate) {
-    cols.push({ key: "due", header: "Due Date", render: (r) => shortDate(r.dueDate) });
+    cols.push({ key: "due", header: "Due Date", sort: (r) => r.dueDate, render: (r) => shortDate(r.dueDate) });
   }
   cols.push({
     key: "amount",
     header: "Amount",
     align: "right",
     portrait: true,
+    sort: (r) => Number((r[opts.amountKey ?? "total"] as string) ?? r.total) || 0,
     render: (r) => formatMoney((r[opts.amountKey ?? "total"] as string) ?? r.total),
   });
   if (opts.balance) {
@@ -75,6 +81,7 @@ export function docColumns(dateKey: string, opts: DocColumnOpts): Column<DocRow>
       key: "bal",
       header: "Balance Due",
       align: "right",
+      sort: (r) => Number(r[opts.balance!] as string) || 0,
       render: (r) => formatMoney(r[opts.balance!] as string),
     });
   }
@@ -296,17 +303,17 @@ const dateTime = (v: unknown) =>
  * number falls back to the counter so the column is never blank.
  */
 export const BILL_COLUMNS: Column<DocRow>[] = [
-  { key: "date", header: "Date", portrait: true, render: (r) => shortDate(r.billDate as string) },
-  { key: "number", header: "Bill#", portrait: true, render: (r) => <span className="font-medium text-brand-600">{billNo(r)}</span> },
-  { key: "reference", header: "Reference Number", render: (r) => <span className="text-gray-600">{(r.reference as string) || "—"}</span> },
-  { key: "internal", header: "Internal#", render: (r) => <span className="text-gray-600">{r.number}</span> },
-  { key: "contact", header: "Vendor Name", portrait: true, render: (r) => <span className="text-gray-800">{r.contactName ?? "—"}</span> },
+  { key: "date", header: "Date", portrait: true, sort: (r) => r.billDate as string, render: (r) => shortDate(r.billDate as string) },
+  { key: "number", header: "Bill#", portrait: true, sort: (r) => billNo(r), render: (r) => <span className="font-medium text-brand-600">{billNo(r)}</span> },
+  { key: "reference", header: "Reference Number", sort: (r) => r.reference as string, render: (r) => <span className="text-gray-600">{(r.reference as string) || "—"}</span> },
+  { key: "internal", header: "Internal#", sort: (r) => r.number, render: (r) => <span className="text-gray-600">{r.number}</span> },
+  { key: "contact", header: "Vendor Name", portrait: true, sort: (r) => r.contactName, render: (r) => <span className="text-gray-800">{r.contactName ?? "—"}</span> },
   { key: "status", header: "Status", render: (r) => <StatusBadge status={r.status} dueDate={r.dueDate} /> },
-  { key: "due", header: "Due Date", render: (r) => shortDate(r.dueDate) },
-  { key: "amount", header: "Amount", align: "right", portrait: true, render: (r) => formatMoney(r.total) },
-  { key: "bal", header: "Balance Due", align: "right", render: (r) => formatMoney(r.balanceDue) },
-  { key: "createdBy", header: "Created By", render: (r) => <span className="text-gray-600">{(r.createdByName as string) || "—"}</span> },
-  { key: "createdTime", header: "Created Time", render: (r) => <span className="whitespace-nowrap text-gray-600">{dateTime(r.createdAt)}</span> },
+  { key: "due", header: "Due Date", sort: (r) => r.dueDate, render: (r) => shortDate(r.dueDate) },
+  { key: "amount", header: "Amount", align: "right", portrait: true, sort: (r) => Number(r.total) || 0, render: (r) => formatMoney(r.total) },
+  { key: "bal", header: "Balance Due", align: "right", sort: (r) => Number(r.balanceDue) || 0, render: (r) => formatMoney(r.balanceDue) },
+  { key: "createdBy", header: "Created By", sort: (r) => r.createdByName as string, render: (r) => <span className="text-gray-600">{(r.createdByName as string) || "—"}</span> },
+  { key: "createdTime", header: "Created Time", sort: (r) => r.createdAt as string, render: (r) => <span className="whitespace-nowrap text-gray-600">{dateTime(r.createdAt)}</span> },
 ];
 
 interface SummaryStats {
@@ -542,14 +549,14 @@ export const CustomerPaymentsPage = () => (
     rowPath={(r) => `/sales/payments/${r.id}`}
     banner={<PaymentsReceivedSummaryBanner />}
     columns={[
-      { key: "date", header: "Date", portrait: true, render: (r) => shortDate(r.paymentDate as string) },
-      { key: "number", header: "Payment #", portrait: true, render: (r) => <span className="font-medium text-brand-600">{r.number}</span> },
-      { key: "reference", header: "Reference Number", render: (r) => <span className="text-gray-600">{(r.reference as string) || "—"}</span> },
-      { key: "contact", header: "Customer Name", portrait: true, render: (r) => r.contactName ?? "—" },
-      { key: "invoices", header: "Invoice#", render: (r) => <span className="text-gray-600">{(r.invoiceNumbers as string) || "—"}</span> },
-      { key: "mode", header: "Mode", render: (r) => <span className="capitalize">{String(r.mode ?? "").replace(/_/g, " ")}</span> },
-      { key: "amount", header: "Amount", align: "right", portrait: true, render: (r) => formatMoney(r.amount) },
-      { key: "unapplied", header: "Unused Amount", align: "right", render: (r) => formatMoney(r.unappliedAmount) },
+      { key: "date", header: "Date", portrait: true, sort: (r) => r.paymentDate as string, render: (r) => shortDate(r.paymentDate as string) },
+      { key: "number", header: "Payment #", portrait: true, sort: (r) => r.number, render: (r) => <span className="font-medium text-brand-600">{r.number}</span> },
+      { key: "reference", header: "Reference Number", sort: (r) => r.reference as string, render: (r) => <span className="text-gray-600">{(r.reference as string) || "—"}</span> },
+      { key: "contact", header: "Customer Name", portrait: true, sort: (r) => r.contactName, render: (r) => r.contactName ?? "—" },
+      { key: "invoices", header: "Invoice#", sort: (r) => r.invoiceNumbers as string, render: (r) => <span className="text-gray-600">{(r.invoiceNumbers as string) || "—"}</span> },
+      { key: "mode", header: "Mode", sort: (r) => r.mode as string, render: (r) => <span className="capitalize">{String(r.mode ?? "").replace(/_/g, " ")}</span> },
+      { key: "amount", header: "Amount", align: "right", portrait: true, sort: (r) => Number(r.amount) || 0, render: (r) => formatMoney(r.amount) },
+      { key: "unapplied", header: "Unused Amount", align: "right", sort: (r) => Number(r.unappliedAmount) || 0, render: (r) => formatMoney(r.unappliedAmount) },
       { key: "status", header: "Status", render: () => <StatusBadge status="paid" /> },
     ]}
   />
@@ -596,10 +603,10 @@ export const PurchaseOrdersPage = () => (
     rowPath={(r) => `/purchases/orders/${r.id}`}
     banner={<PurchaseOrderSummaryBanner />}
     columns={[
-      { key: "date", header: "Date", portrait: true, render: (r) => shortDate(r.orderDate as string) },
-      { key: "number", header: "Purchase Order#", portrait: true, render: (r) => <span className="font-medium text-brand-600">{r.number}</span> },
-      { key: "reference", header: "Reference#", render: (r) => <span className="text-gray-600">{(r.reference as string) || "—"}</span> },
-      { key: "contact", header: "Vendor Name", portrait: true, render: (r) => <span className="text-gray-800">{r.contactName ?? "—"}</span> },
+      { key: "date", header: "Date", portrait: true, sort: (r) => r.orderDate as string, render: (r) => shortDate(r.orderDate as string) },
+      { key: "number", header: "Purchase Order#", portrait: true, sort: (r) => r.number, render: (r) => <span className="font-medium text-brand-600">{r.number}</span> },
+      { key: "reference", header: "Reference#", sort: (r) => r.reference as string, render: (r) => <span className="text-gray-600">{(r.reference as string) || "—"}</span> },
+      { key: "contact", header: "Vendor Name", portrait: true, sort: (r) => r.contactName, render: (r) => <span className="text-gray-800">{r.contactName ?? "—"}</span> },
       { key: "status", header: "Status", render: (r) => <StatusBadge status={r.status} /> },
       {
         key: "billed",
@@ -610,10 +617,11 @@ export const PurchaseOrdersPage = () => (
           </span>
         ),
       },
-      { key: "amount", header: "Amount", align: "right", portrait: true, render: (r) => formatMoney(r.total) },
+      { key: "amount", header: "Amount", align: "right", portrait: true, sort: (r) => Number(r.total) || 0, render: (r) => formatMoney(r.total) },
       {
         key: "delivery",
         header: "Delivery Date",
+        sort: (r) => r.expectedDeliveryDate as string,
         render: (r) => {
           const d = r.expectedDeliveryDate as string | undefined;
           if (!d) return "—";
@@ -671,15 +679,15 @@ export const VendorPaymentsPage = () => (
     rowPath={(r) => `/purchases/payments/${r.id}`}
     banner={<PaymentsMadeSummaryBanner />}
     columns={[
-      { key: "date", header: "Date", portrait: true, render: (r) => shortDate(r.paymentDate as string) },
-      { key: "number", header: "Payment #", portrait: true, render: (r) => <span className="font-medium text-brand-600">{r.number}</span> },
-      { key: "reference", header: "Reference#", render: (r) => <span className="text-gray-600">{(r.reference as string) || "—"}</span> },
-      { key: "contact", header: "Vendor Name", portrait: true, render: (r) => r.contactName ?? "—" },
-      { key: "bills", header: "Bill#", render: (r) => <span className="text-gray-600">{(r.billNumbers as string) || "—"}</span> },
-      { key: "mode", header: "Mode", render: (r) => <span className="capitalize">{String(r.mode ?? "").replace(/_/g, " ")}</span> },
+      { key: "date", header: "Date", portrait: true, sort: (r) => r.paymentDate as string, render: (r) => shortDate(r.paymentDate as string) },
+      { key: "number", header: "Payment #", portrait: true, sort: (r) => r.number, render: (r) => <span className="font-medium text-brand-600">{r.number}</span> },
+      { key: "reference", header: "Reference#", sort: (r) => r.reference as string, render: (r) => <span className="text-gray-600">{(r.reference as string) || "—"}</span> },
+      { key: "contact", header: "Vendor Name", portrait: true, sort: (r) => r.contactName, render: (r) => r.contactName ?? "—" },
+      { key: "bills", header: "Bill#", sort: (r) => r.billNumbers as string, render: (r) => <span className="text-gray-600">{(r.billNumbers as string) || "—"}</span> },
+      { key: "mode", header: "Mode", sort: (r) => r.mode as string, render: (r) => <span className="capitalize">{String(r.mode ?? "").replace(/_/g, " ")}</span> },
       { key: "status", header: "Status", render: () => <StatusBadge status="paid" /> },
-      { key: "amount", header: "Amount", align: "right", portrait: true, render: (r) => formatMoney(r.amount) },
-      { key: "unapplied", header: "Unused Amount", align: "right", render: (r) => formatMoney(r.unappliedAmount) },
+      { key: "amount", header: "Amount", align: "right", portrait: true, sort: (r) => Number(r.amount) || 0, render: (r) => formatMoney(r.amount) },
+      { key: "unapplied", header: "Unused Amount", align: "right", sort: (r) => Number(r.unappliedAmount) || 0, render: (r) => formatMoney(r.unappliedAmount) },
     ]}
   />
 );
@@ -695,13 +703,13 @@ export const VendorCreditsPage = () => (
     rowPath={(r) => `/purchases/vendor-credits/${r.id}`}
     banner={<VendorCreditSummaryBanner />}
     columns={[
-      { key: "date", header: "Date", portrait: true, render: (r) => shortDate(r.creditDate as string) },
-      { key: "number", header: "Credit Note#", portrait: true, render: (r) => <span className="font-medium text-brand-600">{r.number}</span> },
-      { key: "reference", header: "Reference Number", render: (r) => <span className="text-gray-600">{(r.reference as string) || "—"}</span> },
-      { key: "contact", header: "Vendor Name", portrait: true, render: (r) => <span className="text-gray-800">{r.contactName ?? "—"}</span> },
+      { key: "date", header: "Date", portrait: true, sort: (r) => r.creditDate as string, render: (r) => shortDate(r.creditDate as string) },
+      { key: "number", header: "Credit Note#", portrait: true, sort: (r) => r.number, render: (r) => <span className="font-medium text-brand-600">{r.number}</span> },
+      { key: "reference", header: "Reference Number", sort: (r) => r.reference as string, render: (r) => <span className="text-gray-600">{(r.reference as string) || "—"}</span> },
+      { key: "contact", header: "Vendor Name", portrait: true, sort: (r) => r.contactName, render: (r) => <span className="text-gray-800">{r.contactName ?? "—"}</span> },
       { key: "status", header: "Status", render: (r) => <StatusBadge status={r.status} /> },
-      { key: "amount", header: "Amount", align: "right", portrait: true, render: (r) => formatMoney(r.total) },
-      { key: "bal", header: "Balance", align: "right", render: (r) => formatMoney(r.balance) },
+      { key: "amount", header: "Amount", align: "right", portrait: true, sort: (r) => Number(r.total) || 0, render: (r) => formatMoney(r.total) },
+      { key: "bal", header: "Balance", align: "right", sort: (r) => Number(r.balance) || 0, render: (r) => formatMoney(r.balance) },
     ]}
   />
 );
@@ -716,10 +724,10 @@ export const ExpensesPage = () => (
     rowPath={(r) => `/purchases/expenses/${r.id}`}
     banner={<ExpenseSummaryBanner />}
     columns={[
-      { key: "date", header: "Date", portrait: true, render: (r) => shortDate(r.expenseDate as string) },
-      { key: "account", header: "Expense Account", portrait: true, render: (r) => <span className="text-gray-800">{(r.expenseAccountName as string) ?? "—"}</span> },
-      { key: "ref", header: "Reference#", clamp: 8, render: (r) => <span className="text-gray-600">{(r.reference as string) || "—"}</span> },
-      { key: "contact", header: "Vendor Name", render: (r) => r.contactName ?? "—" },
+      { key: "date", header: "Date", portrait: true, sort: (r) => r.expenseDate as string, render: (r) => shortDate(r.expenseDate as string) },
+      { key: "account", header: "Expense Account", portrait: true, sort: (r) => r.expenseAccountName as string, render: (r) => <span className="text-gray-800">{(r.expenseAccountName as string) ?? "—"}</span> },
+      { key: "ref", header: "Reference#", clamp: 8, sort: (r) => r.reference as string, render: (r) => <span className="text-gray-600">{(r.reference as string) || "—"}</span> },
+      { key: "contact", header: "Vendor Name", sort: (r) => r.contactName, render: (r) => r.contactName ?? "—" },
       // What the money was actually spent on. It lives in notes and was
       // never shown; on a phone it matters more than which vendor took it.
       {
@@ -727,9 +735,10 @@ export const ExpensesPage = () => (
         header: "Description",
         portrait: true,
         clamp: 13,
+        sort: (r) => r.notes as string,
         render: (r) => <span className="text-gray-600">{(r.notes as string) || "—"}</span>,
       },
-      { key: "paidThrough", header: "Paid Through", render: (r) => <span className="text-gray-600">{(r.paidThroughName as string) ?? "—"}</span> },
+      { key: "paidThrough", header: "Paid Through", sort: (r) => r.paidThroughName as string, render: (r) => <span className="text-gray-600">{(r.paidThroughName as string) ?? "—"}</span> },
       {
         // An expense entered with no paid-through account is money still owed:
         // it sits on the Payments screen with the unpaid bills until it is
@@ -743,7 +752,7 @@ export const ExpensesPage = () => (
             <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Unpaid</span>
           ),
       },
-      { key: "amount", header: "Amount", align: "right", portrait: true, render: (r) => formatMoney(r.amount) },
+      { key: "amount", header: "Amount", align: "right", portrait: true, sort: (r) => Number(r.amount) || 0, render: (r) => formatMoney(r.amount) },
       {
         key: "files",
         header: "",

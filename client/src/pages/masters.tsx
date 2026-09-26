@@ -263,6 +263,7 @@ export const ItemsPage = () => (
         key: "name",
         header: "Name",
         portrait: true,
+        sort: (r) => r.name,
         render: (r) => (
           <div className="flex items-center gap-2.5">
             {r.imageId ? (
@@ -283,6 +284,7 @@ export const ItemsPage = () => (
       {
         key: "category",
         header: "Category",
+        sort: (r) => (r.category ? ITEM_CATEGORY_LABELS[r.category] : null),
         render: (r) =>
           r.category ? (
             <span className="rounded bg-gray-100 px-1.5 py-0.5 text-[11px] text-gray-600">
@@ -295,23 +297,27 @@ export const ItemsPage = () => (
       {
         key: "purchaseDescription",
         header: "Purchase Description",
+        sort: (r) => r.purchaseDescription,
         render: (r) => <span className="text-gray-600">{r.purchaseDescription ?? "—"}</span>,
       },
       {
         key: "purchaseRate",
         header: "Purchase Rate",
         align: "right",
+        sort: (r) => Number(r.costPrice ?? 0),
         render: (r) => (r.costPrice ? formatMoney(r.costPrice) : formatMoney(0)),
       },
       {
         key: "description",
         header: "Description",
+        sort: (r) => r.salesDescription,
         render: (r) => <span className="text-gray-600">{r.salesDescription ?? "—"}</span>,
       },
       {
         key: "rate",
         header: "Rate",
         align: "right",
+        sort: (r) => Number(r.sellingPrice ?? 0),
         render: (r) => (r.sellingPrice ? formatMoney(r.sellingPrice) : formatMoney(0)),
       },
       {
@@ -319,13 +325,16 @@ export const ItemsPage = () => (
         portrait: true,
         header: "Stock on Hand",
         align: "right",
+        // An item nobody counts has no stock to compare, so it sinks rather
+        // than pretending to hold zero.
+        sort: (r) => (r.trackInventory ? Number(r.stockOnHand ?? r.openingStock ?? 0) : null),
         render: (r) =>
           r.trackInventory
             ? `${Number(r.stockOnHand ?? r.openingStock ?? 0).toLocaleString("en-IN", { maximumFractionDigits: 3 })} ${r.unit}`
             : "—",
       },
-      { key: "hsn", header: "HSN/SAC", render: (r) => r.hsnOrSac ?? "—" },
-      { key: "unit", header: "Usage Unit", render: (r) => r.unit },
+      { key: "hsn", header: "HSN/SAC", sort: (r) => r.hsnOrSac, render: (r) => r.hsnOrSac ?? "—" },
+      { key: "unit", header: "Usage Unit", sort: (r) => r.unit, render: (r) => r.unit },
     ]}
   />
 );
@@ -381,13 +390,13 @@ export const JournalsPage = () => (
     rowPath={(r) => `/accountant/journals/${r.id}`}
     banner={<JournalSummaryBanner />}
     columns={[
-      { key: "date", header: "Date", portrait: true, render: (r) => formatDate(r.entryDate) },
-      { key: "number", header: "Journal#", portrait: true, render: (r) => <span className="font-medium text-brand-600">{r.entryNumber}</span> },
-      { key: "reference", header: "Narration", portrait: true, render: (r) => <span className="text-gray-600">{r.narration || r.reference}</span> },
+      { key: "date", header: "Date", portrait: true, sort: (r) => r.entryDate, render: (r) => formatDate(r.entryDate) },
+      { key: "number", header: "Journal#", portrait: true, sort: (r) => r.entryNumber, render: (r) => <span className="font-medium text-brand-600">{r.entryNumber}</span> },
+      { key: "reference", header: "Narration", portrait: true, sort: (r) => r.narration || r.reference, render: (r) => <span className="text-gray-600">{r.narration || r.reference}</span> },
       { key: "status", header: "Status", render: (r) => <StatusBadge status={JOURNAL_STATUS[r.status] ?? r.status} /> },
-      { key: "notes", header: "Notes", render: (r) => <span className="text-gray-600">{r.reference ? r.narration : ""}</span> },
-      { key: "amount", header: "Amount", align: "right", portrait: true, render: (r) => formatMoney(r.amount) },
-      { key: "createdBy", header: "Created By", render: (r) => <span className="text-gray-600">{r.createdByName ?? "—"}</span> },
+      { key: "notes", header: "Notes", sort: (r) => (r.reference ? r.narration : null), render: (r) => <span className="text-gray-600">{r.reference ? r.narration : ""}</span> },
+      { key: "amount", header: "Amount", align: "right", portrait: true, sort: (r) => Number(r.amount) || 0, render: (r) => formatMoney(r.amount) },
+      { key: "createdBy", header: "Created By", sort: (r) => r.createdByName, render: (r) => <span className="text-gray-600">{r.createdByName ?? "—"}</span> },
       {
         key: "files",
         header: "",
@@ -423,6 +432,7 @@ export const BankingPage = () => (
       {
         key: "name",
         header: "Account",
+        sort: (r) => r.name,
         render: (r) => (
           <div>
             <div className="font-medium text-brand-600">{r.name}</div>
@@ -432,8 +442,8 @@ export const BankingPage = () => (
           </div>
         ),
       },
-      { key: "kind", header: "Type", render: (r) => <span className="capitalize">{r.kind}</span> },
-      { key: "balance", header: "Balance", align: "right", render: (r) => formatMoney(r.balance) },
+      { key: "kind", header: "Type", sort: (r) => r.kind, render: (r) => <span className="capitalize">{r.kind}</span> },
+      { key: "balance", header: "Balance", align: "right", sort: (r) => Number(r.balance) || 0, render: (r) => formatMoney(r.balance) },
     ]}
   />
 );
