@@ -736,6 +736,13 @@
       "when": 1790323953927,
       "tag": "0101_keep_all_punch_photos",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1790399507058,
+      "tag": "0102_payroll_wages_right",
+      "breakpoints": true
     }
   ]
 }

@@ -30,7 +30,7 @@ import {
   wageRoles,
 } from "@shared/schema";
 import { db } from "../db";
-import { requirePermission } from "../lib/rbac";
+import { requireAnyPermission, requirePermission } from "../lib/rbac";
 import { REPEAT_PUNCH_WINDOW_MS } from "./device";
 import { photoThumbnail, photoThumbnails } from "../services/photo";
 import { syncNightShiftBreakfast } from "../services/canteen";
@@ -81,6 +81,16 @@ const attendancePerm = requirePermission("payroll", "attendance");
 const payInputsPerm = requirePermission("payroll", "pay_inputs");
 const runPerm = requirePermission("payroll", "run");
 const gatePerm = requirePermission("payroll", "gate");
+/**
+ * What the gate screen itself needs to read: the queue on it now, and who is
+ * still inside from last night. A guard holds `gate` and nothing else — asking
+ * for `payroll.view` here is what forced every gate account to be given the
+ * module's read floor, and that floor also opens Wages, where the salaries
+ * are. Whoever may punch people in may see who is at the gate.
+ */
+const gateOrView = requireAnyPermission([["payroll", "gate"], ["payroll", "view"]]);
+/** The wage sheets, which are pay: their own right, not the module's floor. */
+const wagesPerm = requirePermission("payroll", "wages");
 
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const moneyNum = looseNumber(z.number().min(0).max(99_99_99_999));
@@ -1109,7 +1119,7 @@ payrollRouter.post("/punches", gatePerm, validateBody(punchBody), async (req, re
  * who are, as far as anyone knows, still inside. The gate lists them so the
  * guard is offered OUT, not IN.
  */
-payrollRouter.get("/punches/carried", view, async (_req, res) => {
+payrollRouter.get("/punches/carried", gateOrView, async (_req, res) => {
   const carried = await carriedEntries(db);
   if (!carried.length) return res.json([]);
   const people = await db
@@ -1131,7 +1141,7 @@ payrollRouter.get("/punches/carried", view, async (_req, res) => {
   );
 });
 
-payrollRouter.get("/punches", view, async (req, res) => {
+payrollRouter.get("/punches", gateOrView, async (req, res) => {
   const { limit, offset } = pageOf(req.query);
   const conds = [];
   if (req.query.date) conds.push(eq(punches.punchDate, String(req.query.date)));
@@ -2192,7 +2202,7 @@ payrollRouter.get("/slips/:id", view, async (req, res) => {
 /* ══ Reports ═════════════════════════════════════════════════════════════ */
 
 /** Daily-wage cost over a range: rate × (P + 0.5·H) per person, totalled by role. */
-payrollRouter.get("/reports/wages", view, async (req, res) => {
+payrollRouter.get("/reports/wages", wagesPerm, async (req, res) => {
   const from = dateStr.safeParse(req.query.from);
   const to = dateStr.safeParse(req.query.to);
   if (!from.success || !to.success) return res.status(400).json({ error: "from and to are required" });
@@ -2274,7 +2284,7 @@ payrollRouter.get("/reports/wages", view, async (req, res) => {
  * gate already made. No row means the gate never saw them: presence comes
  * from punches, this screen only says what the day was spent on.
  */
-payrollRouter.get("/wages/day", view, async (req, res) => {
+payrollRouter.get("/wages/day", wagesPerm, async (req, res) => {
   const day = dateStr.safeParse(req.query.date);
   if (!day.success) return res.status(400).json({ error: "date is required" });
   const staff = await db

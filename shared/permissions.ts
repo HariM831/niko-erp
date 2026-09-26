@@ -141,6 +141,10 @@ export const PERMISSION_MODULES: PermissionModule[] = [
       { key: "pay_inputs", label: "Bonuses, overtime, advances, claims" },
       // Running payroll moves money into the ledger; nobody else's verb.
       { key: "run", label: "Run and confirm payroll" },
+      // What a daily-wage worker earned, day by day and month by month. Its
+      // own right because the module's read floor is held by the gate: a guard
+      // who must see who is at the door should not thereby see everybody's pay.
+      { key: "wages", label: "Wage sheets and day rates" },
       { key: "gate", label: "Gate kiosk and face enrolment" },
       // The counter, and nothing behind it: serve plates at the Canteen Gate
       // without the eligibility list, the reports or anybody's record.
