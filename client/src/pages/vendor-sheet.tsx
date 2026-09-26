@@ -9,6 +9,7 @@ import { matchesTerm, localYmd } from "../lib/utils";
 import { AccountSelect, bankNodes } from "../components/account-select";
 import { type SearchField, filterRows, useAdvancedSearch } from "../components/advanced-search";
 import { DateInput } from "../components/date-input";
+import { SortTh, compareBy, useSortState, type SortValue } from "../components/sortable-table";
 
 /**
  * Vendor Sheet — the one screen that answers "what do we owe, and what goes to
@@ -48,6 +49,47 @@ interface Payable {
   sentBatchNumber: string | null;
   sentBatchDate: string | null;
   sentAmount: string | null;
+}
+
+/** What each column sorts a ROW on. */
+const ROW_SORTS: Record<string, (r: Payable) => SortValue> = {
+  vendor: (r) => r.vendorName,
+  desc: (r) => r.description,
+  amount: (r) => Number(r.amount) || 0,
+  bill: (r) => r.billNumber || r.number,
+  delivery: (r) => r.deliveryDate,
+  due: (r) => r.dueDate,
+  overdue: (r) => r.overdueDays,
+  notes: (r) => r.notes,
+};
+
+/** The earliest date in a vendor's block, ignoring the rows that carry none. */
+const earliest = (dates: Array<string | null>) => {
+  const real = dates.filter((d): d is string => !!d).sort();
+  return real[0] ?? null;
+};
+
+/**
+ * What the same column means for a WHOLE vendor block, where it means
+ * anything: what they are owed, how late their worst row is, when their next
+ * one falls due. On the columns where a vendor has no single answer — an item
+ * description, a bill number, a note — the blocks stay in name order and only
+ * the rows inside them move.
+ */
+const GROUP_SORTS: Record<string, (g: VendorGroup) => SortValue> = {
+  vendor: (g) => g.vendorName,
+  amount: (g) => g.subtotal,
+  overdue: (g) => Math.max(...g.rows.map((r) => r.overdueDays)),
+  delivery: (g) => earliest(g.rows.map((r) => r.deliveryDate)),
+  due: (g) => earliest(g.rows.map((r) => r.dueDate)),
+};
+
+interface VendorGroup {
+  vendorId: string;
+  vendorName: string;
+  rows: Payable[];
+  subtotal: number;
+  bank: boolean;
 }
 
 interface PayerAccount {
@@ -170,16 +212,38 @@ export function VendorSheetPage() {
    * Vendors sort by name; within a vendor the server's order stands.
    */
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  /*
+   * The sheet is grouped by vendor because that is how it is paid — one
+   * beneficiary, one block, one subtotal. So a header sorts BOTH levels: the
+   * rows inside each vendor, and the vendor blocks themselves where the
+   * column says something about a whole vendor (see GROUP_SORTS). Sorting by
+   * Amount therefore brings the vendor owed the most to the top with their
+   * largest bill first, which is the question this screen exists to answer.
+   *
+   * Nothing here touches the ticks or the folded blocks: a selection is keyed
+   * by row, and a collapse by vendor, so both survive any reordering.
+   */
+  const { sort, toggle } = useSortState();
+
   const groups = useMemo(() => {
-    const byVendor = new Map<string, { vendorId: string; vendorName: string; rows: Payable[]; subtotal: number; bank: boolean }>();
+    const byVendor = new Map<string, VendorGroup>();
     for (const r of shown) {
       const g = byVendor.get(r.vendorId) ?? { vendorId: r.vendorId, vendorName: r.vendorName, rows: [], subtotal: 0, bank: hasBank(r) };
       g.rows.push(r);
       g.subtotal += Number(r.amount);
       byVendor.set(r.vendorId, g);
     }
-    return [...byVendor.values()].sort((a, b) => a.vendorName.localeCompare(b.vendorName));
-  }, [shown]);
+    const pickRow = sort ? ROW_SORTS[sort.key] : undefined;
+    if (pickRow && sort) {
+      for (const g of byVendor.values()) g.rows.sort((a, b) => compareBy(pickRow(a), pickRow(b), sort.dir));
+    }
+    const pickGroup = sort ? GROUP_SORTS[sort.key] : undefined;
+    return [...byVendor.values()].sort(
+      pickGroup && sort
+        ? (a, b) => compareBy(pickGroup(a), pickGroup(b), sort.dir)
+        : (a, b) => a.vendorName.localeCompare(b.vendorName),
+    );
+  }, [shown, sort]);
   const shownTotal = shown.reduce((sum, r) => sum + Number(r.amount), 0);
 
   const chosen = useMemo(
@@ -301,14 +365,14 @@ export function VendorSheetPage() {
                     className="accent-brand-500"
                   />
                 </th>
-                <th className="border-b border-[#ece3d5] px-3 py-2 font-semibold">Vendor</th>
-                <th className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">Item &amp; Desc</th>
-                <th className="border-b border-[#ece3d5] px-3 py-2 text-right font-semibold">Amount</th>
-                <th className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">Bill No</th>
-                <th className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">Delivery Date</th>
-                <th className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">Due Date</th>
-                <th className="border-b border-[#ece3d5] px-3 py-2 text-right font-semibold">Overdue Days</th>
-                <th className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">Notes</th>
+                <SortTh k="vendor" sort={sort} toggle={toggle} className="border-b border-[#ece3d5] px-3 py-2 font-semibold">Vendor</SortTh>
+                <SortTh k="desc" sort={sort} toggle={toggle} className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">Item &amp; Desc</SortTh>
+                <SortTh k="amount" sort={sort} toggle={toggle} align="right" className="border-b border-[#ece3d5] px-3 py-2 text-right font-semibold">Amount</SortTh>
+                <SortTh k="bill" sort={sort} toggle={toggle} className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">Bill No</SortTh>
+                <SortTh k="delivery" sort={sort} toggle={toggle} className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">Delivery Date</SortTh>
+                <SortTh k="due" sort={sort} toggle={toggle} className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">Due Date</SortTh>
+                <SortTh k="overdue" sort={sort} toggle={toggle} align="right" className="border-b border-[#ece3d5] px-3 py-2 text-right font-semibold">Overdue Days</SortTh>
+                <SortTh k="notes" sort={sort} toggle={toggle} className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">Notes</SortTh>
               </tr>
             </thead>
             <tbody>
