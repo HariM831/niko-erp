@@ -58,7 +58,15 @@ type Stage =
   | { kind: "idle" }
   | { kind: "matching" }
   | { kind: "confirm"; employee: GalleryEmployee; score: number; photo: string; embedding: number[] }
-  | { kind: "nomatch"; score: number; closest: GalleryEmployee | null; photo: string | null; spoofed?: boolean }
+  | {
+      kind: "nomatch";
+      score: number;
+      closest: GalleryEmployee | null;
+      photo: string | null;
+      spoofed?: boolean;
+      /** The runner-up's score and name, when it was the margin that failed rather than the cutoff. */
+      runnerUp?: { name: string; score: number } | null;
+    }
   | { kind: "posting" }
   | { kind: "success"; employee: GalleryEmployee; punchType: "in" | "out"; time: string };
 
@@ -293,7 +301,21 @@ export function PayrollGatePage() {
         if (navigator.vibrate) navigator.vibrate(50);
         setStage({ kind: "confirm", employee, score: match.score, photo, embedding: face.embedding });
       } else {
-        setStage({ kind: "nomatch", score: match.score, closest: employee, photo });
+        // Two different refusals, and the guard must be able to tell them
+        // apart: the face resembled nobody enough (under the cutoff), or it
+        // resembled two people almost equally (the margin). Saying "below the
+        // cutoff" for a 73% match, as this did, reads as a broken gate.
+        const second = match.secondId ? empById.get(match.secondId) ?? null : null;
+        setStage({
+          kind: "nomatch",
+          score: match.score,
+          closest: employee,
+          photo,
+          runnerUp:
+            employee && match.score >= threshold && second
+              ? { name: second.name, score: match.secondScore }
+              : null,
+        });
       }
     } catch (e) {
       setStage({ kind: "idle" });
@@ -522,9 +544,14 @@ export function PayrollGatePage() {
                 </div>
                 {stage.spoofed ? (
                   <div className="mt-1 text-sm text-white/70">This looks like a photo, not a live person. The worker must be at the gate.</div>
+                ) : stage.runnerUp ? (
+                  <div className="mt-1 text-sm text-white/70">
+                    {stage.closest!.name} {(stage.score * 100).toFixed(0)}% and {stage.runnerUp.name}{" "}
+                    {(stage.runnerUp.score * 100).toFixed(0)}% — too alike to choose between. Pick the worker by name.
+                  </div>
                 ) : stage.closest ? (
                   <div className="mt-1 text-sm text-white/70">
-                    Closest: {stage.closest.name} ({(stage.score * 100).toFixed(0)}% — below the {(threshold * 100).toFixed(0)}% cutoff)
+                    Closest: {stage.closest.name} ({(stage.score * 100).toFixed(0)}% — under the {(threshold * 100).toFixed(0)}% cutoff)
                   </div>
                 ) : (
                   <div className="mt-1 text-sm text-white/70">Ask the worker to face the camera in good light, then try again.</div>

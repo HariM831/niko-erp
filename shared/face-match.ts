@@ -30,6 +30,8 @@ export interface MatchResult {
   score: number;
   /** similarity of the runner-up PERSON — what the margin rule is judged on */
   secondScore: number;
+  /** Who the runner-up was, so a refusal can name both faces it could not choose between. */
+  secondId: string | null;
 }
 
 export interface MatchIndex {
@@ -75,9 +77,10 @@ export function buildMatchIndex(candidates: MatchCandidate[]): MatchIndex {
 /** Best person for an embedding; `secondScore` is the best DIFFERENT person. */
 export function findBestMatchIndexed(embedding: number[], index: MatchIndex): MatchResult {
   const probe = unit(embedding);
-  if (!probe) return { id: null, score: 0, secondScore: 0 };
+  if (!probe) return { id: null, score: 0, secondScore: 0, secondId: null };
   let best: string | null = null;
   let bestScore = -1;
+  let second: string | null = null;
   let secondScore = -1;
   for (const p of index.people) {
     let s = -1;
@@ -88,11 +91,13 @@ export function findBestMatchIndexed(embedding: number[], index: MatchIndex): Ma
     }
     if (s > bestScore) {
       secondScore = bestScore;
+      second = best;
       bestScore = s;
       best = p.id;
     } else if (s > secondScore) {
       secondScore = s;
+      second = p.id;
     }
   }
-  return { id: best, score: Math.max(0, bestScore), secondScore: Math.max(0, secondScore) };
+  return { id: best, score: Math.max(0, bestScore), secondScore: Math.max(0, secondScore), secondId: second };
 }
