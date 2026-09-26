@@ -14,6 +14,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { ApiError, api } from "../api";
 import { shrink } from "../lib/image";
+import { shortDate } from "./documents";
 import { SearchSelect, type Choice } from "../components/search-select";
 import type { LineMatch } from "@shared/po-match-types";
 import { localYmd } from "../lib/utils";
@@ -199,7 +200,20 @@ export function GateInPage() {
   const [checks, setChecks] = useState<Array<{ name: string; ok: boolean; detail: string }>>([]);
   const [vendorHint, setVendorHint] = useState<{ name: string; candidates: Array<{ id: string; name: string; why: string }> } | null>(null);
   const [matches, setMatches] = useState<LineMatch[]>([]);
-  const [allMatched, setAllMatched] = useState(false);
+  /*
+   * Which order the guard picked, per line, when more than one fitted.
+   *
+   * The matcher refuses to choose between two orders that both pass every
+   * condition — same vendor, same material, same rate, room on both — because
+   * nothing in the paperwork distinguishes them. That is right, but it used to
+   * leave the truck at the gate with no way forward: the screen said "2 orders
+   * fit this delivery" and offered neither. The person at the gate knows which
+   * order the load is against; this is where they say so.
+   *
+   * Only ever among orders that ALREADY pass every condition. A line with no
+   * match stays refused — picking is settling a tie, not an override.
+   */
+  const [picked, setPicked] = useState<Record<number, string>>({});
   const [matching, setMatching] = useState(false);
   const [locationId, setLocationId] = useState("");
   const [vendorId, setVendorId] = useState("");
@@ -326,7 +340,7 @@ export function GateInPage() {
     const usableNow = lines.filter((l) => l.itemName.trim() && Number(l.billQuantityKg) > 0);
     if (!vendorId || !usableNow.length) {
       setMatches([]);
-      setAllMatched(false);
+      setPicked({});
       return;
     }
     const timer = setTimeout(() => {
@@ -346,11 +360,13 @@ export function GateInPage() {
       })
         .then((r) => {
           setMatches(r.matches);
-          setAllMatched(r.allMatched);
+          // A changed quantity or rate is a different set of candidates, so a
+          // pick made against the old set is not an answer to the new one.
+          setPicked({});
         })
         .catch(() => {
           setMatches([]);
-          setAllMatched(false);
+          setPicked({});
         })
         .finally(() => setMatching(false));
     }, 500);
@@ -375,6 +391,19 @@ export function GateInPage() {
   const basicsDone =
     !!site && vehicleNumber.trim().length >= 4 && usable.length > 0;
   // A truck is only let in against something we actually ordered. There is no
+  /**
+   * The order this line will be received against: the one the matcher chose,
+   * or the one the guard picked from those that fitted.
+   */
+  const orderFor = (m: LineMatch) =>
+    m.chosen ?? (picked[m.lineNo] ? m.candidates.find((c) => c.poLineId === picked[m.lineNo]) ?? null : null);
+  const allMatched = matches.length > 0 && matches.every((m) => !!orderFor(m));
+  /** The same, found by the line's number rather than its position. */
+  const orderForLine = (lineNo: number) => {
+    const m = matches.find((x) => x.lineNo === lineNo);
+    return m ? orderFor(m) : null;
+  };
+
   // override: every line matches an open order, or it does not come in.
   const canSubmit = turnAway
     ? basicsDone && exitReason.trim().length > 0
@@ -406,8 +435,11 @@ export function GateInPage() {
           longitude: fix?.longitude,
           accuracyM: fix?.accuracy,
           lines: usable.map((l, i) => ({
-            purchaseOrderId: matches[i]?.chosen?.purchaseOrderId,
-            poLineId: matches[i]?.chosen?.poLineId,
+            // Lines are numbered from one in the order they were sent to the
+            // matcher, so the match is found by number rather than by trusting
+            // two arrays to stay the same length.
+            purchaseOrderId: orderForLine(i + 1)?.purchaseOrderId,
+            poLineId: orderForLine(i + 1)?.poLineId,
             itemId: l.itemId || undefined,
             itemName: l.itemName.trim(),
             billQuantityKg: l.billQuantityKg,
@@ -798,32 +830,76 @@ export function GateInPage() {
           )}
 
           <div className="space-y-2">
-            {matches.map((m) => (
-              <div key={m.lineNo} className="rounded-lg border border-gray-100 bg-gray-50/60 p-2">
-                <div className="flex items-baseline gap-2 text-[12px]">
-                  <span className={m.chosen ? "text-green-600" : "text-red-600"}>
-                    {m.chosen ? "✓" : "✗"}
-                  </span>
-                  <span className="font-medium text-gray-900">Line {m.lineNo}</span>
-                  <span className="text-gray-600">{m.message}</span>
-                </div>
-                {m.chosen && (
-                  <div className="mt-1 flex flex-wrap gap-x-4 pl-5 text-[11px] text-gray-500">
-                    {m.chosen.reasons.map((r, i) => (
-                      <span key={i} className={r.passed ? "" : "text-amber-600"}>
-                        {r.detail}
-                      </span>
-                    ))}
+            {matches.map((m) => {
+              const order = orderFor(m);
+              const mustChoose = m.method === "choose";
+              return (
+                <div key={m.lineNo} className="rounded-lg border border-gray-100 bg-gray-50/60 p-2">
+                  <div className="flex items-baseline gap-2 text-[12px]">
+                    <span className={order ? "text-green-600" : mustChoose ? "text-amber-600" : "text-red-600"}>
+                      {order ? "✓" : mustChoose ? "?" : "✗"}
+                    </span>
+                    <span className="font-medium text-gray-900">Line {m.lineNo}</span>
+                    <span className="text-gray-600">
+                      {order && !m.chosen ? `Receiving against ${order.poNumber}` : m.message}
+                    </span>
                   </div>
-                )}
-              </div>
-            ))}
+
+                  {/*
+                    Every order that fits, when more than one does. They are
+                    already filtered to this delivery — same vendor, same
+                    material, the agreed rate, room left, and within the
+                    delivery window — so the only thing left to decide is which.
+                  */}
+                  {mustChoose && (
+                    <div className="mt-2 space-y-1 pl-5">
+                      {m.candidates.map((c) => {
+                        const on = picked[m.lineNo] === c.poLineId;
+                        return (
+                          <label
+                            key={c.poLineId}
+                            className={`flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-[12px] ${
+                              on ? "border-brand-400 bg-brand-50" : "border-gray-200 bg-white hover:bg-gray-50"
+                            }`}
+                          >
+                            <input
+                              type="radio"
+                              name={`po-line-${m.lineNo}`}
+                              checked={on}
+                              onChange={() => setPicked((p) => ({ ...p, [m.lineNo]: c.poLineId }))}
+                              className="accent-brand-500"
+                            />
+                            <span className="font-medium text-gray-900">{c.poNumber}</span>
+                            <span className="text-gray-500">
+                              {c.remainingQuantity.toLocaleString("en-IN")} kg still due · ₹
+                              {c.unitRate.toFixed(2)}/kg
+                              {c.expectedDeliveryDate ? ` · expected ${shortDate(c.expectedDeliveryDate)}` : ""}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {order && (
+                    <div className="mt-1 flex flex-wrap gap-x-4 pl-5 text-[11px] text-gray-500">
+                      {order.reasons.map((r, i) => (
+                        <span key={i} className={r.passed ? "" : "text-amber-600"}>
+                          {r.detail}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {!allMatched && !!matches.length && (
             <p className="mt-3 border-t border-gray-100 pt-3 text-[12px] text-gray-500">
-              This truck cannot be let in until every line matches an open order. Correct the
-              figures above, or turn it away.
+              {matches.some((m) => m.method === "choose" && !orderFor(m))
+                ? "Choose which order each delivery is against, above."
+                : "This truck cannot be let in until every line matches an open order. Correct the figures above, or turn it away."}
             </p>
           )}
         </div>
