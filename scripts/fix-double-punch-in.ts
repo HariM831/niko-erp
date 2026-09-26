@@ -4,15 +4,24 @@
  * Until 26 Sep 2026 the gate decided IN or OUT from the newest 200 punches of
  * the day. A working day runs to 380, so by mid-morning the early arrivals had
  * dropped off the end and the gate offered them IN again as they left; the
- * server took its word. On staging that day 22 people ended up with a second
- * entry and no exit — and the next scan after it was flipped too, because the
- * gate then read the wrong IN and offered OUT to someone coming back in.
+ * server took its word. On staging that day it happened to 27 people, all
+ * leaving between 16:53 and 17:24.
  *
- * Every scan at the gate is a crossing, so a person's punches on a day
- * alternate. For each person-day holding IN on top of IN, the day's punches
- * are re-typed to alternate from its first punch, in time order, and the
- * attendance day is recomputed from them. Days without a repeat are not
- * touched.
+ * Two shapes, and one repair covers both. Some were scanned once — an entry
+ * that should have been the exit, and nothing after it, so the day reads as
+ * still inside. Most were scanned again a few minutes later, and that retry
+ * was recorded as OUT because the gate by then could see the wrong IN: the
+ * retry is not a second crossing, it is the guard redoing the first.
+ *
+ * So only the repeated IN is re-typed, to OUT. Nothing else changes. Where a
+ * retry follows, it becomes an OUT with nothing open, which the day's pairing
+ * ignores (services/day-resolution.ts summarizeDay) — the exit counts at the
+ * first scan, when the person actually left. The attendance day is then
+ * recomputed. Re-typing every punch to alternate instead would have turned
+ * each retry into a fresh entry and left 20 people inside overnight.
+ *
+ * It matters on the day: an open IN after 15:00 reads as a night shift, and
+ * the person's first punch next morning would be filed as last night's exit.
  *
  *   npx tsx scripts/fix-double-punch-in.ts                  (last 7 days, dry run)
  *   npx tsx scripts/fix-double-punch-in.ts --from 2026-09-20
@@ -53,10 +62,9 @@ async function main() {
   for (const [k, ps] of days) {
     const repeat = ps.some((p, i) => i > 0 && p.type === "in" && ps[i - 1]!.type === "in");
     if (!repeat) continue;
-    const first = ps[0]!.type;
     const changes = ps
-      .map((p, i) => ({ id: p.id, at: p.punchedAt, from: p.type, to: (i % 2 === 0 ? first : first === "in" ? "out" : "in") as "in" | "out" }))
-      .filter((c) => c.from !== c.to);
+      .filter((p, i) => i > 0 && p.type === "in" && ps[i - 1]!.type === "in")
+      .map((p) => ({ id: p.id, at: p.punchedAt, from: p.type, to: "out" as const }));
     const [employeeId, day] = k.split("|") as [string, string];
     if (changes.length) fixes.push({ employeeId, day, changes });
   }
