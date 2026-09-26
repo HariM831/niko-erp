@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { useStoredToggle } from "../lib/use-stored-toggle";
+import { useAppOutdated } from "../lib/app-version";
 import { useAuth } from "../auth";
 import { TopBar } from "./topbar";
 import { SearchProvider, useSearchContext } from "./search-context";
@@ -240,6 +241,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const [moreOpen, setMoreOpen] = useState(false);
   // The desktop rail can be put away for a wide screen like the formulator.
   const [railHidden, setRailHidden] = useStoredToggle("niko.sidebar.hidden", false);
+  const outdated = useAppOutdated();
 
   const isGroupActive = (item: NavItem) =>
     item.children?.some((c) => location.startsWith(c.path)) ?? false;
@@ -370,6 +372,17 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
           {/* pb-24 clears the bottom bar. Without it the last row of every
               screen sits under the nav and cannot be tapped. */}
+          {/* A new build is out and this screen is still on the old one. The
+              gates reload themselves; everywhere else it is the user's call,
+              because a reload would lose a half-filled form. */}
+          {outdated && (
+            <div className="flex items-center justify-between gap-3 border-b border-brand-200 bg-brand-50 px-4 py-1.5 text-[12.5px] text-brand-800 print:hidden">
+              <span>niko has been updated. Reload to get the latest version.</span>
+              <button onClick={() => window.location.reload()} className="rounded-md bg-brand-500 px-2.5 py-1 font-semibold text-white hover:bg-brand-600">
+                Reload
+              </button>
+            </div>
+          )}
           <main className="flex-1 overflow-y-auto pb-24 lg:pb-0">{children}</main>
         </div>
 

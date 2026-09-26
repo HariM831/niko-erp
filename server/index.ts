@@ -1,4 +1,5 @@
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import express from "express";
 import session from "express-session";
 import connectPgSimple from "connect-pg-simple";
@@ -110,6 +111,30 @@ app.use((req, res, next) => {
     }
   }
   next();
+});
+
+/**
+ * Which build of the screens this server is handing out: the hashed name of
+ * the main script in the page it serves. An open screen compares it with the
+ * script it loaded and, when they differ, knows it is running last deploy's
+ * code (client/src/lib/app-version.ts). The gate phones stay on one page all
+ * day; on 26 Sep 2026 they kept offering IN to people already inside for an
+ * hour after the fix had shipped, because nobody reloaded them.
+ *
+ * Read once at start: a deploy restarts the server with the new page. Open,
+ * and ahead of the activity log, because every screen asks every few minutes.
+ */
+const buildId = (() => {
+  if (!isProd) return "dev";
+  try {
+    const html = readFileSync(path.resolve(process.cwd(), "dist/client/index.html"), "utf8");
+    return html.match(/\/assets\/[^"']+\.js/)?.[0] ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+})();
+app.get("/api/version", (_req, res) => {
+  res.set("Cache-Control", "no-store").json({ build: buildId });
 });
 
 app.use("/api", activityLogger);

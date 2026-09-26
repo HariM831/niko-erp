@@ -29,6 +29,7 @@ import { DEFAULT_MATCH_THRESHOLD, MIN_MATCH_MARGIN, getFaceEmbedding, looksSpoof
 import { useCamera } from "../../lib/use-camera";
 import { buildMatchIndex, findBestMatchIndexed } from "@shared/face-match";
 import { centredOf, useCentredIndex, type CentredResult } from "../../lib/face-model";
+import { useAppOutdated } from "../../lib/app-version";
 import { matchesTerms } from "@shared/search";
 
 interface Person { id: string; empCode: string; name: string; payType: string; descriptors: number[][]; breakfast: boolean; dinner: boolean }
@@ -119,6 +120,13 @@ export function PayrollCanteenGatePage() {
   const busy = stage.kind === "matching" || stage.kind === "posting";
 
   const onList = (p: Person) => meal === "lunch" || (meal === "breakfast" ? p.breakfast : p.dinner);
+
+  // A new build went out: reload while nobody is mid-punch, so the gate never
+  // runs last deploy's code all day (lib/app-version.ts).
+  const outdated = useAppOutdated();
+  useEffect(() => {
+    if (outdated && stage.kind === "idle" && !manualOpen) window.location.reload();
+  }, [outdated, stage.kind, manualOpen]);
 
   async function scan() {
     const video = videoRef.current;

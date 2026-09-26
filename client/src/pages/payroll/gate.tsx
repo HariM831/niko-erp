@@ -10,6 +10,7 @@
 import { loadRoster, saveRoster } from "../../lib/roster-cache";
 import { buildMatchIndex, findBestMatchIndexed } from "@shared/face-match";
 import { centredOf, useCentredIndex } from "../../lib/face-model";
+import { useAppOutdated } from "../../lib/app-version";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -280,6 +281,13 @@ export function PayrollGatePage() {
   }, [cameraOn, facingMode]);
 
   const latestById = useMemo(() => new Map(latestToday.map((p) => [p.employeeId, p.type])), [latestToday]);
+  // A new build went out: reload while nobody is mid-punch, so the gate never
+  // runs last deploy's code all day (lib/app-version.ts).
+  const outdated = useAppOutdated();
+  useEffect(() => {
+    if (outdated && stage.kind === "idle" && !manualOpen) window.location.reload();
+  }, [outdated, stage.kind, manualOpen]);
+
   const suggestedType = (employeeId: string): "in" | "out" => {
     const last = latestById.get(employeeId);
     if (last) return last === "in" ? "out" : "in";
