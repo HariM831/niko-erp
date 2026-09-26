@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearch } from "../components/search-context";
+import { SortTh, useSortedRows } from "../components/sortable-table";
 import { ApiError, api, formatMoney } from "../api";
 import { StatusBadge } from "../components/status-badge";
 import type { LineMatch } from "@shared/po-match-types";
@@ -30,6 +31,18 @@ interface ReceiptRow {
   lineCount: number;
   billQuantityKg: string;
 }
+
+/** The receipts book: a truck a row. Billed kilos and line counts sort as numbers. */
+const RECEIPT_SORTS = {
+  receipt: (r: ReceiptRow) => r.number,
+  vehicle: (r: ReceiptRow) => r.vehicleNumber,
+  vendor: (r: ReceiptRow) => r.vendorName,
+  bill: (r: ReceiptRow) => r.vendorBillNumber,
+  lines: (r: ReceiptRow) => r.lineCount,
+  billed: (r: ReceiptRow) => Number(r.billQuantityKg) || 0,
+  arrived: (r: ReceiptRow) => r.arrivalAt,
+  status: (r: ReceiptRow) => r.status,
+};
 
 interface Context {
   locations: Array<{ id: string; name: string; code: string }>;
@@ -789,11 +802,12 @@ export function GoodsReceiptsPage() {
   const fields = useMemo(() => receiptFields(ctx), [ctx]);
   const adv = useAdvancedSearch("Goods Receipts", fields);
   const params = new URLSearchParams({ ...(term ? { search: term } : {}), ...adv.criteria }).toString();
-  const { data: rows, isLoading } = useQuery<ReceiptRow[]>({
+  const { data: unsorted, isLoading } = useQuery<ReceiptRow[]>({
     queryKey: ["office", "receipts", term, adv.criteria],
     queryFn: () => api(`/api/office/receipts${params ? `?${params}` : ""}`),
     placeholderData: keepPreviousData,
   });
+  const { rows, sort, toggle } = useSortedRows(unsorted, RECEIPT_SORTS);
   const { data: numbering } = useQuery<Array<{ prefix: string; nextNumber: number; padding: number; seriesName: string; isDefault: boolean }>>({
     queryKey: ["office", "numbering"],
     queryFn: () => api("/api/office/numbering"),
@@ -834,14 +848,14 @@ export function GoodsReceiptsPage() {
         <table className="data-table w-full text-[13px]">
           <thead className="table-head">
             <tr>
-              <th className="col-code px-3 py-2 text-left">Receipt</th>
-              <th className="col-fill px-3 py-2 text-left">Vehicle</th>
-              <th className="col-portrait-hide px-3 py-2 text-left">Vendor</th>
-              <th className="col-portrait-hide px-3 py-2 text-left">Bill</th>
-              <th className="col-portrait-hide px-3 py-2 text-right">Lines</th>
-              <th className="col-portrait-hide px-3 py-2 text-right">Billed</th>
-              <th className="col-portrait-hide px-3 py-2 text-left">Arrived</th>
-              <th className="col-status px-3 py-2 text-left">Status</th>
+              <SortTh k="receipt" sort={sort} toggle={toggle} className="col-code px-3 py-2 text-left">Receipt</SortTh>
+              <SortTh k="vehicle" sort={sort} toggle={toggle} className="col-fill px-3 py-2 text-left">Vehicle</SortTh>
+              <SortTh k="vendor" sort={sort} toggle={toggle} className="col-portrait-hide px-3 py-2 text-left">Vendor</SortTh>
+              <SortTh k="bill" sort={sort} toggle={toggle} className="col-portrait-hide px-3 py-2 text-left">Bill</SortTh>
+              <SortTh k="lines" sort={sort} toggle={toggle} align="right" className="col-portrait-hide px-3 py-2 text-right">Lines</SortTh>
+              <SortTh k="billed" sort={sort} toggle={toggle} align="right" className="col-portrait-hide px-3 py-2 text-right">Billed</SortTh>
+              <SortTh k="arrived" sort={sort} toggle={toggle} className="col-portrait-hide px-3 py-2 text-left">Arrived</SortTh>
+              <SortTh k="status" sort={sort} toggle={toggle} className="col-status px-3 py-2 text-left">Status</SortTh>
               <th className="col-action w-20" />
             </tr>
           </thead>

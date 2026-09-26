@@ -18,6 +18,7 @@ import {
   Avatar, Badge, Empty, EmployeeRow, ErrorBanner, Field, PageHeader, Pager, Spinner, Td, Th, dmy, fileToDataUrl, num, useEmployees, useErr, usePaged,
 } from "../../components/payroll/ui";
 import { DateInput } from "../../components/date-input";
+import { SortTh, useSortedRows } from "../../components/sortable-table";
 import { getFaceEmbedding, loadFaceEngine, loadImage } from "../../lib/face";
 
 interface Department { id: string; name: string; isActive: boolean; designations: { id: string; name: string; displayOrder: number; isActive: boolean }[] }
@@ -147,6 +148,29 @@ function parseCsv(text: string): Record<string, string>[] {
   return body.map((r) => Object.fromEntries(keys.map((k, i) => [k, (r[i] ?? "").trim()])));
 }
 
+/**
+ * What each column of the roster sorts on.
+ *
+ * Two of them are not the text in the cell. "Gross / rate" shows a month's
+ * pay for the salaried and a day's rate for a wage worker, so the numbers are
+ * not strictly comparable — it sorts on the figure shown, which is what the
+ * reader is looking at, and reading it means keeping that in mind. "Face"
+ * sorts by how far enrolment has got, so ascending puts the people the gate
+ * cannot yet recognise at the top, which is the reason to sort by it at all.
+ */
+const EMPLOYEE_SORTS = {
+  employee: (e: EmployeeRow) => e.name,
+  code: (e: EmployeeRow) => e.empCode,
+  department: (e: EmployeeRow) => e.department,
+  role: (e: EmployeeRow) => (e.payType === "daily_wage" ? e.wageRole : e.designation),
+  pay: (e: EmployeeRow) => (e.payType === "salaried" ? "Salaried" : "Daily wage"),
+  gross: (e: EmployeeRow) => (e.payType === "salaried" ? e.gross : e.dailyRate),
+  shift: (e: EmployeeRow) => (typeof e.shift === "string" ? e.shift : e.shift?.name),
+  joined: (e: EmployeeRow) => e.dateOfJoining,
+  phone: (e: EmployeeRow) => e.contactNumber,
+  face: (e: EmployeeRow) => (e.hasFace ? 2 : e.hasPhoto ? 1 : 0),
+};
+
 export function PayrollEmployeesPage() {
   const qc = useQueryClient();
   const { err, setErr, fail } = useErr();
@@ -220,10 +244,17 @@ export function PayrollEmployeesPage() {
     placeholderData: keepPreviousData,
   });
 
-  const rows = useMemo(
+  const byCode = useMemo(
     () => [...(listQ.data ?? [])].sort((a, b) => a.empCode.localeCompare(b.empCode, undefined, { numeric: true })),
     [listQ.data],
   );
+  /*
+   * Sorted before it is paged, so a sort reorders the whole roster rather
+   * than shuffling whichever fifty are on screen. By employee code until a
+   * header says otherwise, as it always was.
+   */
+  const { rows: sorted, sort, toggle } = useSortedRows(byCode, EMPLOYEE_SORTS);
+  const rows = sorted ?? byCode;
   const paged = usePaged(rows);
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ["payroll", "employees"] });
@@ -298,16 +329,16 @@ export function PayrollEmployeesPage() {
           <table className="data-table w-full">
             <thead className="table-head">
               <tr>
-                <Th className="col-fill">Employee</Th>
-                <Th className="col-portrait-hide">Code</Th>
-                <Th className="col-portrait-hide">Department</Th>
-                <Th className="col-portrait-hide">Designation / role</Th>
-                <Th className="col-portrait-hide">Pay</Th>
-                <Th right>Gross / rate</Th>
-                <Th className="col-portrait-hide">Shift</Th>
-                <Th className="col-portrait-hide">Joined</Th>
-                <Th className="col-portrait-hide">Phone</Th>
-                <Th className="col-portrait-hide">Face</Th>
+                <SortTh k="employee" sort={sort} toggle={toggle} className="table-th col-fill">Employee</SortTh>
+                <SortTh k="code" sort={sort} toggle={toggle} className="table-th col-portrait-hide">Code</SortTh>
+                <SortTh k="department" sort={sort} toggle={toggle} className="table-th col-portrait-hide">Department</SortTh>
+                <SortTh k="role" sort={sort} toggle={toggle} className="table-th col-portrait-hide">Designation / role</SortTh>
+                <SortTh k="pay" sort={sort} toggle={toggle} className="table-th col-portrait-hide">Pay</SortTh>
+                <SortTh k="gross" sort={sort} toggle={toggle} align="right" className="table-th text-right">Gross / rate</SortTh>
+                <SortTh k="shift" sort={sort} toggle={toggle} className="table-th col-portrait-hide">Shift</SortTh>
+                <SortTh k="joined" sort={sort} toggle={toggle} className="table-th col-portrait-hide">Joined</SortTh>
+                <SortTh k="phone" sort={sort} toggle={toggle} className="table-th col-portrait-hide">Phone</SortTh>
+                <SortTh k="face" sort={sort} toggle={toggle} className="table-th col-portrait-hide">Face</SortTh>
               </tr>
             </thead>
             <tbody>

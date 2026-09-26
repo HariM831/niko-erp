@@ -8,6 +8,7 @@ import { localYmd } from "../lib/utils";
 import { useAdvancedSearch, type SearchField } from "../components/advanced-search";
 import { DateInput } from "../components/date-input";
 import { BandStrip } from "../components/ui/band-strip";
+import { SortTh, useSortedRows } from "../components/sortable-table";
 
 /** Current on-hand, for the adjustment form's "quantity now" column. */
 interface StockLevel {
@@ -31,6 +32,27 @@ interface StockPeriodRow {
   reorderLevel: string | null;
   belowReorder: boolean;
 }
+
+/** Stock summary: everything but the item name is a quantity or money. */
+const STOCK_SORTS = {
+  item: (r: StockPeriodRow) => r.name,
+  opening: (r: StockPeriodRow) => Number(r.opening) || 0,
+  in: (r: StockPeriodRow) => Number(r.inQty) || 0,
+  out: (r: StockPeriodRow) => Number(r.outQty) || 0,
+  closing: (r: StockPeriodRow) => Number(r.closing) || 0,
+  // An item with no reorder level set has none to compare, so it sinks.
+  reorder: (r: StockPeriodRow) => (r.reorderLevel == null ? null : Number(r.reorderLevel)),
+  value: (r: StockPeriodRow) => Number(r.value) || 0,
+};
+
+const ADJUSTMENT_SORTS = {
+  number: (r: AdjustmentRow) => r.number,
+  date: (r: AdjustmentRow) => r.adjustmentDate,
+  reason: (r: AdjustmentRow) => r.reason,
+  mode: (r: AdjustmentRow) => r.mode,
+  account: (r: AdjustmentRow) => r.accountName,
+  status: (r: AdjustmentRow) => r.status,
+};
 
 interface AdjustmentRow {
   id: string;
@@ -99,11 +121,12 @@ export function StockPage() {
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
 
-  const { data: rows, isLoading } = useQuery({
+  const { data: unsorted, isLoading } = useQuery({
     queryKey: ["stock-period", tab, from, to],
     queryFn: () =>
       api<StockPeriodRow[]>(`/api/inventory/stock/period?from=${from}&to=${to}&category=${tab}`),
   });
+  const { rows, sort, toggle } = useSortedRows(unsorted, STOCK_SORTS);
 
   const totalValue = (rows ?? []).reduce((s, l) => s + Number(l.value), 0);
   const movedIn = (rows ?? []).reduce((s, l) => s + Number(l.inQty), 0);
@@ -202,13 +225,13 @@ export function StockPage() {
         <table className="data-table w-full text-[13px]">
           <thead className="table-head">
             <tr>
-              <th className="col-fill px-3 py-2 text-left">Item</th>
-              <th className="col-portrait-hide px-3 py-2 text-right">Opening</th>
-              <th className="col-portrait-hide px-3 py-2 text-right">In</th>
-              <th className="col-portrait-hide px-3 py-2 text-right">Out</th>
-              <th className="px-3 py-2 text-right">Closing</th>
-              <th className="col-portrait-hide px-3 py-2 text-right">Reorder level</th>
-              <th className="px-3 py-2 text-right">Value</th>
+              <SortTh k="item" sort={sort} toggle={toggle} className="col-fill px-3 py-2 text-left">Item</SortTh>
+              <SortTh k="opening" sort={sort} toggle={toggle} align="right" className="col-portrait-hide px-3 py-2 text-right">Opening</SortTh>
+              <SortTh k="in" sort={sort} toggle={toggle} align="right" className="col-portrait-hide px-3 py-2 text-right">In</SortTh>
+              <SortTh k="out" sort={sort} toggle={toggle} align="right" className="col-portrait-hide px-3 py-2 text-right">Out</SortTh>
+              <SortTh k="closing" sort={sort} toggle={toggle} align="right" className="px-3 py-2 text-right">Closing</SortTh>
+              <SortTh k="reorder" sort={sort} toggle={toggle} align="right" className="col-portrait-hide px-3 py-2 text-right">Reorder level</SortTh>
+              <SortTh k="value" sort={sort} toggle={toggle} align="right" className="px-3 py-2 text-right">Value</SortTh>
             </tr>
           </thead>
           <tbody>
@@ -317,10 +340,11 @@ export function InventoryAdjustmentsPage() {
   const [, navigate] = useLocation();
   const adv = useAdvancedSearch("Inventory Adjustments", ADJUSTMENT_SEARCH);
   const qs = new URLSearchParams(adv.criteria).toString();
-  const { data: rows, isLoading } = useQuery({
+  const { data: unsorted, isLoading } = useQuery({
     queryKey: ["inventory-adjustments", adv.criteria],
     queryFn: () => api<AdjustmentRow[]>(`/api/inventory/adjustments${qs ? `?${qs}` : ""}`),
   });
+  const { rows, sort, toggle } = useSortedRows(unsorted, ADJUSTMENT_SORTS);
 
   return (
     <div className="flex h-full flex-col">
@@ -337,12 +361,12 @@ export function InventoryAdjustmentsPage() {
         <table className="w-full text-[13px]">
           <thead className="table-head">
             <tr>
-              <th className="px-3 py-2 text-left">Number</th>
-              <th className="px-3 py-2 text-left">Date</th>
-              <th className="px-3 py-2 text-left">Reason</th>
-              <th className="px-3 py-2 text-left">Mode</th>
-              <th className="px-3 py-2 text-left">Account</th>
-              <th className="px-3 py-2 text-left">Status</th>
+              <SortTh k="number" sort={sort} toggle={toggle} className="px-3 py-2 text-left">Number</SortTh>
+              <SortTh k="date" sort={sort} toggle={toggle} className="px-3 py-2 text-left">Date</SortTh>
+              <SortTh k="reason" sort={sort} toggle={toggle} className="px-3 py-2 text-left">Reason</SortTh>
+              <SortTh k="mode" sort={sort} toggle={toggle} className="px-3 py-2 text-left">Mode</SortTh>
+              <SortTh k="account" sort={sort} toggle={toggle} className="px-3 py-2 text-left">Account</SortTh>
+              <SortTh k="status" sort={sort} toggle={toggle} className="px-3 py-2 text-left">Status</SortTh>
             </tr>
           </thead>
           <tbody>

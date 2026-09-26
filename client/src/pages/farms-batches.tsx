@@ -23,6 +23,7 @@ import { matchesTerm, localYmd } from "../lib/utils";
 import { FLOCK_STATUS_LABELS, hatchProfile, type FlockStatus } from "@shared/schema/flocks";
 import { HOUSE_PURPOSE_LABELS, type HousePurpose } from "@shared/schema/farms";
 import { DateInput } from "../components/date-input";
+import { SortTh, useSortedRows } from "../components/sortable-table";
 
 const today = () => localYmd();
 const n = (v: number) => v.toLocaleString("en-IN");
@@ -48,6 +49,22 @@ interface Flock {
   layStartDate: string | null;
   depletedOn: string | null;
 }
+
+/**
+ * A batch list sorts on what the row is, not what the cell reads: "In" shows
+ * the houses a flock sits in, Birds is a count, and a flock that has never
+ * been placed has no date to compare.
+ */
+const FLOCK_SORTS = {
+  batch: (f: Flock) => f.code,
+  breed: (f: Flock) => f.breedName,
+  site: (f: Flock) => f.locationName,
+  house: (f: Flock) => f.houseCodes,
+  hatched: (f: Flock) => f.hatchDate,
+  placed: (f: Flock) => f.placedCount,
+  birds: (f: Flock) => f.birds,
+  status: (f: Flock) => FLOCK_STATUS_LABELS[f.status] ?? f.status,
+};
 
 interface Context {
   sites: Array<{ id: string; name: string }>;
@@ -143,6 +160,7 @@ export function FarmsBatchesPage() {
         }
       },
     );
+  const { rows: sortedFlocks, sort, toggle } = useSortedRows(flocks, FLOCK_SORTS);
 
   return (
     <div className="min-h-full bg-soil-50 p-4 md:p-6">
@@ -202,18 +220,18 @@ export function FarmsBatchesPage() {
           <table className="w-full text-[13px]">
             <thead className="bg-soil-50 text-left text-[11px] font-semibold uppercase text-soil-400">
               <tr className="border-b border-soil-100">
-                <th className="px-3 py-2">Batch</th>
-                <th className="col-portrait-hide px-3 py-2">Breed</th>
-                <th className="col-portrait-hide px-3 py-2">Site</th>
-                <th className="px-3 py-2">In</th>
-                <th className="col-portrait-hide px-3 py-2">Hatched</th>
-                <th className="col-portrait-hide px-3 py-2 text-right">Placed</th>
-                <th className="px-3 py-2 text-right">Birds</th>
-                <th className="px-3 py-2">Status</th>
+                <SortTh k="batch" sort={sort} toggle={toggle} className="px-3 py-2">Batch</SortTh>
+                <SortTh k="breed" sort={sort} toggle={toggle} className="col-portrait-hide px-3 py-2">Breed</SortTh>
+                <SortTh k="site" sort={sort} toggle={toggle} className="col-portrait-hide px-3 py-2">Site</SortTh>
+                <SortTh k="house" sort={sort} toggle={toggle} className="px-3 py-2">In</SortTh>
+                <SortTh k="hatched" sort={sort} toggle={toggle} className="col-portrait-hide px-3 py-2">Hatched</SortTh>
+                <SortTh k="placed" sort={sort} toggle={toggle} align="right" className="col-portrait-hide px-3 py-2 text-right">Placed</SortTh>
+                <SortTh k="birds" sort={sort} toggle={toggle} align="right" className="px-3 py-2 text-right">Birds</SortTh>
+                <SortTh k="status" sort={sort} toggle={toggle} className="px-3 py-2">Status</SortTh>
               </tr>
             </thead>
             <tbody>
-              {flocks.map((f) => (
+              {(sortedFlocks ?? []).map((f) => (
                 <tr key={f.id} className="border-b border-soil-100/70 last:border-0 transition-colors hover:bg-yolk-50/70">
                   <td className="px-3 py-2">
                     {/* wouter's Link IS the anchor — wrapping one inside it

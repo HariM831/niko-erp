@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ShieldCheck } from "lucide-react";
 import { api } from "../api";
 import { useAdvancedSearch, type SearchField } from "../components/advanced-search";
+import { SortTh, useSortedRows } from "../components/sortable-table";
 
 interface ActivityRow {
   id: string;
@@ -12,6 +13,17 @@ interface ActivityRow {
   ipAddress?: string;
   createdAt: string;
 }
+
+const TH_CELL = "border-b border-[#ece3d5] px-4 py-2.5";
+
+/** What each column sorts on — the row's own field, never the rendered cell. */
+const ACTIVITY_SORTS = {
+  time: (r: ActivityRow) => r.createdAt,
+  user: (r: ActivityRow) => r.userName,
+  action: (r: ActivityRow) => r.action,
+  resource: (r: ActivityRow) => r.resource,
+  ip: (r: ActivityRow) => r.ipAddress,
+};
 
 const ACTION_STYLES: Record<string, string> = {
   POST: "bg-green-50 text-green-700",
@@ -59,10 +71,13 @@ export function ActivityLogPage() {
   // The log is capped at the latest 300, so the search is the server's.
   const adv = useAdvancedSearch("Activity Log", fields);
   const qs = new URLSearchParams(adv.criteria).toString();
-  const { data: rows, error } = useQuery({
+  const { data: unsorted, error } = useQuery({
     queryKey: ["activity-log", qs],
     queryFn: () => api<ActivityRow[]>(`/api/activity-log${qs ? `?${qs}` : ""}`),
   });
+  // Newest first until a header says otherwise. Time sorts on the raw
+  // timestamp, not on the "26 Sep, 09:14" the cell shows.
+  const { rows, sort, toggle } = useSortedRows(unsorted, ACTIVITY_SORTS);
 
   return (
     <div className="flex h-full flex-col">
@@ -89,11 +104,11 @@ export function ActivityLogPage() {
           <table className="w-full text-[13px]">
             <thead className="table-head sticky top-0 z-10">
               <tr>
-                <th className="border-b border-[#ece3d5] px-4 py-2.5">Time</th>
-                <th className="border-b border-[#ece3d5] px-4 py-2.5">User</th>
-                <th className="border-b border-[#ece3d5] px-4 py-2.5">Action</th>
-                <th className="border-b border-[#ece3d5] px-4 py-2.5">Resource</th>
-                <th className="border-b border-[#ece3d5] px-4 py-2.5">IP Address</th>
+                <SortTh k="time" sort={sort} toggle={toggle} className={TH_CELL}>Time</SortTh>
+                <SortTh k="user" sort={sort} toggle={toggle} className={TH_CELL}>User</SortTh>
+                <SortTh k="action" sort={sort} toggle={toggle} className={TH_CELL}>Action</SortTh>
+                <SortTh k="resource" sort={sort} toggle={toggle} className={TH_CELL}>Resource</SortTh>
+                <SortTh k="ip" sort={sort} toggle={toggle} className={TH_CELL}>IP Address</SortTh>
               </tr>
             </thead>
             <tbody>

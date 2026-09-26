@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
+import { SortTh, compareBy, useSortState } from "../components/sortable-table";
 import { api } from "../api";
 import { filterRows, useAdvancedSearch, type SearchField } from "../components/advanced-search";
 
@@ -95,6 +96,15 @@ export function ChartOfAccountsPage() {
     queryFn: () => api<Account[]>("/api/accounting/accounts"),
   });
 
+  /*
+   * The chart is a TREE, so it cannot be sorted the way a flat list is: put
+   * the rows in order of name and a child leaves its parent, which is not a
+   * chart of accounts any more. The sort therefore reorders SIBLINGS — the
+   * accounts under one heading — and the walk still draws each branch under
+   * the head it belongs to. Unsorted, siblings go by code, as before.
+   */
+  const { sort, toggle } = useSortState();
+
   const { rows, byId } = useMemo(() => {
     const all = accounts ?? [];
     const byId = new Map(all.map((a) => [a.id, a]));
@@ -105,7 +115,21 @@ export function ChartOfAccountsPage() {
       list.push(a);
       childrenOf.set(key, list);
     }
-    for (const list of childrenOf.values()) list.sort((a, b) => a.code.localeCompare(b.code));
+    const sortValue: Record<string, (a: Account) => string | number | null> = {
+      name: (a) => a.name,
+      code: (a) => a.code,
+      type: (a) => (a.subtype ? SUBTYPE_LABEL[a.subtype] ?? a.subtype : a.type),
+      parent: (a) => (a.parentId ? byId.get(a.parentId)?.name ?? null : null),
+      status: (a) => (a.isActive ? "Active" : "Inactive"),
+    };
+    const pick = sort && sortValue[sort.key];
+    for (const list of childrenOf.values()) {
+      list.sort(
+        pick && sort
+          ? (a, b) => compareBy(pick(a), pick(b), sort.dir)
+          : (a, b) => a.code.localeCompare(b.code),
+      );
+    }
 
     // A search reaches the whole chart, the way Zoho's results replace the
     // view: Status is one of its fields, and asking for inactive accounts
@@ -130,7 +154,7 @@ export function ChartOfAccountsPage() {
     };
     walk(null, 0);
     return { rows, byId };
-  }, [accounts, view, adv.active, adv.criteria]);
+  }, [accounts, view, adv.active, adv.criteria, sort]);
 
   const viewLabel = adv.active
     ? "Search Results"
@@ -184,11 +208,11 @@ export function ChartOfAccountsPage() {
           <table className="data-table w-full border-separate border-spacing-0 text-[13px]">
             <thead className="table-head sticky top-0 z-10">
               <tr>
-                <th className="col-fill border-b border-[#ece3d5] px-4 py-2.5">Account Name</th>
-                <th className="border-b border-[#ece3d5] px-4 py-2.5">Account Code</th>
-                <th className="col-portrait-hide border-b border-[#ece3d5] px-4 py-2.5">Account Type</th>
-                <th className="col-portrait-hide border-b border-[#ece3d5] px-4 py-2.5">Parent Account Name</th>
-                <th className="col-portrait-hide border-b border-[#ece3d5] px-4 py-2.5">Status</th>
+                <SortTh k="name" sort={sort} toggle={toggle} className="col-fill border-b border-[#ece3d5] px-4 py-2.5">Account Name</SortTh>
+                <SortTh k="code" sort={sort} toggle={toggle} className="border-b border-[#ece3d5] px-4 py-2.5">Account Code</SortTh>
+                <SortTh k="type" sort={sort} toggle={toggle} className="col-portrait-hide border-b border-[#ece3d5] px-4 py-2.5">Account Type</SortTh>
+                <SortTh k="parent" sort={sort} toggle={toggle} className="col-portrait-hide border-b border-[#ece3d5] px-4 py-2.5">Parent Account Name</SortTh>
+                <SortTh k="status" sort={sort} toggle={toggle} className="col-portrait-hide border-b border-[#ece3d5] px-4 py-2.5">Status</SortTh>
               </tr>
             </thead>
             <tbody>

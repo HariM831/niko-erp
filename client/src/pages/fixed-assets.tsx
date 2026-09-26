@@ -9,6 +9,18 @@ import { SearchSelect } from "../components/search-select";
 import { localYmd } from "../lib/utils";
 import { filterRows, useAdvancedSearch, type SearchField } from "../components/advanced-search";
 import { DateInput } from "../components/date-input";
+import { SortTh, useSortedRows } from "../components/sortable-table";
+
+/** What each column of the asset register sorts on. Money as a number. */
+const ASSET_SORTS = {
+  asset: (a: AssetRow) => a.name,
+  account: (a: AssetRow) => a.accountName,
+  acquired: (a: AssetRow) => a.acquisitionDate,
+  cost: (a: AssetRow) => Number(a.cost) || 0,
+  accumulated: (a: AssetRow) => Number(a.accumulated) || 0,
+  book: (a: AssetRow) => Number(a.netBookValue) || 0,
+  status: (a: AssetRow) => a.status,
+};
 
 interface AssetRow {
   id: string;
@@ -126,6 +138,8 @@ export function FixedAssetsPage() {
           return a.location;
       }
     });
+  const { rows, sort, toggle } = useSortedRows(shown, ASSET_SORTS);
+
   const { data: summary } = useQuery({
     queryKey: ["assets-summary"],
     queryFn: () => api<Summary>("/api/assets/summary"),
@@ -180,13 +194,13 @@ export function FixedAssetsPage() {
         <table className="data-table w-full text-[13px]">
           <thead className="table-head">
             <tr>
-              <th className="px-3 py-2 text-left">Asset</th>
-              <th className="col-portrait-hide px-3 py-2 text-left">Account</th>
-              <th className="col-portrait-hide px-3 py-2 text-left">Acquired</th>
-              <th className="col-portrait-hide px-3 py-2 text-right">Cost</th>
-              <th className="col-portrait-hide px-3 py-2 text-right">Accumulated</th>
-              <th className="px-3 py-2 text-right">Book value</th>
-              <th className="col-portrait-hide px-3 py-2 text-left">Status</th>
+              <SortTh k="asset" sort={sort} toggle={toggle} className="px-3 py-2 text-left">Asset</SortTh>
+              <SortTh k="account" sort={sort} toggle={toggle} className="col-portrait-hide px-3 py-2 text-left">Account</SortTh>
+              <SortTh k="acquired" sort={sort} toggle={toggle} className="col-portrait-hide px-3 py-2 text-left">Acquired</SortTh>
+              <SortTh k="cost" sort={sort} toggle={toggle} align="right" className="col-portrait-hide px-3 py-2 text-right">Cost</SortTh>
+              <SortTh k="accumulated" sort={sort} toggle={toggle} align="right" className="col-portrait-hide px-3 py-2 text-right">Accumulated</SortTh>
+              <SortTh k="book" sort={sort} toggle={toggle} align="right" className="px-3 py-2 text-right">Book value</SortTh>
+              <SortTh k="status" sort={sort} toggle={toggle} className="col-portrait-hide px-3 py-2 text-left">Status</SortTh>
             </tr>
           </thead>
           <tbody>
@@ -211,7 +225,7 @@ export function FixedAssetsPage() {
                 </td>
               </tr>
             )}
-            {shown?.map((a) => (
+            {rows?.map((a) => (
               <tr
                 key={a.id}
                 onClick={() => navigate(`/accountant/assets/${a.id}`)}

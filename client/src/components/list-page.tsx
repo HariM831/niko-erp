@@ -4,6 +4,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api } from "../api";
 import { AdvancedButton, AdvancedSearch, criteriaCount as countCriteria, type Criteria, type SearchField } from "./advanced-search";
 import { useSearchContext } from "./search-context";
+import { SortCarets, compareBy } from "./sortable-table";
 
 export interface Column<T> {
   key: string;
@@ -103,32 +104,6 @@ interface ListPageProps<T> {
    */
   groupBy?: (row: T) => string;
   groupOrder?: string[];
-}
-
-/**
- * The sorted column's marker, copied from Zoho Books' own list header
- * (read off books.zoho.in, 26 Sep 2026).
- *
- * A stacked pair of 5px carets, not one arrow: the caret matching the
- * direction goes near-black and the other stays in the accent colour, so the
- * control shows both what it is doing and what the next click will do. Zoho
- * draws it on the SORTED column only — a header you have not clicked carries
- * no caret at all, not even on hover, and the pointer cursor is the whole
- * affordance.
- */
-function SortCarets({ dir }: { dir: "asc" | "desc" }) {
-  const on = "fill-gray-900";
-  const off = "fill-brand-500";
-  return (
-    <span aria-hidden className="inline-flex flex-col leading-none">
-      <svg viewBox="0 0 10 6" className={`h-[5px] w-[5px] ${dir === "asc" ? on : off}`}>
-        <path d="M5 0L10 6H0z" />
-      </svg>
-      <svg viewBox="0 0 10 6" className={`h-[5px] w-[5px] ${dir === "desc" ? on : off}`}>
-        <path d="M5 6L0 0h10z" />
-      </svg>
-    </span>
-  );
 }
 
 /**
@@ -298,18 +273,7 @@ export function ListPage<T>({
       if (!sortCol?.sort) return 0;
       const va = sortCol.sort(a);
       const vb = sortCol.sort(b);
-      // Nothing on file sinks to the bottom whichever way the arrow points.
-      // Reversing an email sort should not open on a screenful of dashes.
-      const ea = va == null || va === "";
-      const eb = vb == null || vb === "";
-      if (ea || eb) return ea && eb ? 0 : ea ? 1 : -1;
-      const cmp =
-        typeof va === "number" && typeof vb === "number"
-          ? va - vb
-          : // numeric:true so "L2" sorts before "L10", sensitivity:"base" so a
-            // lower-case name is not exiled below the upper-case ones.
-            String(va).localeCompare(String(vb), undefined, { numeric: true, sensitivity: "base" });
-      return sort!.dir === "desc" ? -cmp : cmp;
+      return compareBy(va, vb, sort!.dir);
     };
     return [...data].sort((a, b) => byGroup(a, b) || bySort(a, b));
   })();

@@ -12,6 +12,7 @@ import { ArrowDownToLine, ArrowUpFromLine, Loader2, PackageOpen } from "lucide-r
 import { api } from "../api";
 import { filterRows, useAdvancedSearch, type SearchField } from "../components/advanced-search";
 import { useLocalSearch } from "../components/search-context";
+import { SortTh, useSortedRows } from "../components/sortable-table";
 import { SearchSelect } from "../components/search-select";
 import { matchesTerm, localYmd } from "../lib/utils";
 import { DateInput } from "../components/date-input";
@@ -209,6 +210,26 @@ export function FarmStorePage() {
   );
   const shownEntries = entries.filter((e) => matchesTerm(term, [e.itemName, e.storeName, e.sourceType, e.notes]));
 
+  // Two tables, two sorts: what is on the shelf, and how it came and went.
+  // Unsorted, stock stays grouped by category and the day book stays newest
+  // first, which is how each is read before anyone reaches for a header.
+  const stockSort = useSortedRows(shownItems, {
+    item: (r) => r.name,
+    category: (r) => r.category,
+    store: (r) => r.main,
+    sheds: (r) => r.houses,
+    total: (r) => r.main + r.houses,
+    unit: (r) => r.unit,
+  });
+  const entrySort = useSortedRows(shownEntries, {
+    date: (e) => e.date,
+    item: (e) => e.itemName,
+    qty: (e) => Number(e.quantity) || 0,
+    kind: (e) => e.sourceType,
+    store: (e) => e.storeName,
+    notes: (e) => e.notes,
+  });
+
   return (
     <div className="min-h-full bg-soil-50 p-4 md:p-6">
       <div className="page-header -mx-4 px-4 py-3 md:-mx-6 md:px-6 mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -273,16 +294,16 @@ export function FarmStorePage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-soil-100">
-                    <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Item</th>
-                    <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Category</th>
-                    <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-soil-400">Store</th>
-                    <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-soil-400">In sheds</th>
-                    <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-soil-400">Total</th>
-                    <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Unit</th>
+                    <SortTh k="item" sort={stockSort.sort} toggle={stockSort.toggle} className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Item</SortTh>
+                    <SortTh k="category" sort={stockSort.sort} toggle={stockSort.toggle} className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Category</SortTh>
+                    <SortTh k="store" sort={stockSort.sort} toggle={stockSort.toggle} align="right" className="whitespace-nowrap bg-soil-50 px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-soil-400">Store</SortTh>
+                    <SortTh k="sheds" sort={stockSort.sort} toggle={stockSort.toggle} align="right" className="whitespace-nowrap bg-soil-50 px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-soil-400">In sheds</SortTh>
+                    <SortTh k="total" sort={stockSort.sort} toggle={stockSort.toggle} align="right" className="whitespace-nowrap bg-soil-50 px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-soil-400">Total</SortTh>
+                    <SortTh k="unit" sort={stockSort.sort} toggle={stockSort.toggle} className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Unit</SortTh>
                   </tr>
                 </thead>
                 <tbody>
-                  {shownItems.map((r) => {
+                  {(stockSort.rows ?? []).map((r) => {
                     const total = r.main + r.houses;
                     const low = r.reorderLevel != null && total < Number(r.reorderLevel);
                     return (
@@ -321,16 +342,16 @@ export function FarmStorePage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-soil-100">
-                  <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Date</th>
-                  <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Item</th>
-                  <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-soil-400">Qty</th>
-                  <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Kind</th>
-                  <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Store</th>
-                  <th className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Notes</th>
+                  <SortTh k="date" sort={entrySort.sort} toggle={entrySort.toggle} className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Date</SortTh>
+                  <SortTh k="item" sort={entrySort.sort} toggle={entrySort.toggle} className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Item</SortTh>
+                  <SortTh k="qty" sort={entrySort.sort} toggle={entrySort.toggle} align="right" className="whitespace-nowrap bg-soil-50 px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wider text-soil-400">Qty</SortTh>
+                  <SortTh k="kind" sort={entrySort.sort} toggle={entrySort.toggle} className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Kind</SortTh>
+                  <SortTh k="store" sort={entrySort.sort} toggle={entrySort.toggle} className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Store</SortTh>
+                  <SortTh k="notes" sort={entrySort.sort} toggle={entrySort.toggle} className="whitespace-nowrap bg-soil-50 px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wider text-soil-400">Notes</SortTh>
                 </tr>
               </thead>
               <tbody>
-                {shownEntries.map((e) => {
+                {(entrySort.rows ?? []).map((e) => {
                   const qty = Number(e.quantity);
                   return (
                     <tr key={e.id} className="border-b border-soil-100/70 last:border-0 transition-colors hover:bg-yolk-50/70">

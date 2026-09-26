@@ -7,6 +7,7 @@ import { api, formatMoney } from "../api";
 import { useLocalSearch } from "../components/search-context";
 import { matchesTerm } from "../lib/utils";
 import { filterRows, useAdvancedSearch, type SearchField } from "../components/advanced-search";
+import { SortTh, useSortedRows } from "../components/sortable-table";
 
 interface AccountSummary {
   id: string;
@@ -17,6 +18,13 @@ interface AccountSummary {
   amountInBooks: string;
   uncategorized: number;
 }
+/** A handful of accounts, but the money still sorts as money. */
+const BANK_SORTS = {
+  account: (a: AccountSummary) => a.name,
+  uncategorized: (a: AccountSummary) => a.uncategorized,
+  books: (a: AccountSummary) => Number(a.amountInBooks) || 0,
+};
+
 interface Summary {
   cashInHand: string;
   bankBalance: string;
@@ -58,6 +66,7 @@ export function BankingOverviewPage() {
     (a, key) =>
       key === "name" ? [a.name, a.bankName, a.accountNumber] : key === "kind" ? a.kind : key === "balance" ? a.amountInBooks : undefined,
   );
+  const { rows: sortedAccounts, sort, toggle } = useSortedRows(accounts, BANK_SORTS);
 
   return (
     <div className="h-full overflow-y-auto bg-surface">
@@ -114,13 +123,13 @@ export function BankingOverviewPage() {
             <table className="data-table w-full text-[13px]">
               <thead className="table-head">
                 <tr>
-                  <th className="border-b border-[#ece3d5] px-4 py-2.5">Account Details</th>
-                  <th className="col-portrait-hide border-b border-[#ece3d5] px-4 py-2.5 text-right">Uncategorized</th>
-                  <th className="border-b border-[#ece3d5] px-4 py-2.5 text-right">Amount in Books</th>
+                  <SortTh k="account" sort={sort} toggle={toggle} className="border-b border-[#ece3d5] px-4 py-2.5">Account Details</SortTh>
+                  <SortTh k="uncategorized" sort={sort} toggle={toggle} align="right" className="col-portrait-hide border-b border-[#ece3d5] px-4 py-2.5 text-right">Uncategorized</SortTh>
+                  <SortTh k="books" sort={sort} toggle={toggle} align="right" className="border-b border-[#ece3d5] px-4 py-2.5 text-right">Amount in Books</SortTh>
                 </tr>
               </thead>
               <tbody>
-                {accounts.map((a) => (
+                {(sortedAccounts ?? []).map((a) => (
                   <tr
                     key={a.id}
                     onClick={() => navigate(`/banking/${a.id}`)}

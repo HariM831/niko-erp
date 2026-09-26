@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { Loader2, Pencil, Plus } from "lucide-react";
 import { api, formatDate } from "../api";
 import { filterRows, useAdvancedSearch, type SearchField } from "../components/advanced-search";
+import { SortTh, useSortedRows } from "../components/sortable-table";
 import { SearchSelect } from "../components/search-select";
 import { localYmd } from "../lib/utils";
 import { DateInput } from "../components/date-input";
@@ -32,6 +33,22 @@ interface Customer {
   id: string;
   name: string;
 }
+
+/**
+ * What each column sorts on. Boxes and the spread are numbers; "no end date"
+ * is an open agreement, and an empty value sinks to the bottom either way,
+ * which is where an agreement with no end belongs when you are looking for
+ * the ones about to lapse.
+ */
+const AGREEMENT_SORTS = {
+  customer: (a: Agreement) => a.customerName,
+  schedule: (a: Agreement) => scheduleLabel(a),
+  boxes: (a: Agreement) => a.boxes,
+  price: (a: Agreement) => Number(a.spreadPerEgg) || 0,
+  from: (a: Agreement) => a.startDate,
+  until: (a: Agreement) => a.endDate,
+  status: (a: Agreement) => a.status,
+};
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -115,6 +132,8 @@ export function EggAgreementsPage() {
         return a.notes;
     }
   });
+  const { rows, sort, toggle } = useSortedRows(shown, AGREEMENT_SORTS);
+  const shownRows = rows ?? [];
 
   return (
     <div className="p-4 md:p-6">
@@ -141,18 +160,18 @@ export function EggAgreementsPage() {
           <table className="w-full text-sm">
             <thead className="table-head">
               <tr>
-                <th className="table-th text-left">Customer</th>
-                <th className="table-th text-left">Schedule</th>
-                <th className="table-th text-right">Boxes</th>
-                <th className="table-th text-left">Price</th>
-                <th className="table-th text-left">From</th>
-                <th className="table-th text-left">Until</th>
-                <th className="table-th text-left">Status</th>
+                <SortTh k="customer" sort={sort} toggle={toggle} className="table-th text-left">Customer</SortTh>
+                <SortTh k="schedule" sort={sort} toggle={toggle} className="table-th text-left">Schedule</SortTh>
+                <SortTh k="boxes" sort={sort} toggle={toggle} align="right" className="table-th text-right">Boxes</SortTh>
+                <SortTh k="price" sort={sort} toggle={toggle} className="table-th text-left">Price</SortTh>
+                <SortTh k="from" sort={sort} toggle={toggle} className="table-th text-left">From</SortTh>
+                <SortTh k="until" sort={sort} toggle={toggle} className="table-th text-left">Until</SortTh>
+                <SortTh k="status" sort={sort} toggle={toggle} className="table-th text-left">Status</SortTh>
                 <th className="table-th" />
               </tr>
             </thead>
             <tbody>
-              {shown.map((a) => (
+              {shownRows.map((a) => (
                 <tr key={a.id} className={`border-b border-border/60 last:border-0 ${a.status !== "active" ? "opacity-50" : ""}`}>
                   <td className="px-3 py-2 font-medium">{a.customerName}</td>
                   <td className="px-3 py-2">{scheduleLabel(a)}</td>
