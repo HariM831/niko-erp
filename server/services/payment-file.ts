@@ -48,16 +48,23 @@ export interface PayableRow {
  * so the remittance a vendor gets back reconciles against a document instead of
  * arriving as one lump they have to unpick.
  *
- * Group companies are not excluded. They are excluded from vendor *lists*
- * because they are not the market, but a payable to one is real money that has
- * to leave the account like anyone else's — the Bills list counts them too.
+ * `excludeGroup` drops the group's own companies, and the Vendor Sheet asks
+ * for it: that screen answers "what goes to the bank today", and ₹17.24 crore
+ * of intra-group balance sitting in its TO PAY made the figure unreadable
+ * against the market it is meant to describe. Settled 26 Sep 2026.
+ *
+ * It is NOT the default, because the same function resolves the lines of a
+ * bank file that has already been raised, and a document must still be found
+ * there whoever it belongs to. Money owed to an LLP is real money; this only
+ * decides which screen offers to pay it.
  */
 export async function listPayables(
   conn: Db | Tx,
-  opts: { vendorId?: string; includeSent?: boolean } = {},
+  opts: { vendorId?: string; includeSent?: boolean; excludeGroup?: boolean } = {},
 ): Promise<PayableRow[]> {
   const vendorFilter = opts.vendorId ?? null;
   const includeSent = opts.includeSent ?? false;
+  const excludeGroup = opts.excludeGroup ?? false;
   const result = await conn.execute(sql`
     WITH payable AS (
       SELECT
@@ -128,6 +135,7 @@ export async function listPayables(
     ) sent ON TRUE
     WHERE (${vendorFilter}::uuid IS NULL OR p.vendor_id = ${vendorFilter}::uuid)
       AND (${includeSent}::boolean OR sent.batch_id IS NULL)
+      AND (NOT ${excludeGroup}::boolean OR COALESCE(c.is_group_company, FALSE) = FALSE)
     ORDER BY p.due_date NULLS LAST, c.display_name, p.number
   `);
 

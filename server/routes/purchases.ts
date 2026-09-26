@@ -2258,6 +2258,10 @@ purchasesRouter.get("/payables", requirePermission("purchases", "view"), async (
   const rows = await listPayables(db, {
     vendorId: typeof req.query.vendorId === "string" ? req.query.vendorId : undefined,
     includeSent: req.query.includeSent === "1" || req.query.includeSent === "true",
+    // The Vendor Sheet is the market's payables, as every other purchases
+    // view is. The group's own companies are settled between the LLPs, not
+    // out of this morning's bank file.
+    excludeGroup: true,
   });
   res.json(rows);
 });
