@@ -34,6 +34,7 @@ const contactColumns = (balanceHeader: string) => [
     key: "name",
     header: "Name",
     portrait: true,
+    sort: (r: ContactRow) => r.displayName,
     render: (r: ContactRow) => (
       <span className="font-medium text-brand-600">{r.displayName}</span>
     ),
@@ -42,6 +43,7 @@ const contactColumns = (balanceHeader: string) => [
     key: "contact",
     header: "Contact Person",
     portrait: true,
+    sort: (r: ContactRow) => r.contactPersonName,
     render: (r: ContactRow) => <span className="text-gray-800">{r.contactPersonName || "—"}</span>,
   },
   {
@@ -49,6 +51,8 @@ const contactColumns = (balanceHeader: string) => [
     header: "Phone",
     portrait: true,
     clamp: 9,
+    // Sorted on whichever of the three the row actually shows.
+    sort: (r: ContactRow) => r.mobile || r.contactPersonPhone || r.phone,
     /*
      * Three sources, because no single one is populated enough to be a column.
      * Of 441 vendors: 124 carry a mobile, 41 have a contact person with a number
@@ -59,11 +63,23 @@ const contactColumns = (balanceHeader: string) => [
       <span className="tabular-nums">{r.mobile || r.contactPersonPhone || r.phone || "—"}</span>
     ),
   },
-  { key: "company", header: "Company Name", render: (r: ContactRow) => r.companyName ?? "—" },
-  { key: "email", header: "Email", clamp: 12, render: (r: ContactRow) => r.email ?? "—" },
+  {
+    key: "company",
+    header: "Company Name",
+    sort: (r: ContactRow) => r.companyName,
+    render: (r: ContactRow) => r.companyName ?? "—",
+  },
+  {
+    key: "email",
+    header: "Email",
+    clamp: 12,
+    sort: (r: ContactRow) => r.email,
+    render: (r: ContactRow) => r.email ?? "—",
+  },
   {
     key: "gstt",
     header: "GST Treatment",
+    sort: (r: ContactRow) => r.gstTreatment,
     render: (r: ContactRow) => (
       <span className="capitalize">{(r.gstTreatment ?? "").replace(/_/g, " ") || "—"}</span>
     ),
@@ -72,6 +88,8 @@ const contactColumns = (balanceHeader: string) => [
     key: "outstanding",
     header: balanceHeader,
     align: "right" as const,
+    // A number, so 9,00,000 sorts above 85,000 rather than below it.
+    sort: (r: ContactRow) => Number(r.outstanding) || 0,
     render: (r: ContactRow) => <span className="tabular-nums">{formatMoney(r.outstanding)}</span>,
   },
 ];

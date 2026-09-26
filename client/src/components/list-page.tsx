@@ -27,6 +27,17 @@ export interface Column<T> {
    */
   clamp?: number;
   /**
+   * What this column sorts on. Giving it makes the header clickable; leaving
+   * it out leaves the header as plain text, which is how Zoho treats a column
+   * it cannot order by.
+   *
+   * It reads the ROW, not the rendered cell: the Phone column falls back
+   * through three fields and the balance column renders "₹1,23,456.00", and
+   * neither of those sorts the way its text does. Return a number for a
+   * number — "9" before "10" — and null or "" for nothing on file.
+   */
+  sort?: (row: T) => string | number | null | undefined;
+  /**
    * Keep this column on a phone held upright.
    *
    * Mark the ones that let someone recognise a row — for a bill that is the
@@ -156,6 +167,17 @@ export function ListPage<T>({
   const [criteria, setCriteria] = useState<Criteria>({});
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  /**
+   * Which column the list is ordered by, and which way. Null means the order
+   * the server sent, which is the one the list was designed around — a bill
+   * list newest first, a contact list by name. Clicking a header the first
+   * time sorts ascending, clicking it again reverses; there is no third click
+   * that puts it back, because Zoho has none either.
+   *
+   * Session state, deliberately: a sort is something you do to read one
+   * answer, not a setting you keep.
+   */
+  const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" } | null>(null);
   const viewsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -219,6 +241,56 @@ export function ListPage<T>({
 
   const viewLabel = views?.[activeView]?.label ?? "All";
   const cellPad = compact ? "px-3 py-2" : "px-4 py-2.5";
+
+  /**
+   * The rows in the order they are drawn: groups first, then the sort.
+   *
+   * Grouping wins over sorting — a Feed Mill row cannot leave its group
+   * because somebody sorted by amount — so the group comparator runs first
+   * and the chosen column only breaks ties inside a group. On an ungrouped
+   * list, which is most of them, there is nothing to break.
+   *
+   * Sorting happens here rather than on the server because the server sends
+   * the whole list in one response, and a column like the balance is worked
+   * out in JS after the query: there is nothing back there to order by.
+   */
+  const sortCol = sort && columns.find((c) => c.key === sort.key && c.sort);
+  const ordered = (() => {
+    if (!data) return data;
+    if (!groupBy && !sortCol) return data;
+    const byGroup = (a: T, b: T) => {
+      if (!groupBy) return 0;
+      const ga = groupBy(a);
+      const gb = groupBy(b);
+      if (ga === gb) return 0;
+      const ia = groupOrder?.indexOf(ga) ?? -1;
+      const ib = groupOrder?.indexOf(gb) ?? -1;
+      if (ia !== -1 || ib !== -1) return (ia === -1 ? 1e9 : ia) - (ib === -1 ? 1e9 : ib);
+      return ga.localeCompare(gb);
+    };
+    const bySort = (a: T, b: T) => {
+      if (!sortCol?.sort) return 0;
+      const va = sortCol.sort(a);
+      const vb = sortCol.sort(b);
+      // Nothing on file sinks to the bottom whichever way the arrow points.
+      // Reversing an email sort should not open on a screenful of dashes.
+      const ea = va == null || va === "";
+      const eb = vb == null || vb === "";
+      if (ea || eb) return ea && eb ? 0 : ea ? 1 : -1;
+      const cmp =
+        typeof va === "number" && typeof vb === "number"
+          ? va - vb
+          : // numeric:true so "L2" sorts before "L10", sensitivity:"base" so a
+            // lower-case name is not exiled below the upper-case ones.
+            String(va).localeCompare(String(vb), undefined, { numeric: true, sensitivity: "base" });
+      return sort!.dir === "desc" ? -cmp : cmp;
+    };
+    return [...data].sort((a, b) => byGroup(a, b) || bySort(a, b));
+  })();
+
+  /** First click sorts ascending; the next reverses it. */
+  const toggleSort = (key: string) =>
+    setSort((s) => (s?.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
 
   return (
     <div className="flex h-full flex-col">
@@ -310,33 +382,47 @@ export function ListPage<T>({
                 <th className={`w-9 border-b border-[#ece3d5] ${cellPad} ${namedPortrait ? "col-portrait-hide" : ""}`}>
                   <input type="checkbox" checked={allSelected} onChange={toggleAll} className="accent-brand-500" />
                 </th>
-                {columns.map((c) => (
-                  <th
-                    key={c.key}
-                    className={`col-${c.key} ${c.key === fillKey ? "col-fill" : ""} border-b border-[#ece3d5] font-semibold ${cellPad} ${c.align === "right" ? "text-right" : ""} ${
-                      namedPortrait && !c.portrait ? "col-portrait-hide" : ""
-                    }`}
-                  >
-                    {c.header}
-                  </th>
-                ))}
+                {columns.map((c) => {
+                  const active = sort?.key === c.key && !!c.sort;
+                  return (
+                    <th
+                      key={c.key}
+                      aria-sort={active ? (sort!.dir === "asc" ? "ascending" : "descending") : undefined}
+                      className={`col-${c.key} ${c.key === fillKey ? "col-fill" : ""} border-b border-[#ece3d5] font-semibold ${cellPad} ${c.align === "right" ? "text-right" : ""} ${
+                        namedPortrait && !c.portrait ? "col-portrait-hide" : ""
+                      }`}
+                    >
+                      {c.sort ? (
+                        // A button, not a clickable th: the header has to be
+                        // reachable by keyboard, and a sort is an action.
+                        <button
+                          type="button"
+                          onClick={() => toggleSort(c.key)}
+                          title={`Sort by ${c.header}`}
+                          className={`group inline-flex w-full items-center gap-1 font-semibold ${
+                            c.align === "right" ? "justify-end" : ""
+                          } ${active ? "text-brand-600" : "hover:text-gray-900"}`}
+                        >
+                          {c.header}
+                          <span
+                            aria-hidden
+                            className={`text-[9px] leading-none transition-opacity ${
+                              active ? "opacity-100" : "opacity-0 group-hover:opacity-40"
+                            }`}
+                          >
+                            {active && sort!.dir === "desc" ? "▼" : "▲"}
+                          </span>
+                        </button>
+                      ) : (
+                        c.header
+                      )}
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
-              {(groupBy
-                ? [...data].sort((a, b) => {
-                    const ga = groupBy(a);
-                    const gb = groupBy(b);
-                    if (ga === gb) return 0;
-                    const ia = groupOrder?.indexOf(ga) ?? -1;
-                    const ib = groupOrder?.indexOf(gb) ?? -1;
-                    if (ia !== -1 || ib !== -1) {
-                      return (ia === -1 ? 1e9 : ia) - (ib === -1 ? 1e9 : ib);
-                    }
-                    return ga.localeCompare(gb);
-                  })
-                : data
-              ).flatMap((row, i, arr) => {
+              {(ordered ?? []).flatMap((row, i, arr) => {
                 const group = groupBy?.(row);
                 const isCollapsed = group != null && collapsed.has(group);
                 const header =
