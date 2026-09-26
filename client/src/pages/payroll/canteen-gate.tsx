@@ -23,7 +23,8 @@ import { AlertTriangle, Camera, CameraOff, CheckCircle2, Loader2, ScanFace, Swit
 import { ApiError, api } from "../../api";
 import { SearchSelect } from "../../components/search-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Badge, ErrorBanner, PageHeader, useErr } from "../../components/payroll/ui";
+import { Badge, ErrorBanner, PageHeader, istToday, useErr } from "../../components/payroll/ui";
+import { DateInput } from "../../components/date-input";
 import { DEFAULT_MATCH_THRESHOLD, MIN_MATCH_MARGIN, getFaceEmbedding, looksSpoofed } from "../../lib/face";
 import { useCamera } from "../../lib/use-camera";
 import { buildMatchIndex, findBestMatchIndexed } from "@shared/face-match";
@@ -38,6 +39,8 @@ interface GateState {
   served: { employeeId: string | null; servedAt: string; personName: string; state: string; tokenNumber: string }[];
 }
 interface Served { personName: string; mealLabel: string; tokenNumber: string; ineligible: boolean; outsideWindow: boolean; attendancePresent: boolean | null }
+/** The day's tally, by meal — no names, just how many plates went out. */
+interface Counts { date: string; breakfast: number; lunch: number; dinner: number; total: number }
 
 type Stage =
   | { kind: "idle" }
@@ -62,7 +65,21 @@ export function PayrollCanteenGatePage() {
     try { return localStorage.getItem(CANTEEN_KEY) ?? ""; } catch { return ""; }
   });
 
+  /**
+   * The tally at the top has its own day, because the question it answers is
+   * usually "how many did we do yesterday" — and the counter must not have to
+   * leave the page it is serving from to answer it. Serving is always today's
+   * business whatever this says.
+   */
+  const [countDate, setCountDate] = useState(istToday());
+
   const canteensQ = useQuery({ queryKey: ["canteen-gate", "canteens"], queryFn: () => api<CanteenRow[]>("/api/canteen/gate/canteens") });
+  const countsQ = useQuery({
+    queryKey: ["canteen-gate", "counts", canteenId, countDate],
+    queryFn: () => api<Counts>(`/api/canteen/gate/counts?date=${countDate}&canteenId=${canteenId}`),
+    enabled: !!canteenId,
+    refetchInterval: 60_000,
+  });
   const rosterQ = useQuery({ queryKey: ["canteen-gate", "roster"], queryFn: () => api<Person[]>("/api/canteen/gate/roster"), staleTime: 5 * 60_000 });
   // What the SERVER says the meal is, asked again every half minute so the
   // label turns over with the clock. Nothing is served until it has answered.
@@ -131,11 +148,13 @@ export function PayrollCanteenGatePage() {
       });
       setStage({ kind: "served", plate });
       qc.invalidateQueries({ queryKey: ["canteen-gate", "state"] });
+      qc.invalidateQueries({ queryKey: ["canteen-gate", "counts"] });
       setTimeout(() => setStage((s) => (s.kind === "served" ? { kind: "idle" } : s)), 3000);
     } catch (e) {
       if (e instanceof ApiError && e.status === 409 && e.data?.duplicate === true) {
         setStage({ kind: "duplicate", name: person.name, message: e.message, token: String(e.data.tokenNumber ?? ""), at: String(e.data.servedAt ?? "") });
         qc.invalidateQueries({ queryKey: ["canteen-gate", "state"] });
+      qc.invalidateQueries({ queryKey: ["canteen-gate", "counts"] });
         return;
       }
       setStage({ kind: "idle" });
@@ -157,6 +176,40 @@ export function PayrollCanteenGatePage() {
         )}
       </PageHeader>
       <ErrorBanner message={err} onClose={() => setErr(null)} />
+
+      {canteenId && (
+        <div className="card mb-3 p-3">
+          <div className="mb-2 flex items-center gap-2">
+            <span className="text-[13px] font-medium text-gray-700">Plates</span>
+            <DateInput
+              className="input h-8 w-auto text-[13px]"
+              value={countDate}
+              onChange={(e) => setCountDate(e.target.value || istToday())}
+            />
+            {countDate !== istToday() && (
+              <button className="btn-ghost text-[12px]" onClick={() => setCountDate(istToday())}>
+                Today
+              </button>
+            )}
+            <span className="ml-auto text-[13px] tabular-nums text-gray-500">
+              {countsQ.data ? `${countsQ.data.total} in all` : "—"}
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            {(["breakfast", "lunch", "dinner"] as const).map((m) => (
+              <div
+                key={m}
+                className={`rounded-md px-2 py-2 ${meal === m && countDate === istToday() ? "bg-brand-50 ring-1 ring-brand-200" : "bg-gray-50"}`}
+              >
+                <div className="text-[11px] uppercase tracking-wide text-gray-500">{m}</div>
+                <div className="text-xl font-semibold tabular-nums text-gray-900">
+                  {countsQ.data ? countsQ.data[m] : "—"}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {(canteensQ.data?.length ?? 0) > 1 || !canteenId ? (
         <div className="card mb-3 flex items-center gap-2 p-3 text-sm">

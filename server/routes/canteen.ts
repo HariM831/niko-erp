@@ -486,6 +486,30 @@ canteenRouter.get("/gate/state", serve, async (req, res) => {
   res.json({ meal: now.meal, mealLabel: MEAL_LABEL[now.meal], outsideWindow: now.outsideWindow, windows, served });
 });
 
+/**
+ * How many plates went out on a day, by meal — the tally the counter keeps in
+ * its head and the kitchen asks for at the end of a shift.
+ *
+ * On the gate's own permission, not `payroll.view`: whoever serves the plates
+ * may count them. It carries no names, only totals, and defaults to today.
+ */
+canteenRouter.get("/gate/counts", serve, async (req, res) => {
+  const date = typeof req.query.date === "string" && DATE_RE.test(req.query.date) ? req.query.date : istToday();
+  const canteenId = typeof req.query.canteenId === "string" && req.query.canteenId ? req.query.canteenId : null;
+  const rows = await db
+    .select({ meal: canteenServings.meal, plates: sql<number>`count(*)::int` })
+    .from(canteenServings)
+    .where(
+      canteenId
+        ? and(eq(canteenServings.mealDate, date), eq(canteenServings.canteenId, canteenId))
+        : eq(canteenServings.mealDate, date),
+    )
+    .groupBy(canteenServings.meal);
+  const by = { breakfast: 0, lunch: 0, dinner: 0 };
+  for (const r of rows) by[r.meal] += r.plates;
+  res.json({ date, ...by, total: by.breakfast + by.lunch + by.dinner });
+});
+
 /** The canteens a counter can be set to — the gate's own list, so it needs no `payroll.view`. */
 canteenRouter.get("/gate/canteens", serve, async (_req, res) => {
   res.json(await db.select({ id: canteens.id, code: canteens.code, name: canteens.name }).from(canteens).where(eq(canteens.isActive, true)).orderBy(asc(canteens.name)));
