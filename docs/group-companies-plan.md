@@ -122,11 +122,15 @@ is what finally lights up the Group Companies page.
    Nandamuri, 9 for Luit; every balance identical afterwards; the two retired
    halves are inactive and hold nothing. Luit's pincode corrected to 784149
    first, so the merge kept the right row.
-3. ~~Decision 2, settled 26 Sep 2026: flag them, and keep the group in AR/AP
-   ageing, marked, with the market on its own line.~~ The ageing change is
-   written; **the flag itself is not set yet** and waits for that code to be
-   live, because flagging first would drop the two LLPs out of ageing as well.
-4. Set `houses.owner_id` on L2–L5 once the pairing is known, and confirm the
-   Group Companies picker lists both LLPs.
+3. ~~Decision 2: flag them, and keep the group in AR/AP ageing, marked, with
+   the market on its own line.~~ **Done 26 Sep 2026.** The ageing code went out
+   first, then the flag, so the LLPs never dropped out of ageing. AR now reads
+   total ₹31,94,04,121, of which group ₹30,64,35,249, market ₹1,29,68,872 —
+   and the customers banner, which already said "market only", finally means
+   it.
+4. ~~Set `houses.owner_id` on L2–L5.~~ **Done 26 Sep 2026** — L2/L3 Nandamuri,
+   L4/L5 Luit, P1/P2 left NULL because Amino owns no laying house. The Group
+   Companies page now opens on a real account with "Close a month" on it.
 5. Apply the advances (decision 3), through the app, by hand.
-6. Repeat 1–4 on production as one scripted run, after the Zoho load.
+6. Repeat 1–4 on production as one scripted run, after the Zoho load. Nothing
+   in this is done there.
