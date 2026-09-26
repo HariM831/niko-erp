@@ -19,6 +19,7 @@ import { eq, sql } from "drizzle-orm";
 import { formulaLines, formulas, items, productionOrders } from "@shared/schema";
 import { db } from "../server/db";
 import { produceOne } from "../server/routes/feed-production";
+import { getPreferences } from "../server/services/preferences";
 
 let failed = 0;
 const check = (name: string, pass: boolean, detail = "") => {
@@ -130,8 +131,20 @@ try {
     );
     const chickOrder = made.find((m) => m.formulaId === chick.id)!;
     const layerOrder = made.find((m) => m.formulaId === layer.id)!;
-    check("chick made 2 × 1,000 kg", Number(chickOrder.actualOutputKg) === 2000, kg(2000));
-    check("layer made 3 × 1,000 kg", Number(layerOrder.actualOutputKg) === 3000, kg(3000));
+    // Milling loses moisture, so a batch yields the retained share of its input
+    // (scripts/check-mill-yield.ts pins that down; here it only sets the target).
+    const retention = Number((await getPreferences(tx)).millMoistureRetention);
+    const yieldOf = (inputKg: number) => Math.round(inputKg * retention * 1000) / 1000;
+    check(
+      "chick made 2 × 1,000 kg, less moisture",
+      Math.abs(Number(chickOrder.actualOutputKg) - yieldOf(2000)) < 0.0005,
+      `${kg(Number(chickOrder.actualOutputKg))} of ${kg(yieldOf(2000))} at ${retention}`,
+    );
+    check(
+      "layer made 3 × 1,000 kg, less moisture",
+      Math.abs(Number(layerOrder.actualOutputKg) - yieldOf(3000)) < 0.0005,
+      `${kg(Number(layerOrder.actualOutputKg))} of ${kg(yieldOf(3000))} at ${retention}`,
+    );
 
     // 700×21.50 + 300×54 = 15,050 + 16,200 = 31,250 per batch; ×2 = 62,500
     check(
