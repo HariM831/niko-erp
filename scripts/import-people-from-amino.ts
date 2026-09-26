@@ -344,6 +344,11 @@ try {
         name,
         payType: "daily_wage" as const,
         wageRoleId,
+        // No PF, no ESI. The column default is on, which suits the salaried;
+        // on a wage worker it would take 12% of the day's pay, because PF is
+        // reckoned on earned basic and their earnings are all basic.
+        pfEnabled: false,
+        esiEnabled: false,
         aadharNumber: idNum(w.aadhar_number, 12, `${empCode} ${name}`, "Aadhar"),
         photoUrl,
         photoHash: photoUrl ? sha256(photoUrl) : null,

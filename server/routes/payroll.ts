@@ -730,9 +730,20 @@ const employeeFields = z.object({
   allowSharedId: z.boolean().nullish(),
 });
 
+/**
+ * A daily-wage worker arrives without PF or ESI unless somebody says
+ * otherwise. The column default is on, which suits the salaried; for wages it
+ * is wrong in the expensive direction, because PF is taken on earned basic and
+ * a wage worker's earnings are ALL basic.
+ */
+const statutoryDefaults = <T extends { payType?: string; pfEnabled?: boolean; esiEnabled?: boolean }>(b: T): T =>
+  b.payType === "daily_wage"
+    ? { ...b, pfEnabled: b.pfEnabled ?? false, esiEnabled: b.esiEnabled ?? false }
+    : b;
+
 /** Money fields to numeric strings, photoHash kept in step with photoUrl. */
 function employeeWrite(b: Partial<z.infer<typeof employeeFields>>) {
-  const { basicSalary, hra, allowances, photoUrl, allowSharedId: _allow, ...rest } = b;
+  const { basicSalary, hra, allowances, photoUrl, allowSharedId: _allow, ...rest } = statutoryDefaults(b);
   return {
     ...rest,
     ...(basicSalary !== undefined && { basicSalary: basicSalary.toFixed(2) }),

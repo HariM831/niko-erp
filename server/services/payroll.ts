@@ -418,6 +418,8 @@ export async function runExceptions(tx: Conn, runId: string): Promise<RunExcepti
       bankAccountNumber: salarySlips.bankAccountNumber,
       bankIfsc: salarySlips.bankIfsc,
       wageRoleId: employees.wageRoleId,
+      pfEmployee: salarySlips.pfEmployee,
+      esiEmployee: salarySlips.esiEmployee,
     })
     .from(salarySlips)
     .innerJoin(employees, eq(employees.id, salarySlips.employeeId))
@@ -428,6 +430,16 @@ export async function runExceptions(tx: Conn, runId: string): Promise<RunExcepti
     if (Number(r.netPay) <= 0) out.push({ employeeId: r.employeeId, name: r.name, issue: "Net pay is zero or negative" });
     if (!r.bankAccountNumber || !r.bankIfsc) out.push({ employeeId: r.employeeId, name: r.name, issue: "Missing bank details" });
     if (r.payType === "daily_wage" && !r.wageRoleId) out.push({ employeeId: r.employeeId, name: r.name, issue: "Daily-wage employee without a wage role" });
+    // PF is reckoned on earned basic, and a wage worker's whole earnings ARE
+    // the basic — so a tick left on quietly takes 12% of the day's pay. Said
+    // here, before the run is confirmed and the money moves.
+    if (r.payType === "daily_wage" && (Number(r.pfEmployee) > 0 || Number(r.esiEmployee) > 0)) {
+      out.push({
+        employeeId: r.employeeId,
+        name: r.name,
+        issue: `Daily-wage worker with ${Number(r.pfEmployee) > 0 ? "PF" : ""}${Number(r.pfEmployee) > 0 && Number(r.esiEmployee) > 0 ? " and " : ""}${Number(r.esiEmployee) > 0 ? "ESI" : ""} deducted — check the employee's statutory ticks`,
+      });
+    }
   }
 
   // The people the run passed over. A slip that does not exist cannot flag

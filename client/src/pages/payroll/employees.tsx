@@ -585,7 +585,19 @@ function EmployeeEditor({ id, departments, onClose, onSaved }: {
                         <button
                           key={p}
                           type="button"
-                          onClick={() => set("payType", p)}
+                          onClick={() => {
+                            // PF and ESI are for the salaried here. Switching a
+                            // person to daily wage turns both off rather than
+                            // leaving a tick nobody looks at: PF is reckoned on
+                            // earned basic, and a wage worker's whole earnings
+                            // ARE the basic, so a stray tick takes 12% of the
+                            // day's pay.
+                            setForm((f) => ({
+                              ...f!,
+                              payType: p,
+                              ...(p === "daily_wage" ? { pfEnabled: false, esiEnabled: false } : {}),
+                            }));
+                          }}
                           className={`flex-1 rounded px-2 py-1 ${form.payType === p ? "bg-white font-medium shadow-sm" : "text-gray-500"}`}
                         >
                           {p === "salaried" ? "Salaried" : "Daily wage"}
