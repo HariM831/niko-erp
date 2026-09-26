@@ -152,13 +152,27 @@ export function HourStrip({ hours, tall }: { hours: HourCell[]; tall?: boolean }
 
 /* ── Home: summary first, exceptions only; a site opens into its day ────── */
 
-/** When the shed's current non-ok spell began, from the hour cells: the start of the trailing run of hours at or above watch. */
+const istDay = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(d);
+
+/**
+ * When the shed's current non-ok spell began, in words, from the hour cells:
+ * the start of the trailing run of hours at or above watch.
+ *
+ * A run that reaches back to the first hour on the strip began before the
+ * strip does, so it reads "all 24 h" — a bare "since 10:19" there was the
+ * window's edge, and read as this morning. A start on the previous day says
+ * so, since a clock time alone reads as today.
+ */
 function sinceWhen(h: HouseStatus): string | null {
   if (h.verdict === "ok" || h.verdict === "offline" || !h.day) return null;
   const cells = h.day.hours;
   let i = cells.length - 1;
   while (i > 0 && cells[i - 1]!.level && cells[i - 1]!.level !== "ok") i--;
-  return cells[i]?.start ?? null;
+  const start = cells[i]?.start;
+  if (!start) return null;
+  if (i === 0 && cells[0]!.level && cells[0]!.level !== "ok") return `all ${cells.length} h`;
+  const yesterday = istDay(new Date(start)) !== istDay(new Date());
+  return `since ${hhmm(start)}${yesterday ? " yesterday" : ""}`;
 }
 
 /** The share of shed-hours in the last day that were comfortable, across a set of sheds. */
@@ -270,7 +284,7 @@ export function BirdComfortTile() {
                     <span className="truncate text-soil-700" title={why}>
                       {why}
                     </span>
-                    <span className="hidden whitespace-nowrap text-[11px] text-soil-500 sm:inline">{since ? `since ${hhmm(since)}` : ""}</span>
+                    <span className="hidden whitespace-nowrap text-[11px] text-soil-500 sm:inline">{since ?? ""}</span>
                   </Link>
                 );
               })}
