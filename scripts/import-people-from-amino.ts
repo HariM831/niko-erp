@@ -64,6 +64,47 @@ const money = (v: unknown) => (Number(v ?? 0) || 0).toFixed(2);
  * reported and dropped rather than stored wrong, because a wrong Aadhar on
  * file is worse than a blank one.
  */
+/**
+ * Amino let HR type anything into a field they had nothing for, so "N/A",
+ * "Pending" and "nil" are all over the identity columns. They are not values;
+ * they are a blank with a word in it, and niko's own forms refuse to save a
+ * record carrying one — which locked HR out of an employee entirely.
+ */
+const PLACEHOLDER = /^(n\/?a|na|nil|none|null|pending|not applicable|no|-|\.)$/i;
+const notPlaceholder = (v: unknown) => {
+  const t = s(v);
+  return t && !PLACEHOLDER.test(t.trim()) ? t : null;
+};
+const realEmail = (v: unknown) => {
+  const t = notPlaceholder(v);
+  return t && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(t.trim()) ? t.trim() : null;
+};
+/** Ten characters or it is not a PAN; niko refuses to store anything else. */
+const pan = (v: unknown, who: string) => {
+  const t = notPlaceholder(v);
+  if (!t) return null;
+  const norm = t.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (norm.length === 10) return norm;
+  problem(`${who}: PAN "${t}" is not ten characters (dropped)`);
+  return null;
+};
+/**
+ * The digits, and only the digits. A CSV import into Amino years ago left a
+ * comma on the front of a hundred of these, and niko writes payment files
+ * from this column — ",30935103625" is not an account any bank will pay.
+ */
+const account = (v: unknown, who: string) => {
+  const t = notPlaceholder(v);
+  if (!t) return null;
+  const digits = t.replace(/\D/g, "");
+  if (!digits) {
+    problem(`${who}: bank account "${t}" has no digits in it (dropped)`);
+    return null;
+  }
+  if (digits !== t.trim()) problem(`${who}: bank account "${t}" cleaned to ${digits}`);
+  return digits;
+};
+
 const idNum = (v: unknown, len: number, who: string, what: string): string | null => {
   if (v == null || v === "") return null;
   const digits = String(v).replace(/\D/g, "");
@@ -213,13 +254,13 @@ try {
         designationId,
         dateOfJoining: s(e.date_of_joining)?.slice(0, 10) ?? null,
         contactNumber: s(e.contact_number),
-        email: s(e.email),
-        panNumber: s(e.pan_number),
+        email: realEmail(e.email),
+        panNumber: pan(e.pan_number, `${empCode} ${name}`),
         aadharNumber: idNum(e.aadhar_number, 12, `${empCode} ${name}`, "Aadhar"),
         uanNumber: idNum(e.uan_number, 12, `${empCode} ${name}`, "UAN"),
-        esiNumber: s(e.esi_number),
+        esiNumber: notPlaceholder(e.esi_number),
         bankName: s(e.bank_name),
-        bankAccountNumber: s(e.bank_account_number),
+        bankAccountNumber: account(e.bank_account_number, `${empCode} ${name}`),
         bankIfsc: s(e.bank_ifsc),
         basicSalary: money(e.basic_salary),
         hra: money(e.hra),

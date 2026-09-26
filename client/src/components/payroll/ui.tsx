@@ -9,7 +9,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
-import { api } from "../../api";
+import { ApiError, api } from "../../api";
 import { SearchSelect, type PinnedGroup } from "../search-select";
 
 /* ── Dates ─────────────────────────────────────────────────────────────── */
@@ -149,9 +149,28 @@ export function ErrorBanner({ message, onClose }: { message: string | null; onCl
 }
 
 /** Tiny helper: hold an error string, set from any thrown error. */
+/** "phoneNumber" → "Phone number", so a rejected field is named as the form names it. */
+const fieldLabel = (path: string) =>
+  path
+    .split(".")
+    .pop()!
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/^./, (c) => c.toUpperCase());
+
 export function useErr() {
   const [err, setErr] = useState<string | null>(null);
-  const fail = (e: unknown) => setErr(e instanceof Error ? e.message : String(e));
+  /**
+   * "Validation failed" on its own sends somebody hunting through nine tabs.
+   * The server already says which field and why; this puts that in front of
+   * them — a PAN reading "Pending" is a thirty-second fix once it is named.
+   */
+  const fail = (e: unknown) => {
+    if (e instanceof ApiError && e.issues?.length) {
+      setErr(`${e.message}: ${e.issues.map((i) => `${fieldLabel(i.path)} — ${i.message}`).join("; ")}`);
+      return;
+    }
+    setErr(e instanceof Error ? e.message : String(e));
+  };
   return { err, setErr, fail, clear: () => setErr(null) };
 }
 
