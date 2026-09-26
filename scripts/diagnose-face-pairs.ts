@@ -14,7 +14,7 @@
  *   npx tsx scripts/diagnose-face-pairs.ts                 the worst pairs on the roster
  *   npx tsx scripts/diagnose-face-pairs.ts W-0017 SANDIP   plus these people in detail
  */
-import { isNotNull } from "drizzle-orm";
+import { isNotNull, sql } from "drizzle-orm";
 import { FACE_DIM, MATCH_MARGIN, MATCH_THRESHOLD } from "@shared/face";
 import { employees } from "@shared/schema";
 import { db } from "../server/db";
@@ -91,6 +91,69 @@ for (const term of who) {
     const flag = o.s >= MATCH_THRESHOLD ? "  ← the gate can read this as them" : o.s >= MATCH_THRESHOLD - MATCH_MARGIN ? "  ← too close to call" : "";
     console.log(`     ${pct(o.s)}  ${o.p.code.padEnd(13)} ${o.p.name}${flag}`);
   }
+}
+
+/* ── How the live gate actually scores ────────────────────────────────────
+ * The pairs above are enrolment against enrolment. What decides a punch is a
+ * LIVE face against those enrolments, so the honest measure is: how well does
+ * a face captured at the gate score against its own enrolment (genuine), and
+ * how close does the best stranger come (impostor)? The gap between those two
+ * distributions is the whole system. Read off the captures the gate has kept.
+ */
+const caps = (
+  await db.execute(sql`
+    SELECT p.employee_id AS "employeeId", p.face_embedding AS vec
+      FROM punches p
+     WHERE p.face_embedding IS NOT NULL
+       AND p.punch_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - 14
+     LIMIT 4000
+  `)
+).rows as Array<{ employeeId: string; vec: number[] }>;
+
+if (!caps.length) {
+  console.log("
+  No captures kept in the last fortnight — nothing to measure the live gate with.
+");
+} else {
+  const byId = new Map(people.map((p, i) => [p.id, i]));
+  const genuine: number[] = [];
+  const impostor: number[] = [];
+  let separated = 0;
+  for (const c of caps) {
+    const v = (c.vec ?? []) as number[];
+    if (v.length !== FACE_DIM) continue;
+    const n = Math.sqrt(v.reduce((s, x) => s + x * x, 0));
+    const score = (i: number) => {
+      let dot = 0;
+      const b = people[i]!.vec;
+      for (let k = 0; k < FACE_DIM; k++) dot += v[k]! * b[k]!;
+      return dot / (n * norm[i]!);
+    };
+    const mine = byId.get(c.employeeId);
+    if (mine == null) continue;
+    let best = -1;
+    let bestScore = -1;
+    for (let i = 0; i < people.length; i++) {
+      if (i === mine) continue;
+      const s2 = score(i);
+      if (s2 > bestScore) { bestScore = s2; best = i; }
+    }
+    const own = score(mine);
+    genuine.push(own);
+    impostor.push(bestScore);
+    if (own >= MATCH_THRESHOLD && own - bestScore >= MATCH_MARGIN) separated++;
+    void best;
+  }
+  const stat = (xs: number[]) => {
+    const s = [...xs].sort((a, b) => a - b);
+    const at = (q: number) => s[Math.min(s.length - 1, Math.floor(q * s.length))]!;
+    return `min ${pct(s[0]!)}  p10 ${pct(at(0.1))}  median ${pct(at(0.5))}  p90 ${pct(at(0.9))}  max ${pct(s[s.length - 1]!)}`;
+  };
+  console.log(`
+  LIVE GATE, ${genuine.length} captures in the last fortnight`);
+  console.log(`    against their own enrolment:  ${stat(genuine)}`);
+  console.log(`    against the closest stranger: ${stat(impostor)}`);
+  console.log(`    would auto-accept: ${separated} of ${genuine.length} (${pct(separated / genuine.length)})`);
 }
 
 console.log();
