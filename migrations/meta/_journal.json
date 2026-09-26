@@ -750,6 +750,13 @@
       "when": 1790408097162,
       "tag": "0103_meal_windows_one_per_meal",
       "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1790418000000,
+      "tag": "0104_every_location_has_its_store",
+      "breakpoints": true
     }
   ]
 }
