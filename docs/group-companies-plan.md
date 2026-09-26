@@ -131,6 +131,22 @@ is what finally lights up the Group Companies page.
 4. ~~Set `houses.owner_id` on L2–L5.~~ **Done 26 Sep 2026** — L2/L3 Nandamuri,
    L4/L5 Luit, P1/P2 left NULL because Amino owns no laying house. The Group
    Companies page now opens on a real account with "Close a month" on it.
-5. Apply the advances (decision 3), through the app, by hand.
+5. Apply the advances (decision 3). Done on staging 26 Sep 2026: the parties
+   whose credit settles everything they have open were cleared by script —
+   20 customers, ₹98,64,268.50 over 33 invoices, and 7 vendors, ₹12,42,889
+   over 9 bills, every one ending at zero and the unapplied total falling by
+   exactly what the open total did.
+
+   ```bash
+   npx tsx scripts/apply-party-credits.ts --side customer          # read it
+   npx tsx scripts/apply-party-credits.ts --side customer --apply
+   npx tsx scripts/apply-party-credits.ts --side vendor --apply
+   ```
+
+   The script refuses any party it cannot settle to zero, and skips group
+   companies whatever their numbers say. What it leaves — 6 customers and 16
+   vendors whose credit falls short, ₹4.47 crore of it — is a real choice
+   about which document the money clears, and belongs on the contact page's
+   **More ▾ → Apply credits** with a person reading it.
 6. Repeat 1–4 on production as one scripted run, after the Zoho load. Nothing
    in this is done there.
