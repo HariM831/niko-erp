@@ -8,7 +8,7 @@
     "Linoleic acid and choline — no nutrient key.",
     "Methionine+cystine is not a niko key; cystine is loaded as (Met+Cys) minus Met, which is what the sum means.",
     "Crude fibre, fat and total phosphorus — the guide specifies none of them.",
-    "The guide's second starter diet ('Starter 2', to 410 g body weight) — the mill makes one chick feed, so the stricter Starter 1 spec is the one held."
+    "The guide's second starter diet ('Starter 2', to 410 g body weight) — chick feed is bought in ready-made, one feed for both, so the stricter Starter 1 spec is the one held."
   ],
   "caveats": [
     "Mixiblend P Layer Premix and Cantaxanthin have no analysis on file at all. The premix is under 1% of a batch by weight and can still change the answer out of all proportion to that: a layer premix may carry phytase, which frees the phytate phosphorus already present in the maize, DORB and soya. Until its datasheet is on file, a mix's available phosphorus cannot be compared to the guide's figure at all — it will read roughly half of what the birds actually get.",
@@ -19,7 +19,7 @@
     {
       "stage": "chick_starter",
       "diet": "Starter 1",
-      "note": "Guide page 24. Hy-Line splits the starter in two — Starter 1 to 180 g body weight, Starter 2 to 410 g. The mill makes one chick feed covering both, so this holds the stricter of the pair; Starter 2 is ME 2850, CP 19.00, SID lysine 0.94 if a softer spec is ever wanted.",
+      "note": "Guide page 24. Hy-Line splits the starter in two — Starter 1 to 180 g body weight, Starter 2 to 410 g. Chick feed is bought in ready-made, not milled, and one feed covers both, so this holds the stricter of the pair; Starter 2 is ME 2850, CP 19.00, SID lysine 0.94 if a softer spec is ever wanted.",
       "params": {
         "me": {
           "min": 2950
@@ -105,7 +105,7 @@
     {
       "stage": "developer",
       "diet": "Developer",
-      "note": "Guide page 24. Fed from 1130 g body weight. The mill makes no developer feed today; the spec is held so a recipe can be judged if one is ever made.",
+      "note": "Guide page 24. Fed from 1130 g body weight. The mill makes it: the recipe its sheet heads 'Chick' is this developer feed.",
       "params": {
         "me": {
           "min": 2650

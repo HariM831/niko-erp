@@ -34,35 +34,43 @@ import { db, pool } from "../server/db";
 
 const write = process.argv.includes("--write");
 
-/** The sheet, as transcribed. kg per batch; a blank means the recipe omits it. */
+/**
+ * The sheet, as transcribed. kg per batch; a blank means the recipe omits it.
+ *
+ * The sheet heads its first column "Chick", but that recipe is the DEVELOPER
+ * feed — the second stage. Chick feed proper is bought in ready-made, in bags
+ * (the item "Chick Feed", pcs, untracked), and the mill never makes it. Named
+ * "Chick" here, this recipe was judged against the starter spec and its output
+ * would have landed on the bought-in item. Confirmed by the user 26 Sep 2026.
+ */
 const SHEET: Record<string, Record<string, number>> = {
-  //                          Chick   Grower  Prelayer Layer 1 Layer 2
+  //                          Developer Grower Prelayer Layer 1 Layer 2
   "Cantaxanthin":            {                                  "Layer 1": 0.15, "Layer 2": 0.225 },
-  "DCP (Di-Calcium Phosphate)": { Chick: 15, Grower: 10, Prelayer: 10, "Layer 1": 9, "Layer 2": 7 },
-  "DDGS Rice":               { Chick: 75, Grower: 75, Prelayer: 75, "Layer 1": 75, "Layer 2": 75 },
-  "De-Oiled Rice Bran (DORB - 16)": { Chick: 97, Grower: 225, Prelayer: 240, "Layer 1": 180, "Layer 2": 180 },
+  "DCP (Di-Calcium Phosphate)": { Developer: 15, Grower: 10, Prelayer: 10, "Layer 1": 9, "Layer 2": 7 },
+  "DDGS Rice":               { Developer: 75, Grower: 75, Prelayer: 75, "Layer 1": 75, "Layer 2": 75 },
+  "De-Oiled Rice Bran (DORB - 16)": { Developer: 97, Grower: 225, Prelayer: 240, "Layer 1": 180, "Layer 2": 180 },
   "DL-Methionine":           { Prelayer: 1.5, "Layer 1": 1 },
   "DOGN":                    { Grower: 75, Prelayer: 45 },
-  "Hypro Soya":              { Chick: 262, Grower: 105, Prelayer: 150 },
+  "Hypro Soya":              { Developer: 262, Grower: 105, Prelayer: 150 },
   "L-Lysine HCl":            { Grower: 1.5, Prelayer: 2 },
-  "Lime Stone Grit":         { Chick: 30, Grower: 75, Prelayer: 90, "Layer 1": 150, "Layer 2": 180 },
-  "Maize":                   { Chick: 1013, Grower: 920, Prelayer: 870, "Layer 1": 860, "Layer 2": 875 },
-  "MixiBlend P":             { Chick: 6, Grower: 6, Prelayer: 8, "Layer 1": 6, "Layer 2": 6 },
-  "Salt":                    { Chick: 4, Grower: 4, Prelayer: 5, "Layer 1": 5, "Layer 2": 5 },
-  "Soda Bicarb":             { Chick: 1, Grower: 2, Prelayer: 2, "Layer 1": 2, "Layer 2": 2 },
+  "Lime Stone Grit":         { Developer: 30, Grower: 75, Prelayer: 90, "Layer 1": 150, "Layer 2": 180 },
+  "Maize":                   { Developer: 1013, Grower: 920, Prelayer: 870, "Layer 1": 860, "Layer 2": 875 },
+  "MixiBlend P":             { Developer: 6, Grower: 6, Prelayer: 8, "Layer 1": 6, "Layer 2": 6 },
+  "Salt":                    { Developer: 4, Grower: 4, Prelayer: 5, "Layer 1": 5, "Layer 2": 5 },
+  "Soda Bicarb":             { Developer: 1, Grower: 2, Prelayer: 2, "Layer 1": 2, "Layer 2": 2 },
   "Soybean Meal":            { "Layer 1": 210, "Layer 2": 170 },
 };
 
 /** The sheet's own totals, asserted against the sum of the lines. */
 const STATED_TOTAL: Record<string, number> = {
-  Chick: 1503, Grower: 1498.5, Prelayer: 1498.5, "Layer 1": 1498.15, "Layer 2": 1500.225,
+  Developer: 1503, Grower: 1498.5, Prelayer: 1498.5, "Layer 1": 1498.15, "Layer 2": 1500.225,
 };
 
 /** In the order a bird lives them, which is the order the enum declares. */
-const STAGE: Record<string, "chick_starter" | "grower" | "prelayer" | "layer_1" | "layer_2"> = {
-  Chick: "chick_starter", Grower: "grower", Prelayer: "prelayer", "Layer 1": "layer_1", "Layer 2": "layer_2",
+const STAGE: Record<string, "developer" | "grower" | "prelayer" | "layer_1" | "layer_2"> = {
+  Developer: "developer", Grower: "grower", Prelayer: "prelayer", "Layer 1": "layer_1", "Layer 2": "layer_2",
 };
-const RECIPES = ["Chick", "Grower", "Prelayer", "Layer 1", "Layer 2"];
+const RECIPES = ["Developer", "Grower", "Prelayer", "Layer 1", "Layer 2"];
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 const money = (n: number) => n.toFixed(2);
