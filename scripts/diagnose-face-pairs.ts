@@ -153,5 +153,52 @@ if (!caps.length) {
   console.log(`    would auto-accept: ${separated} of ${genuine.length} (${pct(separated / genuine.length)})`);
 }
 
+/* ── The same captures, with the average face taken out ──────────────────
+ * Every one of these vectors carries a large component that is not identity
+ * at all — the model's idea of "a face", this camera, this lighting — and
+ * cosine counts it as agreement, which is why two strangers here score 64%.
+ * Subtracting the population's mean face first leaves only what differs
+ * between people. If the gap widens, the matcher is measuring the wrong thing.
+ */
+if (caps.length) {
+  const mean = new Array<number>(FACE_DIM).fill(0);
+  for (const p of people) for (let k = 0; k < FACE_DIM; k++) mean[k]! += p.vec[k]! / people.length;
+  const centre = (v: number[]) => v.map((x, k) => x - mean[k]!);
+  const cvecs = people.map((p) => centre(p.vec));
+  const cnorm = cvecs.map((v) => Math.sqrt(v.reduce((s, x) => s + x * x, 0)));
+  const byId2 = new Map(people.map((p, i) => [p.id, i]));
+  const gen: number[] = [];
+  const imp: number[] = [];
+  for (const c of caps) {
+    const raw = (c.vec ?? []) as number[];
+    if (raw.length !== FACE_DIM) continue;
+    const mine = byId2.get(c.employeeId);
+    if (mine == null) continue;
+    const v = centre(raw);
+    const n = Math.sqrt(v.reduce((s, x) => s + x * x, 0));
+    const score = (i: number) => {
+      let dot = 0;
+      for (let k = 0; k < FACE_DIM; k++) dot += v[k]! * cvecs[i]![k]!;
+      return dot / (n * cnorm[i]!);
+    };
+    let bestScore = -1;
+    for (let i = 0; i < people.length; i++) if (i !== mine) bestScore = Math.max(bestScore, score(i));
+    gen.push(score(mine));
+    imp.push(bestScore);
+  }
+  const stat2 = (xs: number[]) => {
+    const s2 = [...xs].sort((a2, b2) => a2 - b2);
+    const at = (q: number) => s2[Math.min(s2.length - 1, Math.floor(q * s2.length))]!;
+    return `min ${pct(s2[0]!)}  p10 ${pct(at(0.1))}  median ${pct(at(0.5))}  p90 ${pct(at(0.9))}  max ${pct(s2[s2.length - 1]!)}`;
+  };
+  const gap = gen.map((g, i) => g - imp[i]!).sort((a2, b2) => a2 - b2);
+  console.log(`
+  THE SAME CAPTURES, average face removed`);
+  console.log(`    against their own enrolment:  ${stat2(gen)}`);
+  console.log(`    against the closest stranger: ${stat2(imp)}`);
+  console.log(`    own minus stranger:           ${stat2(gap)}`);
+  console.log(`    own beats every stranger in ${gap.filter((g) => g > 0).length} of ${gap.length}`);
+}
+
 console.log();
 process.exit(0);
