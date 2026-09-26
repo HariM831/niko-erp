@@ -186,6 +186,14 @@ export function PayrollGatePage() {
     queryFn: () => api<PunchRow[]>("/api/payroll/punches/carried"),
     refetchInterval: 60_000,
   });
+  // Each person's latest punch today, one row each. The list above is the
+  // newest 200 for the board; deciding IN or OUT from it lost the morning's
+  // arrivals once the day passed 200 punches, and offered them IN again.
+  const { data: latestToday = [] } = useQuery({
+    queryKey: ["payroll", "punches-today", today, "latest"],
+    queryFn: () => api<Array<{ employeeId: string; type: "in" | "out"; punchedAt: string }>>(`/api/payroll/punches/latest?date=${today}`),
+    refetchInterval: 60_000,
+  });
   const todays = punchData?.rows ?? [];
   const punches = useMemo(
     () => [...todays, ...carried.filter((c) => !todays.some((p) => p.employeeId === c.employeeId))],
@@ -266,11 +274,12 @@ export function PayrollGatePage() {
     return () => { cancelled = true; stopStream(); };
   }, [cameraOn, facingMode]);
 
+  const latestById = useMemo(() => new Map(latestToday.map((p) => [p.employeeId, p.type])), [latestToday]);
   const suggestedType = (employeeId: string): "in" | "out" => {
-    const todays = punches
-      .filter((p) => p.employeeId === employeeId)
-      .sort((a, b) => new Date(b.punchedAt).getTime() - new Date(a.punchedAt).getTime());
-    return todays[0]?.type === "in" ? "out" : "in";
+    const last = latestById.get(employeeId);
+    if (last) return last === "in" ? "out" : "in";
+    // Nothing today: still inside from last night means the next punch is OUT.
+    return carried.some((c) => c.employeeId === employeeId) ? "out" : "in";
   };
 
   async function handleCapture() {
@@ -378,9 +387,10 @@ export function PayrollGatePage() {
         setManualOpen(true);
         return;
       }
-      // Also 409 + expected: he is still inside from last night, so the punch
-      // has to be an OUT. Said calmly — nothing went wrong, the board was stale.
-      if (e instanceof ApiError && e.status === 409 && (e.data?.repeatPunch === true || e.data?.expected === "out")) {
+      // Also 409 + expected: the punch has to go the other way — still inside
+      // from last night, or already IN today. Said calmly — nothing went wrong,
+      // the board was stale.
+      if (e instanceof ApiError && e.status === 409 && (e.data?.repeatPunch === true || e.data?.expected === "out" || e.data?.expected === "in")) {
         setNotice(e.message);
         qc.invalidateQueries({ queryKey: ["payroll", "punches-today"] });
         setTimeout(() => setNotice(null), 4000);
@@ -602,7 +612,7 @@ export function PayrollGatePage() {
 
       {/* Today's punches */}
       <div className="card p-4">
-        <h2 className="mb-3 text-[14px] font-semibold">Today's punches ({todays.length})</h2>
+        <h2 className="mb-3 text-[14px] font-semibold">Today's punches ({punchData?.total ?? todays.length})</h2>
         {punches.length === 0 ? (
           <p className="text-sm text-gray-400">No punches yet today.</p>
         ) : (

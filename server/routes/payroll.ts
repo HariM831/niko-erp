@@ -988,6 +988,13 @@ class RepeatPunch extends Error {}
 /** The next punch has to close last night's shift; an entry would orphan it. */
 class NightShiftOpen extends Error {}
 
+/** A punch the same way as the last one today: IN on top of IN. */
+class WrongDirection extends Error {
+  constructor(message: string, readonly expected: "in" | "out") {
+    super(message);
+  }
+}
+
 /** The face captured beside a hand-picked name is clearly somebody else's. */
 class FaceConflict extends Error {
   constructor(message: string, readonly matched: { id: string; name: string; empCode: string }) {
@@ -1082,6 +1089,19 @@ payrollRouter.post("/punches", gatePerm, validateBody(punchBody), async (req, re
         const since = carry.inPunch.punchedAt.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false });
         throw new NightShiftOpen(`Still IN from yesterday ${since} (night shift) — the next punch must be OUT`);
       }
+      /**
+       * Punches alternate. The gate sends the direction it offered, and on 26
+       * Sep 2026 it offered IN to 22 people already inside — it read only the
+       * newest 200 punches of the day, and by mid-morning the early arrivals
+       * had dropped off the end. Each of those became a second entry and no
+       * exit. Whatever the screen believed, IN on top of IN is refused here,
+       * saying which way the next punch has to go.
+       */
+      if (!carry && last && b.type && b.type === last.type) {
+        const since = last.punchedAt.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false });
+        const next = last.type === "in" ? "out" : "in";
+        throw new WrongDirection(`Already ${last.type.toUpperCase()} since ${since} — the next punch must be ${next.toUpperCase()}`, next);
+      }
       const punchDay = carry?.day ?? today;
       const type = carry ? "out" : (b.type ?? (last?.type === "in" ? "out" : "in"));
       // The photo is kept when someone might need to look at it — a manual punch,
@@ -1120,6 +1140,7 @@ payrollRouter.post("/punches", gatePerm, validateBody(punchBody), async (req, re
   } catch (err) {
     if (err instanceof RepeatPunch) return res.status(409).json({ error: err.message, repeatPunch: true });
     if (err instanceof NightShiftOpen) return res.status(409).json({ error: err.message, expected: "out" });
+    if (err instanceof WrongDirection) return res.status(409).json({ error: err.message, expected: err.expected });
     if (err instanceof FaceConflict) return res.status(409).json({ error: err.message, faceConflict: true, matchedEmployee: err.matched });
     if (!fail(err, res)) throw err;
   }
@@ -1150,6 +1171,27 @@ payrollRouter.get("/punches/carried", gateOrView, async (_req, res) => {
       carryover: true,
     })),
   );
+});
+
+/**
+ * Each person's latest punch on a day — what the gate needs to offer IN or OUT.
+ *
+ * Not the punch list: that is paged, newest first, and a working day runs to
+ * 380 punches, so the gate reading the first 200 lost everybody who came in
+ * early and offered them IN again. One row per person, however busy the day.
+ */
+payrollRouter.get("/punches/latest", gateOrView, async (req, res) => {
+  const date = typeof req.query.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : istDate();
+  const rows = await db
+    .selectDistinctOn([punches.employeeId], {
+      employeeId: punches.employeeId,
+      type: punches.type,
+      punchedAt: punches.punchedAt,
+    })
+    .from(punches)
+    .where(eq(punches.punchDate, date))
+    .orderBy(punches.employeeId, desc(punches.punchedAt));
+  res.json(rows);
 });
 
 payrollRouter.get("/punches", gateOrView, async (req, res) => {
