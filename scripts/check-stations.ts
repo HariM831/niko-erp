@@ -12,15 +12,8 @@
  *
  * Run: npx tsx scripts/check-stations.ts
  */
-import { and, eq, inArray, like } from "drizzle-orm";
-import {
-  contacts,
-  items,
-  locations,
-  officeReceiptLines,
-  officeReceipts,
-  purchaseOrderLines,
-} from "@shared/schema";
+import { eq, like } from "drizzle-orm";
+import { contacts, items, locations, officeReceiptLines, officeReceipts } from "@shared/schema";
 import { db, type Tx } from "../server/db";
 import { RECEIPT_TRANSITIONS, TERMINAL_STATUSES, type ReceiptStatus } from "@shared/schema";
 
@@ -39,16 +32,6 @@ function legal(from: ReceiptStatus, to: ReceiptStatus): boolean {
 }
 
 async function main() {
-  const [site] = await db.select({ id: locations.id }).from(locations).limit(1);
-  const [vendor] = await db
-    .select({ id: contacts.id })
-    .from(contacts)
-    .where(and(like(contacts.displayName, "%hayan%"), inArray(contacts.type, ["vendor", "both"])))
-    .limit(1);
-  const [maize] = await db.select({ id: items.id }).from(items).where(eq(items.name, "Maize")).limit(1);
-  const [dorb] = await db.select({ id: items.id }).from(items).where(eq(items.name, "DORB")).limit(1);
-  if (!site || !vendor || !maize || !dorb) throw new Error("Missing site, vendor or items");
-
   console.log("\n  THE STATE MACHINE\n");
   check("gate_in may only go to weighed_in", legal("gate_in", "weighed_in") && !legal("gate_in", "gate_out"));
   check("QC may pass or reject", legal("weighed_in", "qc_passed") && legal("weighed_in", "rejected"));
@@ -58,13 +41,34 @@ async function main() {
 
   try {
     await db.transaction(async (tx: Tx) => {
+      // Its own site, vendor and materials, rolled back with the rest — a check
+      // that leans on a particular vendor or item name breaks the day somebody
+      // renames one, and says nothing about the stations when it does.
+      const [site] = await tx
+        .insert(locations)
+        .values({ code: "SELFTEST", name: "TEST STN SITE" })
+        .returning({ id: locations.id });
+      const [vendor] = await tx
+        .insert(contacts)
+        .values({ displayName: "TEST STN VENDOR", type: "vendor" })
+        .returning({ id: contacts.id });
+      const material = async (name: string) => {
+        const [it] = await tx
+          .insert(items)
+          .values({ name, unit: "kg", isSold: false, category: "feed", isFeedIngredient: true })
+          .returning({ id: items.id, name: items.name });
+        return it!;
+      };
+      const maize = await material("TEST STN MAIZE");
+      const dorb = await material("TEST STN DORB");
+
       // ── A two-line truck: maize accepted, rice bran refused ──
       const [receipt] = await tx
         .insert(officeReceipts)
         .values({
           number: "GR-SELFTEST",
-          locationId: site.id,
-          vendorId: vendor.id,
+          locationId: site!.id,
+          vendorId: vendor!.id,
           vehicleNumber: "SELFTEST1",
           vendorSlipGrossKg: "44820.000",
         })
@@ -73,8 +77,8 @@ async function main() {
       const inserted = await tx
         .insert(officeReceiptLines)
         .values([
-          { receiptId: receipt!.id, lineNo: 1, itemId: maize.id, itemName: "Maize", billQuantityKg: "24380.000" },
-          { receiptId: receipt!.id, lineNo: 2, itemId: dorb.id, itemName: "DORB", billQuantityKg: "6000.000" },
+          { receiptId: receipt!.id, lineNo: 1, itemId: maize.id, itemName: maize.name, billQuantityKg: "24380.000" },
+          { receiptId: receipt!.id, lineNo: 2, itemId: dorb.id, itemName: dorb.name, billQuantityKg: "6000.000" },
         ])
         .returning({ id: officeReceiptLines.id, lineNo: officeReceiptLines.lineNo });
       const maizeLine = inserted.find((l) => l.lineNo === 1)!;
@@ -178,7 +182,8 @@ async function main() {
     .select({ id: officeReceipts.id })
     .from(officeReceipts)
     .where(eq(officeReceipts.number, "GR-SELFTEST"));
-  check("nothing survives the run", left.length === 0, `${left.length} left`);
+  const strays = await db.select({ id: items.id }).from(items).where(like(items.name, "TEST STN %"));
+  check("nothing survives the run", left.length + strays.length === 0, `${left.length + strays.length} left`);
 
   console.log(failed === 0 ? "\n  All station checks passed.\n" : `\n  ${failed} check(s) FAILED.\n`);
   process.exit(failed ? 1 : 0);

@@ -19,6 +19,7 @@ import { contacts, formulaLines, formulas, items } from "@shared/schema";
 import { db } from "../server/db";
 import { produceOne } from "../server/routes/feed-production";
 import { stockOnHand } from "../server/services/inventory";
+import { getPreferences } from "../server/services/preferences";
 import { createBill, loadVendor } from "../server/services/purchases";
 
 let failed = 0;
@@ -134,7 +135,16 @@ try {
     const afterMill = new Map((await stockOnHand(tx)).map((l) => [l.itemId, l]));
     check("maize came out of the silo", n(afterMill.get(maize.id)?.quantity) === 8600, "10,000 − 1,400");
     check("soya too", n(afterMill.get(soya.id)?.quantity) === 4400, "5,000 − 600");
-    check("finished feed went in", n(afterMill.get(feed!.id)?.quantity) === 2000, "2 × 1,000 kg");
+    // Milling loses moisture: 2,000 kg in is 2,000 × retention out, and the
+    // overhead is charged on what comes out (scripts/check-mill-yield.ts).
+    const prefs = await getPreferences(tx);
+    const outKg = Math.round(2000 * Number(prefs.millMoistureRetention) * 1000) / 1000;
+    const overhead = Math.round(outKg * Number(prefs.millOverheadPerKg) * 100) / 100;
+    check(
+      "finished feed went in",
+      Math.abs(n(afterMill.get(feed!.id)?.quantity) - outKg) < 0.0005,
+      `2 × 1,000 kg × ${prefs.millMoistureRetention} = ${outKg.toLocaleString("en-IN")} kg`,
+    );
 
     // 1,400 × 20 + 600 × 50 = 28,000 + 30,000 = 58,000 of material.
     check(
@@ -144,8 +154,8 @@ try {
     );
     check(
       "and the feed carries material plus overhead",
-      Math.abs(n(afterMill.get(feed!.id)?.value) - (58000 + 2000 * 0.75)) < 0.01,
-      `₹${n(afterMill.get(feed!.id)?.value).toLocaleString("en-IN")}`,
+      Math.abs(n(afterMill.get(feed!.id)?.value) - (58000 + overhead)) < 0.01,
+      `₹${n(afterMill.get(feed!.id)?.value).toLocaleString("en-IN")} = ₹58,000 + ₹${overhead.toLocaleString("en-IN")}`,
     );
 
     console.log("\n  THE MILL CANNOT MAKE WHAT IT DOES NOT HOLD\n");
