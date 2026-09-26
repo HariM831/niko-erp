@@ -383,7 +383,7 @@ function AddExceptionDialog({ date, onClose, onSaved }: { date: string; onClose:
   return (
     <Dialog open onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-md">
-        <DialogHeader><DialogTitle>Add exception â {dmy(date)}</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>Add exception — {dmy(date)}</DialogTitle></DialogHeader>
         <ErrorBanner message={err} onClose={() => setErr(null)} />
         <div className="space-y-3">
           <Field label="Canteen" required>
@@ -407,7 +407,7 @@ function AddExceptionDialog({ date, onClose, onSaved }: { date: string; onClose:
             <input className="input" value={form.personName} onChange={(e) => setForm({ ...form, personName: e.target.value })} placeholder="Name from the paper log" />
           </Field>
           <Field label="Whose guest">
-            <input className="input" value={form.guestParty} onChange={(e) => setForm({ ...form, guestParty: e.target.value })} placeholder="The contractor, the auditor's teamâ¦" />
+            <input className="input" value={form.guestParty} onChange={(e) => setForm({ ...form, guestParty: e.target.value })} placeholder="The contractor, the auditor's team…" />
           </Field>
           <Field label="Reason">
             <input className="input" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} placeholder="e.g. Contractor visit" />
@@ -416,7 +416,7 @@ function AddExceptionDialog({ date, onClose, onSaved }: { date: string; onClose:
         <div className="mt-4 flex justify-end gap-2">
           <button className="btn-secondary" onClick={onClose}>Cancel</button>
           <button className="btn-primary" disabled={!ready || save.isPending} onClick={() => save.mutate()}>
-            {save.isPending ? "Recordingâ¦" : "Record exception"}
+            {save.isPending ? "Recording…" : "Record exception"}
           </button>
         </div>
       </DialogContent>
