@@ -1209,6 +1209,11 @@ const BUCKET_LABEL: Record<string, string> = {
  * Ageing the way Zoho shows it: one row per contact, one column per bucket.
  * The server hands back the open documents, so grouping happens here rather
  * than being a second query.
+ *
+ * The group companies appear here and nowhere else on the customer or vendor
+ * side, marked, and with their own subtotal under the total — this is the
+ * report that has to tie to the balance sheet, and the two LLPs are a third of
+ * what is owed. Anyone who wants the market figure subtracts one line.
  */
 function AgingSummary({ reportKey, data }: { reportKey: string; data: Record<string, unknown> }) {
   const isAr = reportKey === "ar-aging";
@@ -1219,6 +1224,7 @@ function AgingSummary({ reportKey, data }: { reportKey: string; data: Record<str
     vendorName?: string;
     balanceDue: string;
     bucket: string;
+    isGroup?: boolean;
   }>;
   if (!docs?.length) {
     return <p className="text-center text-[13px] text-gray-500">Nothing outstanding on this date.</p>;
@@ -1226,18 +1232,28 @@ function AgingSummary({ reportKey, data }: { reportKey: string; data: Record<str
 
   const byContact = new Map<
     string,
-    { name: string; buckets: Record<string, number>; total: number }
+    { name: string; isGroup: boolean; buckets: Record<string, number>; total: number }
   >();
   for (const d of docs) {
     const id = (isAr ? d.customerId : d.vendorId)!;
     const name = (isAr ? d.customerName : d.vendorName) ?? "—";
-    const row = byContact.get(id) ?? { name, buckets: {}, total: 0 };
+    const row = byContact.get(id) ?? { name, isGroup: !!d.isGroup, buckets: {}, total: 0 };
     row.buckets[d.bucket] = (row.buckets[d.bucket] ?? 0) + Number(d.balanceDue);
     row.total += Number(d.balanceDue);
     byContact.set(id, row);
   }
-  const rows = [...byContact.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name));
+  // The group sits at the bottom, under the market it is not part of.
+  const rows = [...byContact.entries()].sort(
+    (a, b) =>
+      Number(a[1].isGroup) - Number(b[1].isGroup) || a[1].name.localeCompare(b[1].name),
+  );
   const totals = data.totals as Record<string, string>;
+  const groupTotal = Number((data.groupTotal as string) ?? 0);
+  const groupBuckets: Record<string, number> = {};
+  for (const d of docs) {
+    if (!d.isGroup) continue;
+    groupBuckets[d.bucket] = (groupBuckets[d.bucket] ?? 0) + Number(d.balanceDue);
+  }
 
   return (
     <Sheet>
@@ -1265,6 +1281,11 @@ function AgingSummary({ reportKey, data }: { reportKey: string; data: Record<str
                 >
                   {r.name}
                 </Link>
+                {r.isGroup && (
+                  <span className="ml-2 rounded-[3px] bg-[#f1f5f9] px-1.5 py-0.5 text-[11px] font-medium text-gray-600">
+                    Group
+                  </span>
+                )}
               </td>
               {BUCKETS.map((b) => (
                 <td key={b} className="col-portrait-hide px-2 py-2 text-right tabular-nums">
@@ -1283,6 +1304,30 @@ function AgingSummary({ reportKey, data }: { reportKey: string; data: Record<str
             ))}
             <td className="px-2 py-2.5 text-right tabular-nums">{num(data.grandTotal as string)}</td>
           </tr>
+          {groupTotal !== 0 && (
+            <>
+              <tr className="text-[13px] text-gray-500">
+                <td className="px-2 py-1.5 pl-5">of which group companies</td>
+                {BUCKETS.map((b) => (
+                  <td key={b} className="col-portrait-hide px-2 py-1.5 text-right tabular-nums">
+                    {groupBuckets[b] ? num(groupBuckets[b]!) : "-"}
+                  </td>
+                ))}
+                <td className="px-2 py-1.5 text-right tabular-nums">{num(groupTotal)}</td>
+              </tr>
+              <tr className="text-[13px] font-medium text-gray-700">
+                <td className="px-2 py-1.5 pl-5">{isAr ? "Owed by the market" : "Owed to the market"}</td>
+                {BUCKETS.map((b) => (
+                  <td key={b} className="col-portrait-hide px-2 py-1.5 text-right tabular-nums">
+                    {num(Number(totals[b] ?? 0) - (groupBuckets[b] ?? 0))}
+                  </td>
+                ))}
+                <td className="px-2 py-1.5 text-right tabular-nums">
+                  {num(Number(data.grandTotal as string) - groupTotal)}
+                </td>
+              </tr>
+            </>
+          )}
         </tbody>
       </table>
     </Sheet>

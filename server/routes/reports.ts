@@ -520,6 +520,7 @@ reportsRouter.get("/ar-aging", requirePermission("reports", "view"), async (req,
       invoiceDate: invoices.invoiceDate,
       dueDate: invoices.dueDate,
       balanceDue: invoices.balanceDue,
+      isGroup: contacts.isGroupCompany,
     })
     .from(invoices)
     .innerJoin(contacts, eq(contacts.id, invoices.customerId))
@@ -527,8 +528,13 @@ reportsRouter.get("/ar-aging", requirePermission("reports", "view"), async (req,
       and(
         inArray(invoices.status, ["sent", "partially_paid"]),
         lte(invoices.invoiceDate, asOf),
-        // The group's own companies are not receivables from the market.
-        eq(contacts.isGroupCompany, false),
+        // The group's own companies ARE in here, unlike every customer-scoped
+        // view, and marked. Ageing is what an accountant reconciles against
+        // the receivables on the balance sheet, and a third of this company's
+        // AR is the two LLPs: leaving them out would make the tie-out fail by
+        // 30 crore every time, which reads as a bug rather than as a policy.
+        // The group subtotal comes back separately so the market figure is
+        // still one subtraction away. See docs/group-companies-plan.md.
       ),
     )
     .orderBy(asc(contacts.displayName), asc(invoices.dueDate));
@@ -546,6 +552,10 @@ reportsRouter.get("/ar-aging", requirePermission("reports", "view"), async (req,
     invoices: detailed,
     totals: Object.fromEntries(Object.entries(buckets).map(([k, v]) => [k, v.toFixed(2)])),
     grandTotal: detailed.reduce((s, r) => s + Number(r.balanceDue), 0).toFixed(2),
+    groupTotal: detailed
+      .filter((r) => r.isGroup)
+      .reduce((s, r) => s + Number(r.balanceDue), 0)
+      .toFixed(2),
   });
 });
 
@@ -560,6 +570,7 @@ reportsRouter.get("/ap-aging", requirePermission("reports", "view"), async (req,
       billDate: bills.billDate,
       dueDate: bills.dueDate,
       balanceDue: bills.balanceDue,
+      isGroup: contacts.isGroupCompany,
     })
     .from(bills)
     .innerJoin(contacts, eq(contacts.id, bills.vendorId))
@@ -567,8 +578,7 @@ reportsRouter.get("/ap-aging", requirePermission("reports", "view"), async (req,
       and(
         inArray(bills.status, ["open", "partially_paid"]),
         lte(bills.billDate, asOf),
-        // Nor payables to it.
-        eq(contacts.isGroupCompany, false),
+        // The group is in here too, and marked, for the same reason as AR.
       ),
     )
     .orderBy(asc(contacts.displayName), asc(bills.dueDate));
@@ -586,6 +596,10 @@ reportsRouter.get("/ap-aging", requirePermission("reports", "view"), async (req,
     bills: detailed,
     totals: Object.fromEntries(Object.entries(buckets).map(([k, v]) => [k, v.toFixed(2)])),
     grandTotal: detailed.reduce((s, r) => s + Number(r.balanceDue), 0).toFixed(2),
+    groupTotal: detailed
+      .filter((r) => r.isGroup)
+      .reduce((s, r) => s + Number(r.balanceDue), 0)
+      .toFixed(2),
   });
 });
 
