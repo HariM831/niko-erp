@@ -1,8 +1,8 @@
 import { Router } from "express";
-import { asc, eq, ne, sql } from "drizzle-orm";
+import { and, asc, eq, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { forgetSites } from "../services/punch-sites";
-import { locations } from "@shared/schema";
+import { locations, stockLocations } from "@shared/schema";
 import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { gstStateCode, validateBody } from "../lib/validate";
@@ -15,6 +15,17 @@ export const locationsRouter = Router();
  * it, which is how a site stops claiming punches.
  */
 const point = (v: number | null | undefined) => (v == null ? v : String(v));
+
+/**
+ * A location's one store, named after it.
+ *
+ * Every stock movement lands in a store, so a location without one cannot hold
+ * anything: a mill added from Settings could not produce. It is not a second
+ * place — Dhekiajuli IS the mill and the mill is its store — just the row the
+ * stock ledger needs. Named from the location so a rename carries it along;
+ * the old migration's names stayed behind when Nalbari became Nabil.
+ */
+const mainStoreName = (name: string) => `${name} — main store`;
 
 const locationSchema = z.object({
   code: z
@@ -73,6 +84,9 @@ locationsRouter.post(
           .insert(locations)
           .values({ ...body, code, isPrimary: primary })
           .returning();
+        await tx
+          .insert(stockLocations)
+          .values({ locationId: created!.id, code: "MAIN", name: mainStoreName(created!.name), kind: "main" });
         return created!;
       });
       forgetSites();
@@ -133,6 +147,12 @@ locationsRouter.patch(
           })
           .where(eq(locations.id, existing.id))
           .returning();
+        if (updated!.name !== existing.name) {
+          await tx
+            .update(stockLocations)
+            .set({ name: mainStoreName(updated!.name) })
+            .where(and(eq(stockLocations.locationId, existing.id), eq(stockLocations.kind, "main")));
+        }
         return updated!;
       });
       forgetSites();

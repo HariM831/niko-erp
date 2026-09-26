@@ -28,6 +28,13 @@ import { db } from "../server/db";
 
 const APPLY = process.argv.includes("--apply");
 
+/**
+ * Amino's formula names that niko files under another. Amino called the
+ * developer recipe "Chick"; chick feed proper is bought in and no formula makes
+ * it (confirmed 26 Sep 2026), so an "Amino Chick" lorry carried developer feed.
+ */
+const RENAMED: Record<string, string> = { chick: "developer" };
+
 async function main() {
   // Formula name -> the one item its versions make.
   const made = await db
@@ -43,8 +50,8 @@ async function main() {
   }
   const outputs = [...itemNames.keys()];
 
-  // Wrong is "on an item no formula makes" — not "outside the feed category":
-  // Chick Feed sits in no category and is still the right item for a chick lorry.
+  // Wrong is "on an item no formula makes" — not "outside the feed category".
+  // That includes Chick Feed: it is bought in, so no mill lorry carries it.
   const wrong = await db
     .select({
       id: feedTransfers.id,
@@ -76,7 +83,8 @@ async function main() {
       continue;
     }
     const formula = /^Amino\s+(.+)$/.exec(t.notes?.trim() ?? "")?.[1]?.trim();
-    const targets = formula ? byFormula.get(formula.toLowerCase()) : undefined;
+    const key = formula?.toLowerCase();
+    const targets = key ? byFormula.get(RENAMED[key] ?? key) : undefined;
     if (!formula || !targets) {
       problems.push(`${t.number}: note "${t.notes ?? ""}" names no formula`);
       continue;
