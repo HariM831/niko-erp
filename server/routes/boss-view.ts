@@ -34,6 +34,7 @@ import { db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { eggPrefs } from "../services/egg-sales";
 import { latestForecast } from "../services/egg-price-forecast";
+import { getPreferences } from "../services/preferences";
 
 export const bossViewRouter = Router();
 
@@ -157,7 +158,12 @@ bossViewRouter.get("/", requirePermission("reports", "view"), async (req, res) =
     .orderBy(asc(houses.code));
   const producedKg = produced.reduce((a, r) => a + n(r.kg), 0);
   const producedValue = produced.reduce((a, r) => a + n(r.value), 0);
+  // What the cost per kg is made of, from the settings the mill costs with —
+  // so the tile cannot go on saying "₹1/kg" after somebody changes it.
+  const millPrefs = await getPreferences(db);
   const feedMill = {
+    moistureRetention: n(millPrefs.millMoistureRetention),
+    overheadPerKg: n(millPrefs.millOverheadPerKg),
     totalProducedKg: producedKg,
     totalTransferredKg: transferred.reduce((a, r) => a + n(r.kg), 0),
     costPerKg: producedKg ? producedValue / producedKg : 0,

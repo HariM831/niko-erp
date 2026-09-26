@@ -44,6 +44,8 @@ interface BossView {
     pendingPOs: { vendor: string; item: string; pendingKg: number; rate: number; number: string }[];
   };
   feedMill: {
+    moistureRetention: number;
+    overheadPerKg: number;
     totalProducedKg: number;
     totalTransferredKg: number;
     costPerKg: number;
@@ -641,7 +643,7 @@ export function HomePage() {
               <div className="grid grid-cols-3 gap-1">
                 <Metric label="Produced" value={tons(data.feedMill.totalProducedKg)} onClick={() => setDetail("produced")} />
                 <Metric label="Sent" value={tons(data.feedMill.totalTransferredKg)} onClick={() => setDetail("sent")} />
-                <Metric label="₹ / ton" value={data.feedMill.costPerKg ? formatMoney(data.feedMill.costPerKg * 1000) : "—"} sub="raw + ₹1/kg" onClick={() => setDetail("produced")} />
+                <Metric label="₹ / ton" value={data.feedMill.costPerKg ? formatMoney(data.feedMill.costPerKg * 1000) : "—"} sub={`raw ÷ ${data.feedMill.moistureRetention} + ₹${Number.isInteger(data.feedMill.overheadPerKg) ? data.feedMill.overheadPerKg : data.feedMill.overheadPerKg.toFixed(2)}/kg`} onClick={() => setDetail("produced")} />
               </div>
               <div className="mt-2.5 border-t border-soil-100 pt-2.5">
                 <Bar pct={dispatchedPct} />

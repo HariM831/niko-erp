@@ -45,6 +45,7 @@ import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, assertPeriodOpen, reverseJournal } from "../services/posting";
 import { mainStore, moveStock, postInventoryMovement, stockOnHand, stockUnitsPerKg } from "../services/inventory";
 import { getPreferences } from "../services/preferences";
+import { materialPrices } from "../services/feed-prices";
 import { refreshHouse } from "../services/rollup";
 import { istDate } from "../services/day-resolution";
 
@@ -293,7 +294,6 @@ export async function produceOne(
     .select({
       line: formulaLines,
       itemName: items.name,
-      costPrice: items.costPrice,
       tracked: items.trackInventory,
       unit: items.unit,
       unitBagWeightKg: items.unitBagWeightKg,
@@ -310,10 +310,18 @@ export async function produceOne(
    * Weighted average from the stock ledger, not the item's list price: the
    * maize being milled this morning was bought at the price it was bought at,
    * and pricing it at today's quote makes every batch cost something no
-   * invoice supports. The list price is the fallback for anything not tracked.
+   * invoice supports.
+   *
+   * With nothing in the silo to average, the fallback is the formulator's own
+   * rule (services/feed-prices): the last load bought, then the typed cost
+   * price. It used to be the typed price alone, so a material bought last week
+   * but never given one could not be milled while the formulator priced it
+   * happily — and a pack item's typed price was read as per kilo, costing the
+   * premix at four times its weight.
    */
   const levels = await stockOnHand(tx);
   const held = new Map(levels.map((l) => [l.itemId, l]));
+  const bought = await materialPrices(tx, recipe.map((r) => r.line.itemId));
   /**
    * A recipe is in kilos; stock is in the item's own unit. A tracked material
    * counted in packs with no bag weight cannot be taken out by the kilo, so
@@ -332,14 +340,16 @@ export async function produceOne(
     if (h && Number(h.quantity) > 0 && Number(h.value) > 0) {
       return (Number(h.value) / Number(h.quantity)) * perKg(r);
     }
-    return Number(r.costPrice ?? 0);
+    return bought.get(r.line.itemId)?.ratePerKg ?? 0;
   };
 
   const unpriced = recipe.filter((r) => !(rateOf(r) > 0));
   if (unpriced.length) {
-    throw new PostingError(
-      `${unpriced.map((u) => u.itemName).join(", ")} ${unpriced.length === 1 ? "has" : "have"} no cost price — a batch cannot be costed without one`,
-    );
+    const why = (r: (typeof recipe)[number]) =>
+      bought.get(r.line.itemId)?.basis === "not per kg"
+        ? `${r.itemName} is priced per ${r.unit} with no bag weight`
+        : `${r.itemName} has never been bought and has no cost price`;
+    throw new PostingError(`${unpriced.map(why).join(", ")} — a batch cannot be costed without a price`);
   }
 
   const locationId = body.locationId ?? (await millLocation(tx));

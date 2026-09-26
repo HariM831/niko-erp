@@ -16,9 +16,10 @@
  * Run: npx tsx scripts/check-production-run.ts
  */
 import { eq, sql } from "drizzle-orm";
-import { formulaLines, formulas, items, productionOrders } from "@shared/schema";
+import { contacts, formulaLines, formulas, items, productionOrders } from "@shared/schema";
 import { db } from "../server/db";
 import { produceOne } from "../server/routes/feed-production";
+import { createBill, loadVendor } from "../server/services/purchases";
 import { getPreferences } from "../server/services/preferences";
 
 let failed = 0;
@@ -198,6 +199,58 @@ try {
       "the good formula in that run did NOT post",
       countAfter.n === countNow.n,
       `${countNow.n} → ${countAfter.n} — nothing half-made`,
+    );
+
+    console.log("\n  AN EMPTY SILO PRICES AT THE LAST BILL\n");
+
+    // Neither has a typed cost price or any stock, but both have been bought —
+    // the formulator prices them from those bills, so the mill must too. The
+    // premix is bought by the 4 kg pack: ₹679 a pack is ₹169.75 a kilo.
+    const billed = await mk("TEST RUN BILLED", null);
+    const [premix] = await tx
+      .insert(items)
+      .values({
+        name: "TEST RUN PREMIX",
+        unit: "pack",
+        unitBagWeightKg: "4",
+        isSold: false,
+        purchaseAccountId: acct!.id,
+        category: "feed",
+        isFeedIngredient: true,
+      })
+      .returning();
+    const [vendor] = await tx
+      .insert(contacts)
+      .values({ displayName: "TEST RUN VENDOR", type: "vendor" })
+      .returning();
+    await createBill(tx, {
+      vendor: await loadVendor(tx, vendor!.id),
+      billDate: "2026-08-19",
+      reference: "TEST-RUN",
+      lines: [
+        { itemId: billed.id, name: billed.name, quantity: "1000.000", unit: "kg", rate: "30.000000" },
+        { itemId: premix!.id, name: premix!.name, quantity: "10.000", unit: "pack", rate: "679.000000" },
+      ],
+      postedBy: user!.id,
+    });
+    const fromBills = await formula("TEST RUN FROM BILLS", (await output("TEST RUN FROM BILLS FEED")).id, [
+      [maize.id, "900"],
+      [billed.id, "94"],
+      [premix!.id, "6"],
+    ]);
+    let billedOrder: Awaited<ReturnType<typeof produceOne>> | null = null;
+    let billedErr = "";
+    try {
+      billedOrder = await produceOne(tx, { formulaId: fromBills.id, batchCount: 1 }, opts, user!.id);
+    } catch (e) {
+      billedErr = (e as Error).message;
+    }
+    check("a billed material with no cost price can be milled", !!billedOrder, billedErr);
+    // 900×21.50 + 94×30 + 6×169.75 = 19,350 + 2,820 + 1,018.50 = 23,188.50
+    check(
+      "at its bill rate, a pack spread over its weight",
+      Math.abs(Number(billedOrder?.inputValue ?? 0) - 23188.5) < 0.01,
+      `₹${Number(billedOrder?.inputValue ?? 0).toLocaleString("en-IN")} of ₹23,188.50`,
     );
     throw new Rollback();
   });
