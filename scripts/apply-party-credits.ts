@@ -1,5 +1,5 @@
 /**
- * Clear the customers whose money on account settles everything they owe.
+ * Clear the parties whose money on account settles everything that is open.
  *
  * The Zoho load carried 3,489 payment applications across and left the rest
  * on account, faithfully — Zoho holds them unapplied too. But for most small
@@ -10,8 +10,9 @@
  * This does only the unambiguous ones: a customer whose spare credit is at
  * least everything they have open. Every document ends settled and nothing is
  * left over, so there is no allocation anybody could disagree with. A customer
- * whose credit falls short is a real choice about which invoice it clears, and
- * belongs on the screen with a person in front of it.
+ * whose credit falls short is a real choice about which document it clears,
+ * and belongs on the screen with a person in front of it. The vendor ledger
+ * is the same shape: a payment sent before the bill ever arrived.
  *
  * Group companies are skipped whatever their numbers say: the two LLPs are one
  * intra-group relationship with a set-off question still open.
@@ -20,28 +21,40 @@
  * the dialog uses, so its guards hold and a failure on the eleventh leaves the
  * first ten done rather than undoing them.
  *
- *   npx tsx scripts/apply-customer-credits.ts            # say what would happen
- *   npx tsx scripts/apply-customer-credits.ts --apply    # do it
+ *   npx tsx scripts/apply-party-credits.ts --side customer
+ *   npx tsx scripts/apply-party-credits.ts --side vendor --apply
  */
 import { sql } from "drizzle-orm";
 import { db } from "../server/db";
 import { applyCreditPlan, creditPlanFor } from "../server/services/apply-credits";
 
 const APPLY = process.argv.includes("--apply");
+const SIDE = process.argv[process.argv.indexOf("--side") + 1] as "customer" | "vendor";
+if (SIDE !== "customer" && SIDE !== "vendor") {
+  console.log("\n  Say which ledger: --side customer | --side vendor\n");
+  process.exit(1);
+}
+const DOC = SIDE === "customer" ? "invoice" : "bill";
 
 const money = (v: string | number) =>
   Number(v).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+/* The two ledgers differ only in their table names and their open statuses. */
+const credits = SIDE === "customer" ? sql`customer_payments` : sql`vendor_payments`;
+const party = SIDE === "customer" ? sql`customer_id` : sql`vendor_id`;
+const documents = SIDE === "customer" ? sql`invoices` : sql`bills`;
+const openStatus = SIDE === "customer" ? sql`('sent', 'partially_paid')` : sql`('open', 'partially_paid')`;
+
 const candidates = (
   await db.execute(sql`
     WITH credit AS (
-      SELECT customer_id AS id, sum(unapplied_amount) AS spare
-        FROM customer_payments WHERE unapplied_amount > 0 GROUP BY 1
+      SELECT ${party} AS id, sum(unapplied_amount) AS spare
+        FROM ${credits} WHERE unapplied_amount > 0 GROUP BY 1
     ),
     owed AS (
-      SELECT customer_id AS id, sum(balance_due) AS open
-        FROM invoices
-       WHERE status IN ('sent', 'partially_paid') AND balance_due > 0
+      SELECT ${party} AS id, sum(balance_due) AS open
+        FROM ${documents}
+       WHERE status IN ${openStatus} AND balance_due > 0
        GROUP BY 1
     )
     SELECT c.id, c.display_name AS name, credit.spare, owed.open
@@ -54,14 +67,16 @@ const candidates = (
   `)
 ).rows as Array<{ id: string; name: string; spare: string; open: string }>;
 
-console.log(`\n  CUSTOMERS WHOSE CREDIT COVERS EVERYTHING THEY OWE — ${candidates.length}\n`);
+const who = SIDE === "customer" ? "CUSTOMERS" : "VENDORS";
+
+console.log(`\n  ${who} WHOSE CREDIT COVERS EVERYTHING OPEN — ${candidates.length}\n`);
 
 let totalApplied = 0;
 let done = 0;
 const failures: string[] = [];
 
 for (const c of candidates) {
-  const plan = await creditPlanFor("customer", c.id);
+  const plan = await creditPlanFor(SIDE, c.id);
   console.log(`  ${c.name}`);
   console.log(`    open ${money(plan.totalOwed)} · spare ${money(plan.totalAvailable)}`);
   for (const line of plan.plan) {
@@ -82,8 +97,8 @@ for (const c of candidates) {
 
   if (APPLY) {
     try {
-      const out = await db.transaction((tx) => applyCreditPlan(tx, "customer", plan.plan));
-      console.log(`    applied ${money(out.applied)} across ${out.documents} invoice(s)`);
+      const out = await db.transaction((tx) => applyCreditPlan(tx, SIDE, plan.plan));
+      console.log(`    applied ${money(out.applied)} across ${out.documents} ${DOC}(s)`);
       totalApplied += Number(out.applied);
       done++;
     } catch (err) {
@@ -98,7 +113,7 @@ for (const c of candidates) {
 if (!APPLY) {
   console.log("  dry run — nothing written. Re-run with --apply.\n");
 } else {
-  console.log(`  ${done} customer(s) cleared, ${money(totalApplied)} applied.`);
+  console.log(`  ${done} ${SIDE}(s) cleared, ${money(totalApplied)} applied.`);
   if (failures.length) {
     console.log(`\n  ${failures.length} failed:`);
     for (const f of failures) console.log(`    ${f}`);
