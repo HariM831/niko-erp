@@ -1,7 +1,34 @@
 # Centred face matching — the plan
 
 The gate cannot reliably tell two workers apart. This is the plan to fix it,
-written to be argued with before any of it is built. Nothing here is built yet.
+written to be argued with before any of it is built.
+
+## Status — 26 Sep 2026
+
+Approved as written, with the recommended answers to the three decisions at
+the end: wait a fortnight for failure data, canteen first, and never trade a
+wrong-person accept for fewer refusals.
+
+Built and running, switched off:
+
+- **Step 1.** `face_models` holds the mean of every enrolment, rebuilt daily
+  by the face job (`server/services/face-model.ts`, called from
+  `face-prune.ts`); `GET /api/payroll/face-model` serves the newest.
+- **Step 2, without the switch.** `buildMatchIndex(people, mean)` centres; with
+  no mean it is exactly the old matcher (`scripts/check-face-match.ts`).
+- **Rollout 1–2.** Both browser gates score every face both ways. The raw
+  score decides, as before; the centred first choice, its score, the
+  runner-up and the model build are stored on the punch or plate
+  (`match_score_centred`, `centred_match_id`, `centred_second_score`,
+  `face_model_id`).
+- **Rollout 3.** The face health report has a "Centred matching" section: how
+  often centred's first choice is the person recorded, split into faces the
+  gate recognised and names picked by hand after a failed scan.
+
+Not built, on purpose: the `raw`/`centred` switch and the centred threshold
+pair. There are no calibrated numbers to switch to until about 10 Oct 2026;
+they come together, with the server's wrong-person guard scoring on the same
+scale, and the canteen goes first.
 
 ## What is actually wrong
 

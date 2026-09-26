@@ -20,6 +20,7 @@
 import {
   boolean,
   date,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -238,6 +239,26 @@ export const payrollSettings = pgTable("payroll_settings", {
  * kept only when the match was doubtful or the punch was manual — the ones
  * anyone will ever look at.
  */
+/**
+ * The roster's mean face, one row per build, newest wins.
+ *
+ * Centred matching subtracts it from every descriptor and every scan before
+ * comparing, so what two faces have in common as faces no longer counts as a
+ * resemblance (docs/face-matching-centred-plan.md). Built from enrolment
+ * descriptors alone, nightly; the clients are handed it rather than computing
+ * their own, because two gates holding different slices of the roster would
+ * compute different means and score the same face differently. A punch names
+ * the build it was scored with.
+ */
+export const faceModels = pgTable("face_models", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  mean: doublePrecision("mean").array().notNull(),
+  dim: integer("dim").notNull(),
+  /** Enrolled faces the mean was taken over. */
+  people: integer("people").notNull(),
+  builtAt: timestamp("built_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const punches = pgTable(
   "punches",
   {
@@ -262,6 +283,17 @@ export const punches = pgTable(
      * the attendance record and outlives its vector by years.
      */
     faceEmbedding: jsonb("face_embedding").$type<number[]>(),
+    /**
+     * What centred matching made of the same face, recorded beside the raw
+     * decision and never used for it (docs/face-matching-centred-plan.md): the
+     * mean face it was scored with, who it picked, at what, and the runner-up.
+     * Two weeks of these decide the centred thresholds before centred matching
+     * is ever switched on. Null where the gate had no face or no model.
+     */
+    faceModelId: uuid("face_model_id").references(() => faceModels.id),
+    centredMatchId: uuid("centred_match_id").references(() => employees.id),
+    matchScoreCentred: real("match_score_centred"),
+    centredSecondScore: real("centred_second_score"),
     /** Set by a paired device; its event id is the idempotency key. */
     deviceId: uuid("device_id"),
     clientId: varchar("client_id", { length: 64 }).unique(),

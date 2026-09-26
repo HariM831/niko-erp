@@ -9,6 +9,7 @@
  */
 import { loadRoster, saveRoster } from "../../lib/roster-cache";
 import { buildMatchIndex, findBestMatchIndexed } from "@shared/face-match";
+import { centredOf, useCentredIndex } from "../../lib/face-model";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -204,7 +205,11 @@ export function PayrollGatePage() {
   const empById = useMemo(() => new Map(gallery.map((e) => [e.id, e])), [gallery]);
   // Every roster vector scaled to unit length once per roster change, not once
   // per scan: a score is then a dot product. See shared/face-match.ts.
-  const matchIndex = useMemo(() => buildMatchIndex(enrolled.map((e) => ({ id: e.id, descriptors: e.descriptors }))), [enrolled]);
+  const candidates = useMemo(() => enrolled.map((e) => ({ id: e.id, descriptors: e.descriptors })), [enrolled]);
+  const matchIndex = useMemo(() => buildMatchIndex(candidates), [candidates]);
+  // Centred matching, scored beside the raw match and recorded with the
+  // punch; it decides nothing yet (lib/face-model.ts).
+  const centred = useCentredIndex(candidates);
 
   useEffect(() => {
     let cancelled = false;
@@ -366,6 +371,7 @@ export function PayrollGatePage() {
           photoUrl: photo,
           faceEmbedding: embedding,
           manualReason: method === "manual" ? reason : null,
+          centred: centredOf(embedding, centred),
         },
       });
       qc.invalidateQueries({ queryKey: ["payroll", "punches-today"] });

@@ -36,6 +36,7 @@ import { photoThumbnail, photoThumbnails } from "../services/photo";
 import { syncNightShiftBreakfast } from "../services/canteen";
 import { clashMessage, findIdClash, isAcceptableUpload, normAadhaar, normPan } from "../services/identity";
 import { isUsableEmbedding, judgeCapture, roundEmbedding, taughtCapturesByEmployee } from "../services/face-gallery";
+import { acceptCentred, latestFaceModel } from "../services/face-model";
 import { adviseOn, buildFaceHealth, faceStandings, formatFaceHealth } from "../services/face-health";
 import { looseNumber, nonBlank, timeOfDay, validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
@@ -614,6 +615,20 @@ payrollRouter.get("/face-standings", view, async (req, res) => {
   res.json(await faceStandings(db, days));
 });
 
+/**
+ * The roster's mean face, for centred matching. Both browser gates fetch it
+ * and score every face both ways; the raw score still decides. Null before the
+ * first build. Rounded like the gallery descriptors it is subtracted from.
+ */
+payrollRouter.get(
+  "/face-model",
+  requireAnyPermission([["payroll", "gate"], ["payroll", "canteen_punch"], ["payroll", "canteen"], ["payroll", "view"]]),
+  async (_req, res) => {
+    const m = await latestFaceModel(db);
+    res.json(m ? { id: m.id, mean: roundEmbedding(m.mean), people: m.people, builtAt: m.builtAt } : null);
+  },
+);
+
 payrollRouter.get("/employees/gallery", gatePerm, async (req, res) => {
   const since = Number(req.query.since) || 0;
 
@@ -1004,6 +1019,19 @@ class FaceConflict extends Error {
 
 const MANUAL_REASONS = ["no_match", "engine_failed", "camera_blocked", "not_enrolled"] as const;
 
+/**
+ * What centred matching made of the same face, recorded beside the raw
+ * decision and never used for it (docs/face-matching-centred-plan.md).
+ */
+const centredResult = z
+  .object({
+    modelId: z.string().uuid(),
+    matchId: z.string().uuid().nullable(),
+    score: z.number().min(-1).max(1),
+    secondScore: z.number().min(-1).max(1),
+  })
+  .nullish();
+
 const punchBody = z.object({
   employeeId: z.string().uuid(),
   type: z.enum(["in", "out"]).optional(),
@@ -1031,6 +1059,7 @@ const punchBody = z.object({
    * both as the face failing.
    */
   manualReason: z.enum(MANUAL_REASONS).nullish(),
+  centred: centredResult,
 });
 
 payrollRouter.post("/punches", gatePerm, validateBody(punchBody), async (req, res) => {
@@ -1131,6 +1160,7 @@ payrollRouter.post("/punches", gatePerm, validateBody(punchBody), async (req, re
           photoUrl: keepPhoto ? (b.photoUrl ?? null) : null,
           faceEmbedding: teach && isUsableEmbedding(b.faceEmbedding) ? roundEmbedding(b.faceEmbedding) : null,
           manualReason: b.method === "manual" ? (b.manualReason ?? null) : null,
+          ...(await acceptCentred(tx, b.centred)),
           markedBy: req.session.user!.id,
         })
         .returning();

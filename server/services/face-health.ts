@@ -116,7 +116,64 @@ export interface FaceHealth {
   clusters: Array<{ members: string[]; tightest: number }>;
   /** The tightest few pairs, to put a number on how close "too close" is. */
   lookalikes: { total: number; shown: Array<{ a: string; b: string; similarity: number }> };
+  /**
+   * Centred matching, scored beside the raw decision and not yet deciding
+   * anything (docs/face-matching-centred-plan.md, rollout step 3). The number
+   * that matters is `byHand`: those are the faces the raw matcher could not
+   * read, and a centred matcher that puts the right person first on them is
+   * the case for switching.
+   */
+  centred: {
+    recorded: number;
+    /** Recognised by the raw matcher: did centred pick the same person? */
+    scanned: CentredBand;
+    /** Picked by hand after the scan failed: was the picked person centred's first choice? */
+    byHand: CentredBand;
+  };
   advice: string[];
+}
+
+interface CentredBand {
+  n: number;
+  /** Centred's first choice was the person the punch or plate was recorded against. */
+  agree: number;
+  medianScore: number | null;
+  /** Median lead of centred's first choice over its runner-up. */
+  medianGap: number | null;
+}
+
+async function centredComparison(conn: Conn, days: number): Promise<FaceHealth["centred"]> {
+  const rows = (
+    await conn.execute(sql`
+      SELECT p.method::text AS method, (p.centred_match_id = p.employee_id) AS agree,
+             p.match_score_centred AS score, p.match_score_centred - p.centred_second_score AS gap
+        FROM punches p
+       WHERE p.face_model_id IS NOT NULL
+         AND p.punch_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - ${days}::int
+      UNION ALL
+      SELECT 'face', (s.centred_match_id = s.employee_id),
+             s.match_score_centred, s.match_score_centred - s.centred_second_score
+        FROM canteen_servings s
+       WHERE s.face_model_id IS NOT NULL
+         AND s.meal_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - ${days}::int
+    `)
+  ).rows as Array<{ method: string; agree: boolean | null; score: number | null; gap: number | null }>;
+  const median = (xs: number[]) => {
+    if (!xs.length) return null;
+    const s = [...xs].sort((a, b) => a - b);
+    return s[Math.floor(s.length / 2)]!;
+  };
+  const band = (list: typeof rows): CentredBand => ({
+    n: list.length,
+    agree: list.filter((r) => r.agree).length,
+    medianScore: median(list.flatMap((r) => (r.score == null ? [] : [Number(r.score)]))),
+    medianGap: median(list.flatMap((r) => (r.gap == null ? [] : [Number(r.gap)]))),
+  });
+  return {
+    recorded: rows.length,
+    scanned: band(rows.filter((r) => r.method === "face")),
+    byHand: band(rows.filter((r) => r.method === "manual")),
+  };
 }
 
 /**
@@ -349,6 +406,7 @@ export async function buildFaceHealth(conn: Conn, days = 30): Promise<FaceHealth
     days,
     from: byDay[0]?.day ?? "",
     to: byDay[byDay.length - 1]?.day ?? "",
+    centred: await centredComparison(conn, days),
     gate: { scans, failures, rate: scans ? failures / scans : null, hrResolved: hr?.n ?? 0, byDay, byHour },
     canteen: {
       plates: c?.plates ?? 0,
@@ -663,6 +721,16 @@ export function formatFaceHealth(r: FaceHealth): string {
     L.push(`Gate:    ${r.gate.scans} scans, ${r.gate.failures} needed a name by hand = ${pct(r.gate.rate!)} failure rate`);
     if (r.gate.hrResolved) L.push(`         (${r.gate.hrResolved} HR punch-out fixes excluded — not a face failing)`);
     if (r.canteen.plates) L.push(`Canteen: ${r.canteen.plates} plates, ${r.canteen.nameMatched} by name = ${pct(r.canteen.rate!)}`);
+    if (r.centred?.recorded) {
+      const line = (label: string, b: CentredBand) =>
+        b.n
+          ? `  ${label}: centred's first choice was the recorded person in ${b.agree} of ${b.n} (${pct(b.agree / b.n)}); median score ${b.medianScore?.toFixed(2) ?? "—"}, lead ${b.medianGap?.toFixed(2) ?? "—"}`
+          : `  ${label}: none yet`;
+      L.push("");
+      L.push(`Centred matching — recording only, not deciding: ${r.centred.recorded} face(s) scored both ways`);
+      L.push(line("Recognised by the gate or canteen", r.centred.scanned));
+      L.push(line("Picked by hand after the scan failed", r.centred.byHand));
+    }
 
     L.push("");
     L.push("By day");

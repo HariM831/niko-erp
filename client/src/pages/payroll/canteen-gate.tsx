@@ -28,6 +28,7 @@ import { DateInput } from "../../components/date-input";
 import { DEFAULT_MATCH_THRESHOLD, MIN_MATCH_MARGIN, getFaceEmbedding, looksSpoofed } from "../../lib/face";
 import { useCamera } from "../../lib/use-camera";
 import { buildMatchIndex, findBestMatchIndexed } from "@shared/face-match";
+import { centredOf, useCentredIndex, type CentredResult } from "../../lib/face-model";
 import { matchesTerms } from "@shared/search";
 
 interface Person { id: string; empCode: string; name: string; payType: string; descriptors: number[][]; breakfast: boolean; dinner: boolean }
@@ -45,7 +46,7 @@ interface Counts { date: string; breakfast: number; lunch: number; dinner: numbe
 type Stage =
   | { kind: "idle" }
   | { kind: "matching" }
-  | { kind: "confirm"; person: Person; method: "face" | "manual"; score: number | null }
+  | { kind: "confirm"; person: Person; method: "face" | "manual"; score: number | null; centred?: CentredResult | null }
   | { kind: "nomatch"; spoofed?: boolean }
   | { kind: "posting" }
   | { kind: "served"; plate: Served }
@@ -105,7 +106,11 @@ export function PayrollCanteenGatePage() {
   const people = rosterQ.data ?? [];
   const enrolled = useMemo(() => people.filter((p) => p.descriptors.length > 0), [people]);
   const byId = useMemo(() => new Map(people.map((p) => [p.id, p])), [people]);
-  const index = useMemo(() => buildMatchIndex(enrolled.map((p) => ({ id: p.id, descriptors: p.descriptors }))), [enrolled]);
+  const candidates = useMemo(() => enrolled.map((p) => ({ id: p.id, descriptors: p.descriptors })), [enrolled]);
+  const index = useMemo(() => buildMatchIndex(candidates), [candidates]);
+  // Centred matching, scored beside the raw match and recorded with the plate;
+  // it decides nothing yet (lib/face-model.ts).
+  const centredIdx = useCentredIndex(candidates);
   const servedIds = useMemo(() => new Set((stateQ.data?.served ?? []).map((s) => s.employeeId)), [stateQ.data]);
 
   const meal = stateQ.data?.meal ?? null;
@@ -128,7 +133,7 @@ export function PayrollCanteenGatePage() {
       const person = m.id ? byId.get(m.id) ?? null : null;
       if (person && m.score >= DEFAULT_MATCH_THRESHOLD && m.score - m.secondScore >= MIN_MATCH_MARGIN) {
         if (navigator.vibrate) navigator.vibrate(50);
-        setStage({ kind: "confirm", person, method: "face", score: m.score });
+        setStage({ kind: "confirm", person, method: "face", score: m.score, centred: centredOf(face.embedding, centredIdx) });
       } else {
         setStage({ kind: "nomatch" });
       }
@@ -138,13 +143,13 @@ export function PayrollCanteenGatePage() {
     }
   }
 
-  async function serve(person: Person, method: "face" | "manual", score: number | null) {
+  async function serve(person: Person, method: "face" | "manual", score: number | null, centred: CentredResult | null = null) {
     setStage({ kind: "posting" });
     try {
       // Minted here so a retry on a bad connection is the same plate, not a second.
       const plate = await api<Served>("/api/canteen/gate/servings", {
         method: "POST",
-        body: { clientId: crypto.randomUUID(), canteenId, employeeId: person.id, method, matchScore: score },
+        body: { clientId: crypto.randomUUID(), canteenId, employeeId: person.id, method, matchScore: score, centred },
       });
       setStage({ kind: "served", plate });
       qc.invalidateQueries({ queryKey: ["canteen-gate", "state"] });
@@ -265,7 +270,7 @@ export function PayrollCanteenGatePage() {
               )}
               <div className="flex gap-2">
                 <button className="btn-secondary" onClick={() => setStage({ kind: "idle" })}>Cancel</button>
-                <button className="btn-primary !h-10 !px-5" onClick={() => void serve(stage.person, stage.method, stage.score)}>
+                <button className="btn-primary !h-10 !px-5" onClick={() => void serve(stage.person, stage.method, stage.score, stage.centred ?? null)}>
                   Serve {stateQ.data?.mealLabel.toLowerCase()}
                 </button>
               </div>

@@ -22,6 +22,7 @@ import { pruneTaughtCaptures, taughtCaptureCount } from "./face-gallery";
 import { buildFaceHealth, formatFaceHealth } from "./face-health";
 import { syncNightShiftBreakfast } from "./canteen";
 import { istDate } from "./day-resolution";
+import { ensureFaceModel } from "./face-model";
 
 const EVERY_MS = 3_600_000;
 /** Long enough after boot to be behind the migrations and the first requests. */
@@ -39,6 +40,8 @@ const REPORT_DAYS = 30;
 let reportedOn: string | null = null;
 /** Night-shift breakfast is a statement about today, so it is re-asked each day. */
 let breakfastSyncedOn: string | null = null;
+/** The day the mean face was last checked; ensureFaceModel rebuilds when a day old. */
+let faceModelCheckedOn: string | null = null;
 
 const istHourAndDate = () => {
   const f = new Intl.DateTimeFormat("en-CA", {
@@ -83,6 +86,13 @@ async function tick() {
       breakfastSyncedOn = today;
       const r = await syncNightShiftBreakfast(db, undefined, today);
       if (r.granted || r.withdrawn) console.log(`[canteen] night-shift breakfast: ${r.granted} granted, ${r.withdrawn} withdrawn`);
+    }
+
+    // The mean face for centred matching, once a day (docs/face-matching-centred-plan.md).
+    if (faceModelCheckedOn !== today) {
+      faceModelCheckedOn = today;
+      const { model, built } = await ensureFaceModel(db);
+      if (built && model) console.log(`[faces] mean face rebuilt over ${model.people} enrolment(s)`);
     }
 
     const photos = await pruneOldPhotos(db);

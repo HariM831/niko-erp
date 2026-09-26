@@ -14,6 +14,14 @@
  *
  * No DOM and no camera in here, so the Canteen Gate shares it and a script can
  * prove it agrees with the matcher it replaces.
+ *
+ * CENTRED MATCHING (docs/face-matching-centred-plan.md). Given the roster's
+ * mean face, the index subtracts it from every vector — and from each probe —
+ * before scaling to unit length. What is left is what differs between people;
+ * the shared bulk a FaceRes embedding carries (the model's idea of a face,
+ * this camera, this light) no longer counts as agreement. With no mean the
+ * index is exactly what it always was. Centred scores sit on their own scale:
+ * the raw thresholds mean nothing to them.
  */
 import { FACE_DIM } from "./face";
 
@@ -39,6 +47,23 @@ export interface MatchIndex {
   people: { id: string; units: number[][] }[];
   /** Descriptors left out because they were not FACE_DIM finite numbers. */
   skipped: number;
+  /** The mean face taken off every vector, or null for a raw index. */
+  mean: number[] | null;
+}
+
+/** A mean the index can use: FACE_DIM finite numbers. Anything else is no mean. */
+function usableMean(mean: number[] | null | undefined): number[] | null {
+  if (!mean || mean.length !== FACE_DIM) return null;
+  for (let i = 0; i < FACE_DIM; i++) if (!Number.isFinite(mean[i]!)) return null;
+  return mean;
+}
+
+/** v less the mean face, component by component. */
+function centre(v: number[], mean: number[] | null): number[] {
+  if (!mean || v.length !== FACE_DIM) return v;
+  const out = new Array<number>(FACE_DIM);
+  for (let i = 0; i < FACE_DIM; i++) out[i] = v[i]! - mean[i]!;
+  return out;
 }
 
 function unit(v: number[]): number[] | null {
@@ -59,24 +84,26 @@ function unit(v: number[]): number[] | null {
   return out;
 }
 
-export function buildMatchIndex(candidates: MatchCandidate[]): MatchIndex {
+/** `mean`, when given and usable, builds a centred index; otherwise a raw one. */
+export function buildMatchIndex(candidates: MatchCandidate[], mean?: number[] | null): MatchIndex {
+  const m = usableMean(mean);
   let skipped = 0;
   const people: MatchIndex["people"] = [];
   for (const c of candidates) {
     const units: number[][] = [];
     for (const d of c.descriptors) {
-      const u = unit(d);
+      const u = unit(centre(d, m));
       if (u) units.push(u);
       else skipped++;
     }
     if (units.length) people.push({ id: c.id, units });
   }
-  return { people, skipped };
+  return { people, skipped, mean: m };
 }
 
 /** Best person for an embedding; `secondScore` is the best DIFFERENT person. */
 export function findBestMatchIndexed(embedding: number[], index: MatchIndex): MatchResult {
-  const probe = unit(embedding);
+  const probe = unit(centre(embedding, index.mean));
   if (!probe) return { id: null, score: 0, secondScore: 0, secondId: null };
   let best: string | null = null;
   let bestScore = -1;

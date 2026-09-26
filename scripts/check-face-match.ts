@@ -51,6 +51,33 @@ console.log("");
 ok("the same person over 200 probes", agree === 200, `${agree}/200`);
 ok("the same score and runner-up", worst < 1e-12, `worst difference ${worst.toExponential(1)}`);
 
+// Centred: the index takes the mean face off every vector and the probe. It
+// must score exactly the cosine of the mean-subtracted vectors, which is what
+// scripts/calibrate-face-matching.ts measures the centred thresholds with.
+const shift = vec().map((x) => x * 3); // a shared bulk every face carries
+const shifted: MatchCandidate[] = roster.map((c) => ({ id: c.id, descriptors: c.descriptors.map((d) => d.map((x, k) => x + shift[k]!)) }));
+const mean = Array.from({ length: FACE_DIM }, (_, k) => {
+  let s = 0, n = 0;
+  for (const c of shifted) for (const d of c.descriptors) { s += d[k]!; n++; }
+  return s / n;
+});
+const centredRoster: MatchCandidate[] = shifted.map((c) => ({ id: c.id, descriptors: c.descriptors.map((d) => d.map((x, k) => x - mean[k]!)) }));
+const centred = buildMatchIndex(shifted, mean);
+let cAgree = 0;
+let cWorst = 0;
+for (let i = 0; i < 200; i++) {
+  const base = i % 2 ? shifted[i % shifted.length]!.descriptors[0]! : vec().map((x, k) => x + shift[k]!);
+  const probe = base.map((x) => x + rnd() * 0.3);
+  const a = naive(probe.map((x, k) => x - mean[k]!), centredRoster);
+  const b = findBestMatchIndexed(probe, centred);
+  cWorst = Math.max(cWorst, Math.abs(a.score - b.score), Math.abs(a.secondScore - b.secondScore));
+  if (a.id === b.id) cAgree++;
+}
+ok("centred: the same person as cosine after subtracting the mean", cAgree === 200, `${cAgree}/200`);
+ok("centred: the same score and runner-up", cWorst < 1e-12, `worst difference ${cWorst.toExponential(1)}`);
+ok("centred: the index says it is centred", centred.mean === mean && index.mean === null);
+ok("a mean of the wrong length builds a raw index, not a wrong one", buildMatchIndex(roster, Array(192).fill(0)).mean === null);
+
 const broken = buildMatchIndex([{ id: "short", descriptors: [Array(192).fill(0.1)] }, ...roster]);
 ok("a wrong-length descriptor at the head of the roster is skipped, alone", broken.skipped === 1 && broken.people.length === roster.length);
 ok("an empty roster matches nobody", findBestMatchIndexed(vec(), buildMatchIndex([])).id === null);

@@ -576,6 +576,15 @@ const gateServing = z.object({
   latitude: z.number().nullish(),
   longitude: z.number().nullish(),
   accuracyM: z.number().nullish(),
+  /** What centred matching made of the scan; recorded, never used to decide. */
+  centred: z
+    .object({
+      modelId: z.string().uuid(),
+      matchId: z.string().uuid().nullable(),
+      score: z.number().min(-1).max(1),
+      secondScore: z.number().min(-1).max(1),
+    })
+    .nullish(),
 });
 
 canteenRouter.post("/gate/servings", serve, validateBody(gateServing), async (req, res) => {

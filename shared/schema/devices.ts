@@ -29,7 +29,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { users } from "./auth";
 import { locations } from "./locations";
-import { employees } from "./payroll";
+import { employees, faceModels } from "./payroll";
 
 export const deviceRole = pgEnum("device_role", ["gate", "canteen"]);
 export const pairingStatus = pgEnum("pairing_status", ["unused", "claimed", "pending", "expired", "rejected"]);
@@ -196,6 +196,17 @@ export const canteenServings = pgTable(
     personName: text("person_name").notNull(),
     state: servingState("state").notNull(),
     matchScore: real("match_score"),
+    /**
+     * What centred matching made of the same face, recorded beside the raw
+     * decision and never used for it (docs/face-matching-centred-plan.md): the
+     * mean face it was scored with, who it picked, at what, and the runner-up.
+     * Two weeks of these decide the centred thresholds before centred matching
+     * is ever switched on. Null where the gate had no face or no model.
+     */
+    faceModelId: uuid("face_model_id").references(() => faceModels.id),
+    centredMatchId: uuid("centred_match_id").references(() => employees.id),
+    matchScoreCentred: real("match_score_centred"),
+    centredSecondScore: real("centred_second_score"),
     servedAt: timestamp("served_at", { withTimezone: true }).notNull(),
     tokenNumber: varchar("token_number", { length: 20 }).notNull(),
     outsideWindow: boolean("outside_window").notNull().default(false),

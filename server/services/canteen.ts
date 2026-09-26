@@ -22,6 +22,7 @@ import {
 import { DEFAULT_MEAL_WINDOWS, MEALS, istTimeHHMM, mealForTime, type Meal, type MealWindow } from "@shared/canteen";
 import type { Db, Tx } from "../db";
 import { PostingError } from "./posting";
+import { acceptCentred } from "./face-model";
 import { carryOverIn, isOvernightShift, istDate } from "./day-resolution";
 
 type Conn = Db | Tx;
@@ -80,6 +81,8 @@ export interface BrowserServing {
   latitude?: number | null;
   longitude?: number | null;
   accuracyM?: number | null;
+  /** What centred matching made of the scan (services/face-model.ts); recorded, never used to decide. */
+  centred?: { modelId: string; matchId: string | null; score: number; secondScore: number } | null;
 }
 
 /**
@@ -142,6 +145,7 @@ export async function recordBrowserServing(conn: Conn, userId: string, input: Br
       personName: emp.name,
       state: input.method === "face" ? "verified" : "name_matched",
       matchScore: input.method === "face" ? (input.matchScore ?? null) : null,
+      ...(input.method === "face" ? await acceptCentred(conn, input.centred) : {}),
       servedAt: at,
       tokenNumber: `WEB-${randomBytes(3).toString("hex").toUpperCase()}`,
       outsideWindow,
