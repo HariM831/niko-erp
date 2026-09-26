@@ -111,9 +111,7 @@ const caps = (
 ).rows as Array<{ employeeId: string; vec: number[] }>;
 
 if (!caps.length) {
-  console.log("
-  No captures kept in the last fortnight — nothing to measure the live gate with.
-");
+  console.log("\n  No captures kept in the last fortnight — nothing to measure the live gate with.\n");
 } else {
   const byId = new Map(people.map((p, i) => [p.id, i]));
   const genuine: number[] = [];
@@ -149,8 +147,7 @@ if (!caps.length) {
     const at = (q: number) => s[Math.min(s.length - 1, Math.floor(q * s.length))]!;
     return `min ${pct(s[0]!)}  p10 ${pct(at(0.1))}  median ${pct(at(0.5))}  p90 ${pct(at(0.9))}  max ${pct(s[s.length - 1]!)}`;
   };
-  console.log(`
-  LIVE GATE, ${genuine.length} captures in the last fortnight`);
+  console.log(`\n  LIVE GATE, ${genuine.length} captures in the last fortnight`);
   console.log(`    against their own enrolment:  ${stat(genuine)}`);
   console.log(`    against the closest stranger: ${stat(impostor)}`);
   console.log(`    would auto-accept: ${separated} of ${genuine.length} (${pct(separated / genuine.length)})`);
