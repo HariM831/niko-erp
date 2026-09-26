@@ -252,6 +252,7 @@ function TodayTab({ term, criteria }: { term: string; criteria: Criteria }) {
 /* ── Exceptions ────────────────────────────────────────────────────────── */
 function ExceptionsTab({ term, criteria }: { term: string; criteria: Criteria }) {
   const [date, setDate] = useState(istToday());
+  const [addOpen, setAddOpen] = useState(false);
   const exQ = useQuery({
     queryKey: ["canteen", "exceptions", date],
     // The server answers { date, exceptions }; reading only `rows` left this
@@ -299,9 +300,14 @@ function ExceptionsTab({ term, criteria }: { term: string; criteria: Criteria })
 
   return (
     <div>
-      <div className="mb-3 flex items-center gap-2">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <DateInput className="input w-auto" value={date} onChange={(e) => setDate(e.target.value)} />
         <span className="text-[12px] text-gray-500">{rows.length} to review</span>
+        {/* A plate off the paper log — a contractor, a visitor, a phone that
+            was flat. Recorded here or it is never counted at all. */}
+        <button className="btn-secondary ml-auto" onClick={() => setAddOpen(true)}>
+          <Plus size={14} /> Add exception
+        </button>
       </div>
       <div className="table-surface overflow-x-auto">
         {exQ.isLoading ? (
@@ -327,7 +333,94 @@ function ExceptionsTab({ term, criteria }: { term: string; criteria: Criteria })
         )}
         <Pager total={paged.total} offset={paged.offset} onChange={paged.setOffset} />
       </div>
+      {addOpen && (
+        <AddExceptionDialog
+          date={date}
+          onClose={() => setAddOpen(false)}
+          onSaved={() => {
+            setAddOpen(false);
+            void exQ.refetch();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * A guest plate written down by hand. Amino has had this since the canteen
+ * opened; niko could list exceptions and never record one, so a plate served
+ * off the paper log went uncounted and the day's tally was short by it.
+ */
+function AddExceptionDialog({ date, onClose, onSaved }: { date: string; onClose: () => void; onSaved: () => void }) {
+  const { err, setErr, fail } = useErr();
+  const canteensQ = useCanteens();
+  const only = canteensQ.data?.length === 1 ? canteensQ.data[0]!.id : "";
+  const [form, setForm] = useState({ canteenId: "", meal: "" as Meal | "", personName: "", guestParty: "", reason: "" });
+  // One canteen is no question to ask.
+  useEffect(() => {
+    if (only) setForm((f) => (f.canteenId ? f : { ...f, canteenId: only }));
+  }, [only]);
+
+  const save = useMutation({
+    mutationFn: () =>
+      api("/api/canteen/exceptions", {
+        method: "POST",
+        body: {
+          canteenId: form.canteenId,
+          meal: form.meal,
+          personName: form.personName.trim(),
+          mealDate: date,
+          guestParty: form.guestParty.trim() || undefined,
+          reason: form.reason.trim() || undefined,
+        },
+      }),
+    onSuccess: onSaved,
+    onError: fail,
+  });
+  const ready = !!form.canteenId && !!form.meal && !!form.personName.trim();
+
+  return (
+    <Dialog open onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader><DialogTitle>Add exception â {dmy(date)}</DialogTitle></DialogHeader>
+        <ErrorBanner message={err} onClose={() => setErr(null)} />
+        <div className="space-y-3">
+          <Field label="Canteen" required>
+            <SearchSelect
+              value={form.canteenId || null}
+              onChange={(id) => setForm({ ...form, canteenId: id ?? "" })}
+              options={(canteensQ.data ?? []).map((c) => ({ id: c.id, label: c.name, sub: c.code }))}
+              placeholder="Which canteen?"
+            />
+          </Field>
+          <Field label="Meal" required>
+            <SearchSelect
+              value={form.meal || null}
+              onChange={(m) => setForm({ ...form, meal: (m as Meal) ?? "" })}
+              options={MEALS.map((m) => ({ id: m, label: m.charAt(0).toUpperCase() + m.slice(1) }))}
+              placeholder="Which meal?"
+              keepOrder
+            />
+          </Field>
+          <Field label="Guest name" required>
+            <input className="input" value={form.personName} onChange={(e) => setForm({ ...form, personName: e.target.value })} placeholder="Name from the paper log" />
+          </Field>
+          <Field label="Whose guest">
+            <input className="input" value={form.guestParty} onChange={(e) => setForm({ ...form, guestParty: e.target.value })} placeholder="The contractor, the auditor's teamâ¦" />
+          </Field>
+          <Field label="Reason">
+            <input className="input" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} placeholder="e.g. Contractor visit" />
+          </Field>
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <button className="btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="btn-primary" disabled={!ready || save.isPending} onClick={() => save.mutate()}>
+            {save.isPending ? "Recordingâ¦" : "Record exception"}
+          </button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

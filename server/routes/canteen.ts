@@ -6,6 +6,7 @@
  * routes (routes/device.ts) import `checkAttendancePresent` from here so the
  * presence rule is still written once.
  */
+import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import { and, asc, desc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
 import { advancedSearch, matches, type DocumentSearch } from "../services/document-search";
@@ -329,6 +330,57 @@ canteenRouter.get("/exceptions", view, async (req, res) => {
     ].filter(Boolean),
   }));
   res.json({ date, exceptions });
+});
+
+/**
+ * A plate that never went through the counter — a contractor at lunch, a
+ * visitor, a plate written in the paper log while the phone was flat.
+ *
+ * It is recorded as what it is: a guest serving, marked manual by its token,
+ * so the day's count is right and the Exceptions list shows it beside the
+ * plates the gate itself flagged. It carries no employee, because nobody is
+ * eating against their own name here.
+ *
+ * Amino has had this since the canteen opened; niko could only ever list
+ * exceptions, never record one, so a paper-log plate went uncounted.
+ */
+const exceptionBody = z.object({
+  canteenId: z.string().uuid(),
+  meal: z.enum(MEALS),
+  personName: z.string().min(1).max(200),
+  mealDate: z.string().regex(DATE_RE).optional(),
+  reason: z.string().max(500).optional(),
+  /** Whose visitors they were — the contractor, the auditor's team. */
+  guestParty: z.string().max(200).optional(),
+});
+
+canteenRouter.post("/exceptions", manage, validateBody(exceptionBody), async (req, res) => {
+  const b = req.body as z.infer<typeof exceptionBody>;
+  const [canteen] = await db.select({ id: canteens.id }).from(canteens).where(eq(canteens.id, b.canteenId));
+  if (!canteen) return res.status(422).json({ error: "No such canteen" });
+
+  const [row] = await db
+    .insert(canteenServings)
+    .values({
+      // Not from a device, so it mints its own idempotency key; a double-tap
+      // on a slow connection is one plate, as at the counter.
+      clientId: `manual:${randomUUID()}`,
+      canteenId: b.canteenId,
+      mealDate: b.mealDate ?? istToday(),
+      meal: b.meal,
+      employeeId: null,
+      personName: b.personName.trim(),
+      state: "guest",
+      extraPlateKind: "guest",
+      servedAt: new Date(),
+      tokenNumber: `MANUAL-${randomUUID().slice(0, 6).toUpperCase()}`,
+      outsideWindow: false,
+      guestParty: b.guestParty?.trim() || null,
+      reasonText: b.reason?.trim() || null,
+      servedBy: req.session.user!.id,
+    })
+    .returning({ id: canteenServings.id, tokenNumber: canteenServings.tokenNumber });
+  res.status(201).json(row);
 });
 
 /* ── Report ────────────────────────────────────────────────────────────── */
