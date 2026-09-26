@@ -22,7 +22,14 @@ import { unapplyInvoicePayments, voidDispatchForInvoice } from "../services/egg-
 import { advancedSearch, listLimit, quickSearch } from "../services/document-search";
 import { customerPaymentSearch, invoiceSearch } from "../services/search-specs";
 import { getPreferences } from "../services/preferences";
-import { applyCredits, creditsFor, type Application } from "../services/apply-credits";
+import {
+  applyCreditPlan,
+  applyCredits,
+  creditPlanFor,
+  creditsFor,
+  type Application,
+  type PlannedApplication,
+} from "../services/apply-credits";
 import {
   applyDefaultSalesAccounts,
   computeDocumentTotals,
@@ -549,6 +556,56 @@ salesRouter.post(
         applyCredits(tx, "customer", req.params.id!, body.applications),
       );
       res.json(result);
+    } catch (err) {
+      if (err instanceof PostingError) return res.status(422).json({ error: err.message });
+      throw err;
+    }
+  },
+);
+
+/**
+ * Everything spare on a customer's ledger against everything of theirs still
+ * open — the proposal only; this posts nothing.
+ */
+salesRouter.get("/customers/:id/credit-plan", requirePermission("sales", "view"), async (req, res) => {
+  try {
+    res.json(await creditPlanFor("customer", req.params.id!));
+  } catch (err) {
+    if (err instanceof PostingError) return res.status(422).json({ error: err.message });
+    throw err;
+  }
+});
+
+/**
+ * Post that proposal. The client sends back the lines it was shown rather
+ * than asking the server to recompute them, so what is posted is what was on
+ * screen — and if an invoice was paid in the meantime, the per-document guards
+ * refuse the line and the whole party rolls back.
+ */
+salesRouter.post(
+  "/customers/:id/apply-credit-plan",
+  requirePermission("sales", "edit"),
+  validateBody(
+    z.object({
+      plan: z
+        .array(
+          z.object({
+            documentId: z.string().uuid(),
+            documentNumber: z.string(),
+            kind: z.enum(["advance", "credit"]),
+            id: z.string().uuid(),
+            number: z.string(),
+            amount: money,
+          }),
+        )
+        .min(1)
+        .max(500),
+    }),
+  ),
+  async (req, res) => {
+    const body = req.body as { plan: PlannedApplication[] };
+    try {
+      res.json(await db.transaction((tx) => applyCreditPlan(tx, "customer", body.plan)));
     } catch (err) {
       if (err instanceof PostingError) return res.status(422).json({ error: err.message });
       throw err;

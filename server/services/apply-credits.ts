@@ -16,7 +16,7 @@
  * applying one is a reallocation inside AP, and posting anything here would
  * double the entry that exists.
  */
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, inArray } from "drizzle-orm";
 import {
   bills,
   creditNoteApplications,
@@ -302,4 +302,203 @@ async function applyToInvoice(tx: Tx, invoiceId: string, applications: Applicati
     .set({ balanceDue: fromPaise(balanceP), status, updatedAt: new Date() })
     .where(eq(invoices.id, invoice.id));
   return { balanceDue: fromPaise(balanceP), applied: fromPaise(appliedP) };
+}
+
+
+/* ── The whole party at once ───────────────────────────────────────────────
+ *
+ * Applying credits a document at a time is right when you are looking at the
+ * document. It is the wrong shape for clearing a backlog: after the Zoho load
+ * 26 customers and 23 vendors carried money on account against open documents
+ * they plainly settled, and matching them one invoice at a time is sixty
+ * screens of the same decision.
+ *
+ * So: propose the whole party's allocation, oldest credit against oldest
+ * document, show it, and post it only when somebody says so. The proposal is
+ * ARITHMETIC, not judgement — it never guesses which invoice a payment was
+ * "really" for, it just fills the oldest debt first, which is what a ledger
+ * does when nobody says otherwise. Anything it gets wrong is visible before
+ * it is posted, and the per-document dialog is still there for the cases that
+ * need a person.
+ */
+
+/** One open document a party's credit could go against. */
+export interface OpenDocument {
+  id: string;
+  number: string;
+  date: string;
+  /** What is still owed on it before anything here is applied. */
+  balanceDue: string;
+}
+
+/** One line of the proposal: this credit, that much, onto that document. */
+export interface PlannedApplication {
+  documentId: string;
+  documentNumber: string;
+  kind: "advance" | "credit";
+  id: string;
+  number: string;
+  amount: string;
+}
+
+export interface CreditPlan {
+  documents: OpenDocument[];
+  credits: Credit[];
+  /** Oldest credit against oldest document, in the order it would be posted. */
+  plan: PlannedApplication[];
+  /** Totals, so a person can check the arithmetic without adding it up. */
+  totalOwed: string;
+  totalAvailable: string;
+  totalApplied: string;
+  /** What is left on each side once the plan is posted. */
+  owedAfter: string;
+  availableAfter: string;
+}
+
+/** Everything of this party's that is open, oldest first. */
+async function openDocuments(side: Side, contactId: string): Promise<OpenDocument[]> {
+  if (side === "vendor") {
+    const rows = await db
+      .select({ id: bills.id, number: bills.number, date: bills.billDate, balanceDue: bills.balanceDue })
+      .from(bills)
+      .where(and(eq(bills.vendorId, contactId), inArray(bills.status, ["open", "partially_paid"]), gt(bills.balanceDue, "0")))
+      .orderBy(bills.billDate, bills.number);
+    return rows;
+  }
+  return db
+    .select({ id: invoices.id, number: invoices.number, date: invoices.invoiceDate, balanceDue: invoices.balanceDue })
+    .from(invoices)
+    .where(and(eq(invoices.customerId, contactId), inArray(invoices.status, ["sent", "partially_paid"]), gt(invoices.balanceDue, "0")))
+    .orderBy(invoices.invoiceDate, invoices.number);
+}
+
+/** Everything spare on this party's ledger, oldest first. */
+async function partyCredits(side: Side, contactId: string): Promise<Credit[]> {
+  const [advances, notes] =
+    side === "vendor"
+      ? await Promise.all([
+          db
+            .select({
+              id: vendorPayments.id,
+              number: vendorPayments.number,
+              date: vendorPayments.paymentDate,
+              amount: vendorPayments.amount,
+              available: vendorPayments.unappliedAmount,
+            })
+            .from(vendorPayments)
+            .where(and(eq(vendorPayments.vendorId, contactId), gt(vendorPayments.unappliedAmount, "0"))),
+          db
+            .select({
+              id: vendorCredits.id,
+              number: vendorCredits.number,
+              date: vendorCredits.creditDate,
+              amount: vendorCredits.total,
+              available: vendorCredits.balance,
+            })
+            .from(vendorCredits)
+            .where(and(eq(vendorCredits.vendorId, contactId), eq(vendorCredits.status, "open"), gt(vendorCredits.balance, "0"))),
+        ])
+      : await Promise.all([
+          db
+            .select({
+              id: customerPayments.id,
+              number: customerPayments.number,
+              date: customerPayments.paymentDate,
+              amount: customerPayments.amount,
+              available: customerPayments.unappliedAmount,
+            })
+            .from(customerPayments)
+            .where(and(eq(customerPayments.customerId, contactId), gt(customerPayments.unappliedAmount, "0"))),
+          db
+            .select({
+              id: creditNotes.id,
+              number: creditNotes.number,
+              date: creditNotes.creditNoteDate,
+              amount: creditNotes.total,
+              available: creditNotes.balance,
+            })
+            .from(creditNotes)
+            .where(and(eq(creditNotes.customerId, contactId), eq(creditNotes.status, "open"), gt(creditNotes.balance, "0"))),
+        ]);
+
+  return [
+    ...advances.map((a) => ({ ...a, kind: "advance" as const })),
+    ...notes.map((n) => ({ ...n, kind: "credit" as const })),
+  ].sort((a, b) => a.date.localeCompare(b.date) || a.number.localeCompare(b.number));
+}
+
+/**
+ * What applying this party's credit would do, without doing any of it.
+ */
+export async function creditPlanFor(side: Side, contactId: string): Promise<CreditPlan> {
+  const [documents, credits] = await Promise.all([openDocuments(side, contactId), partyCredits(side, contactId)]);
+
+  // Paise throughout: allocating in rupees leaves a stray paisa on a document
+  // that then cannot be closed.
+  const left = credits.map((c) => ({ c, leftP: toPaise(c.available) }));
+  const plan: PlannedApplication[] = [];
+  let appliedP = 0;
+
+  for (const doc of documents) {
+    let needP = toPaise(doc.balanceDue);
+    for (const entry of left) {
+      if (needP === 0) break;
+      if (entry.leftP === 0) continue;
+      const takeP = Math.min(needP, entry.leftP);
+      plan.push({
+        documentId: doc.id,
+        documentNumber: doc.number,
+        kind: entry.c.kind,
+        id: entry.c.id,
+        number: entry.c.number,
+        amount: fromPaise(takeP),
+      });
+      entry.leftP -= takeP;
+      needP -= takeP;
+      appliedP += takeP;
+    }
+  }
+
+  const owedP = documents.reduce((s, d) => s + toPaise(d.balanceDue), 0);
+  const availableP = credits.reduce((s, c) => s + toPaise(c.available), 0);
+  return {
+    documents,
+    credits,
+    plan,
+    totalOwed: fromPaise(owedP),
+    totalAvailable: fromPaise(availableP),
+    totalApplied: fromPaise(appliedP),
+    owedAfter: fromPaise(owedP - appliedP),
+    availableAfter: fromPaise(availableP - appliedP),
+  };
+}
+
+/**
+ * Post a plan, in one transaction.
+ *
+ * The lines are grouped back onto their documents and handed to the same
+ * per-document path the dialog uses, so every guard it enforces — the credit
+ * belongs to this party, the document is still open, nothing exceeds what is
+ * available — is enforced here too. One bad line rolls the whole party back.
+ */
+export async function applyCreditPlan(
+  tx: Tx,
+  side: Side,
+  lines: PlannedApplication[],
+): Promise<{ documents: number; applied: string }> {
+  if (!lines.length) throw new PostingError("Nothing chosen to apply");
+
+  const byDocument = new Map<string, Application[]>();
+  for (const l of lines) {
+    const list = byDocument.get(l.documentId) ?? [];
+    list.push({ kind: l.kind, id: l.id, amount: l.amount });
+    byDocument.set(l.documentId, list);
+  }
+
+  let appliedP = 0;
+  for (const [documentId, applications] of byDocument) {
+    const out = await applyCredits(tx, side, documentId, applications);
+    appliedP += toPaise(out.applied);
+  }
+  return { documents: byDocument.size, applied: fromPaise(appliedP) };
 }

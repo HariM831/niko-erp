@@ -5,6 +5,7 @@ import { api, formatDate, formatMoney } from "../api";
 import { CustomFieldsDisplay } from "../components/custom-fields";
 import { StatusBadge } from "../components/list-page";
 import { CommentsTimeline } from "../components/comments";
+import { ApplyCreditPlanDialog, useCreditPlan } from "../components/apply-credit-plan";
 import { AttachmentsButton } from "../components/attachments";
 import { billNo, localYmd } from "../lib/utils";
 import { useSearchContext } from "../components/search-context";
@@ -134,12 +135,60 @@ interface DocRow {
 
 type Tab = "overview" | "comments" | "transactions" | "statement";
 
+/**
+ * Fetch the party's proposal, then show it. Split out so the query only runs
+ * when somebody asks for it: a contact page opens hundreds of times a day and
+ * almost none of them are clearing credits.
+ */
+function CreditPlanGate({
+  side,
+  contact,
+  onClose,
+}: {
+  side: "customer" | "vendor";
+  contact: Contact;
+  onClose: () => void;
+}) {
+  const { data, isLoading, error } = useCreditPlan(side, contact.id, true);
+  if (isLoading)
+    return (
+      <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 px-3 py-8">
+        <div className="rounded-lg bg-white px-6 py-4 text-[13px] text-gray-600 shadow-xl">Reading the ledger…</div>
+      </div>
+    );
+  if (error || !data)
+    return (
+      <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 px-3 py-8" onClick={onClose}>
+        <div className="rounded-lg bg-white px-6 py-4 text-[13px] text-red-600 shadow-xl">
+          {error instanceof Error ? error.message : "Could not read the ledger"}
+        </div>
+      </div>
+    );
+  return (
+    <ApplyCreditPlanDialog
+      side={side}
+      contactId={contact.id}
+      contactName={contact.displayName}
+      plan={data}
+      onClose={onClose}
+      onApplied={onClose}
+    />
+  );
+}
+
 export function ContactDetailPage({ id }: { id: string }) {
   const [location, navigate] = useLocation();
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>("overview");
   const [newTxnOpen, setNewTxnOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  /*
+   * Which side's credits are being cleared, or null. A party that trades both
+   * ways has two ledgers and two answers, so the side is chosen rather than
+   * inferred — clearing what we owe them is not the same act as clearing what
+   * they owe us.
+   */
+  const [creditSide, setCreditSide] = useState<"customer" | "vendor" | null>(null);
 
   const { data: contact, isLoading } = useQuery({
     queryKey: ["contact", id],
@@ -258,7 +307,29 @@ export function ContactDetailPage({ id }: { id: string }) {
                 More ▾
               </button>
               {moreOpen && (
-                <div className="absolute right-0 top-10 z-20 w-44 rounded-lg border bg-white py-1 shadow-lg">
+                <div className="absolute right-0 top-10 z-20 w-56 rounded-lg border bg-white py-1 shadow-lg">
+                  {contact.type !== "vendor" && (
+                    <button
+                      onClick={() => {
+                        setMoreOpen(false);
+                        setCreditSide("customer");
+                      }}
+                      className="block w-full px-3 py-1.5 text-left text-[13px] hover:bg-brand-50"
+                    >
+                      Apply credits{contact.type === "both" ? " (receivables)" : ""}
+                    </button>
+                  )}
+                  {contact.type !== "customer" && (
+                    <button
+                      onClick={() => {
+                        setMoreOpen(false);
+                        setCreditSide("vendor");
+                      }}
+                      className="block w-full px-3 py-1.5 text-left text-[13px] hover:bg-brand-50"
+                    >
+                      Apply credits{contact.type === "both" ? " (payables)" : ""}
+                    </button>
+                  )}
                   <button
                     onClick={() => void toggleActive()}
                     className="block w-full px-3 py-1.5 text-left text-[13px] hover:bg-brand-50"
@@ -284,6 +355,8 @@ export function ContactDetailPage({ id }: { id: string }) {
           ))}
         </nav>
       </header>
+
+      {creditSide && <CreditPlanGate side={creditSide} contact={contact} onClose={() => setCreditSide(null)} />}
 
       <div className="flex-1">
         {tab === "overview" && <OverviewTab contact={contact} summary={summary} isCustomer={isCustomer} navigate={navigate} />}

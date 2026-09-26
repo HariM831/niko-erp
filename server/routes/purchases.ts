@@ -75,7 +75,14 @@ import {
 } from "../services/payment-file";
 import { syncPurchaseRates } from "../services/purchases";
 import { istDate } from "../services/day-resolution";
-import { applyCredits, creditsFor, type Application } from "../services/apply-credits";
+import {
+  applyCreditPlan,
+  applyCredits,
+  creditPlanFor,
+  creditsFor,
+  type Application,
+  type PlannedApplication,
+} from "../services/apply-credits";
 
 export const purchasesRouter = Router();
 
@@ -854,6 +861,55 @@ purchasesRouter.post(
         applyCredits(tx, "vendor", req.params.id!, body.applications),
       );
       res.json(result);
+    } catch (err) {
+      if (!handlePostingError(err, res)) throw err;
+    }
+  },
+);
+
+
+/**
+ * Everything spare on a vendor's ledger against everything of theirs still
+ * open — the proposal only; this posts nothing.
+ */
+purchasesRouter.get("/vendors/:id/credit-plan", requirePermission("purchases", "view"), async (req, res) => {
+  try {
+    res.json(await creditPlanFor("vendor", req.params.id!));
+  } catch (err) {
+    if (!handlePostingError(err, res)) throw err;
+  }
+});
+
+/**
+ * Post that proposal. The client sends back the lines it was shown rather
+ * than asking the server to recompute them, so what is posted is what was on
+ * screen — and if a bill was paid in the meantime, the per-document guards
+ * refuse the line and the whole party rolls back.
+ */
+purchasesRouter.post(
+  "/vendors/:id/apply-credit-plan",
+  requirePermission("purchases", "edit"),
+  validateBody(
+    z.object({
+      plan: z
+        .array(
+          z.object({
+            documentId: z.string().uuid(),
+            documentNumber: z.string(),
+            kind: z.enum(["advance", "credit"]),
+            id: z.string().uuid(),
+            number: z.string(),
+            amount: money,
+          }),
+        )
+        .min(1)
+        .max(500),
+    }),
+  ),
+  async (req, res) => {
+    const body = req.body as { plan: PlannedApplication[] };
+    try {
+      res.json(await db.transaction((tx) => applyCreditPlan(tx, "vendor", body.plan)));
     } catch (err) {
       if (!handlePostingError(err, res)) throw err;
     }
