@@ -60,13 +60,25 @@ contactInsightsRouter.get(
       .select({ unused: sql<string>`COALESCE(SUM(${vendorCredits.balance}), 0)::numeric(14,2)` })
       .from(vendorCredits)
       .where(and(eq(vendorCredits.vendorId, contact.id), eq(vendorCredits.status, "open")));
+    /**
+     * Money paid ahead and not yet put against a bill. It counts as credit on
+     * this vendor exactly as an open credit note does — the customer side has
+     * always counted its advances, and leaving them out here said ₹0 unused
+     * while three payments held ₹1,70,600 between them.
+     */
+    const [vAdvances] = await db
+      .select({
+        unapplied: sql<string>`COALESCE(SUM(${vendorPayments.unappliedAmount}), 0)::numeric(14,2)`,
+      })
+      .from(vendorPayments)
+      .where(eq(vendorPayments.vendorId, contact.id));
 
     const receivable = inv?.outstanding ?? "0.00";
     const receivableCredits = (
       Number(credits?.unused ?? 0) + Number(advances?.unapplied ?? 0)
     ).toFixed(2);
     const payable = billAgg?.outstanding ?? "0.00";
-    const payableCredits = vc?.unused ?? "0.00";
+    const payableCredits = (Number(vc?.unused ?? 0) + Number(vAdvances?.unapplied ?? 0)).toFixed(2);
 
     res.json({
       // `outstanding` keeps its old meaning, so the existing page is undisturbed.
