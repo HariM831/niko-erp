@@ -1065,7 +1065,8 @@ payrollRouter.post("/punches", gatePerm, validateBody(punchBody), async (req, re
           );
         }
         // A scan the gate matched has already proved it looks like its owner.
-        teach = verdict ? (b.method === "manual" ? verdict.teach : !verdict.lookalike) : false;
+        // Nor is it learned when a stranger contests it, even short of a lookalike.
+        teach = verdict ? (b.method === "manual" ? verdict.teach : !verdict.contested) : false;
       }
       const today = istDate();
       const [last] = await tx

@@ -26,7 +26,7 @@
  * is served and what is stored cannot drift apart and leave the gate matching
  * against vectors that are about to be deleted.
  */
-import { FACE_DIM, MATCH_MARGIN, MATCH_THRESHOLD, TEACH_OWN_FLOOR } from "@shared/face";
+import { FACE_DIM, LOOKALIKE_THRESHOLD, MATCH_MARGIN, MATCH_THRESHOLD, TEACH_OWN_FLOOR } from "@shared/face";
 import { isNotNull, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db";
 import { punches } from "@shared/schema";
@@ -181,8 +181,14 @@ const cosine = (a: number[], b: number[]): number => {
 export interface CaptureVerdict {
   /** Best score against the gallery of the person the capture is filed under. */
   ownScore: number;
-  /** Somebody else this face clearly is, if there is one. */
+  /** Somebody else this face clearly is, if there is one: refuse the punch. */
   lookalike: { id: string; name: string; empCode: string; score: number } | null;
+  /**
+   * A stranger scores as a match would against this capture — over the gate's
+   * threshold and clear of the owner by its margin — without reaching
+   * lookalike. Not enough to refuse a punch; enough to learn nothing from it.
+   */
+  contested: boolean;
   /** Whether the capture may join that person's gallery. */
   teach: boolean;
 }
@@ -192,8 +198,10 @@ export interface CaptureVerdict {
  * one person.
  *
  * Two ways a capture is wrong for the name beside it. It can be somebody else:
- * another person scores as a match would — over the threshold, and clear of the
- * picked person by the same margin the gate demands of a match. Or it can be
+ * another person scores clearly above what chance produces (LOOKALIKE_THRESHOLD)
+ * and clear of the picked person by the gate's margin — that refuses the punch.
+ * A stranger merely over the gate's own threshold is contested: the punch
+ * stands, but nothing is learned from it. Or it can be
  * nobody: a face that resembles no one strongly passes that test untouched, and
  * learned under the picked name it starts that person's gallery drifting toward
  * a stranger. So it must also look at least somewhat like its owner.
@@ -217,6 +225,7 @@ export async function judgeCapture(conn: Conn, selectedId: string, embedding: nu
     if (p.id === selectedId) ownScore = score;
     else if (!best || score > best.score) best = { id: p.id, name: p.name, empCode: p.emp_code, score };
   }
-  const lookalike = best && best.score >= MATCH_THRESHOLD && best.score - ownScore >= MATCH_MARGIN ? best : null;
-  return { ownScore, lookalike, teach: !lookalike && ownScore >= TEACH_OWN_FLOOR };
+  const contested = !!best && best.score >= MATCH_THRESHOLD && best.score - ownScore >= MATCH_MARGIN;
+  const lookalike = contested && best!.score >= LOOKALIKE_THRESHOLD ? best : null;
+  return { ownScore, lookalike, contested, teach: !contested && ownScore >= TEACH_OWN_FLOOR };
 }

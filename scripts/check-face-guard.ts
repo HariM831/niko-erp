@@ -19,7 +19,7 @@
  */
 import { inArray, sql } from "drizzle-orm";
 import { employees, punches, users } from "@shared/schema";
-import { FACE_DIM, MATCH_MARGIN, MATCH_THRESHOLD, TEACH_OWN_FLOOR } from "@shared/face";
+import { FACE_DIM, LOOKALIKE_THRESHOLD, MATCH_MARGIN, MATCH_THRESHOLD, TEACH_OWN_FLOOR } from "@shared/face";
 import { db } from "../server/db";
 import { isUsableEmbedding, judgeCapture, roundEmbedding } from "../server/services/face-gallery";
 import { istDate } from "../server/services/day-resolution";
@@ -90,6 +90,19 @@ try {
 
     v = await judgeCapture(tx, bare.id, stranger);
     ok("someone with no face on file is never taught by hand", !v.teach && v.ownScore === 0);
+
+    // The manual punch's usual case: the scan failed, so B's own photo scores
+    // low, and some stranger sits at the level chance produces on a big roster.
+    // 26 Sep 2026: Debajit Bora refused as the 34th-closest face on the roster.
+    const face = (own: number, toA: number) => {
+      const rest = Math.sqrt(1 - own * own - toA * toA);
+      return B.map((v, k) => own * v + toA * A[k]! + rest * axis(3)[k]!);
+    };
+    v = await judgeCapture(tx, b.id, face(0.55, 0.65));
+    ok("a weak photo of B with A at chance level is not called A's", v.lookalike === null, `own 0.55, A 0.65 < ${LOOKALIKE_THRESHOLD}`);
+    ok("…and is punched untaught, because A contests it", v.contested && !v.teach);
+    v = await judgeCapture(tx, b.id, face(0.55, 0.75));
+    ok("a stranger at a real resemblance is still named", v.lookalike?.id === a.id && !v.teach, `A ${v.lookalike?.score.toFixed(2) ?? "—"}`);
 
     // B has changed since enrolment; the gate has taught itself his new look.
     // A capture of that look is B's, though it is far from his enrolment photo.
