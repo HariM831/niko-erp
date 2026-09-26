@@ -44,7 +44,7 @@
  */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import {
   advanceRepayments,
   advances,
@@ -514,21 +514,49 @@ await db.transaction(async (tx) => {
     canteenCount++;
   }
 
+  /*
+   * A meal has ONE window. niko seeds its own, Amino has its own, and
+   * inserting on Amino's id put both in the table — with the global rows
+   * carrying canteen_id NULL, which the unique index counts as different
+   * every time. The winner was then whichever row the query read last, and
+   * half the farm's lunches came out "outside their hours".
+   *
+   * So the window is matched on what makes it unique — the canteen and the
+   * meal — and updated where it already exists. niko's hours win unless
+   * Amino's differ, in which case the difference is reported rather than
+   * applied: which hours the counter keeps is the farm's decision, not an
+   * import's.
+   */
   let windowCount = 0;
   for (const w of D.canteen_meal_windows ?? []) {
-    const done = await tx
-      .insert(canteenMealWindows)
-      .values({
-        id: String(w.id),
-        canteenId: w.canteen_id ? (canteenId.get(String(w.canteen_id)) ?? null) : null,
-        meal: String(w.meal) as "breakfast",
-        startTime: String(w.start_time),
-        endTime: String(w.end_time),
-        isActive: w.is_active !== false,
-      })
-      .onConflictDoNothing()
-      .returning({ id: canteenMealWindows.id });
-    windowCount += done.length;
+    const canteen = w.canteen_id ? (canteenId.get(String(w.canteen_id)) ?? null) : null;
+    const meal = String(w.meal) as "breakfast";
+    const [existing] = await tx
+      .select({ id: canteenMealWindows.id, startTime: canteenMealWindows.startTime, endTime: canteenMealWindows.endTime })
+      .from(canteenMealWindows)
+      .where(
+        and(
+          eq(canteenMealWindows.meal, meal),
+          canteen ? eq(canteenMealWindows.canteenId, canteen) : isNull(canteenMealWindows.canteenId),
+        ),
+      );
+    if (existing) {
+      if (existing.startTime !== String(w.start_time) || existing.endTime !== String(w.end_time)) {
+        problem(
+          `${meal} window: niko keeps ${existing.startTime}–${existing.endTime}, Amino had ${w.start_time}–${w.end_time} — left as niko has it`,
+        );
+      }
+      continue;
+    }
+    await tx.insert(canteenMealWindows).values({
+      id: String(w.id),
+      canteenId: canteen,
+      meal,
+      startTime: String(w.start_time),
+      endTime: String(w.end_time),
+      isActive: w.is_active !== false,
+    });
+    windowCount++;
   }
 
   let eligibleCount = 0;

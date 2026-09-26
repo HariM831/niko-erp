@@ -743,6 +743,13 @@
       "when": 1790399507058,
       "tag": "0102_payroll_wages_right",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1790408097162,
+      "tag": "0103_meal_windows_one_per_meal",
+      "breakpoints": true
     }
   ]
 }
