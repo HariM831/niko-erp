@@ -300,11 +300,16 @@ export async function editPurchaseOrder(tx: Tx, orderId: string, body: PurchaseO
         .innerJoin(officeReceipts, eq(officeReceipts.id, officeReceiptLines.receiptId))
         .where(inArray(officeReceiptLines.poLineId, dropped.map((l) => l.id)));
       if (used.length) {
+        // One sentence per line, naming every truck matched to it.
+        const byLine = new Map<string, string[]>();
+        for (const u of used) byLine.set(u.poLineId!, [...(byLine.get(u.poLineId!) ?? []), `${u.number} (${u.vehicle})`]);
         const names = new Map(dropped.map((l) => [l.id, l.name]));
         throw new PostingError(
-          used
-            .map((u) => `"${names.get(u.poLineId!)}" cannot be removed: goods receipt ${u.number} (${u.vehicle}) was matched to it`)
-            .join("; "),
+          [...byLine]
+            .map(([lineId, trucks]) =>
+              `"${names.get(lineId)}" cannot be removed: ${trucks.length === 1 ? "goods receipt" : "goods receipts"} ${trucks.join(", ")} ${trucks.length === 1 ? "was" : "were"} matched to it`,
+            )
+            .join(". "),
         );
       }
       await tx.delete(purchaseOrderLines).where(inArray(purchaseOrderLines.id, dropped.map((l) => l.id)));
