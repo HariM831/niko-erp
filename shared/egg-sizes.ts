@@ -6,7 +6,7 @@
  * by colour, niko is a pack of its own. Each size has one column on every
  * per-size table, one stock item, and one heading on the sheet.
  */
-export const EGG_SIZES = ["small", "medium", "large", "xl", "jumbo", "brown", "niko"] as const;
+export const EGG_SIZES = ["small", "medium", "large", "xl", "jumbo", "brown", "niko", "dirty"] as const;
 export type EggSize = (typeof EGG_SIZES)[number];
 
 export const EGG_SIZE_LABEL: Record<EggSize, string> = {
@@ -17,6 +17,7 @@ export const EGG_SIZE_LABEL: Record<EggSize, string> = {
   jumbo: "Jumbo",
   brown: "Brown",
   niko: "Niko",
+  dirty: "Dirty",
 };
 
 /**
@@ -32,6 +33,7 @@ export const EGG_SIZE_SHORT: Record<EggSize, string> = {
   jumbo: "J",
   brown: "Br",
   niko: "N",
+  dirty: "D",
 };
 
 /**
@@ -49,5 +51,10 @@ export const VISIBLE_EGG_SIZES = EGG_SIZES.filter((s) => !HIDDEN_EGG_SIZES.inclu
  * the benchmark, the size differentials or the customer's spread. Everything
  * else is priced per egg as benchmark + differential + spread.
  */
-export const DIRECT_RATE_SIZES: readonly EggSize[] = ["niko"];
+/**
+ * Sold at a fixed rate per box, never off the benchmark: Niko ("a direct box
+ * rate nothing to do with benchmark", 13 Sep 2026), and Brown at ₹8 an egg,
+ * ₹1,680 a box of 210 (27 Sep 2026: "make brown a fixed rate grade").
+ */
+export const DIRECT_RATE_SIZES: readonly EggSize[] = ["niko", "brown"];
 export const isDirectRate = (s: EggSize) => DIRECT_RATE_SIZES.includes(s);

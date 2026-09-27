@@ -67,6 +67,7 @@ interface Dispatch {
   loadedJumbo: number;
   loadedBrown: number;
   loadedNiko: number;
+  loadedDirty: number;
 }
 
 interface Customer {
@@ -87,6 +88,7 @@ const LOADED_FIELD: Record<EggSize, keyof Dispatch> = {
   jumbo: "loadedJumbo",
   brown: "loadedBrown",
   niko: "loadedNiko",
+  dirty: "loadedDirty",
 };
 const loadedOf = (d: Dispatch, z: EggSize) => Number(d[LOADED_FIELD[z]] ?? 0) || 0;
 

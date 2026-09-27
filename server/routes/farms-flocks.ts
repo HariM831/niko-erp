@@ -858,7 +858,7 @@ farmsFlockRouter.get("/daily/sensor", view, async (req, res) => {
    * Niko box 360 where the rest hold 210.
    */
   const graded = await db.execute(sql`
-    SELECT small, medium, large, xl, jumbo, brown, niko
+    SELECT small, medium, large, xl, jumbo, brown, niko, dirty
       FROM egg_grading WHERE house_id = ${houseId}::uuid AND graded_on = ${day}
   `);
   const g = graded.rows[0] as Record<string, number> | undefined;

@@ -259,6 +259,7 @@ export async function dayOrders(tx: Conn, on: string): Promise<DayOrderLine[]> {
       jumbo: eggSpotOrders.jumbo,
       brown: eggSpotOrders.brown,
       niko: eggSpotOrders.niko,
+      dirty: eggSpotOrders.dirty,
       spreadPerEgg: eggSpotOrders.spreadPerEgg,
       notes: eggSpotOrders.notes,
       status: eggSpotOrders.status,
@@ -276,7 +277,7 @@ export async function dayOrders(tx: Conn, on: string): Promise<DayOrderLine[]> {
       invoiceId: eggDispatches.invoiceId,
       invoiceNumber: invoices.number,
       status: eggDispatches.status,
-      loadedBoxes: sql<number>`${eggDispatches.loadedSmall} + ${eggDispatches.loadedMedium} + ${eggDispatches.loadedLarge} + ${eggDispatches.loadedXl} + ${eggDispatches.loadedJumbo} + ${eggDispatches.loadedBrown} + ${eggDispatches.loadedNiko}`,
+      loadedBoxes: sql<number>`${eggDispatches.loadedSmall} + ${eggDispatches.loadedMedium} + ${eggDispatches.loadedLarge} + ${eggDispatches.loadedXl} + ${eggDispatches.loadedJumbo} + ${eggDispatches.loadedBrown} + ${eggDispatches.loadedNiko} + ${eggDispatches.loadedDirty}`,
     })
     .from(eggDispatches)
     .innerJoin(invoices, eq(invoices.id, eggDispatches.invoiceId))
@@ -531,6 +532,7 @@ export async function saveGrading(tx: Tx, input: GradingInput, userId: string) {
       jumbo: qty("jumbo"),
       brown: qty("brown"),
       niko: qty("niko"),
+      dirty: qty("dirty"),
       recordedBy: userId,
     })
     .onConflictDoUpdate({
@@ -543,6 +545,7 @@ export async function saveGrading(tx: Tx, input: GradingInput, userId: string) {
         jumbo: qty("jumbo"),
         brown: qty("brown"),
         niko: qty("niko"),
+        dirty: qty("dirty"),
         recordedBy: userId,
         updatedAt: new Date(),
       },
@@ -583,7 +586,7 @@ export async function gradedBoxesByDay(tx: Conn, from: string, to: string) {
   const rows = await tx
     .select({
       day: eggGrading.gradedOn,
-      boxes: sql<string>`sum(${eggGrading.small} + ${eggGrading.medium} + ${eggGrading.large} + ${eggGrading.xl} + ${eggGrading.jumbo} + ${eggGrading.brown} + ${eggGrading.niko})`,
+      boxes: sql<string>`sum(${eggGrading.small} + ${eggGrading.medium} + ${eggGrading.large} + ${eggGrading.xl} + ${eggGrading.jumbo} + ${eggGrading.brown} + ${eggGrading.niko} + ${eggGrading.dirty})`,
     })
     .from(eggGrading)
     .where(and(gte(eggGrading.gradedOn, from), lte(eggGrading.gradedOn, to)))
@@ -600,7 +603,7 @@ export async function expectedGradedBoxesPerDay(tx: Conn): Promise<number | null
   const rows = await tx
     .select({
       day: eggGrading.gradedOn,
-      boxes: sql<string>`sum(${eggGrading.small} + ${eggGrading.medium} + ${eggGrading.large} + ${eggGrading.xl} + ${eggGrading.jumbo} + ${eggGrading.brown} + ${eggGrading.niko})`,
+      boxes: sql<string>`sum(${eggGrading.small} + ${eggGrading.medium} + ${eggGrading.large} + ${eggGrading.xl} + ${eggGrading.jumbo} + ${eggGrading.brown} + ${eggGrading.niko} + ${eggGrading.dirty})`,
     })
     .from(eggGrading)
     .groupBy(eggGrading.gradedOn)
@@ -848,6 +851,7 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
         jumbo: qty("jumbo"),
         brown: qty("brown"),
         niko: qty("niko"),
+        dirty: qty("dirty"),
         notes: "Walk-in, booked at the bay",
         createdBy: userId,
       })
@@ -970,6 +974,7 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
       loadedJumbo: qty("jumbo"),
       loadedBrown: qty("brown"),
       loadedNiko: qty("niko"),
+      loadedDirty: qty("dirty"),
       driverName: input.driverName.trim(),
       vehicleNumber: input.vehicleNumber.trim(),
       notes: input.notes?.trim() || null,

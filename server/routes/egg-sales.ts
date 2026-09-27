@@ -880,6 +880,7 @@ eggSalesRouter.get("/dispatches/:date", view, async (req, res) => {
       loadedJumbo: eggDispatches.loadedJumbo,
       loadedBrown: eggDispatches.loadedBrown,
       loadedNiko: eggDispatches.loadedNiko,
+      loadedDirty: eggDispatches.loadedDirty,
       createdAt: eggDispatches.createdAt,
     })
     .from(eggDispatches)

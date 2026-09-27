@@ -926,8 +926,8 @@ export interface RawEggSheet {
 }
 
 /** The grades the sheet can name. Kept in step with EGG_SIZES by the route. */
-export type SheetGrade = "small" | "medium" | "large" | "xl" | "jumbo" | "brown" | "niko";
-export const SHEET_GRADES: SheetGrade[] = ["small", "medium", "large", "xl", "jumbo", "brown", "niko"];
+export type SheetGrade = "small" | "medium" | "large" | "xl" | "jumbo" | "brown" | "niko" | "dirty";
+export const SHEET_GRADES: SheetGrade[] = ["small", "medium", "large", "xl", "jumbo", "brown", "niko", "dirty"];
 
 export interface ExtractedEggSheet {
   dateRaw: string | null;
@@ -999,6 +999,7 @@ export function gradeOfHeader(header: string | null): SheetGrade | null {
   if (!h) return null;
   if (h.includes("brown")) return "brown";
   if (h.includes("niko")) return "niko";
+  if (h.includes("dirty")) return "dirty";
   if (h.includes("jumbo")) return "jumbo";
   if (h.includes("extra") || h === "xl" || h.endsWith("xl")) return "xl";
   if (h.includes("large")) return "large";

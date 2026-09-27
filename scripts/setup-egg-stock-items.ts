@@ -35,6 +35,7 @@ const MAP: Array<[size: string, itemName: string]> = [
   ["jumbo", "Egg's Jumbo"],
   ["brown", "Eggs — Brown"],
   ["niko", "Eggs — Niko"],
+  ["dirty", "Eggs — Dirty"],
 ];
 
 /** Zoho never had these; niko still has to count them (migration 0094). */

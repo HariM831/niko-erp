@@ -113,6 +113,7 @@ export const eggSpotOrders = pgTable(
     brown: integer("brown").notNull().default(0),
     /** The Niko pack: 360 to the box. */
     niko: integer("niko").notNull().default(0),
+    dirty: integer("dirty").notNull().default(0),
     /** Null means: the customer's standing spread if they have one, else zero. */
     spreadPerEgg: numeric("spread_per_egg", { precision: 10, scale: 4 }),
     notes: text("notes"),
@@ -143,6 +144,7 @@ export const eggSizeOffsets = pgTable("egg_size_offsets", {
   jumbo: numeric("jumbo", { precision: 10, scale: 4 }).notNull().default("0"),
   brown: numeric("brown", { precision: 10, scale: 4 }).notNull().default("0"),
   niko: numeric("niko", { precision: 10, scale: 4 }).notNull().default("0"),
+  dirty: numeric("dirty", { precision: 10, scale: 4 }).notNull().default("0"),
   createdBy: uuid("created_by").references(() => users.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -171,6 +173,7 @@ export const eggDispatches = pgTable(
     loadedJumbo: integer("loaded_jumbo").notNull().default(0),
     loadedBrown: integer("loaded_brown").notNull().default(0),
     loadedNiko: integer("loaded_niko").notNull().default(0),
+    loadedDirty: integer("loaded_dirty").notNull().default(0),
     driverName: text("driver_name").notNull(),
     vehicleNumber: text("vehicle_number").notNull(),
     notes: text("notes"),
@@ -234,6 +237,7 @@ export const eggGrading = pgTable(
     brown: integer("brown").notNull().default(0),
     /** The Niko pack: 360 to the box. */
     niko: integer("niko").notNull().default(0),
+    dirty: integer("dirty").notNull().default(0),
     recordedBy: uuid("recorded_by")
       .notNull()
       .references(() => users.id),
@@ -268,6 +272,7 @@ export const eggHouseClosing = pgTable(
     brown: integer("brown").notNull().default(0),
     /** The Niko pack: 360 to the box. */
     niko: integer("niko").notNull().default(0),
+    dirty: integer("dirty").notNull().default(0),
     recordedBy: uuid("recorded_by")
       .notNull()
       .references(() => users.id),
