@@ -2455,6 +2455,7 @@ payrollRouter.get("/wages/day", wagesPerm, async (req, res) => {
 payrollRouter.patch(
   "/wages/day",
   attendancePerm,
+  wagesPerm,
   validateBody(
     z.object({
       employeeId: z.string().uuid(),
