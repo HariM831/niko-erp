@@ -102,9 +102,11 @@ of 210); Dirty is a grade again.
    Zoho by hand until 1 Oct, or let Zoho stop at 27 Sep for sales?
 3. **Size offsets.** Take Amino's (converted to per-egg), or set your own?
    The export will show Amino's actual figures before anything is written.
-4. **Opening egg stock.** Amino's closing entry for 27 Sep, or a physical
-   count tonight entered on the Egg stock page? And Amino's "dirty" boxes are
-   210 eggs where niko's Niko box is 360 — how is today's Niko stock counted?
+4. ~~Opening egg stock.~~ **Settled 27 Sep: Amino's closing count** — the
+   import runs with `--opening-stock`, which sets each size item's opening
+   balance from Amino's last closing entry (check its date is 27 Sep before
+   applying). Amino counts no Brown or Niko boxes: those two need their own
+   figures.
 5. **Customers Amino has and niko does not.** Create them in niko from Amino's
    record (name, GSTIN, phone, address), or list them for you to add?
 6. **Who loads the trucks,** and which role do they get?
