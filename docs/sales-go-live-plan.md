@@ -98,10 +98,11 @@ of 210); Dirty is a grade again.
 1. ~~Does Amino stop invoicing from tomorrow?~~ **Settled 27 Sep: Amino stops
    invoicing after tonight's export.** From 28 Sep every truck is invoiced in
    niko only.
-2. **Zoho for 28–30 Sep.** niko does not push to Zoho. Keep keying sales into
-   Zoho by hand until 1 Oct, or let Zoho stop at 27 Sep for sales?
-3. **Size offsets.** Take Amino's (converted to per-egg), or set your own?
-   The export will show Amino's actual figures before anything is written.
+2. ~~Zoho for 28–30 Sep.~~ **Settled 27 Sep: no link to Zoho is built.** Zoho
+   is discontinued on 1 Oct as planned; for 28–30 Sep anything Zoho should
+   still have is keyed by hand, as parallel entry has done for bills.
+3. ~~Size offsets.~~ **Settled 27 Sep: your own**, per egg over VIJ — Small
+   0.50, Medium 0.75, Large 1.00, Jumbo 1.85; Dirty's still to come.
 4. ~~Opening egg stock.~~ **Settled 27 Sep: Amino's closing count** — the
    import runs with `--opening-stock`, which sets each size item's opening
    balance from Amino's last closing entry (check its date is 27 Sep before
