@@ -19,9 +19,9 @@
  *   - it is inside GALLERY_MAX_AGE_DAYS (older would be pruned tonight);
  *   - it is a usable 1024-float vector from the same model (the file's stamp
  *     is checked, and the whole file refused on any other);
- *   - it looks enough like its owner's enrolment (TEACH_OWN_FLOOR) and no one
+ *   - it looks enough like its owner (TEACH_OWN_FLOOR) and no one
  *     else contests it — the same rule the gate applies before it learns
- *     (judgeCapture), scored here against the enrolments, so a capture Amino
+ *     (judgeCapture), scored against each gallery as it will stand, so one Amino
  *     filed under the wrong person is not carried across to go on misleading.
  *
  * Dry by default. `--apply` writes, in one transaction.
@@ -34,7 +34,7 @@ import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { employees, punches } from "@shared/schema";
 import { FACE_DIM, MATCH_MARGIN, MATCH_THRESHOLD, TEACH_OWN_FLOOR } from "@shared/face";
 import { db, pool } from "../server/db";
-import { GALLERY_MAX_AGE_DAYS, isUsableEmbedding, roundEmbedding } from "../server/services/face-gallery";
+import { GALLERY_MAX_AGE_DAYS, isUsableEmbedding, roundEmbedding, taughtCapturesByEmployee } from "../server/services/face-gallery";
 import { istDaysAgo } from "../server/services/day-resolution";
 
 const KNOWN_MODEL = "@vladmandic/human@3.3.5 faceres";
@@ -92,7 +92,8 @@ try {
       for (const r of rows) found.set(r.id, { employeeId: r.employeeId, method: r.method, has: r.emb != null, punchDate: r.punchDate });
     }
 
-    const perPerson = new Map<string, number>();
+    // Pass 1: which captures could be attached at all.
+    const candidates: Array<{ c: Capture; owner: (typeof enrolled)[number]; u: number[] }> = [];
     for (const c of exp.captures) {
       if (!isUsableEmbedding(c.embedding)) { tally.notVector++; continue; }
       const p = found.get(c.punchId);
@@ -102,14 +103,40 @@ try {
       if (p.has) { tally.alreadyHas++; continue; }
       const owner = byId.get(p.employeeId);
       if (!owner) { tally.noEnrolment++; continue; }
+      candidates.push({ c, owner, u: unit(c.embedding) });
+    }
 
-      const u = unit(c.embedding);
-      const own = dot(u, owner.u);
+    /**
+     * Each person's gallery as the gate would hold it after the import: the
+     * enrolment, what niko has already learned, and Amino's captures. A capture
+     * is judged against that, not the enrolment alone — the same way the gate
+     * judges (judgeCapture) and the way Amino's own matcher accepted it. Scored
+     * against the enrolment alone, the people Amino's learning helped most
+     * (a weak enrolment photo, good captures) had their captures thrown out
+     * for not looking enough like the photo that never suited them.
+     */
+    const gallery = new Map<string, Array<{ u: number[]; punchId: string | null }>>();
+    for (const e of enrolled) gallery.set(e.id, [{ u: e.u, punchId: null }]);
+    for (const [id, vs] of await taughtCapturesByEmployee(tx)) {
+      for (const v of vs) if (isUsableEmbedding(v)) gallery.get(id)?.push({ u: unit(v), punchId: null });
+    }
+    for (const k of candidates) gallery.get(k.owner.id)!.push({ u: k.u, punchId: k.c.punchId });
+
+    // Pass 2: the gate's rule, against those galleries.
+    const perPerson = new Map<string, number>();
+    for (const { c, owner, u } of candidates) {
+      let own = -1;
+      for (const g of gallery.get(owner.id)!) if (g.punchId !== c.punchId) own = Math.max(own, dot(u, g.u));
       let best = { s: -1, name: "" };
-      for (const e of enrolled) if (e.id !== owner.id) { const s = dot(u, e.u); if (s > best.s) best = { s, name: e.name }; }
+      for (const e of enrolled) {
+        if (e.id === owner.id) continue;
+        let s = -1;
+        for (const g of gallery.get(e.id)!) s = Math.max(s, dot(u, g.u));
+        if (s > best.s) best = { s, name: e.name };
+      }
       if (own < TEACH_OWN_FLOOR) {
         tally.notOwner++;
-        if (rejectedExamples.length < 10) rejectedExamples.push(`${owner.name} ${c.punchDate}: only ${(own * 100).toFixed(0)}% like their enrolment`);
+        if (rejectedExamples.length < 10) rejectedExamples.push(`${owner.name} ${c.punchDate}: only ${(own * 100).toFixed(0)}% like their own gallery`);
         continue;
       }
       if (best.s >= MATCH_THRESHOLD && best.s - own >= MATCH_MARGIN) {
