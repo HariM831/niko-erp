@@ -169,7 +169,7 @@ export const NAV: NavItem[] = [
       { label: "Batches", path: "/farms/batches", perm: ["farms", "view"] },
       /* The packing room's day sheet: graded boxes per shed per size. Stock
          is one pool per size; the shed is a fact about the entry only. */
-      { label: "Egg stock", path: "/farms/egg-stock", perm: ["farms", "view"] },
+      { label: "Egg stock", path: "/farms/egg-stock", perm: ["farms", "egg_stock"] },
       /* The same core inventory, seen and handled at the farm gate. */
       { label: "Farm store", path: "/farms/store", perm: ["farms", "view"] },
       /* Field photos sent for a model's first opinion, with the flock record. */

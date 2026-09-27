@@ -22,7 +22,7 @@ import {
 } from "@shared/schema";
 import { db } from "../db";
 import { latestForecast } from "../services/egg-price-forecast";
-import { requirePermission } from "../lib/rbac";
+import { requireAnyPermission, requirePermission } from "../lib/rbac";
 import { looseNumber, validateBody } from "../lib/validate";
 import { DIRECT_RATE_SIZES, EGG_SIZE_LABEL, HIDDEN_EGG_SIZES, type EggSize } from "@shared/egg-sizes";
 import { PostingError } from "../services/posting";
@@ -49,6 +49,15 @@ import {
 export const eggSalesRouter = Router();
 
 const view = requirePermission("sales", "view");
+/**
+ * The Egg stock page — the day's grading and the closing count. Its own right
+ * (farms.egg_stock), so the packing room can enter them without Sales or the
+ * rest of Farms. Reading the day's sheet is also open to Sales, which prices
+ * from it. Saving used to ask for farms.create, which no role could be given:
+ * Farms has no such action, so only a wildcard role could save a count.
+ */
+const eggStockRead = requireAnyPermission([["sales", "view"], ["farms", "egg_stock"]]);
+const eggStockWrite = requirePermission("farms", "egg_stock");
 const create = requirePermission("sales", "create");
 
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -571,7 +580,7 @@ async function stockSummaryOn(on: string) {
 }
 
 /** The sheet for one day: every laying house, what was graded, the evening count, and the stock summary. */
-eggSalesRouter.get("/grading/:date", view, async (req, res) => {
+eggSalesRouter.get("/grading/:date", eggStockRead, async (req, res) => {
   const on = req.params.date!;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(on)) return res.status(400).json({ error: "Bad date" });
   const prefs = await eggPrefs(db);
@@ -678,7 +687,7 @@ const closingBody = z.object({
  * The count is what is on the shelves; the adjustment it posts is the record
  * of the ledger having been wrong by that much.
  */
-eggSalesRouter.post("/closing", requirePermission("farms", "create"), validateBody(closingBody), async (req, res) => {
+eggSalesRouter.post("/closing", eggStockWrite, validateBody(closingBody), async (req, res) => {
   const b = req.body as z.infer<typeof closingBody>;
   try {
     const out = await db.transaction(async (tx) => {
@@ -718,7 +727,7 @@ const gradingBody = z.object({
 });
 
 /** Save the sheet: every row in one transaction, re-stated in place. */
-eggSalesRouter.post("/grading", requirePermission("farms", "create"), validateBody(gradingBody), async (req, res) => {
+eggSalesRouter.post("/grading", eggStockWrite, validateBody(gradingBody), async (req, res) => {
   const b = req.body as z.infer<typeof gradingBody>;
   try {
     await db.transaction(async (tx) => {
@@ -760,7 +769,7 @@ const overSheetReadLimit = (userId: string) => {
  */
 eggSalesRouter.post(
   "/grading/read",
-  requirePermission("farms", "create"),
+  eggStockWrite,
   validateBody(readSheetBody),
   async (req, res) => {
     const apiKey = process.env.GEMINI_API_KEY;

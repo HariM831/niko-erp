@@ -120,7 +120,7 @@ export const APP_PAGES: AppPage[] = [
   // ── Farms ──
   { key: "houses", label: "Houses", path: "/farms", group: "Farms", module: "farms", action: "view" },
   { key: "batches", label: "Batches", path: "/farms/batches", group: "Farms", module: "farms", action: "view" },
-  { key: "egg-stock", label: "Egg stock", path: "/farms/egg-stock", group: "Farms", module: "farms", action: "view" },
+  { key: "egg-stock", label: "Egg stock", path: "/farms/egg-stock", group: "Farms", module: "farms", action: "egg_stock" },
   { key: "farm-store", label: "Farm store", path: "/farms/store", group: "Farms", module: "farms", action: "view" },
   { key: "dr-eggsy", label: "Dr niko", path: "/farms/dr-eggsy", group: "Farms", module: "farms", action: "view" },
   { key: "controls", label: "Controls", path: "/farms/controls", group: "Farms", module: "farms", action: "view" },

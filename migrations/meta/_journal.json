@@ -764,6 +764,13 @@
       "when": 1790425728248,
       "tag": "0105_centred_face_matching",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1790499360336,
+      "tag": "0106_egg_stock_right",
+      "breakpoints": true
     }
   ]
 }

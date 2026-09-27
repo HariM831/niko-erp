@@ -72,6 +72,9 @@ export const PERMISSION_MODULES: PermissionModule[] = [
       { key: "health", label: "Vaccinations and medication" },
       { key: "manage", label: "Houses, breeds and standards" },
       { key: "control", label: "Change shed controller settings" },
+      // Its own right, like the Feed Mill's pages: the packing room enters
+      // the day's grading and closing counts and has no business in the sheds.
+      { key: "egg_stock", label: "Egg stock: grading and closing counts" },
     ],
   },
   {
