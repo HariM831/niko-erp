@@ -30,11 +30,11 @@
  *   npx tsx scripts/import-face-captures-from-amino.ts --file face-captures-for-niko.json --apply
  */
 import { readFile } from "node:fs/promises";
-import { and, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { employees, punches } from "@shared/schema";
 import { FACE_DIM, MATCH_MARGIN, MATCH_THRESHOLD, TEACH_OWN_FLOOR } from "@shared/face";
 import { db, pool } from "../server/db";
-import { GALLERY_MAX_AGE_DAYS, isUsableEmbedding, roundEmbedding, taughtCapturesByEmployee } from "../server/services/face-gallery";
+import { GALLERY_DAYS, GALLERY_MAX_AGE_DAYS, isUsableEmbedding, roundEmbedding, taughtCapturesByEmployee } from "../server/services/face-gallery";
 import { istDaysAgo } from "../server/services/day-resolution";
 
 const KNOWN_MODEL = "@vladmandic/human@3.3.5 faceres";
@@ -65,7 +65,7 @@ const dot = (a: number[], b: number[]) => {
 };
 
 class DryRun extends Error {}
-const tally = { inFile: exp.captures.length, notVector: 0, tooOld: 0, noPunch: 0, notFace: 0, alreadyHas: 0, noEnrolment: 0, notOwner: 0, contested: 0, attached: 0 };
+const tally = { inFile: exp.captures.length, notVector: 0, tooOld: 0, noPunch: 0, notFace: 0, alreadyHas: 0, noEnrolment: 0, notOwner: 0, contested: 0, beyondGallery: 0, attached: 0 };
 const rejectedExamples: string[] = [];
 const cutoff = istDaysAgo(GALLERY_MAX_AGE_DAYS);
 
@@ -124,6 +124,7 @@ try {
 
     // Pass 2: the gate's rule, against those galleries.
     const perPerson = new Map<string, number>();
+    const accepted: Array<{ c: Capture; ownerId: string }> = [];
     for (const { c, owner, u } of candidates) {
       let own = -1;
       for (const g of gallery.get(owner.id)!) if (g.punchId !== c.punchId) own = Math.max(own, dot(u, g.u));
@@ -144,9 +145,33 @@ try {
         if (rejectedExamples.length < 10) rejectedExamples.push(`${owner.name} ${c.punchDate}: ${(own * 100).toFixed(0)}% own, ${best.name} ${(best.s * 100).toFixed(0)}%`);
         continue;
       }
+      accepted.push({ c, ownerId: owner.id });
+    }
+
+    /**
+     * Only what the gallery will serve. It holds each person's newest
+     * GALLERY_DAYS capture-days, and the hourly face job clears the rest — so a
+     * capture from further back would be attached only to be cleared within
+     * the hour. The newest days are counted across what niko already holds
+     * and what is arriving.
+     */
+    const heldDays = new Map<string, Set<string>>();
+    for (const r of (
+      await tx.execute(sql`
+        SELECT DISTINCT employee_id AS "employeeId", punch_date::text AS day
+          FROM punches
+         WHERE face_embedding IS NOT NULL AND punch_date >= ${cutoff}`)
+    ).rows as Array<{ employeeId: string; day: string }>) {
+      heldDays.set(r.employeeId, (heldDays.get(r.employeeId) ?? new Set()).add(r.day));
+    }
+    for (const a of accepted) heldDays.set(a.ownerId, (heldDays.get(a.ownerId) ?? new Set()).add(a.c.punchDate));
+    const servedDays = new Map([...heldDays].map(([id, days]) => [id, new Set([...days].sort().reverse().slice(0, GALLERY_DAYS))]));
+
+    for (const { c, ownerId } of accepted) {
+      if (!servedDays.get(ownerId)?.has(c.punchDate)) { tally.beyondGallery++; continue; }
       await tx.update(punches).set({ faceEmbedding: roundEmbedding(c.embedding) }).where(eq(punches.id, c.punchId));
       tally.attached++;
-      perPerson.set(owner.id, (perPerson.get(owner.id) ?? 0) + 1);
+      perPerson.set(ownerId, (perPerson.get(ownerId) ?? 0) + 1);
     }
 
     /**
@@ -169,6 +194,7 @@ try {
     console.log(`  owner not enrolled  ${tally.noEnrolment}`);
     console.log(`  unlike its owner    ${tally.notOwner}`);
     console.log(`  contested by another ${tally.contested}`);
+    console.log(`  older than the ${GALLERY_DAYS} days served  ${tally.beyondGallery}`);
     if (tally.notVector) console.log(`  not a usable vector ${tally.notVector}`);
     for (const r of rejectedExamples) console.log(`    left out: ${r}`);
     for (const name of ["SANDIP DE", "SUDARSAN BARIK"]) {
