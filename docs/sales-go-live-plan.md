@@ -89,11 +89,15 @@ flow once and rolls back.
 - The day's benchmark (and Niko box rate) each morning, Benchmark page.
 - Loading Bay users: whoever loads trucks needs Sales rights — decision 6.
 
-## Decisions wanted
+## Decisions
 
-1. **Does Amino stop invoicing from tomorrow?** Two systems raising
-   `A-INV-EG-27-` numbers on the same day collide. Recommended: from 28 Sep
-   every truck is invoiced in niko only.
+Settled 27 Sep: Amino's "dirty" maps to niko's Dirty; customers are matched to
+niko's existing contacts, never created; Brown is a fixed box rate (₹1,680 a box
+of 210); Dirty is a grade again.
+
+1. ~~Does Amino stop invoicing from tomorrow?~~ **Settled 27 Sep: Amino stops
+   invoicing after tonight's export.** From 28 Sep every truck is invoiced in
+   niko only.
 2. **Zoho for 28–30 Sep.** niko does not push to Zoho. Keep keying sales into
    Zoho by hand until 1 Oct, or let Zoho stop at 27 Sep for sales?
 3. **Size offsets.** Take Amino's (converted to per-egg), or set your own?
