@@ -149,6 +149,17 @@ try {
       perPerson.set(owner.id, (perPerson.get(owner.id) ?? 0) + 1);
     }
 
+    /**
+     * Tell the gates. A kiosk fetches only who changed since its cursor, and a
+     * person's change time is the later of their row and their newest capture
+     * (payroll.ts /employees/gallery). These captures are dated days before
+     * any kiosk's cursor, so without this the phones would carry on without
+     * them until their cached roster expires, up to a day later.
+     */
+    if (perPerson.size) {
+      await tx.update(employees).set({ updatedAt: new Date() }).where(inArray(employees.id, [...perPerson.keys()]));
+    }
+
     console.log(`\n  Amino captures exported ${exp.exportedAt}: ${tally.inFile}`);
     console.log(`  attached            ${tally.attached} to ${perPerson.size} people`);
     console.log(`  punch not in niko   ${tally.noPunch}`);
