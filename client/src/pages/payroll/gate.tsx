@@ -120,6 +120,8 @@ export function PayrollGatePage() {
   const [stage, setStage] = useState<Stage>({ kind: "idle" });
   const [position, setPosition] = useState<Position | null>(null);
   const [manualOpen, setManualOpen] = useState(false);
+  /** A punch the other way minutes after the last one, waiting for the guard's yes. */
+  const [quickFlip, setQuickFlip] = useState<{ args: Parameters<typeof submitPunch>; message: string; next: "in" | "out"; last: "in" | "out" } | null>(null);
   const [manualSearch, setManualSearch] = useState("");
   // Picking a name moves to a photo step instead of punching immediately, so
   // the punch photo is aimed at the worker, not the floor.
@@ -285,8 +287,8 @@ export function PayrollGatePage() {
   // runs last deploy's code all day (lib/app-version.ts).
   const outdated = useAppOutdated();
   useEffect(() => {
-    if (outdated && stage.kind === "idle" && !manualOpen) window.location.reload();
-  }, [outdated, stage.kind, manualOpen]);
+    if (outdated && stage.kind === "idle" && !manualOpen && !quickFlip) window.location.reload();
+  }, [outdated, stage.kind, manualOpen, quickFlip]);
 
   const suggestedType = (employeeId: string): "in" | "out" => {
     const last = latestById.get(employeeId);
@@ -361,6 +363,7 @@ export function PayrollGatePage() {
     photo: string | null,
     embedding: number[] | null,
     reason: ManualReason | null = null,
+    confirmQuickFlip = false,
   ) {
     setStage({ kind: "posting" });
     try {
@@ -380,6 +383,7 @@ export function PayrollGatePage() {
           faceEmbedding: embedding,
           manualReason: method === "manual" ? reason : null,
           centred: centredOf(embedding, centred),
+          ...(confirmQuickFlip ? { confirmQuickFlip: true } : {}),
         },
       });
       qc.invalidateQueries({ queryKey: ["payroll", "punches-today"] });
@@ -389,6 +393,17 @@ export function PayrollGatePage() {
       setTimeout(() => setStage((s) => (s.kind === "success" ? { kind: "idle" } : s)), 2500);
     } catch (e) {
       setStage({ kind: "idle" });
+      // 409 + quickFlip: the other way only minutes after the last punch —
+      // usually the same person scanned twice. The guard says which it is.
+      if (e instanceof ApiError && e.status === 409 && e.data?.quickFlip === true) {
+        setQuickFlip({
+          args: [employee, punchType, method, score, photo, embedding, reason],
+          message: e.message,
+          next: e.data.next === "in" ? "in" : "out",
+          last: (e.data as { last?: { type?: string } }).last?.type === "in" ? "in" : "out",
+        });
+        return;
+      }
       // 409 + repeatPunch: the server refused a scan that repeats one already
       // recorded. Refresh the board so the guard sees the punch that stands.
       // 409 + faceConflict: the face beside the picked name is clearly somebody
@@ -493,6 +508,37 @@ export function PayrollGatePage() {
       <ErrorBanner message={err} onClose={() => setErr(null)} />
       {notice && (
         <div className="mb-3 rounded-md bg-yolk-50 px-3 py-2 text-[13px] text-soil-700">{notice}</div>
+      )}
+      {quickFlip && (
+        <div className="card mb-3 border-amber-300 bg-amber-50 p-4">
+          <p className="text-[14px] font-semibold text-soil-900">{quickFlip.message}</p>
+          <p className="mt-1 text-[12.5px] text-soil-600">
+            Only if they are really {quickFlip.next === "out" ? "leaving" : "coming back in"}. A second scan of someone still at the gate is not a punch.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              className="btn-primary"
+              onClick={() => {
+                const q = quickFlip;
+                setQuickFlip(null);
+                const [e, t, m, s, p, emb, r] = q.args;
+                void submitPunch(e, t, m, s, p, emb, r ?? null, true);
+              }}
+            >
+              Yes, record {quickFlip.next.toUpperCase()}
+            </button>
+            <button
+              className="btn-secondary"
+              onClick={() => {
+                setNotice(`Nothing recorded — ${quickFlip.args[0].name} stays ${quickFlip.last.toUpperCase()}.`);
+                setTimeout(() => setNotice(null), 4000);
+                setQuickFlip(null);
+              }}
+            >
+              No, still {quickFlip.last.toUpperCase()}
+            </button>
+          </div>
+        </div>
       )}
 
       {engineState === "loading" && (

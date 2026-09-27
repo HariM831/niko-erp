@@ -29,7 +29,7 @@ import {
   shifts,
   wageRoles,
 } from "@shared/schema";
-import { db } from "../db";
+import { db, type Tx } from "../db";
 import { requireAnyPermission, requirePermission } from "../lib/rbac";
 import { REPEAT_PUNCH_WINDOW_MS } from "./device";
 import { photoThumbnail, photoThumbnails } from "../services/photo";
@@ -1003,6 +1003,28 @@ class RepeatPunch extends Error {}
 /** The next punch has to close last night's shift; an entry would orphan it. */
 class NightShiftOpen extends Error {}
 
+/**
+ * A punch the other way within QUICK_FLIP_MS of the last one — asked, not
+ * refused: the guard confirms and the punch is sent again.
+ */
+class QuickFlip extends Error {
+  constructor(message: string, readonly last: { type: "in" | "out"; at: string }, readonly next: "in" | "out") {
+    super(message);
+  }
+}
+
+/**
+ * How soon after a punch the other direction needs a guard's say-so.
+ *
+ * Past the repeat window (2 minutes salaried, 5 daily wage) a second scan of
+ * somebody still standing at the gate was booked the other way: on 27 Sep 2026
+ * Khanjan Nath and Bipul Islary were punched OUT two and five minutes after
+ * coming in, and the evening before, people leaving were punched back IN a
+ * few minutes later — an open entry after 15:00 reads as a night shift. A real
+ * exit this soon after an entry does happen, so it is confirmed, not refused.
+ */
+const QUICK_FLIP_MS = 15 * 60_000;
+
 /** A punch the same way as the last one today: IN on top of IN. */
 class WrongDirection extends Error {
   constructor(message: string, readonly expected: "in" | "out") {
@@ -1060,122 +1082,142 @@ const punchBody = z.object({
    */
   manualReason: z.enum(MANUAL_REASONS).nullish(),
   centred: centredResult,
+  /** The guard confirmed a flip within QUICK_FLIP_MS of the last punch. */
+  confirmQuickFlip: z.boolean().optional(),
 });
 
 payrollRouter.post("/punches", gatePerm, validateBody(punchBody), async (req, res) => {
   const b = req.body as z.infer<typeof punchBody>;
   try {
-    const out = await db.transaction(async (tx) => {
-      const [emp] = await tx
-        .select({ id: employees.id, name: employees.name, isActive: employees.isActive, payType: employees.payType })
-        .from(employees)
-        .where(eq(employees.id, b.employeeId));
-      if (!emp) throw new PostingError("No such employee");
-      if (!emp.isActive) throw new PostingError("This employee is inactive");
-
-      // Whose face is it? A name picked by hand with somebody else's face
-      // beside it is refused — the guard picks again, or punches without
-      // teaching. A scan that matched is never refused for this: the person is
-      // at the gate and the punch is real; at worst the capture is not learned.
-      // If the judging itself fails, the punch still stands, untaught.
-      let teach = false;
-      if (isUsableEmbedding(b.faceEmbedding)) {
-        let verdict: Awaited<ReturnType<typeof judgeCapture>> | null = null;
-        try {
-          verdict = await judgeCapture(tx, emp.id, b.faceEmbedding);
-        } catch (e) {
-          console.error("[faces] could not judge a capture; punching without teaching:", e);
-        }
-        if (verdict?.lookalike && b.method === "manual") {
-          const l = verdict.lookalike;
-          throw new FaceConflict(
-            `This face looks like ${l.name} (${l.empCode}), not ${emp.name}. Pick the correct worker, or punch ${emp.name} without teaching.`,
-            l,
-          );
-        }
-        // A scan the gate matched has already proved it looks like its owner.
-        // Nor is it learned when a stranger contests it, even short of a lookalike.
-        teach = verdict ? (b.method === "manual" ? verdict.teach : !verdict.contested) : false;
-      }
-      const today = istDate();
-      const [last] = await tx
-        .select({ type: punches.type, punchedAt: punches.punchedAt })
-        .from(punches)
-        .where(and(eq(punches.employeeId, b.employeeId), eq(punches.punchDate, today)))
-        .orderBy(desc(punches.punchedAt))
-        .limit(1);
-      // Before the type is decided, because the line below decides it by
-      // toggling off `last` — so a guard re-scanning a worker still standing
-      // at the camera is offered an OUT, and booking it writes an exit that
-      // never happened. Same windows as the device sync.
-      if (last && Date.now() - last.punchedAt.getTime() < REPEAT_PUNCH_WINDOW_MS[emp.payType]) {
-        throw new RepeatPunch(`Already punched ${last.type} a moment ago — this scan was not recorded.`);
-      }
-      // A night worker's first punch of the morning is last night's exit, and
-      // is filed under last night: that is what keeps the pair on one day for
-      // every reader downstream. Only when nothing has been punched today.
-      const carry = last ? null : await carryOverIn(tx, b.employeeId);
-      if (carry && b.type === "in") {
-        const since = carry.inPunch.punchedAt.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false });
-        throw new NightShiftOpen(`Still IN from yesterday ${since} (night shift) — the next punch must be OUT`);
-      }
-      /**
-       * Punches alternate. The gate sends the direction it offered, and on 26
-       * Sep 2026 it offered IN to 22 people already inside — it read only the
-       * newest 200 punches of the day, and by mid-morning the early arrivals
-       * had dropped off the end. Each of those became a second entry and no
-       * exit. Whatever the screen believed, IN on top of IN is refused here,
-       * saying which way the next punch has to go.
-       */
-      if (!carry && last && b.type && b.type === last.type) {
-        const since = last.punchedAt.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false });
-        const next = last.type === "in" ? "out" : "in";
-        throw new WrongDirection(`Already ${last.type.toUpperCase()} since ${since} — the next punch must be ${next.toUpperCase()}`, next);
-      }
-      const punchDay = carry?.day ?? today;
-      const type = carry ? "out" : (b.type ?? (last?.type === "in" ? "out" : "in"));
-      // The photo is kept when someone might need to look at it — a manual punch,
-      // or a face match below the review threshold — or always, when the mill
-      // has asked for every face to be kept.
-      const [settings] = await tx
-        .select({
-          reviewBelowScore: payrollSettings.reviewBelowScore,
-          keepAllPunchPhotos: payrollSettings.keepAllPunchPhotos,
-        })
-        .from(payrollSettings);
-      const review = settings?.reviewBelowScore ?? 0.72;
-      const keepPhoto =
-        settings?.keepAllPunchPhotos || b.method === "manual" || (b.matchScore != null && b.matchScore < review);
-      const [punch] = await tx
-        .insert(punches)
-        .values({
-          employeeId: b.employeeId,
-          type,
-          punchDate: punchDay,
-          method: b.method,
-          matchScore: b.matchScore ?? null,
-          latitude: b.latitude ?? null,
-          longitude: b.longitude ?? null,
-          accuracyM: b.accuracyM ?? null,
-          photoUrl: keepPhoto ? (b.photoUrl ?? null) : null,
-          faceEmbedding: teach && isUsableEmbedding(b.faceEmbedding) ? roundEmbedding(b.faceEmbedding) : null,
-          manualReason: b.method === "manual" ? (b.manualReason ?? null) : null,
-          ...(await acceptCentred(tx, b.centred)),
-          markedBy: req.session.user!.id,
-        })
-        .returning();
-      const day = await recomputeEmployeeDay(tx, b.employeeId, punchDay);
-      return { ...punch!, status: day?.status ?? null, workedHours: day?.workedHours ?? 0, nightShift: !!carry, taught: teach };
-    });
+    const out = await db.transaction((tx) => recordGatePunch(tx, b, req.session.user!.id));
     res.status(201).json(out);
   } catch (err) {
     if (err instanceof RepeatPunch) return res.status(409).json({ error: err.message, repeatPunch: true });
     if (err instanceof NightShiftOpen) return res.status(409).json({ error: err.message, expected: "out" });
     if (err instanceof WrongDirection) return res.status(409).json({ error: err.message, expected: err.expected });
+    if (err instanceof QuickFlip) return res.status(409).json({ error: err.message, quickFlip: true, last: err.last, next: err.next });
     if (err instanceof FaceConflict) return res.status(409).json({ error: err.message, faceConflict: true, matchedEmployee: err.matched });
     if (!fail(err, res)) throw err;
   }
 });
+
+export type GatePunch = z.infer<typeof punchBody>;
+
+/**
+ * Record one punch from the browser gate. The route above is this inside a
+ * transaction; scripts/check-gate-punch.ts calls it directly and rolls back.
+ */
+export async function recordGatePunch(tx: Tx, b: GatePunch, userId: string) {
+  const [emp] = await tx
+    .select({ id: employees.id, name: employees.name, isActive: employees.isActive, payType: employees.payType })
+    .from(employees)
+    .where(eq(employees.id, b.employeeId));
+  if (!emp) throw new PostingError("No such employee");
+  if (!emp.isActive) throw new PostingError("This employee is inactive");
+
+  // Whose face is it? A name picked by hand with somebody else's face
+  // beside it is refused — the guard picks again, or punches without
+  // teaching. A scan that matched is never refused for this: the person is
+  // at the gate and the punch is real; at worst the capture is not learned.
+  // If the judging itself fails, the punch still stands, untaught.
+  let teach = false;
+  if (isUsableEmbedding(b.faceEmbedding)) {
+    let verdict: Awaited<ReturnType<typeof judgeCapture>> | null = null;
+    try {
+      verdict = await judgeCapture(tx, emp.id, b.faceEmbedding);
+    } catch (e) {
+      console.error("[faces] could not judge a capture; punching without teaching:", e);
+    }
+    if (verdict?.lookalike && b.method === "manual") {
+      const l = verdict.lookalike;
+      throw new FaceConflict(
+        `This face looks like ${l.name} (${l.empCode}), not ${emp.name}. Pick the correct worker, or punch ${emp.name} without teaching.`,
+        l,
+      );
+    }
+    // A scan the gate matched has already proved it looks like its owner.
+    // Nor is it learned when a stranger contests it, even short of a lookalike.
+    teach = verdict ? (b.method === "manual" ? verdict.teach : !verdict.contested) : false;
+  }
+  const today = istDate();
+  const [last] = await tx
+    .select({ type: punches.type, punchedAt: punches.punchedAt })
+    .from(punches)
+    .where(and(eq(punches.employeeId, b.employeeId), eq(punches.punchDate, today)))
+    .orderBy(desc(punches.punchedAt))
+    .limit(1);
+  // Before the type is decided, because the line below decides it by
+  // toggling off `last` — so a guard re-scanning a worker still standing
+  // at the camera is offered an OUT, and booking it writes an exit that
+  // never happened. Same windows as the device sync.
+  if (last && Date.now() - last.punchedAt.getTime() < REPEAT_PUNCH_WINDOW_MS[emp.payType]) {
+    throw new RepeatPunch(`Already punched ${last.type} a moment ago — this scan was not recorded.`);
+  }
+  // A night worker's first punch of the morning is last night's exit, and
+  // is filed under last night: that is what keeps the pair on one day for
+  // every reader downstream. Only when nothing has been punched today.
+  const carry = last ? null : await carryOverIn(tx, b.employeeId);
+  if (carry && b.type === "in") {
+    const since = carry.inPunch.punchedAt.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false });
+    throw new NightShiftOpen(`Still IN from yesterday ${since} (night shift) — the next punch must be OUT`);
+  }
+  /**
+   * Punches alternate. The gate sends the direction it offered, and on 26
+   * Sep 2026 it offered IN to 22 people already inside — it read only the
+   * newest 200 punches of the day, and by mid-morning the early arrivals
+   * had dropped off the end. Each of those became a second entry and no
+   * exit. Whatever the screen believed, IN on top of IN is refused here,
+   * saying which way the next punch has to go.
+   */
+  if (!carry && last && b.type && b.type === last.type) {
+    const since = last.punchedAt.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false });
+    const next = last.type === "in" ? "out" : "in";
+    throw new WrongDirection(`Already ${last.type.toUpperCase()} since ${since} — the next punch must be ${next.toUpperCase()}`, next);
+  }
+  const punchDay = carry?.day ?? today;
+  const type = carry ? "out" : (b.type ?? (last?.type === "in" ? "out" : "in"));
+  if (last && !carry && type !== last.type && !b.confirmQuickFlip && Date.now() - last.punchedAt.getTime() < QUICK_FLIP_MS) {
+    const at = last.punchedAt.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false });
+    const mins = Math.max(1, Math.round((Date.now() - last.punchedAt.getTime()) / 60_000));
+    throw new QuickFlip(
+      `${emp.name} punched ${last.type.toUpperCase()} at ${at}, ${mins} min ago. Record an ${type.toUpperCase()} now?`,
+      { type: last.type, at },
+      type,
+    );
+  }
+  // The photo is kept when someone might need to look at it — a manual punch,
+  // or a face match below the review threshold — or always, when the mill
+  // has asked for every face to be kept.
+  const [settings] = await tx
+    .select({
+      reviewBelowScore: payrollSettings.reviewBelowScore,
+      keepAllPunchPhotos: payrollSettings.keepAllPunchPhotos,
+    })
+    .from(payrollSettings);
+  const review = settings?.reviewBelowScore ?? 0.72;
+  const keepPhoto =
+    settings?.keepAllPunchPhotos || b.method === "manual" || (b.matchScore != null && b.matchScore < review);
+  const [punch] = await tx
+    .insert(punches)
+    .values({
+      employeeId: b.employeeId,
+      type,
+      punchDate: punchDay,
+      method: b.method,
+      matchScore: b.matchScore ?? null,
+      latitude: b.latitude ?? null,
+      longitude: b.longitude ?? null,
+      accuracyM: b.accuracyM ?? null,
+      photoUrl: keepPhoto ? (b.photoUrl ?? null) : null,
+      faceEmbedding: teach && isUsableEmbedding(b.faceEmbedding) ? roundEmbedding(b.faceEmbedding) : null,
+      manualReason: b.method === "manual" ? (b.manualReason ?? null) : null,
+      ...(await acceptCentred(tx, b.centred)),
+      markedBy: userId,
+    })
+    .returning();
+  const day = await recomputeEmployeeDay(tx, b.employeeId, punchDay);
+  return { ...punch!, status: day?.status ?? null, workedHours: day?.workedHours ?? 0, nightShift: !!carry, taught: teach };
+}
 
 /**
  * Nights still in progress: people whose last punch was yesterday's entry and
