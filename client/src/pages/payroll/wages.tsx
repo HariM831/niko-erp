@@ -12,6 +12,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatMoney } from "../../api";
+import { useAuth } from "../../auth";
 import { SearchSelect } from "../../components/search-select";
 import { useLocalSearch } from "../../components/search-context";
 import { matchesTerm } from "../../lib/utils";
@@ -241,6 +242,9 @@ function DayRoles({ day, roles, term, fields, criteria }: {
   criteria: Criteria;
 }) {
   const qc = useQueryClient();
+  // Reassigning a day's role corrects attendance: the server wants that right too.
+  const { can } = useAuth();
+  const canReassign = can("payroll", "attendance");
   const dayQ = useQuery({
     queryKey: ["payroll", "wages-day", day],
     queryFn: () => api<DayRow[]>(`/api/payroll/wages/day?date=${day}`),
@@ -328,7 +332,14 @@ function DayRoles({ day, roles, term, fields, criteria }: {
                       )}
                     </Td>
                     <Td>
-                      {/* No role for the day (null) is "usual": the placeholder shows it, the × goes back to it. */}
+                      {!canReassign ? (
+                        <span className={`text-[13px] ${changed ? "font-medium" : "text-gray-500"}`}>
+                          {changed
+                            ? roles.find((x) => x.id === r.dayRoleId)?.name ?? "—"
+                            : `usual${r.defaultRoleName ? ` — ${r.defaultRoleName}` : ""}`}
+                        </span>
+                      ) : (
+                      /* No role for the day (null) is "usual": the placeholder shows it, the × goes back to it. */
                       <SearchSelect
                         className="w-full max-w-56"
                         buttonClassName={`input h-8 py-0 text-[13px] ${changed ? "border-brand-300 bg-brand-50/50" : ""}`}
@@ -342,6 +353,7 @@ function DayRoles({ day, roles, term, fields, criteria }: {
                         placeholder={`usual${r.defaultRoleName ? ` — ${r.defaultRoleName}` : ""}`}
                         options={roles.filter((x) => x.isActive || x.id === r.dayRoleId).map((x) => ({ id: x.id, label: x.name }))}
                       />
+                      )}
                     </Td>
                   </tr>
                 );
