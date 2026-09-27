@@ -7,6 +7,7 @@
  *   OUT five minutes after IN                → asked: the guard must confirm
  *   …confirmed                               → recorded as OUT
  *   OUT twenty minutes after IN              → recorded, nothing asked
+ *   a hand-picked name with no photo         → refused: the camera can take one
  *
  * 27 Sep 2026: Khanjan Nath and Bipul Islary were punched OUT two and five
  * minutes after coming in, by a second scan the server took for an exit.
@@ -50,7 +51,7 @@ try {
       return e!;
     };
     const punch = (id: string, type: "in" | "out", extra: Record<string, unknown> = {}) =>
-      recordGatePunch(tx, { employeeId: id, type, method: "manual", manualReason: "no_match", ...extra } as never, user.id);
+      recordGatePunch(tx, { employeeId: id, type, method: "manual", manualReason: "no_match", photoUrl: "data:image/jpeg;base64,AA==", ...extra } as never, user.id);
 
     console.log("");
     const a = await worker("ZZGP1", 5);
@@ -68,6 +69,10 @@ try {
 
     const confirmed = await punch(a.id, "out", { confirmQuickFlip: true });
     ok("confirmed, it is recorded as OUT", confirmed.type === "out");
+
+    const d = await worker("ZZGP4", 30);
+    e = await refusal(() => punch(d.id, "out", { photoUrl: null }));
+    ok("a name picked after a failed scan with no photo is refused", e?.message.includes("needs the worker's photo") ?? false, e?.message ?? "recorded");
 
     const c = await worker("ZZGP3", 20);
     const later = await punch(c.id, "out");

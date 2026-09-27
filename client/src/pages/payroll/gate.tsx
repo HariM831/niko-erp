@@ -65,6 +65,12 @@ type Stage =
       score: number;
       closest: GalleryEmployee | null;
       photo: string | null;
+      /**
+       * The face the scan read, when it read one. Carried into "Select
+       * manually" with the photo, so the guard picks a name and confirms
+       * instead of photographing the same person a second time.
+       */
+      embedding?: number[] | null;
       spoofed?: boolean;
       /** The runner-up's score and name, when it was the margin that failed rather than the cutoff. */
       runnerUp?: { name: string; score: number } | null;
@@ -335,6 +341,7 @@ export function PayrollGatePage() {
           score: match.score,
           closest: employee,
           photo,
+          embedding: face.embedding,
           runnerUp:
             employee && match.score >= threshold && second
               ? { name: second.name, score: match.secondScore }
@@ -491,8 +498,14 @@ export function PayrollGatePage() {
    */
   const nobodyEnrolled = !galleryLoading && enrolled.length === 0;
   const scanImpossible = engineState === "failed" || cameraError !== null || nobodyEnrolled;
-  const openManual = (reason: ManualReason) => {
-    setStage({ kind: "idle" }); setManualCapture(null); setManualSearch(""); setManualError(null);
+  /**
+   * `carry` is the failed scan's own photo and face: the person is the one
+   * who just stood at the camera, so the manual step starts with them already
+   * captured. Only a scan that read a real face is carried — no face, or a
+   * photo of a screen, and the guard takes a proper one.
+   */
+  const openManual = (reason: ManualReason, carry: { photo: string; embedding: number[] | null } | null = null) => {
+    setStage({ kind: "idle" }); setManualCapture(carry); setManualSearch(""); setManualError(null);
     setManualReason(reason); setManualOpen(true);
   };
   const whyNoScan: ManualReason = engineState === "failed" ? "engine_failed" : cameraError !== null ? "camera_blocked" : "not_enrolled";
@@ -632,7 +645,12 @@ export function PayrollGatePage() {
                 {/* Manual selection is the fallback after a failed scan only */}
                 <button
                   className="inline-flex items-center gap-1.5 rounded-md border border-white/40 px-3 py-1.5 text-[13px] text-white"
-                  onClick={() => openManual("no_match")}
+                  onClick={() =>
+                    openManual(
+                      "no_match",
+                      stage.photo && stage.embedding && !stage.spoofed ? { photo: stage.photo, embedding: stage.embedding } : null,
+                    )
+                  }
                 >
                   <UserSearch size={14} /> Select manually
                 </button>
@@ -722,7 +740,8 @@ export function PayrollGatePage() {
                       <button
                         className={`btn-secondary ${next === "in" ? "!text-emerald-700" : "!text-brand-700"}`}
                         onClick={() => {
-                          setManualSelected({ employee: emp, punchType: next }); setManualCapture(null); setManualError(null);
+                          // The capture stays: it is of whoever is at the gate, whichever name is picked.
+                          setManualSelected({ employee: emp, punchType: next }); setManualError(null);
                           // Someone with no face on file could never have matched, whatever brought the list up.
                           if (firstOther || i > manualLists.enrolled.length) setManualReason("not_enrolled");
                         }}
@@ -758,7 +777,7 @@ export function PayrollGatePage() {
                   </button>
                 </div>
               )}
-              <button type="button" className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800" onClick={() => { setManualSelected(null); setManualCapture(null); setManualError(null); }}>
+              <button type="button" className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-800" onClick={() => { setManualSelected(null); setManualError(null); }}>
                 <ArrowLeft size={13} /> Change worker
               </button>
               <div className="flex items-center gap-2">
@@ -793,13 +812,15 @@ export function PayrollGatePage() {
                     ? "Start the camera to take a punch photo, or confirm without one."
                     : manualCapture
                       ? "Check the framing — retake if it isn't the worker's face."
-                      : "Point the camera at the worker's face, then take the photo."}
+                      : "A photo is needed: point the camera at the worker's face, then take the photo."}
                 </p>
               </div>
 
+              {/* A name picked by hand is only checkable afterwards by its photo,
+                  so one is required whenever the camera can take it. */}
               <button
                 className="btn-primary w-full !h-10"
-                disabled={stage.kind === "posting"}
+                disabled={stage.kind === "posting" || (cameraOn && !manualCapture)}
                 onClick={() => {
                   const { employee, punchType } = manualSelected;
                   const cap = manualCapture;

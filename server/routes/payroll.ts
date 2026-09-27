@@ -1114,6 +1114,12 @@ export async function recordGatePunch(tx: Tx, b: GatePunch, userId: string) {
     .where(eq(employees.id, b.employeeId));
   if (!emp) throw new PostingError("No such employee");
   if (!emp.isActive) throw new PostingError("This employee is inactive");
+  // A name picked after a failed scan is only checkable by its photo, and the
+  // camera that just scanned can always take one. On 27 Sep 2026, 8 of 14
+  // such punches arrived with none.
+  if (b.method === "manual" && (b.manualReason ?? "no_match") === "no_match" && !b.photoUrl) {
+    throw new PostingError("A name picked after a failed scan needs the worker's photo — take it with the gate camera.");
+  }
 
   // Whose face is it? A name picked by hand with somebody else's face
   // beside it is refused — the guard picks again, or punches without
