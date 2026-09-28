@@ -219,6 +219,10 @@ export function ListPage<T>({
   const params = new URLSearchParams(viewParams);
   if (search) params.set("search", search);
   for (const [k, v] of Object.entries(criteria)) params.set(k, v);
+  // The pager slices what the browser holds, so it must hold every row: a
+  // browse capped at 200 on the server paged to 200 and stopped, as if the
+  // older bills did not exist.
+  params.set("all", "1");
   const qs = params.toString();
   const url = qs ? `${endpoint}${endpoint.includes("?") ? "&" : "?"}${qs}` : endpoint;
 

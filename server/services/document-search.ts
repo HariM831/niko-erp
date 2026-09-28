@@ -171,6 +171,11 @@ export function quickSearch(spec: DocumentSearch, raw: string | undefined): SQL 
  * rows the cap hides, and a truncated result set silently answers "no such
  * bill" when the bill exists. An explicit limit — the quick-search dropdown
  * asks for ten — always wins.
+ *
+ * `all=1` lifts the cap. The lists page in the browser — the rows are fetched
+ * once and sliced 25 at a time — so a list that pages must hold every row, or
+ * its pager stops at 200 and reads as though the older bills do not exist
+ * (28 Sep 2026). The cap stays for callers that only fill one screen.
  */
 export function listLimit(
   query: Record<string, string | undefined>,
@@ -178,6 +183,7 @@ export function listLimit(
 ): number | undefined {
   const asked = Number(query.limit);
   if (Number.isFinite(asked) && asked > 0) return asked;
+  if (query.all === "1") return undefined;
   return searching ? undefined : 200;
 }
 
