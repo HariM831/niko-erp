@@ -139,6 +139,11 @@ export function SettlementPage() {
    * deduction of zero is not charged, leaving it alone costs the vendor
    * nothing. A rule that guessed would have to be corrected on every truck,
    * and the one truck nobody corrected is the one that gets paid wrong.
+   *
+   * Entered as a percentage of the line's goods value, not as rupees (28 Sep
+   * 2026): the bench says "take 2% off this load", and the rupees follow from
+   * what the load is worth. The bill carries the rupees, with the percentage
+   * in the basis.
    */
   const manual = (ctx?.lines ?? [])
     .filter((l) => l.status !== "qc_rejected")
@@ -149,15 +154,25 @@ export function SettlementPage() {
           ? `Quality deductions — ${l.itemName ?? "line"}`
           : "Quality deductions",
       amount: 0,
-      basis: "Entered by hand — nothing is charged unless a figure is put here",
+      basis: "Entered by hand as a percentage of the goods — nothing is charged unless a figure is put here",
       ruleId: null as string | null,
       ruleVersion: null as number | null,
+      // The goods line for this receipt line comes first in billLines; the
+      // vendor's tax and rounding ride on the anchor line after it.
+      goods: ctx?.billLines.find((b) => b.lineId === l.id)?.amount ?? 0,
     }));
-  const offered = [...(ctx?.deductions ?? []), ...manual];
+  const offered = [...(ctx?.deductions ?? []).map((d) => ({ ...d, goods: undefined as number | undefined })), ...manual];
+  const isPct = (d: { ruleId: string | null; goods?: number }) => d.ruleId == null && d.goods != null;
 
   const charging = offered
     .filter((d) => !dropped.has(keyOf(d)))
-    .map((d) => ({ ...d, amount: Number(edited[keyOf(d)] ?? d.amount) }))
+    .map((d) => {
+      const typed = edited[keyOf(d)];
+      if (!isPct(d)) return { ...d, amount: Number(typed ?? d.amount) };
+      const pct = Number(typed ?? 0);
+      const amount = Number(((pct * (d.goods ?? 0)) / 100).toFixed(2));
+      return { ...d, amount, basis: pct > 0 ? `${pct}% of ${inr(d.goods ?? 0)}` : d.basis };
+    })
     .filter((d) => Number.isFinite(d.amount) && d.amount > 0);
   const deductionTotal = charging.reduce((s, d) => s + d.amount, 0);
   const netPayable = (ctx?.goodsValue ?? 0) - deductionTotal;
@@ -295,14 +310,21 @@ export function SettlementPage() {
                             {d.name}
                           </span>
                           <div className="flex items-center gap-1">
-                            <span className="text-[12px] text-amber-700">−₹</span>
+                            {isPct(d) && Number(value) > 0 && (
+                              <span className="text-[12px] tabular-nums text-amber-700">
+                                −{inr(Number((((Number(value) || 0) * (d.goods ?? 0)) / 100).toFixed(2)))} ·
+                              </span>
+                            )}
+                            <span className="text-[12px] text-amber-700">{isPct(d) ? "" : "−₹"}</span>
                             <input
                               value={value}
                               disabled={off}
                               onChange={(e) => setEdited((s) => ({ ...s, [key]: e.target.value }))}
                               inputMode="decimal"
-                              className="input h-7 w-28 text-right text-[12px] disabled:bg-gray-50"
+                              placeholder={isPct(d) ? "0" : undefined}
+                              className={`input h-7 text-right text-[12px] disabled:bg-gray-50 ${isPct(d) ? "w-16" : "w-28"}`}
                             />
+                            {isPct(d) && <span className="text-[12px] text-amber-700">%</span>}
                             <button
                               onClick={() =>
                                 setDropped((s) => {
