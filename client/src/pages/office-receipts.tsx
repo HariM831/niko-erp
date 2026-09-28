@@ -68,6 +68,13 @@ interface LineDraft {
   bagCountActual: string;
   damagePercent: string;
   allocatedNetKg: string;
+  /**
+   * The order line this receipt line sits against, as the gate chose it or a
+   * person chose it here. Empty on a new line until the matcher, or the
+   * person, picks one.
+   */
+  purchaseOrderId: string;
+  poLineId: string;
 }
 
 const emptyLine = (): LineDraft => ({
@@ -82,6 +89,8 @@ const emptyLine = (): LineDraft => ({
   bagCountActual: "",
   damagePercent: "",
   allocatedNetKg: "",
+  purchaseOrderId: "",
+  poLineId: "",
 });
 
 /** The full receipt as the detail endpoint returns it. */
@@ -113,6 +122,8 @@ interface Receipt {
     bagCountActual: number | null;
     damagePercent: string | null;
     allocatedNetKg: string | null;
+    purchaseOrderId: string | null;
+    poLineId: string | null;
   }>;
 }
 
@@ -212,6 +223,8 @@ export function ReceiptEditor({
         bagCountActual: l.bagCountActual != null ? String(l.bagCountActual) : "",
         damagePercent: l.damagePercent ?? "",
         allocatedNetKg: l.allocatedNetKg ?? "",
+        purchaseOrderId: l.purchaseOrderId ?? "",
+        poLineId: l.poLineId ?? "",
       })),
     );
   }, [existing, ctx.locations]);
@@ -275,11 +288,34 @@ export function ReceiptEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vendorId, billDate, JSON.stringify(usable)]);
 
+  /**
+   * Which order line a receipt line sits against.
+   *
+   * The link the gate made is kept while it is still among the orders that
+   * could fit — re-running the matcher on an edit must not undo a choice a
+   * person already made, and on a receipt where two orders fit the matcher
+   * cannot choose at all, so saving would have silently unlinked the line
+   * and left the receipt unsettleable. A fresh unique match is taken only
+   * where there is no link to keep; where two fit, the person picks below.
+   */
+  const orderOf = (i: number): { purchaseOrderId: string; poLineId: string } | null => {
+    const l = usable[i];
+    const m = matches[i];
+    if (l?.poLineId && (!m || m.candidates.some((cand) => cand.poLineId === l.poLineId))) {
+      return { purchaseOrderId: l.purchaseOrderId, poLineId: l.poLineId };
+    }
+    return m?.chosen ? { purchaseOrderId: m.chosen.purchaseOrderId, poLineId: m.chosen.poLineId } : null;
+  };
+  const pickOrder = (i: number, cand: { purchaseOrderId: string; poLineId: string } | null) => {
+    const draftIndex = lines.indexOf(usable[i]!);
+    if (draftIndex >= 0) setLine(draftIndex, { purchaseOrderId: cand?.purchaseOrderId ?? "", poLineId: cand?.poLineId ?? "" });
+  };
+
   const linePayload = () =>
     usable.map((l, i) => ({
       id: l.id || undefined,
-      purchaseOrderId: matches[i]?.chosen?.purchaseOrderId ?? null,
-      poLineId: matches[i]?.chosen?.poLineId ?? null,
+      purchaseOrderId: orderOf(i)?.purchaseOrderId ?? null,
+      poLineId: orderOf(i)?.poLineId ?? null,
       itemId: l.itemId || null,
       itemName: l.itemName.trim(),
       billQuantityKg: l.billQuantityKg,
@@ -326,8 +362,8 @@ export function ReceiptEditor({
               billTaxAmount: billTax || undefined,
               deviceCapturedAt: new Date().toISOString(),
               lines: usable.map((l, i) => ({
-                purchaseOrderId: matches[i]?.chosen?.purchaseOrderId ?? undefined,
-                poLineId: matches[i]?.chosen?.poLineId ?? undefined,
+                purchaseOrderId: orderOf(i)?.purchaseOrderId ?? undefined,
+                poLineId: orderOf(i)?.poLineId ?? undefined,
                 itemId: l.itemId || undefined,
                 itemName: l.itemName.trim(),
                 billQuantityKg: l.billQuantityKg,
@@ -658,28 +694,51 @@ export function ReceiptEditor({
                 </span>
                 <span
                   className={`text-[11px] font-semibold uppercase tracking-wide ${
-                    matches.length && matches.every((m) => m.chosen) ? "text-green-600" : "text-amber-600"
+                    matches.length && usable.every((_, i) => orderOf(i)) ? "text-green-600" : "text-amber-600"
                   }`}
                 >
                   {!matches.length
                     ? "checking…"
-                    : matches.every((m) => m.chosen)
+                    : usable.every((_, i) => orderOf(i))
                       ? "on order"
                       : "not matched"}
                 </span>
               </div>
-              {matches.map((m) => (
-                <div key={m.lineNo} className="flex items-baseline gap-2 text-[12px]">
-                  <span className={m.chosen ? "text-green-600" : "text-amber-600"}>
-                    {m.chosen ? "✓" : "!"}
-                  </span>
-                  <span className="text-gray-700">
-                    {usable[m.lineNo - 1]?.itemName || `Line ${m.lineNo}`}
-                  </span>
-                  <span className="text-gray-500">{m.message}</span>
-                </div>
-              ))}
-              {matches.length > 0 && !matches.every((m) => m.chosen) && (
+              {matches.map((m) => {
+                const i = m.lineNo - 1;
+                const order = orderOf(i);
+                const kept = order && order.poLineId !== m.chosen?.poLineId;
+                const keptCand = kept ? m.candidates.find((cand) => cand.poLineId === order.poLineId) : null;
+                return (
+                  <div key={m.lineNo} className="flex flex-wrap items-baseline gap-2 text-[12px]">
+                    <span className={order ? "text-green-600" : "text-amber-600"}>{order ? "✓" : "!"}</span>
+                    <span className="text-gray-700">{usable[i]?.itemName || `Line ${m.lineNo}`}</span>
+                    {kept ? (
+                      <span className="text-gray-500">
+                        against {keptCand?.poNumber ?? "the order chosen at the gate"}
+                        {keptCand ? `, ${keptCand.remainingQuantity.toLocaleString("en-IN")} kg open at ₹${keptCand.unitRate}` : ""}
+                      </span>
+                    ) : (
+                      <span className="text-gray-500">{m.message}</span>
+                    )}
+                    {m.method === "choose" && m.candidates.length > 1 && (
+                      <select
+                        value={order?.poLineId ?? ""}
+                        onChange={(e) => pickOrder(i, m.candidates.find((cand) => cand.poLineId === e.target.value) ?? null)}
+                        className="input h-7 w-auto text-[12px]"
+                      >
+                        <option value="">Choose the order…</option>
+                        {m.candidates.map((cand) => (
+                          <option key={cand.poLineId} value={cand.poLineId}>
+                            {cand.poNumber} · {cand.remainingQuantity.toLocaleString("en-IN")} kg open at ₹{cand.unitRate}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                );
+              })}
+              {matches.length > 0 && !usable.every((_, i) => orderOf(i)) && (
                 <p className="mt-1 text-[11px] text-gray-400">
                   A receipt can still be saved unmatched, but it cannot be settled into a bill until
                   every line sits against an open order.
