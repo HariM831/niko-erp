@@ -1182,6 +1182,100 @@ export async function voidDispatchForInvoice(tx: Tx, invoiceId: string): Promise
     .where(eq(eggDispatches.invoiceId, invoiceId));
 }
 
+/**
+ * An edited egg invoice re-takes its stock and re-states its loading.
+ *
+ * Called from the invoice edit when the lines change. The boxes the invoice
+ * took come back at the value they left at, and the new counts go out at the
+ * stock rate of the dispatch day — the same two movements a void and a fresh
+ * load would make, both filed under the invoice so a later void still finds
+ * the right net to put back. The dispatch's loaded counts follow, so the
+ * Loading Bay and the invoice say the same number of boxes.
+ *
+ * Not an egg invoice (no dispatch) — nothing to do. A dispatch from before
+ * stock began counting moved no stock, so only its counts change.
+ */
+export async function retakeInvoiceStock(
+  tx: Tx,
+  invoiceId: string,
+  number: string,
+  lines: Array<{ itemId?: string | null; quantity: string | number }>,
+): Promise<void> {
+  const [dispatch] = await tx
+    .select()
+    .from(eggDispatches)
+    .where(and(eq(eggDispatches.invoiceId, invoiceId), ne(eggDispatches.status, "void")));
+  if (!dispatch) return;
+
+  const map = await sizeItems(tx);
+  const sizeOf = new Map([...map].map(([size, itemId]) => [itemId, size]));
+  const boxes = Object.fromEntries(EGG_SIZES.map((s) => [s, 0])) as Record<EggSize, number>;
+  for (const l of lines) {
+    const size = l.itemId ? sizeOf.get(l.itemId) : undefined;
+    if (size) boxes[size] += Number(l.quantity);
+  }
+  for (const s of EGG_SIZES) {
+    if (!Number.isInteger(boxes[s]) || boxes[s] < 0) {
+      throw new PostingError(`${EGG_SIZE_LABEL[s]} must be a whole number of boxes`);
+    }
+  }
+  if (EGG_SIZES.every((s) => boxes[s] === 0)) {
+    throw new PostingError(`${number} would carry no boxes at all — void it instead`);
+  }
+
+  const moved = await tx
+    .select({
+      itemId: inventoryTransactions.itemId,
+      stockLocationId: inventoryTransactions.stockLocationId,
+      qty: sql<string>`sum(${inventoryTransactions.quantity})`,
+      value: sql<string>`sum(${inventoryTransactions.value})`,
+    })
+    .from(inventoryTransactions)
+    .where(and(eq(inventoryTransactions.sourceType, "invoice"), eq(inventoryTransactions.sourceId, invoiceId)))
+    .groupBy(inventoryTransactions.itemId, inventoryTransactions.stockLocationId);
+  const live = moved.filter((m) => Number(m.qty) !== 0 || Number(m.value) !== 0);
+
+  if (live.length) {
+    const store = live[0]!.stockLocationId;
+    const rateP = await eggStockRatePerBoxP(tx, dispatch.dispatchDate);
+    await moveStock(tx, {
+      movements: [
+        ...live.map((m) => ({
+          itemId: m.itemId,
+          stockLocationId: m.stockLocationId,
+          quantity: (-Number(m.qty)).toFixed(3),
+          value: (-Number(m.value)).toFixed(2),
+          notes: `Edit of invoice ${number} — boxes back`,
+        })),
+        ...EGG_SIZES.filter((s) => boxes[s] > 0).map((s) => ({
+          itemId: map.get(s)!,
+          stockLocationId: store,
+          quantity: `-${boxes[s].toFixed(3)}`,
+          value: `-${((boxes[s] * rateP) / 100).toFixed(2)}`,
+          notes: `Edit of invoice ${number}`,
+        })),
+      ],
+      transactionDate: dispatch.dispatchDate,
+      sourceType: "invoice",
+      sourceId: invoiceId,
+    });
+  }
+
+  await tx
+    .update(eggDispatches)
+    .set({
+      loadedSmall: boxes.small,
+      loadedMedium: boxes.medium,
+      loadedLarge: boxes.large,
+      loadedXl: boxes.xl,
+      loadedJumbo: boxes.jumbo,
+      loadedBrown: boxes.brown,
+      loadedNiko: boxes.niko,
+      loadedDirty: boxes.dirty,
+    })
+    .where(eq(eggDispatches.id, dispatch.id));
+}
+
 /** For screens that show who set what. */
 export async function benchmarkHistory(tx: Conn, limit = 60) {
   return tx

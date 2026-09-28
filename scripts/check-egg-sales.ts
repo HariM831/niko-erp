@@ -25,11 +25,13 @@ import {
   customerPayments,
   eggAgreementExceptions,
   eggAgreements,
+  eggDispatches,
   eggBenchmarkPrices,
   eggSizeOffsets,
   eggSpotOrders,
   houses,
   inventoryTransactions,
+  invoiceLines,
   invoices,
 } from "@shared/schema";
 import { db } from "../server/db";
@@ -44,6 +46,7 @@ import {
   voidDispatchForInvoice,
 } from "../server/services/egg-sales";
 import { reverseJournal } from "../server/services/posting";
+import { editInvoice } from "../server/routes/sales";
 import { moveStock } from "../server/services/inventory";
 import { users } from "@shared/schema";
 
@@ -253,6 +256,47 @@ try {
     ok("stock fell by exactly the boxes loaded", (await stock()) === stockAtStart - 70, `−70 boxes`);
     held = await stockBySize(tx);
     ok("and by size", held.small === stockBefore.small - 10 && held.large === stockBefore.large - 60, `S −10, L −60`);
+
+    /* ══ 5b. Edit the paid invoice: money stays applied, stock re-taken ══ */
+    // The invoice as the edit form would send it back, with Large changed.
+    const linesAs = async (large: number) =>
+      (await tx.select().from(invoiceLines).where(eq(invoiceLines.invoiceId, r1.invoiceId))).map((l) => ({
+        itemId: l.itemId ?? undefined,
+        accountId: l.accountId ?? undefined,
+        name: l.name,
+        description: l.description ?? undefined,
+        hsnOrSac: l.hsnOrSac ?? undefined,
+        quantity: /large/i.test(l.name) ? large.toFixed(3) : String(l.quantity),
+        unit: l.unit ?? undefined,
+        rate: String(l.rate),
+        discountPercent: l.discountPercent == null ? undefined : String(l.discountPercent),
+        taxId: l.taxId ?? undefined,
+      }));
+    const paidTotal = Number(inv1!.total);
+    await refuses("an edit below what was received for it → refused", () =>
+      tx.transaction(async (inner) => editInvoice(inner as Tx, r1.invoiceId, { lines: await linesAs(50) }, uid)),
+    );
+    const je1 = inv1!.journalEntryId;
+    const raised = await editInvoice(tx, r1.invoiceId, { lines: await linesAs(70) }, uid);
+    const raisedBy = 10 * 210 * 5.7;
+    ok(
+      "raising a paid invoice leaves it part-paid, the advance still applied",
+      raised.status === "partially_paid" && Math.abs(Number(raised.balanceDue) - raisedBy) < 0.005,
+      `${raised.status}, due ₹${raised.balanceDue} of ₹${raised.total}`,
+    );
+    const [afterEdit] = await tx.select().from(invoices).where(eq(invoices.id, r1.invoiceId));
+    ok("its journal was reversed and posted afresh", !!afterEdit!.journalEntryId && afterEdit!.journalEntryId !== je1);
+    held = await stockBySize(tx);
+    ok("ten more Large boxes left the pile", held.large === stockBefore.large - 70 && held.small === stockBefore.small - 10, `L −70, S −10`);
+    const [disp] = await tx.select().from(eggDispatches).where(eq(eggDispatches.invoiceId, r1.invoiceId));
+    ok("the Loading Bay's record says 70 Large too", disp!.loadedLarge === 70 && disp!.loadedSmall === 10);
+    const back = await editInvoice(tx, r1.invoiceId, { lines: await linesAs(60) }, uid);
+    ok(
+      "edited back, it is paid again and the pile is where it was",
+      back.status === "paid" && Number(back.balanceDue) === 0 && Number(back.total) === paidTotal &&
+        (await stockBySize(tx)).large === stockBefore.large - 60,
+      `${back.status}, ₹${back.total}`,
+    );
     await refuses("loading more of a size than the pile holds → refused", () =>
       loadAndInvoice(tx, { dispatchDate: TUE, customerId: customer.id, loaded: { jumbo: held.jumbo + 1 }, driverName: "T", vehicleNumber: "V" }, uid),
     );

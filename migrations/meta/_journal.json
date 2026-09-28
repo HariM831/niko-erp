@@ -778,6 +778,13 @@
       "when": 1790499829941,
       "tag": "0107_dirty_returns",
       "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1790510000000,
+      "tag": "0108_edit_sent_invoices",
+      "breakpoints": true
     }
   ]
 }

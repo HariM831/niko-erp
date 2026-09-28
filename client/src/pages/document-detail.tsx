@@ -150,8 +150,11 @@ const CONFIGS: Record<string, DetailConfig> = {
     dateField: "invoiceDate",
     actions: [
       {
+        // Issued and paid invoices too, as in Zoho: the journal is reversed and
+        // re-posted, money received stays applied, and an egg invoice re-takes
+        // its boxes. The server refuses only a total below what was received.
         label: "Edit",
-        when: ["draft"],
+        when: ["draft", "sent", "partially_paid", "paid"],
         run: (doc, h) => h.navigate(`/sales/invoices/${doc.id}/edit`),
       },
       {

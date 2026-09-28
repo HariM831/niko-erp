@@ -62,7 +62,7 @@ export const preferences = pgTable("preferences", {
    * Permit editing an invoice after it has been sent. The journal is reversed
    * and re-posted, so the ledger keeps the trail rather than being rewritten.
    */
-  allowEditingSentInvoice: boolean("allow_editing_sent_invoice").notNull().default(false),
+  allowEditingSentInvoice: boolean("allow_editing_sent_invoice").notNull().default(true),
   /** Leave nil-value lines off the printed document. */
   hideZeroValueLines: boolean("hide_zero_value_lines").notNull().default(false),
   /** Prefilled on a new invoice. */

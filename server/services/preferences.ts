@@ -20,7 +20,7 @@ export const DEFAULT_PREFERENCES: Omit<Preferences, "id" | "updatedAt"> = {
   allowDuplicateContactNames: false,
   defaultCustomerType: "business",
   enableCreditLimit: true,
-  allowEditingSentInvoice: false,
+  allowEditingSentInvoice: true,
   hideZeroValueLines: false,
   defaultInvoiceTerms: null,
   defaultInvoiceNotes: null,

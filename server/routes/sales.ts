@@ -18,7 +18,7 @@ import { gstStateCode, validateBody } from "../lib/validate";
 import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, postJournal, reverseJournal } from "../services/posting";
 import { moveStock } from "../services/inventory";
-import { unapplyInvoicePayments, voidDispatchForInvoice } from "../services/egg-sales";
+import { retakeInvoiceStock, unapplyInvoicePayments, voidDispatchForInvoice } from "../services/egg-sales";
 import { advancedSearch, listLimit, quickSearch } from "../services/document-search";
 import { customerPaymentSearch, invoiceSearch } from "../services/search-specs";
 import { getPreferences } from "../services/preferences";
@@ -361,6 +361,109 @@ salesRouter.post(
   },
 );
 
+/**
+ * Edit an invoice, draft or issued — the route's body, exported so a check
+ * script can drive the real thing inside a rolled-back transaction.
+ */
+export async function editInvoice(
+  tx: Tx,
+  id: string,
+  body: Partial<z.infer<typeof invoiceSchema>>,
+  userId: string,
+) {
+  const inv = await tx.query.invoices.findFirst({
+    where: eq(invoices.id, id),
+  });
+  if (!inv) throw new PostingError("Invoice not found");
+  const prefs = await getPreferences(tx);
+  if (inv.status === "void") throw new PostingError("A void invoice cannot be edited");
+  if (inv.status !== "draft" && !prefs.allowEditingSentInvoice) {
+    throw new PostingError("Only draft invoices can be edited — turn on editing of sent invoices in Preferences");
+  }
+  /**
+   * What has already been received against it — payments and credits
+   * applied. A paid invoice can be edited, as in Zoho; the money stays
+   * applied, so the edit only has to leave room for it. The applications
+   * belong to this customer, so the customer cannot change under them.
+   */
+  const appliedP = toPaise(inv.total) - toPaise(inv.balanceDue);
+  if (appliedP > 0 && body.customerId && body.customerId !== inv.customerId) {
+    throw new PostingError(
+      "Payments or credits from this customer are applied to it — unapply them before changing the customer",
+    );
+  }
+  const customer = await loadCustomer(tx, body.customerId ?? inv.customerId);
+
+  let totalsPatch = {};
+  if (body.lines) {
+    const totals = await computeDocumentTotals(
+      tx,
+      body.lines as DocLineInput[],
+      body.placeOfSupplyState ?? inv.placeOfSupplyState,
+      body.adjustment,
+    );
+    const withAccounts = await applyDefaultSalesAccounts(tx, totals.lines);
+    const { lines: _lines, ...headerTotals } = totals;
+    const totalP = toPaise(headerTotals.total);
+    // The one thing an edit cannot do to a paid invoice: fall below what
+    // was received for it, which would leave it overpaid.
+    if (totalP < appliedP) {
+      throw new PostingError(
+        `The new total ₹${fromPaise(totalP)} is less than the ₹${fromPaise(appliedP)} already received against ${inv.number} — unapply a payment or credit first`,
+      );
+    }
+    await tx.delete(invoiceLines).where(eq(invoiceLines.invoiceId, inv.id));
+    await tx
+      .insert(invoiceLines)
+      .values(withAccounts.map((l) => ({ ...l, invoiceId: inv.id })));
+    // The balance is the new total less what stays applied, and the
+    // status follows it: raise a paid invoice and it is part-paid again.
+    const balanceP = totalP - appliedP;
+    totalsPatch = {
+      ...headerTotals,
+      balanceDue: fromPaise(balanceP),
+      ...(inv.status !== "draft" && {
+        status: balanceP === 0 ? "paid" : appliedP > 0 ? "partially_paid" : "sent",
+      }),
+    };
+    // An egg invoice from the Loading Bay moved stock: re-take it.
+    await retakeInvoiceStock(tx, inv.id, inv.number, withAccounts);
+  }
+
+  const [updated] = await tx
+    .update(invoices)
+    .set({
+      customerId: customer.id,
+      invoiceDate: body.invoiceDate ?? inv.invoiceDate,
+      dueDate: body.dueDate ?? inv.dueDate,
+      reference: body.reference ?? inv.reference,
+      placeOfSupplyState: body.placeOfSupplyState ?? inv.placeOfSupplyState,
+      customerNotes: body.customerNotes ?? inv.customerNotes,
+      termsAndConditions: body.termsAndConditions ?? inv.termsAndConditions,
+      ...totalsPatch,
+      updatedAt: new Date(),
+    })
+    .where(eq(invoices.id, inv.id))
+    .returning();
+
+  // An issued invoice keeps its ledger in step: the old entry is
+  // reversed and a fresh one posted, so the trail survives the edit.
+  if (inv.status !== "draft" && inv.journalEntryId) {
+    await reverseJournal(tx, inv.journalEntryId, updated!.invoiceDate, userId);
+    const jeId = await postInvoiceJournal(
+      tx,
+      updated!,
+      customer.displayName,
+      userId,
+    );
+    await tx
+      .update(invoices)
+      .set({ journalEntryId: jeId })
+      .where(eq(invoices.id, inv.id));
+  }
+  return updated!;
+}
+
 salesRouter.patch(
   "/invoices/:id",
   requirePermission("sales", "edit"),
@@ -368,76 +471,7 @@ salesRouter.patch(
   async (req, res) => {
     const body = req.body as Partial<z.infer<typeof invoiceSchema>>;
     try {
-      const result = await db.transaction(async (tx) => {
-        const inv = await tx.query.invoices.findFirst({
-          where: eq(invoices.id, req.params.id!),
-        });
-        if (!inv) throw new PostingError("Invoice not found");
-        const prefs = await getPreferences(tx);
-        if (inv.status !== "draft") {
-          if (!prefs.allowEditingSentInvoice) {
-            throw new PostingError("Only draft invoices can be edited");
-          }
-          if (inv.status === "void") throw new PostingError("A void invoice cannot be edited");
-          // Money already received against it would no longer match the figures.
-          if (toPaise(inv.balanceDue) !== toPaise(inv.total)) {
-            throw new PostingError(
-              "Invoice has payments or credits applied — unapply them first",
-            );
-          }
-        }
-        const customer = await loadCustomer(tx, body.customerId ?? inv.customerId);
-
-        let totalsPatch = {};
-        if (body.lines) {
-          const totals = await computeDocumentTotals(
-            tx,
-            body.lines as DocLineInput[],
-            body.placeOfSupplyState ?? inv.placeOfSupplyState,
-            body.adjustment,
-          );
-          const withAccounts = await applyDefaultSalesAccounts(tx, totals.lines);
-          await tx.delete(invoiceLines).where(eq(invoiceLines.invoiceId, inv.id));
-          await tx
-            .insert(invoiceLines)
-            .values(withAccounts.map((l) => ({ ...l, invoiceId: inv.id })));
-          const { lines: _lines, ...headerTotals } = totals;
-          totalsPatch = { ...headerTotals, balanceDue: headerTotals.total };
-        }
-
-        const [updated] = await tx
-          .update(invoices)
-          .set({
-            customerId: customer.id,
-            invoiceDate: body.invoiceDate ?? inv.invoiceDate,
-            dueDate: body.dueDate ?? inv.dueDate,
-            reference: body.reference ?? inv.reference,
-            placeOfSupplyState: body.placeOfSupplyState ?? inv.placeOfSupplyState,
-            customerNotes: body.customerNotes ?? inv.customerNotes,
-            termsAndConditions: body.termsAndConditions ?? inv.termsAndConditions,
-            ...totalsPatch,
-            updatedAt: new Date(),
-          })
-          .where(eq(invoices.id, inv.id))
-          .returning();
-
-        // An issued invoice keeps its ledger in step: the old entry is
-        // reversed and a fresh one posted, so the trail survives the edit.
-        if (inv.status !== "draft" && inv.journalEntryId) {
-          await reverseJournal(tx, inv.journalEntryId, updated!.invoiceDate, req.session.user!.id);
-          const jeId = await postInvoiceJournal(
-            tx,
-            updated!,
-            customer.displayName,
-            req.session.user!.id,
-          );
-          await tx
-            .update(invoices)
-            .set({ journalEntryId: jeId })
-            .where(eq(invoices.id, inv.id));
-        }
-        return updated!;
-      });
+      const result = await db.transaction((tx) => editInvoice(tx, req.params.id!, body, req.session.user!.id));
       res.json(result);
     } catch (err) {
       if (err instanceof PostingError) return res.status(422).json({ error: err.message });
