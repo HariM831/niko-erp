@@ -337,7 +337,8 @@ await db.transaction(async (tx) => {
     .values({
       name: "Accountant",
       description: "Books access without user management",
-      isSystem: true,
+      // A starting point, not a fixture: Admin is the one role that must stay as seeded.
+      isSystem: false,
       permissions: {
         sales: ["*"],
         purchases: ["*"],
