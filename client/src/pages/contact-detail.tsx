@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate, formatMoney } from "../api";
+import { GST_STATES, toGstStateCode } from "@shared/gst-states";
 import { CustomFieldsDisplay } from "../components/custom-fields";
 import { StatusBadge } from "../components/list-page";
 import { CommentsTimeline } from "../components/comments";
@@ -445,7 +446,14 @@ export function OverviewTab({
             )}
             <div className="flex justify-between gap-3">
               <dt className="text-gray-500">Place of Supply</dt>
-              <dd className="text-right">{contact.placeOfSupplyState || "—"}</dd>
+              <dd className="text-right">
+                {contact.placeOfSupplyState
+                  ? (() => {
+                      const code = toGstStateCode(contact.placeOfSupplyState);
+                      return GST_STATES[code] ? `${GST_STATES[code]} (${code})` : contact.placeOfSupplyState;
+                    })()
+                  : "—"}
+              </dd>
             </div>
           </dl>
         </div>
@@ -453,40 +461,40 @@ export function OverviewTab({
         {/* Where this vendor is paid. On the overview rather than behind Edit:
             the question "have we got their account details" is asked far more
             often than it is answered, and the Vendor Sheet cannot pay a vendor
-            without all three. */}
-        {contact.type !== "customer" && (
-          <div className="mb-4 border-t pt-4">
-            <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-              Bank Details
-            </div>
-            {contact.bankBeneficiaryName && contact.bankAccountNumber && contact.bankIfsc ? (
-              <dl className="space-y-1.5 text-gray-700">
-                <div className="flex justify-between gap-3">
-                  <dt className="text-gray-500">Beneficiary</dt>
-                  <dd className="text-right">{contact.bankBeneficiaryName}</dd>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <dt className="text-gray-500">Account</dt>
-                  <dd className="text-right tabular-nums">{contact.bankAccountNumber}</dd>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <dt className="text-gray-500">IFSC</dt>
-                  <dd className="text-right">{contact.bankIfsc}</dd>
-                </div>
-                {contact.bankName && (
-                  <div className="flex justify-between gap-3">
-                    <dt className="text-gray-500">Bank</dt>
-                    <dd className="text-right">{contact.bankName}</dd>
-                  </div>
-                )}
-              </dl>
-            ) : (
-              <p className="text-amber-700">
-                Not on file — this vendor cannot go into a bank payment file yet.
-              </p>
-            )}
+            without all three. A customer's is kept for refunds. */}
+        <div className="mb-4 border-t pt-4">
+          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+            Bank Details
           </div>
-        )}
+          {contact.bankBeneficiaryName && contact.bankAccountNumber && contact.bankIfsc ? (
+            <dl className="space-y-1.5 text-gray-700">
+              <div className="flex justify-between gap-3">
+                <dt className="text-gray-500">Beneficiary</dt>
+                <dd className="text-right">{contact.bankBeneficiaryName}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-gray-500">Account</dt>
+                <dd className="text-right tabular-nums">{contact.bankAccountNumber}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-gray-500">IFSC</dt>
+                <dd className="text-right">{contact.bankIfsc}</dd>
+              </div>
+              {contact.bankName && (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-gray-500">Bank</dt>
+                  <dd className="text-right">{contact.bankName}</dd>
+                </div>
+              )}
+            </dl>
+          ) : contact.type === "customer" ? (
+            <p className="text-gray-500">Not on file.</p>
+          ) : (
+            <p className="text-amber-700">
+              Not on file — this vendor cannot go into a bank payment file yet.
+            </p>
+          )}
+        </div>
 
         {contact.persons.length > 0 && (
           <div className="border-t pt-4">

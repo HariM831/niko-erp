@@ -16,6 +16,7 @@ import { readFile } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import { contacts, invoiceLines, invoices, users, zohoIdMap } from "@shared/schema";
 import { db, pool } from "../../server/db";
+import { toGstStateCode } from "@shared/gst-states";
 import { postInvoiceJournal } from "../../server/routes/sales";
 
 interface ZohoLine {
@@ -317,7 +318,7 @@ async function main() {
           invoiceDate: inv.date,
           dueDate: inv.due_date || inv.date,
           reference: inv.reference_number?.trim() || null,
-          placeOfSupplyState: inv.place_of_supply?.slice(0, 4) || null,
+          placeOfSupplyState: toGstStateCode(inv.place_of_supply?.slice(0, 4) ?? "") || null,
           subTotal: money(inv.sub_total),
           discountTotal: money(inv.discount_total),
           // Nothing in these books carries tax or round-off; both were verified

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "../api";
+import { api, ApiError } from "../api";
+import { GST_STATES, toGstStateCode } from "@shared/gst-states";
 import { CustomFieldsBlock, type CustomFieldValues } from "../components/custom-fields";
 import { SearchSelect, type Choice } from "../components/search-select";
 
@@ -13,6 +14,8 @@ const GST_TREATMENTS = [
   ["overseas", "Overseas"],
   ["special_economic_zone", "Special Economic Zone"],
 ] as const;
+
+const STATE_CHOICES: Choice[] = Object.entries(GST_STATES).map(([code, name]) => ({ id: code, label: `${name} (${code})` }));
 
 const SALUTATIONS = ["Mr.", "Ms.", "Mrs.", "Dr."];
 const SALUTATION_CHOICES: Choice[] = SALUTATIONS.map((s) => ({ id: s, label: s }));
@@ -91,7 +94,8 @@ export function ContactNewPage({ type, editId }: { type: "customer" | "vendor" |
       gstTreatment: (existing.gstTreatment as string) ?? "consumer",
       gstin: (existing.gstin as string) ?? "",
       pan: (existing.pan as string) ?? "",
-      placeOfSupplyState: (existing.placeOfSupplyState as string) ?? "",
+      // Imported from Zoho as "AS"; the dropdown, and the server, speak "18".
+      placeOfSupplyState: existing.placeOfSupplyState ? toGstStateCode(existing.placeOfSupplyState as string) : "",
       paymentTermsDays: String(existing.paymentTermsDays ?? 0),
       openingBalance: existing.openingBalance && Number(existing.openingBalance) !== 0 ? String(existing.openingBalance) : "",
       bankBeneficiaryName: (existing.bankBeneficiaryName as string) ?? "",
@@ -160,15 +164,10 @@ export function ContactNewPage({ type, editId }: { type: "customer" | "vendor" |
           placeOfSupplyState: form.placeOfSupplyState || undefined,
           paymentTermsDays: Number(form.paymentTermsDays) || 0,
           openingBalance: form.openingBalance || undefined,
-          // Only vendors are ever paid, so only a vendor carries bank details.
-          ...(type === "vendor"
-            ? {
-                bankBeneficiaryName: form.bankBeneficiaryName || undefined,
-                bankAccountNumber: form.bankAccountNumber || undefined,
-                bankIfsc: form.bankIfsc.toUpperCase() || undefined,
-                bankName: form.bankName || undefined,
-              }
-            : {}),
+          bankBeneficiaryName: form.bankBeneficiaryName || undefined,
+          bankAccountNumber: form.bankAccountNumber || undefined,
+          bankIfsc: form.bankIfsc.toUpperCase() || undefined,
+          bankName: form.bankName || undefined,
           customFields,
           addresses: addresses.length ? addresses : undefined,
           persons: validPersons.length
@@ -186,7 +185,14 @@ export function ContactNewPage({ type, editId }: { type: "customer" | "vendor" |
       await qc.invalidateQueries();
       navigate(editId ? `${listPath}/${editId}` : listPath);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed");
+      // Name the field and the reason — "Validation failed" alone leaves them guessing which tab.
+      setError(
+        err instanceof ApiError && err.issues?.length
+          ? `${err.message}: ${err.issues.map((i) => `${i.path} — ${i.message}`).join("; ")}`
+          : err instanceof Error
+            ? err.message
+            : "Save failed",
+      );
     } finally {
       setBusy(false);
     }
@@ -252,10 +258,7 @@ export function ContactNewPage({ type, editId }: { type: "customer" | "vendor" |
 
         <div className="mt-6 max-w-2xl">
           <nav className="mb-4 flex gap-5 border-b text-[13px]">
-            {(type === "vendor"
-              ? (["other", "address", "persons", "bank"] as SubTab[])
-              : (["other", "address", "persons"] as SubTab[])
-            ).map((t) => (
+            {(["other", "address", "persons", "bank"] as SubTab[]).map((t) => (
               <button
                 key={t}
                 onClick={() => setSubTab(t)}
@@ -288,7 +291,12 @@ export function ContactNewPage({ type, editId }: { type: "customer" | "vendor" |
               </div>
               <div>
                 <label className="label-required">Place of Supply *</label>
-                <input value={form.placeOfSupplyState} onChange={set("placeOfSupplyState")} maxLength={4} placeholder="State code, e.g. 29" className={inputCls} />
+                <SearchSelect
+                  value={form.placeOfSupplyState || null}
+                  onChange={(id) => set("placeOfSupplyState")({ target: { value: id ?? "" } })}
+                  options={STATE_CHOICES}
+                  placeholder="Select a state"
+                />
               </div>
               <div>
                 <label className={label}>GSTIN</label>
@@ -322,8 +330,9 @@ export function ContactNewPage({ type, editId }: { type: "customer" | "vendor" |
           {subTab === "bank" && (
             <div className="grid grid-cols-2 gap-4">
               <div className="col-span-2 text-[12.5px] text-gray-500">
-                Where this vendor is paid. All three of beneficiary name, account number and
-                IFSC are needed before a bill can go into a bank payment file.
+                {type === "customer"
+                  ? "The customer's own bank account — for refunds, and for matching the transfers they send."
+                  : "Where this vendor is paid. All three of beneficiary name, account number and IFSC are needed before a bill can go into a bank payment file."}
               </div>
               <div className="col-span-2">
                 <label className={label}>Beneficiary Name</label>

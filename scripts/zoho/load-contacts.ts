@@ -21,6 +21,7 @@ import { readFile } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import { contactAddresses, contactPersons, contacts, zohoIdMap } from "@shared/schema";
 import { db, pool } from "../../server/db";
+import { toGstStateCode } from "@shared/gst-states";
 
 /** Zoho's GST treatment vocabulary onto niko's. */
 const GST_TREATMENT: Record<string, string> = {
@@ -168,7 +169,7 @@ async function main() {
             "unregistered_business") as typeof contacts.$inferInsert.gstTreatment,
           gstin: clean(first("gst_no") as string, 15),
           pan: clean(first("pan_no") as string, 10),
-          placeOfSupplyState: clean(first("place_of_contact") as string, 4),
+          placeOfSupplyState: toGstStateCode(clean(first("place_of_contact") as string, 4) ?? "") || null,
           paymentTermsDays: Number(first("payment_terms") ?? 0),
           // Left at zero deliberately: no contact in this org carries a Zoho
           // opening balance, and the whole document history is being imported,

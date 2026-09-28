@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import { z, type ZodSchema } from "zod";
+import { GST_STATES, toGstStateCode } from "@shared/gst-states";
 
 /**
  * A number that may arrive as a JSON number or a numeric string, never as
@@ -40,20 +41,16 @@ export function nonBlank(max?: number) {
  * The GST state/UT codes actually in use — a `placeOfSupplyState` or
  * `stateCode` of "ZZ" or "99999" was previously accepted by a bare
  * `max(4)`, and this is what decides CGST+SGST vs. IGST on every document
- * (`interState` in services/documents.ts). 25 and 28 are deliberately
- * omitted: both are retired (Daman & Diu merged into 26; Andhra Pradesh's
- * pre-bifurcation code was replaced by 37).
+ * (`interState` in services/documents.ts).
+ *
+ * Zoho's letter codes ("AS") are read as the number they stand for ("18")
+ * and stored that way: every contact imported from Zoho carries one, and
+ * refusing it meant none of them could be edited.
  */
-const GST_STATE_CODES = new Set([
-  "01", "02", "03", "04", "05", "06", "07", "08", "09", "10",
-  "11", "12", "13", "14", "15", "16", "17", "18", "19", "20",
-  "21", "22", "23", "24", "26", "27", "29", "30", "31", "32",
-  "33", "34", "35", "36", "37", "38", "97", "99",
-]);
-
 export const gstStateCode = z
   .string()
-  .refine((v) => GST_STATE_CODES.has(v), "Not a recognized GST state code");
+  .transform(toGstStateCode)
+  .refine((v) => v in GST_STATES, "Not a recognized GST state code");
 
 /**
  * Validate req.body against a Zod schema. Replaces the body with the parsed
