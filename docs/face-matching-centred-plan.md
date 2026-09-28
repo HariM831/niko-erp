@@ -172,3 +172,27 @@ cannot be helped by any threshold.
 3. **Should a wrong-person accept ever be traded for fewer refusals?**
    Recommended: no. A refusal costs fifteen seconds; a wrong name costs a day's
    pay and the trust of the person it happened to.
+
+## Result — 28 Sep 2026: not worth building
+
+Re-ran `scripts/calibrate-face-matching.ts` on staging: 198 enrolled faces,
+882 captures over 60 days (up from 124), 12 of them from manual punches (up
+from 9 — still thin).
+
+- **Raw stays ahead of centred.** Raw has a setting with zero wrong-person
+  accepts (73% with 12% clear: 185 of 882 accepted). Centred has none on its
+  whole scale — even at 60–65% it still puts one wrong name through. At equal
+  wrong counts raw also accepts more (raw 70%/5%: 475 accepted, 13 wrong;
+  centred 50%/5%: 372 accepted, 13 wrong).
+- **The live 60%/5% is no longer clean on this set:** 579 accepted, 38 wrong.
+  Treat that figure with care: 355 captures predate the niko gate (Amino's
+  matcher, 29 Aug–24 Sep) and 27 people were re-enrolled on 26 Sep, so many of
+  those "wrong" captures were scored against a gallery that has since changed.
+  Recalibrate on captures since 27 Sep only before moving the threshold.
+- `scripts/diagnose-face-pairs.ts`: live gate over 867 captures — own median
+  72% (p10 62%), closest stranger median 64% (p90 70%, max 78%); 529 of 867
+  (61%) would auto-accept. 2033 enrolment pairs sit closer than the gate can
+  separate; the closest is Nayan Borah ↔ Pallab Bora at 78%.
+
+The enrolments, not the scale, are the problem: new photographs on the gate's
+own camera remain the win.
