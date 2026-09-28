@@ -58,13 +58,17 @@ const ok = (label: string, cond: boolean, detail = "") => {
 
 class Rollback extends Error {}
 
-/** Expect a call to refuse, and say why it did. */
-async function refuses(label: string, fn: () => Promise<unknown>) {
+/**
+ * Expect a call to refuse, and say why it did. With `because`, the refusal
+ * must be for that reason — refused for something else is not a pass.
+ */
+async function refuses(label: string, fn: () => Promise<unknown>, because?: RegExp) {
   try {
     await fn();
     ok(label, false, "was allowed — it must not be");
   } catch (e) {
-    ok(label, true, `"${(e as Error).message.slice(0, 70)}"`);
+    const msg = (e as Error).message;
+    ok(label, !because || because.test(msg), `"${msg.slice(0, 70)}"`);
   }
 }
 
@@ -126,9 +130,15 @@ try {
     const MON = "2026-12-07"; //  a Monday
     const TUE = "2026-12-08";
     const WED = "2026-12-09";
-    const NOBM = "2026-07-15"; // before the first benchmark row — no rate in force
 
     await tx.insert(eggBenchmarkPrices).values({ effectiveFrom: MON, ratePerEgg: "5.0000", createdBy: uid }).onConflictDoNothing();
+    // The day before the first benchmark on file, read from the table — a
+    // rate stays in force until the next one, so any fixed date can be
+    // covered by history imported later (staging's runs back to 2019).
+    const [first] = await tx
+      .execute(sql`SELECT (min(effective_from) - 1)::text AS nobm FROM egg_benchmark_prices`)
+      .then((r) => r.rows as { nobm: string }[]);
+    const NOBM = first!.nobm;
     await tx
       .insert(eggSizeOffsets)
       .values({ effectiveFrom: MON, small: "-0.5000", large: "0.5000", createdBy: uid })
@@ -228,8 +238,10 @@ try {
     ok("an override changes the day's boxes only", line.boxes === 80 && line.exception?.kind === "qty_override");
 
     /* ══ 4. Loading refusals ═════════════════════════════════════════════ */
-    await refuses("no benchmark in force → refused", () =>
-      loadAndInvoice(tx, { dispatchDate: NOBM, customerId: customer.id, loaded: { large: 5 }, driverName: "T", vehicleNumber: "V" }, uid),
+    await refuses(
+      `no benchmark in force (${NOBM}) → refused`,
+      () => loadAndInvoice(tx, { dispatchDate: NOBM, customerId: customer.id, loaded: { large: 5 }, driverName: "T", vehicleNumber: "V" }, uid),
+      /benchmark/i,
     );
     await refuses("zero boxes → refused", () =>
       loadAndInvoice(tx, { dispatchDate: MON, customerId: customer.id, agreementId: ag!.id, loaded: {}, driverName: "T", vehicleNumber: "V" }, uid),
