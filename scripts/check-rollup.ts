@@ -16,7 +16,6 @@ import {
   feedTransfers,
   flockDay,
   flockPlacements,
-  houses,
   items,
   locations,
   standardPoints,
@@ -26,6 +25,7 @@ import { db } from "../server/db";
 import { createFlock, setFlockTransfers, startLay } from "../server/services/flocks";
 import { saveDay } from "../server/services/daily";
 import { refreshFlockDay, weeklySummary } from "../server/services/rollup";
+import { scratchHouse } from "./lib/scratch-houses";
 
 let failures = 0;
 const ok = (label: string, cond: boolean, detail = "") => {
@@ -60,9 +60,11 @@ try {
       })),
     );
 
-    const pullet = (await tx.select().from(houses).where(eq(houses.purpose, "pullet")))[0]!;
-    const layers = (await tx.select().from(houses).where(eq(houses.purpose, "layer"))).slice(0, 2);
-    if (layers.length < 2) throw new Error("Need two layer houses to test the split");
+    // Its own sheds: the real ones hold real batches (the spine refuses to
+    // house a second on top) and real feed deliveries (FIFO pools per house, so
+    // the arithmetic below only holds against a pool the check built itself).
+    const pullet = await scratchHouse(tx, "ZZ-RP1", "pullet");
+    const layers = [await scratchHouse(tx, "ZZ-RL1", "layer"), await scratchHouse(tx, "ZZ-RL2", "layer")];
     const [feedItem] = await tx.select().from(items).limit(1);
 
     const HATCH = "2026-01-05";
@@ -76,15 +78,6 @@ try {
     console.log(`\n  ${flock.code} — 10,000 into ${pullet.code}, split to ${layers[0]!.code} / ${layers[1]!.code}\n`);
 
     // ── Feed deliveries, one per house, at a known rate ──
-    //
-    // The borrowed houses carry REAL deliveries now — the Amino import put a
-    // year of them there — and FIFO pools per house, so the test's arithmetic
-    // only holds against a pool it built itself. Cleared inside the rolled-back
-    // transaction: the real rows come back the moment the check ends.
-    await tx
-      .delete(feedTransfers)
-      .where(inArray(feedTransfers.toHouseId, [pullet.id, layers[0]!.id, layers[1]!.id]));
-
     const deliver = async (houseId: string, day: string, kg: number, rate: number, n: string) => {
       const house = [pullet, ...layers].find((h) => h.id === houseId)!;
       await tx.insert(feedTransfers).values({

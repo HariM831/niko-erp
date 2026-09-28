@@ -6,7 +6,7 @@
  *   tokens:   sha256 hashing, valid / unknown / revoked / wrong-role
  *   pairing:  auto-approve claim → token; second claim goes pending →
  *             admin approves → poll hands the token over exactly once
- *   events:   duplicate event id → duplicates[]; in/in → second corrected
+ *   events:   duplicate event id → duplicates[]; in/in → stored as sent
  *             to out; canteen plate reconciled against the day's punches;
  *             a second unauthorised plate refused, an authorised one served
  *   enroll:   a phone-enrolled labourer lands as a daily_wage employee with
@@ -144,9 +144,12 @@ try {
     const r2 = await applyEvents(tx, gate, [e("evt-1", "in", base)]);
     ok("the same event id resent lands in duplicates[]", r2.duplicates.length === 1 && r2.accepted.length === 0, r2.duplicates[0]?.reason ?? "");
     const r3 = await applyEvents(tx, gate, [e("evt-2", "in", base + 3600_000)]);
-    ok("a second IN is auto-corrected to OUT", r3.accepted.length === 1 && r3.corrected.some((c) => c.id === "evt-2" && c.from === "in" && c.to === "out"));
+    // Stored as the device sent it, never flipped to OUT: rewriting it turned a
+    // double tap into an exit that never happened (4 Sep 2026). summarizeDay()
+    // keeps the earliest of consecutive INs, so the day's hours still hold.
+    ok("a second IN is stored as an IN, not rewritten", r3.accepted.length === 1 && r3.corrected.length === 0);
     const dayRows = await tx.select().from(punches).where(and(eq(punches.employeeId, emp!.id), eq(punches.punchDate, today)));
-    ok("the stored punches read in, out", dayRows.length === 2 && dayRows.some((p) => p.type === "in") && dayRows.some((p) => p.type === "out"));
+    ok("the stored punches read in, in", dayRows.length === 2 && dayRows.every((p) => p.type === "in"));
     ok("device punches carry method=device and the event id as client_id", dayRows.every((p) => p.method === "device" && p.deviceId === gate.id) && dayRows.some((p) => p.clientId === "evt-1"));
     ok("a confident match keeps no photo", dayRows.every((p) => p.photoUrl === null));
     const rBad = await applyEvents(tx, gate, [{ id: "evt-bad", type: "meal", personKind: "wage", personId: emp!.id, ts: base, date: today, meal: "lunch", state: "verified", personName: "X" }]);

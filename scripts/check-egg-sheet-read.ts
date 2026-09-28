@@ -123,7 +123,7 @@ async function main() {
   console.log("\n  headings:");
   for (const [h, g] of [
     ["Extra Large", "xl"], ["XL", "xl"], ["Large", "large"], ["Brown", "brown"], ["Niko", "niko"],
-    ["JUMBO", "jumbo"], ["Medium", "medium"], ["Small", "small"], ["Dirty", null], ["", null],
+    ["JUMBO", "jumbo"], ["Medium", "medium"], ["Small", "small"], ["Dirty", "dirty"], ["", null],
   ] as const) {
     check(gradeOfHeader(h) === g, `"${h}" → ${g ?? "unmapped"}`);
   }

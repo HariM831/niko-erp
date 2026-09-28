@@ -23,7 +23,6 @@ import {
   flockPlacements,
   flocks,
   hatchProfile,
-  houses,
   movementDelta,
   standardSets,
 } from "@shared/schema";
@@ -41,6 +40,7 @@ import {
   startLay,
 } from "../server/services/flocks";
 import { PostingError } from "../server/services/posting";
+import { scratchHouse } from "./lib/scratch-houses";
 
 let failures = 0;
 const ok = (label: string, cond: boolean, detail = "") => {
@@ -90,31 +90,29 @@ try {
       .values({ breedId: breed!.id, name: "Check set", version: 1, isDefault: true })
       .returning();
 
-    const sheds = await tx.select().from(houses).where(eq(houses.isActive, true));
-    const pullets = sheds.filter((h) => h.purpose === "pullet");
-    const layers = sheds.filter((h) => h.purpose === "layer");
-    if (pullets.length < 2 || layers.length < 2) {
-      throw new Error("Need two pullet houses and two layer houses");
-    }
-    const [p1, p2] = pullets;
-    const [l1, l2] = layers;
+    // Its own sheds: the real ones hold real batches, and the spine refuses to
+    // house a second batch on top of one.
+    const p1 = await scratchHouse(tx, "ZZ-SP1", "pullet");
+    const p2 = await scratchHouse(tx, "ZZ-SP2", "pullet");
+    const l1 = await scratchHouse(tx, "ZZ-SL1", "layer");
+    const l2 = await scratchHouse(tx, "ZZ-SL2", "layer");
     const userId = ((await tx.execute(`SELECT id FROM users LIMIT 1`)).rows[0] as { id: string }).id;
 
     // ── Generated codes ──
-    const firstCode = await nextFlockCode(tx, p1!.locationId, 2026);
+    const firstCode = await nextFlockCode(tx, p1.locationId, 2026);
     ok("a code is site, year and sequence", /^[A-Z]{1,3}-2026-\d\d$/.test(firstCode), firstCode);
     const auto = await createFlock(tx, {
-      locationId: p1!.locationId,
+      locationId: p1.locationId,
       breedId: breed!.id,
-      houseId: p2!.id,
+      houseId: p2.id,
       hatches: [{ hatchDate: "2026-03-01", qty: 10 }],
       userId,
     });
     ok("createFlock generates one when none is given", auto.flock.code === firstCode, auto.flock.code);
-    ok("and the next steps past it", (await nextFlockCode(tx, p1!.locationId, 2026)) !== firstCode);
+    ok("and the next steps past it", (await nextFlockCode(tx, p1.locationId, 2026)) !== firstCode);
     ok(
       "each year has its own sequence",
-      (await nextFlockCode(tx, p1!.locationId, 2027)).endsWith("-01"),
+      (await nextFlockCode(tx, p1.locationId, 2027)).endsWith("-01"),
     );
 
     // ── The weighted average, before anything touches the database ──
@@ -132,12 +130,12 @@ try {
     ok("spread is reported in days", skew?.spreadDays === 8);
 
     // ── Hatches ──
-    console.log("\n  Placing 10,000 in", p1!.code, "over three hatches");
+    console.log("\n  Placing 10,000 in", p1.code, "over three hatches");
     const { flock, placement, profile } = await createFlock(tx, {
       code: "ZZ-CHECK-1",
-      locationId: p1!.locationId,
+      locationId: p1.locationId,
       breedId: breed!.id,
-      houseId: p1!.id,
+      houseId: p1.id,
       hatches: [
         { hatchDate: "2026-01-01", qty: 4_000 },
         { hatchDate: "2026-01-03", qty: 4_000 },
@@ -198,6 +196,7 @@ try {
       [50, "cull_weak", "2026-02-01"],
     ] as const) {
       await recordMovement(tx, {
+        flockId: flock.id,
         placementId: placement.id,
         kind: cause === "cull_weak" ? "cull" : "mortality",
         qty,
@@ -214,12 +213,12 @@ try {
     ok("and the refusal changed nothing", (await placementCount(tx, placement.id)) === 9_800);
 
     // ── Transfer: a week of lorries into two layer houses ──
-    console.log(`\n  Moving to ${l1!.code} and ${l2!.code} over three days`);
+    console.log(`\n  Moving to ${l1.code} and ${l2.code} over three days`);
     await refuses("a line that moves birds to the house they are in", () =>
       setFlockTransfers(
         tx,
         flock.id,
-        [{ eventDate: "2026-04-25", fromHouseId: p1!.id, toHouseId: p1!.id, qty: 10 }],
+        [{ eventDate: "2026-04-25", fromHouseId: p1.id, toHouseId: p1.id, qty: 10 }],
         userId,
       ),
     );
@@ -227,16 +226,16 @@ try {
       setFlockTransfers(
         tx,
         flock.id,
-        [{ eventDate: "2026-04-25", fromHouseId: p1!.id, toHouseId: l1!.id, qty: 99_999 }],
+        [{ eventDate: "2026-04-25", fromHouseId: p1.id, toHouseId: l1.id, qty: 99_999 }],
         userId,
       ),
     );
     ok("and that refusal changed nothing", (await placementCount(tx, placement.id)) === 9_800);
 
     const lorries = [
-      { eventDate: "2026-04-25", fromHouseId: p1!.id, toHouseId: l1!.id, qty: 4_000 },
-      { eventDate: "2026-04-26", fromHouseId: p1!.id, toHouseId: l1!.id, qty: 3_840 },
-      { eventDate: "2026-04-27", fromHouseId: p1!.id, toHouseId: l2!.id, qty: 1_960 },
+      { eventDate: "2026-04-25", fromHouseId: p1.id, toHouseId: l1.id, qty: 4_000 },
+      { eventDate: "2026-04-26", fromHouseId: p1.id, toHouseId: l1.id, qty: 3_840 },
+      { eventDate: "2026-04-27", fromHouseId: p1.id, toHouseId: l2.id, qty: 1_960 },
     ];
     const moved = await setFlockTransfers(tx, flock.id, lorries, userId);
     ok("the rearing house is empty", (await placementCount(tx, placement.id)) === 0);
@@ -248,7 +247,7 @@ try {
       .from(flockPlacements)
       .where(and(eq(flockPlacements.flockId, flock.id), isNull(flockPlacements.toDate)));
     ok("two layer houses are open", openNow.length === 2);
-    const inL1 = openNow.find((p) => p.houseId === l1!.id);
+    const inL1 = openNow.find((p) => p.houseId === l1.id);
     ok("the first holds both its lorries", (await placementCount(tx, inL1!.id)) === 7_840);
 
     let led = await flockLedger(tx as never, flock.id);
@@ -259,9 +258,9 @@ try {
       tx,
       flock.id,
       [
-        { eventDate: "2026-04-25", fromHouseId: p1!.id, toHouseId: l1!.id, qty: 4_000 },
-        { eventDate: "2026-04-26", fromHouseId: p1!.id, toHouseId: l1!.id, qty: 3_800 },
-        { eventDate: "2026-04-27", fromHouseId: p1!.id, toHouseId: l2!.id, qty: 2_000 },
+        { eventDate: "2026-04-25", fromHouseId: p1.id, toHouseId: l1.id, qty: 4_000 },
+        { eventDate: "2026-04-26", fromHouseId: p1.id, toHouseId: l1.id, qty: 3_800 },
+        { eventDate: "2026-04-27", fromHouseId: p1.id, toHouseId: l2.id, qty: 2_000 },
       ],
       userId,
     );
@@ -270,9 +269,9 @@ try {
     ok("and the flock total is untouched", led.birds === 9_800);
 
     // ── Deaths on both sides of the move ──
-    const inL2 = openNow.find((p) => p.houseId === l2!.id)!;
-    await recordMovement(tx, { placementId: inL1!.id, kind: "mortality", qty: 40, eventDate: "2026-06-01", causeCode: "prolapse", userId });
-    await recordMovement(tx, { placementId: inL2.id, kind: "mortality", qty: 10, eventDate: "2026-06-01", causeCode: "heat", userId });
+    const inL2 = openNow.find((p) => p.houseId === l2.id)!;
+    await recordMovement(tx, { flockId: flock.id, placementId: inL1!.id, kind: "mortality", qty: 40, eventDate: "2026-06-01", causeCode: "prolapse", userId });
+    await recordMovement(tx, { flockId: flock.id, placementId: inL2.id, kind: "mortality", qty: 10, eventDate: "2026-06-01", causeCode: "heat", userId });
 
     led = await flockLedger(tx as never, flock.id);
     ok("lifetime mortality spans the move", led.lost === 250, `${led.lost} of 10,000 = ${((led.lost / 10_000) * 100).toFixed(2)}%`);
@@ -296,15 +295,15 @@ try {
     // ── Culling out over several days ──
     console.log("\n  Culling out");
     await refuses("culling more than a house holds", () =>
-      setFlockCulls(tx, flock.id, [{ eventDate: "2027-01-15", houseId: l1!.id, qty: 99_999 }], userId),
+      setFlockCulls(tx, flock.id, [{ eventDate: "2027-01-15", houseId: l1.id, qty: 99_999 }], userId),
     );
 
     const partial = await setFlockCulls(
       tx,
       flock.id,
       [
-        { eventDate: "2027-01-15", houseId: l1!.id, qty: 3_000 },
-        { eventDate: "2027-01-16", houseId: l1!.id, qty: 4_760 },
+        { eventDate: "2027-01-15", houseId: l1.id, qty: 3_000 },
+        { eventDate: "2027-01-16", houseId: l1.id, qty: 4_760 },
       ],
       userId,
     );
@@ -315,9 +314,9 @@ try {
       tx,
       flock.id,
       [
-        { eventDate: "2027-01-15", houseId: l1!.id, qty: 3_000 },
-        { eventDate: "2027-01-16", houseId: l1!.id, qty: 4_760 },
-        { eventDate: "2027-01-18", houseId: l2!.id, qty: 1_990 },
+        { eventDate: "2027-01-15", houseId: l1.id, qty: 3_000 },
+        { eventDate: "2027-01-16", houseId: l1.id, qty: 4_760 },
+        { eventDate: "2027-01-18", houseId: l2.id, qty: 1_990 },
       ],
       userId,
     );
@@ -340,8 +339,8 @@ try {
       tx,
       flock.id,
       [
-        { eventDate: "2027-01-15", houseId: l1!.id, qty: 3_000 },
-        { eventDate: "2027-01-16", houseId: l1!.id, qty: 4_760 },
+        { eventDate: "2027-01-15", houseId: l1.id, qty: 3_000 },
+        { eventDate: "2027-01-16", houseId: l1.id, qty: 4_760 },
       ],
       userId,
     );

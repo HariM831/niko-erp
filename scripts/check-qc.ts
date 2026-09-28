@@ -11,7 +11,7 @@
  *
  * Run: npx tsx scripts/check-qc.ts
  */
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { deductionRules, items, qcSpecParams, qcSpecs } from "@shared/schema";
 import { db, type Tx } from "../server/db";
 import { computeDeductions, judgeLine, loadDeductionRules, loadSpecs } from "../server/services/qc";
@@ -25,17 +25,18 @@ const check = (name: string, pass: boolean, detail = "") => {
 class Rollback extends Error {}
 
 async function main() {
-  const [maize] = await db.select({ id: items.id }).from(items).where(eq(items.name, "Maize")).limit(1);
-  if (!maize) throw new Error("No 'Maize' item to test against");
+  // What was live before, so the run can prove it put nothing out of place.
+  const liveBefore = await db.select({ id: qcSpecs.id }).from(qcSpecs).where(eq(qcSpecs.isActive, true));
 
   try {
     await db.transaction(async (tx: Tx) => {
-      // Only one spec per material may be live, so the real one stands down for
-      // the length of this transaction — which is always rolled back.
-      await tx
-        .update(qcSpecs)
-        .set({ isActive: false })
-        .where(and(eq(qcSpecs.itemId, maize.id), eq(qcSpecs.isActive, true)));
+      // Its own material, so no real spec is in the way — one live spec per
+      // material is a rule — and none has to stand down.
+      const [maize] = await tx
+        .insert(items)
+        .values({ name: "ZZ Check Maize", unit: "kg", isFeedIngredient: true })
+        .returning({ id: items.id });
+      if (!maize) throw new Error("could not make the scratch material");
 
       const [spec] = await tx
         .insert(qcSpecs)
@@ -119,15 +120,17 @@ async function main() {
     if (!(err instanceof Rollback)) throw err;
   }
 
-  // Not "the table is empty" — real specs live here now. What must be true is
-  // that this run left nothing of its own behind, and put the live spec back.
+  // Not "the table is empty" — real specs may live here. What must be true is
+  // that this run left nothing of its own behind, and every live spec is as it was.
   const strays = await db.select({ id: qcSpecs.id }).from(qcSpecs).where(eq(qcSpecs.version, 99));
-  const live = await db
-    .select({ id: qcSpecs.id })
-    .from(qcSpecs)
-    .where(and(eq(qcSpecs.itemId, maize.id), eq(qcSpecs.isActive, true)));
-  check("nothing survives the run", strays.length === 0, `${strays.length} test spec(s) left`);
-  check("the real spec is live again", live.length === 1, `${live.length} active on Maize`);
+  const scratch = await db.select({ id: items.id }).from(items).where(eq(items.name, "ZZ Check Maize"));
+  const liveAfter = await db.select({ id: qcSpecs.id }).from(qcSpecs).where(eq(qcSpecs.isActive, true));
+  check("nothing survives the run", strays.length === 0 && scratch.length === 0, `${strays.length} test spec(s) left`);
+  check(
+    "the real specs are live as before",
+    liveAfter.length === liveBefore.length && liveBefore.every((b) => liveAfter.some((a) => a.id === b.id)),
+    `${liveAfter.length} active`,
+  );
   console.log(failed === 0 ? "\n  All QC checks passed.\n" : `\n  ${failed} check(s) FAILED.\n`);
   process.exit(failed ? 1 : 0);
 }

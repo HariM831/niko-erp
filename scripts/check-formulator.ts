@@ -93,14 +93,19 @@ const conflict = solveLeastCost({
   ...MILL,
 });
 check("it refuses", !conflict.feasible);
+// Since 24 Sep 2026 the clash is named as ONE conflict carrying both bounds,
+// so the nutritionist sees which pair to loosen — never either alone as the cause.
+const clash = conflict.blockers ?? [];
+const named = clash.flatMap((b) => [b.key, ...(b.with ?? []).map((w) => w.key)]);
 check(
   "no single bound is blamed",
-  (conflict.blockers ?? []).length === 0,
+  clash.length > 0 && clash.every((b) => b.kind === "conflict"),
   "each is reachable alone; the pair is not",
 );
+check("the conflict names both bounds", named.includes("cp") && named.includes("ca"), named.join(" + "));
 check(
   "and it says the bounds conflict rather than picking one",
-  /taken together/.test(conflict.message ?? ""),
+  /each can be met alone, but not all of these together/.test(conflict.message ?? ""),
   conflict.message ?? "",
 );
 

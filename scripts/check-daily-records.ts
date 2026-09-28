@@ -10,8 +10,9 @@
  * Run: npx tsx scripts/check-daily-records.ts
  */
 import { and, eq } from "drizzle-orm";
-import { breeds, flockMovements, houses, placementDays, standardSets } from "@shared/schema";
+import { breeds, flockMovements, placementDays, standardSets } from "@shared/schema";
 import { db } from "../server/db";
+import { scratchHouse } from "./lib/scratch-houses";
 import { createFlock, placementCount } from "../server/services/flocks";
 import { dayBoard, saveDay } from "../server/services/daily";
 import { PostingError } from "../server/services/posting";
@@ -41,17 +42,17 @@ try {
   await db.transaction(async (tx) => {
     const [breed] = await tx.insert(breeds).values({ code: "ZZDLY", name: "Daily Check" }).returning();
     await tx.insert(standardSets).values({ breedId: breed!.id, name: "set", isDefault: true });
-    const [shed] = await tx.select().from(houses).where(eq(houses.purpose, "pullet"));
+    const shed = await scratchHouse(tx, "ZZ-DLY", "pullet");
     const userId = ((await tx.execute(`SELECT id FROM users LIMIT 1`)).rows[0] as { id: string }).id;
 
     const { flock, placement } = await createFlock(tx, {
-      locationId: shed!.locationId,
+      locationId: shed.locationId,
       breedId: breed!.id,
-      houseId: shed!.id,
+      houseId: shed.id,
       hatches: [{ hatchDate: "2026-02-01", qty: 5_000 }],
       userId,
     });
-    console.log(`\n  ${flock.code} — 5,000 in ${shed!.code}\n`);
+    console.log(`\n  ${flock.code} — 5,000 in ${shed.code}\n`);
 
     // ── A day, with losses ──
     await saveDay(

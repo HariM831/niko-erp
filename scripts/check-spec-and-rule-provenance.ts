@@ -14,11 +14,13 @@
  * a reference, and the reasons are opposite.
  *
  * Everything runs inside a transaction that is always rolled back, so no order,
- * bill, credit or journal survives.
+ * bill, credit or journal survives. The materials, their spec, the rule and the
+ * vendor are the check's own, made inside it: the figures asserted below are
+ * the ones it wrote, not whatever the real Maize spec happens to say today.
  *
  * Run: npx tsx scripts/check-spec-and-rule-provenance.ts
  */
-import { and, eq, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import {
   accounts,
   contacts,
@@ -43,9 +45,23 @@ class Rollback extends Error {}
 
 try {
   await db.transaction(async (tx) => {
-    const [maize] = await tx.select().from(items).where(eq(items.name, "Maize")).limit(1);
-    const [cement] = await tx.select().from(items).where(eq(items.name, "Cement")).limit(1);
-    if (!maize) throw new Error("Need 'Maize' in the item master");
+    const [maize, cement] = await tx
+      .insert(items)
+      .values([
+        { name: "ZZ Check Maize", unit: "kg", isFeedIngredient: true },
+        { name: "ZZ Check Cement", unit: "bag" },
+      ])
+      .returning();
+    if (!maize || !cement) throw new Error("could not make the scratch materials");
+    // Refused above 16, charged above 14; protein fails downwards at 7, warns at 8.
+    const [v1] = await tx
+      .insert(qcSpecs)
+      .values({ itemId: maize.id, version: 1, effectiveFrom: "2026-01-01", sampleCount: 3 })
+      .returning();
+    await tx.insert(qcSpecParams).values([
+      { specId: v1!.id, parameter: "moisture", label: "Moisture", unit: "%", direction: "max", target: "12", warnAt: "14", rejectAt: "16", sortOrder: 0 },
+      { specId: v1!.id, parameter: "protein", label: "Protein", unit: "%", direction: "min", target: "9", warnAt: "8", rejectAt: "7", sortOrder: 1 },
+    ]);
 
     console.log("\n  THE ORDER CARRIES THE STANDARD, IN WORDS\n");
 
@@ -73,19 +89,13 @@ try {
     );
     check("two lines, not a page", (note?.split("\n").length ?? 0) === 2, JSON.stringify(note));
 
-    if (cement) {
-      const none = await describeSpecsForOrder(tx, [{ itemId: cement.id, name: "Cement" }]);
-      check("an order for something uninspected gets no empty heading", none === null);
-    }
+    const none = await describeSpecsForOrder(tx, [{ itemId: cement.id, name: "Cement" }]);
+    check("an order for something uninspected gets no empty heading", none === null);
 
     // A spec that moves must not rewrite an order already sent. The note is a
     // copy, so the only way to prove that is to move the spec and re-read it.
-    const [live] = await tx
-      .select()
-      .from(qcSpecs)
-      .where(and(eq(qcSpecs.itemId, maize.id), eq(qcSpecs.isActive, true)));
     const before = note;
-    await tx.update(qcSpecs).set({ isActive: false }).where(eq(qcSpecs.id, live!.id));
+    await tx.update(qcSpecs).set({ isActive: false }).where(eq(qcSpecs.id, v1!.id));
     const [v2] = await tx
       .insert(qcSpecs)
       .values({ itemId: maize.id, version: 99, effectiveFrom: "2026-09-01", sampleCount: 5 })
@@ -135,16 +145,17 @@ try {
     console.log("\n  THE CREDIT LINE NAMES THE RULE THAT CHARGED IT\n");
 
     const [rule] = await tx
-      .select()
-      .from(deductionRules)
-      .where(eq(deductionRules.isActive, true))
-      .limit(1);
+      .insert(deductionRules)
+      .values({
+        name: "ZZ Check moisture over 14%", parameter: "moisture", direction: "max", itemId: maize.id,
+        threshold: "14", basis: "pct_of_value", version: 3, effectiveFrom: "2026-01-01",
+      })
+      .returning();
     const [vendorRow] = await tx
-      .select({ id: contacts.id })
-      .from(contacts)
-      .where(eq(contacts.type, "vendor"))
-      .limit(1);
-    if (!rule || !vendorRow) throw new Error("Need a live rule and a vendor");
+      .insert(contacts)
+      .values({ type: "vendor", displayName: "ZZ Check Provenance Vendor" })
+      .returning({ id: contacts.id });
+    if (!rule || !vendorRow) throw new Error("could not make the scratch rule and vendor");
 
     // A credit line has to post somewhere; settlement takes the material's own
     // purchase account, and any expense account serves the same purpose here.
@@ -214,7 +225,8 @@ try {
 }
 
 const strays = await db.select({ id: qcSpecs.id }).from(qcSpecs).where(eq(qcSpecs.version, 99));
-check("nothing survives the run", strays.length === 0, `${strays.length} test spec(s) left`);
+const scratch = await db.select({ id: items.id }).from(items).where(eq(items.name, "ZZ Check Maize"));
+check("nothing survives the run", strays.length === 0 && scratch.length === 0, `${strays.length} test spec(s) left`);
 
 console.log(failed === 0 ? "\n  All provenance checks passed.\n" : `\n  ${failed} FAILED.\n`);
 process.exit(failed ? 1 : 0);

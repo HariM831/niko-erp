@@ -9,23 +9,24 @@
  *
  * Run: npx tsx scripts/check-owner-billing.ts
  */
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, gte, lte } from "drizzle-orm";
 import {
+  accounts,
   birdValuationRates,
   bills,
+  breeds,
   contacts,
   eggBenchmarkPrices,
   feedTransfers,
-  flockMovements,
-  flockPlacements,
   flocks,
-  houses,
   invoiceLines,
   invoices,
   items,
   journalEntryLines,
   ownerAgreements,
   ownerBillingRuns,
+  preferences,
+  standardSets,
 } from "@shared/schema";
 import { db } from "../server/db";
 
@@ -37,10 +38,12 @@ import {
   owners,
   raiseMonth,
 } from "../server/services/owner-billing";
-import { placementCount, setFlockTransfers } from "../server/services/flocks";
+import { createFlock, setFlockTransfers } from "../server/services/flocks";
 import { saveDay } from "../server/services/daily";
 import { getPreferences } from "../server/services/preferences";
 import { PostingError } from "../server/services/posting";
+import { istDate } from "../server/services/day-resolution";
+import { scratchHouse } from "./lib/scratch-houses";
 
 let failures = 0;
 const ok = (label: string, cond: boolean, detail = "") => {
@@ -65,67 +68,78 @@ const money = (v: number) => `₹${v.toLocaleString("en-IN", { maximumFractionDi
 
 class Rollback extends Error {}
 
-/**
- * A flock's existing transfers, in the shape setFlockTransfers takes.
- *
- * setFlockTransfers REPLACES the whole set, which was fine when the tests ran
- * against demo flocks with no history. The flocks are the real imported ones
- * now, each carrying its actual housings — so a test that wants to add a move
- * must hand back everything that already happened plus its own line, or the
- * spine will (rightly) refuse to erase a January housing the ledger depends on.
- */
-async function existingTransfers(tx: Tx, flockId: string) {
-  const rows = await tx
-    .select({
-      eventDate: flockMovements.eventDate,
-      qty: flockMovements.qty,
-      toHouseId: flockPlacements.houseId,
-      counterpart: flockMovements.counterpartPlacementId,
-    })
-    .from(flockMovements)
-    .innerJoin(flockPlacements, eq(flockPlacements.id, flockMovements.placementId))
-    .where(and(eq(flockPlacements.flockId, flockId), eq(flockMovements.kind, "transfer_in")));
-  const out: Array<{ eventDate: string; fromHouseId: string; toHouseId: string; qty: number }> = [];
-  for (const r of rows) {
-    if (!r.counterpart) continue;
-    const [src] = await tx
-      .select({ houseId: flockPlacements.houseId })
-      .from(flockPlacements)
-      .where(eq(flockPlacements.id, r.counterpart));
-    if (src) out.push({ eventDate: r.eventDate, fromHouseId: src.houseId, toHouseId: r.toHouseId, qty: r.qty });
-  }
-  return out.sort((a, b) => a.eventDate.localeCompare(b.eventDate));
-}
-
-
+const addDays = (iso: string, k: number) =>
+  new Date(Date.parse(`${iso}T00:00:00Z`) + k * 86_400_000).toISOString().slice(0, 10);
 
 try {
   await db.transaction(async (tx) => {
     const userId = ((await tx.execute(`SELECT id FROM users LIMIT 1`)).rows[0] as { id: string }).id;
-    const period = new Date().toISOString().slice(0, 7);
+    const period = istDate().slice(0, 7);
     const { from, to } = monthBounds(period);
     console.log(`\n  billing period ${from} … ${to}\n`);
 
-    // This period may genuinely have been billed already. Clearing the run
-    // inside the transaction lets the raise be exercised without touching the
-    // real documents — it is rolled back with everything else.
-    await tx.delete(ownerBillingRuns).where(eq(ownerBillingRuns.period, from));
+    // Its own owner, sheds and batches. The real owners' sheds hold real
+    // batches and a real month of feed and eggs, and the spine rightly refuses
+    // to house a test batch on top of one — so the check brings a world whose
+    // every figure it put there itself.
+    const [owner] = await tx
+      .insert(contacts)
+      .values({ type: "both", displayName: "ZZ Check Owner LLP" })
+      .returning();
+    const ownerId = owner!.id;
+    const theirs = [
+      await scratchHouse(tx, "ZZ-OL1", "layer", ownerId),
+      await scratchHouse(tx, "ZZ-OL2", "layer", ownerId),
+    ];
+    const aminoPullet = await scratchHouse(tx, "ZZ-OP1", "pullet");
+    const [breed] = await tx.insert(breeds).values({ code: "ZZOWN", name: "Owner Check" }).returning();
+    await tx.insert(standardSets).values({ breedId: breed!.id, name: "set", isDefault: true });
+    // A batch in lay in their first shed, and one still rearing in Amino's.
+    const laying = await createFlock(tx, {
+      locationId: theirs[0]!.locationId,
+      breedId: breed!.id,
+      houseId: theirs[0]!.id,
+      hatches: [{ hatchDate: addDays(from, -210), qty: 20_000 }],
+      userId,
+    });
+    const rearing = await createFlock(tx, {
+      locationId: aminoPullet.locationId,
+      breedId: breed!.id,
+      houseId: aminoPullet.id,
+      hatches: [{ hatchDate: addDays(from, -110), qty: 8_000 }],
+      userId,
+    });
+
+    // What eggs and pullets are billed AS is a setting, and a database nobody
+    // has configured has none. The real setting is reported, not assumed; for
+    // the run the check names its own items.
+    const real = await getPreferences(tx);
+    console.log(
+      `  · the real settings: eggs bill as ${real.eggPurchaseItemId ? "an item" : "NOTHING — set it in Settings"}, ` +
+        `pullets as ${real.birdSaleItemId ? "an item" : "NOTHING — set it in Settings"}\n`,
+    );
+    // A bill line posts to its item's expense account; any expense account will do.
+    const [expense] = await tx.select({ id: accounts.id }).from(accounts).where(eq(accounts.type, "expense")).limit(1);
+    if (!expense) throw new Error("Need an expense account");
+    const [eggItem, birdItem] = await tx
+      .insert(items)
+      .values([
+        { name: "ZZ Check Eggs (Purchases)", category: "eggs", purchaseAccountId: expense.id },
+        { name: "ZZ Check Layer Birds", category: "birds" },
+      ])
+      .returning();
+    const billAs = { eggPurchaseItemId: eggItem!.id, birdSaleItemId: birdItem!.id };
+    await tx.insert(preferences).values({ id: "default", ...billAs }).onConflictDoUpdate({ target: preferences.id, set: billAs });
 
     const list = await owners(tx);
-    ok("owners are discovered from the houses", list.length >= 2, list.map((o) => o.name).join(", "));
-    const luit = list.find((o) => /luit/i.test(o.name));
-    if (!luit) throw new Error("expected a Luit-owned house to test against");
-
-    const theirs = await tx.select().from(houses).where(eq(houses.ownerId, luit.id));
-    const amino = await tx
-      .select()
-      .from(houses)
-      .where(and(sql`${houses.ownerId} IS NULL`, eq(houses.purpose, "pullet")));
-    ok("Amino's own sheds have no owner contact", amino.length > 0, `${amino.length} house(s)`);
+    ok("owners are discovered from the houses", list.some((o) => o.id === ownerId), list.map((o) => o.name).join(", "));
+    const amino = [aminoPullet];
+    const runs = and(eq(ownerBillingRuns.period, from), eq(ownerBillingRuns.contactId, ownerId));
 
     /* ── Prices ───────────────────────────────────────────────────────────── */
-    // Upserted, not inserted: the real terms may already be set, and a check
-    // that only runs on a database nobody has configured is no check at all.
+    // The month's real rates are cleared (inside the rollback) so no day of it
+    // is priced off anything but the rates set here.
+    await tx.delete(eggBenchmarkPrices).where(and(gte(eggBenchmarkPrices.effectiveFrom, from), lte(eggBenchmarkPrices.effectiveFrom, to)));
     await tx
       .insert(eggBenchmarkPrices)
       .values({ effectiveFrom: from, ratePerEgg: "5.2000", source: "check", createdBy: userId })
@@ -136,21 +150,15 @@ try {
     await tx
       .insert(ownerAgreements)
       .values({
-        contactId: luit.id,
+        contactId: ownerId,
         effectiveFrom: from,
         eggSpreadPerEgg: "0.5000",
         createdBy: userId,
-      })
-      .onConflictDoUpdate({
-        target: [ownerAgreements.contactId, ownerAgreements.effectiveFrom],
-        set: { eggSpreadPerEgg: "0.5000" },
       });
 
     /* ── Feed: one real delivery and one voided ───────────────────────────── */
     //
-    // Measured as a DELTA against what the farm already had. Asserting absolute
-    // totals would only pass on an empty database, which is not the database
-    // anybody runs this on.
+    // Measured as a delta, though the owner is the check's own and starts at nothing.
     const [feedItem] = await tx.select().from(items).limit(1);
     const shed = theirs[0]!;
     const mid = `${period}-10`;
@@ -160,7 +168,7 @@ try {
         .filter((l) => l.kind === "feed" && (!itemId || l.itemId === itemId))
         .reduce((s, l) => s + l.qty, 0);
 
-    const baseline = await draftMonth(tx, luit.id, period);
+    const baseline = await draftMonth(tx, ownerId, period);
     const baseKg = feedKgOf(baseline, feedItem!.id);
     await tx.insert(feedTransfers).values([
       {
@@ -190,24 +198,16 @@ try {
       },
     ]);
 
-    /* ── Eggs: a day's lay in their shed ──────────────────────────────────── */
-    const [placement] = await tx
-      .select()
-      .from(flockPlacements)
-      .where(and(eq(flockPlacements.houseId, shed.id), sql`${flockPlacements.toDate} IS NULL`))
-      .limit(1);
-    let eggsRecorded = 0;
-    if (placement) {
-      eggsRecorded = 9_000;
-      await saveDay(
-        tx,
-        { placementId: placement.id, day: mid, eggsTotal: eggsRecorded, losses: [] },
-        userId,
-      );
+    /* ── Eggs: two days' lay in their shed ───────────────────────────────── */
+    // The 10th and the 20th, either side of the mid-month rate move below.
+    const placement = laying.placement;
+    const eggsRecorded = 9_000;
+    for (const day of [mid, `${period}-20`]) {
+      await saveDay(tx, { placementId: placement.id, day, eggsTotal: eggsRecorded, losses: [] }, userId);
     }
 
     /* ── The draft ────────────────────────────────────────────────────────── */
-    const draft = await draftMonth(tx, luit.id, period);
+    const draft = await draftMonth(tx, ownerId, period);
     console.log(`\n  ${draft.owner.name}`);
     for (const l of [...draft.feedLines, ...draft.eggLines]) {
       console.log(
@@ -295,173 +295,139 @@ try {
     // — because the pullet invoice is otherwise never exercised, and a code
     // path nothing runs is a code path nobody knows is broken.
     {
-      const [pullet] = await tx
+      const pullet = aminoPullet;
+      const layer = theirs[1]!; // the empty one — their first holds the laying batch
+      const [flock] = await tx.select().from(flocks).where(eq(flocks.id, rearing.flock.id));
+      const housedOn = `${period}-12`;
+      const qty = 5_000;
+      const beforeStage = await draftMonth(tx, ownerId, period);
+      await setFlockTransfers(
+        tx,
+        flock!.id,
+        [{ eventDate: housedOn, fromHouseId: pullet.id, toHouseId: layer.id, qty }],
+        userId,
+      );
+
+      const ageWeek =
+        Math.floor(
+          (Date.parse(`${housedOn}T00:00:00Z`) - Date.parse(`${flock!.hatchDate}T00:00:00Z`)) /
+            86_400_000 /
+            7,
+        ) + 1;
+
+      // A rate in force ON THE HOUSING DATE. The real curve may start later
+      // than the month being tested — an effective-dated rate does not reach
+      // backwards, and that is the point of it — so the check brings its own.
+      await tx
+        .insert(birdValuationRates)
+        .values({
+          breedId: flock!.breedId,
+          ageWeek,
+          rate: "135.30",
+          effectiveFrom: from,
+          note: "check",
+          createdBy: userId,
+        })
+        .onConflictDoUpdate({
+          target: [
+            birdValuationRates.breedId,
+            birdValuationRates.ageWeek,
+            birdValuationRates.effectiveFrom,
+          ],
+          set: { rate: "135.30" },
+        });
+
+      const withBirds = await draftMonth(tx, ownerId, period);
+      ok(
+        "housing pullets raises a bird sale",
+        withBirds.birdLines.length === beforeStage.birdLines.length + 1,
+        `${beforeStage.birdLines.length} → ${withBirds.birdLines.length} line(s)`,
+      );
+
+      const line = withBirds.birdLines.find(
+        (l) => l.date === housedOn && l.qty === qty,
+      );
+      const [expected] = await tx
         .select()
-        .from(houses)
-        .where(and(eq(houses.purpose, "pullet"), sql`${houses.ownerId} IS NULL`));
-      const layer = theirs.find((h) => h.purpose === "layer");
-      const [rearing] = pullet
-        ? await tx
-            .select({ id: flockPlacements.id, flockId: flockPlacements.flockId })
-            .from(flockPlacements)
-            .where(
-              and(eq(flockPlacements.houseId, pullet.id), sql`${flockPlacements.toDate} IS NULL`),
-            )
-        : [];
-
-      if (pullet && layer && rearing) {
-        const [flock] = await tx.select().from(flocks).where(eq(flocks.id, rearing.flockId));
-        const housedOn = `${period}-12`;
-        // Move what the house actually holds. The pullet house has a real
-        // flock's TAIL in it now — a few thousand birds, not a test's round
-        // number — and the spine refuses a move the house cannot cover.
-        const available = await placementCount(tx, rearing.id, housedOn);
-        const qty = Math.min(available, 5_000);
-        if (qty <= 0) {
-          console.log("  · pullet house is empty on the staged date — pullet sale not exercised");
-        } else {
-        // The month already holds REAL housings — B160426 went into L5 over six
-        // August days — so every assertion is about the STAGED line, found by
-        // its date and quantity, never about the count of lines.
-        const beforeStage = await draftMonth(tx, luit.id, period);
-        const already = await existingTransfers(tx, flock!.id);
-        await setFlockTransfers(
-          tx,
-          flock!.id,
-          [...already, { eventDate: housedOn, fromHouseId: pullet.id, toHouseId: layer.id, qty }],
-          userId,
+        .from(birdValuationRates)
+        .where(
+          and(
+            eq(birdValuationRates.breedId, flock!.breedId),
+            eq(birdValuationRates.ageWeek, ageWeek),
+            eq(birdValuationRates.effectiveFrom, from),
+          ),
         );
+      ok(
+        "the valuation curve has a rate for that age",
+        !!expected,
+        expected ? `week ${ageWeek} = ₹${expected.rate}` : `week ${ageWeek} MISSING`,
+      );
+      ok(
+        "the birds price off the curve at their age",
+        !!line && !!expected && near(line.rate ?? 0, Number(expected.rate), 0.005),
+        line?.rate ? `₹${line.rate.toFixed(2)}/bird` : "unpriced",
+      );
+      ok(
+        "and the line is worth qty times that rate",
+        !!line && line.amount != null && near(line.amount, qty * (line.rate ?? 0), 0.5),
+        line?.amount ? money(line.amount) : "",
+      );
+      ok("a priceable housing raises no problem", !withBirds.problems.length, withBirds.problems.join("; "));
 
-        const ageWeek =
-          Math.floor(
-            (Date.parse(`${housedOn}T00:00:00Z`) - Date.parse(`${flock!.hatchDate}T00:00:00Z`)) /
-              86_400_000 /
-              7,
-          ) + 1;
-
-        // A rate in force ON THE HOUSING DATE. The real curve may start later
-        // than the month being tested — an effective-dated rate does not reach
-        // backwards, and that is the point of it — so the check brings its own.
-        await tx
-          .insert(birdValuationRates)
-          .values({
-            breedId: flock!.breedId,
-            ageWeek,
-            rate: "135.30",
-            effectiveFrom: from,
-            note: "check",
-            createdBy: userId,
-          })
-          .onConflictDoUpdate({
-            target: [
-              birdValuationRates.breedId,
-              birdValuationRates.ageWeek,
-              birdValuationRates.effectiveFrom,
-            ],
-            set: { rate: "135.30" },
-          });
-
-        const withBirds = await draftMonth(tx, luit.id, period);
-        ok(
-          "housing pullets raises a bird sale",
-          withBirds.birdLines.length === beforeStage.birdLines.length + 1,
-          `${beforeStage.birdLines.length} → ${withBirds.birdLines.length} line(s)`,
-        );
-
-        const line = withBirds.birdLines.find(
-          (l) => l.date === housedOn && l.qty === qty,
-        );
-        const [expected] = await tx
+      // ── And it becomes its own invoice, separate from the feed one ──
+      await tx.delete(ownerBillingRuns).where(runs);
+      const three = await raiseMonth(tx, ownerId, period, userId);
+      ok("a feed invoice is raised", !!three.feedInvoiceId);
+      ok("a SEPARATE pullet invoice is raised", !!three.birdInvoiceId);
+      ok(
+        "they are two different documents",
+        three.feedInvoiceId !== three.birdInvoiceId,
+        `${three.feedInvoiceId?.slice(0, 8)} vs ${three.birdInvoiceId?.slice(0, 8)}`,
+      );
+      if (three.birdInvoiceId) {
+        const [inv] = await tx.select().from(invoices).where(eq(invoices.id, three.birdInvoiceId));
+        const lines = await tx
           .select()
-          .from(birdValuationRates)
-          .where(
-            and(
-              eq(birdValuationRates.breedId, flock!.breedId),
-              eq(birdValuationRates.ageWeek, ageWeek),
-              eq(birdValuationRates.effectiveFrom, from),
-            ),
-          );
+          .from(invoiceLines)
+          .where(eq(invoiceLines.invoiceId, three.birdInvoiceId));
+        console.log(`\n    pullet invoice ${inv!.number}  ${money(Number(inv!.total))}  ${inv!.status}`);
         ok(
-          "the valuation curve has a rate for that age",
-          !!expected,
-          expected ? `week ${ageWeek} = ₹${expected.rate}` : `week ${ageWeek} MISSING`,
+          "the pullet invoice carries only the pullets",
+          lines.length === withBirds.birdLines.length,
+          `${lines.length} line(s)`,
         );
         ok(
-          "the birds price off the curve at their age",
-          !!line && !!expected && near(line.rate ?? 0, Number(expected.rate), 0.005),
-          line?.rate ? `₹${line.rate.toFixed(2)}/bird` : "unpriced",
+          "its total is the pullet total, not the feed one",
+          near(Number(inv!.subTotal), withBirds.birdTotal, 1),
+          `${money(Number(inv!.subTotal))} vs feed ${money(withBirds.feedTotal)}`,
         );
-        ok(
-          "and the line is worth qty times that rate",
-          !!line && line.amount != null && near(line.amount, qty * (line.rate ?? 0), 0.5),
-          line?.amount ? money(line.amount) : "",
-        );
-        ok("a priceable housing raises no problem", !withBirds.problems.length, withBirds.problems.join("; "));
-
-        // ── And it becomes its own invoice, separate from the feed one ──
-        await tx.delete(ownerBillingRuns).where(eq(ownerBillingRuns.period, from));
-        const three = await raiseMonth(tx, luit.id, period, userId);
-        ok("a feed invoice is raised", !!three.feedInvoiceId);
-        ok("a SEPARATE pullet invoice is raised", !!three.birdInvoiceId);
-        ok(
-          "they are two different documents",
-          three.feedInvoiceId !== three.birdInvoiceId,
-          `${three.feedInvoiceId?.slice(0, 8)} vs ${three.birdInvoiceId?.slice(0, 8)}`,
-        );
-        if (three.birdInvoiceId) {
-          const [inv] = await tx.select().from(invoices).where(eq(invoices.id, three.birdInvoiceId));
-          const lines = await tx
-            .select()
-            .from(invoiceLines)
-            .where(eq(invoiceLines.invoiceId, three.birdInvoiceId));
-          console.log(`\n    pullet invoice ${inv!.number}  ${money(Number(inv!.total))}  ${inv!.status}`);
-          ok(
-            "the pullet invoice carries only the pullets",
-            lines.length === withBirds.birdLines.length,
-            `${lines.length} line(s)`,
-          );
-          ok(
-            "its total is the pullet total, not the feed one",
-            near(Number(inv!.subTotal), withBirds.birdTotal, 1),
-            `${money(Number(inv!.subTotal))} vs feed ${money(withBirds.feedTotal)}`,
-          );
-        }
-
-        // The statement on it must show the pullets and nothing else.
-        const built = await buildStatements(tx, luit.id, period);
-        ok("a pullet statement is built", !!built.birds, built.birds?.fileName ?? "");
-        ok("it is a PDF", built.birds?.pdf.subarray(0, 5).toString() === "%PDF-");
-
-        // Put the month back for the rest of the script.
-        await tx.delete(ownerBillingRuns).where(eq(ownerBillingRuns.period, from));
-        await setFlockTransfers(tx, flock!.id, already, userId);
-        }
-      } else {
-        console.log("  · no Amino pullet house with a live batch — pullet sale not exercised");
       }
+
+      // The statement on it must show the pullets and nothing else.
+      const built = await buildStatements(tx, ownerId, period);
+      ok("a pullet statement is built", !!built.birds, built.birds?.fileName ?? "");
+      ok("it is a PDF", built.birds?.pdf.subarray(0, 5).toString() === "%PDF-");
+
+      // Put the month back for the rest of the script.
+      await tx.delete(ownerBillingRuns).where(runs);
+      await setFlockTransfers(tx, flock!.id, [], userId);
     }
 
     /* ── A move between the owner's own sheds is not a second sale ─────────── */
-    if (theirs.length >= 2 && placement) {
-      const [flock] = await tx.select().from(flocks).where(eq(flocks.id, placement.flockId));
-      const before = (await draftMonth(tx, luit.id, period)).birdLines.length;
-      try {
-        const keep = await existingTransfers(tx, flock!.id);
-        await setFlockTransfers(
-          tx,
-          flock!.id,
-          [...keep, { eventDate: mid, fromHouseId: theirs[0]!.id, toHouseId: theirs[1]!.id, qty: 100 }],
-          userId,
-        );
-        const after = (await draftMonth(tx, luit.id, period)).birdLines.length;
-        ok(
-          "moving birds between the owner's own sheds raises no sale",
-          after === before,
-          `${before} → ${after} bird line(s)`,
-        );
-      } catch (e) {
-        console.log(`  · could not test the internal move: ${e instanceof Error ? e.message : e}`);
-      }
+    {
+      const before = (await draftMonth(tx, ownerId, period)).birdLines.length;
+      await setFlockTransfers(
+        tx,
+        laying.flock.id,
+        [{ eventDate: mid, fromHouseId: theirs[0]!.id, toHouseId: theirs[1]!.id, qty: 100 }],
+        userId,
+      );
+      const after = (await draftMonth(tx, ownerId, period)).birdLines.length;
+      ok(
+        "moving birds between the owner's own sheds raises no sale",
+        after === before,
+        `${before} → ${after} bird line(s)`,
+      );
     }
 
 
@@ -471,7 +437,7 @@ try {
     // Eggs take the rate of the day they were laid. A month priced at its
     // closing rate would quietly restate every earlier day.
     {
-      const before = await draftMonth(tx, luit.id, period);
+      const before = await draftMonth(tx, ownerId, period);
       const eggsBefore = before.eggLines
         .filter((l) => l.kind === "eggs")
         .reduce((s, l) => s + l.qty, 0);
@@ -487,7 +453,7 @@ try {
           set: { ratePerEgg: "6.2000", source: "check" },
         });
 
-      const after = await draftMonth(tx, luit.id, period);
+      const after = await draftMonth(tx, ownerId, period);
       const eggLines = after.eggLines.filter((l) => l.kind === "eggs");
       const eggsAfter = eggLines.reduce((s, l) => s + l.qty, 0);
 
@@ -529,21 +495,9 @@ try {
     // The benchmark set at the top is still in force — a second row for the
     // same date is exactly what the unique index exists to refuse.
     const prefs = await getPreferences(tx);
-    ok(
-      "an egg item is set to bill eggs as",
-      !!prefs.eggPurchaseItemId,
-      prefs.eggPurchaseItemId ? "set" : "NOT SET — migration 0066 found no ungraded egg item",
-    );
+    ok("the check's own items are what eggs and pullets bill as", prefs.eggPurchaseItemId === eggItem!.id && prefs.birdSaleItemId === birdItem!.id);
 
-    const [asVendor] = await tx.select().from(contacts).where(eq(contacts.id, luit.id));
-    if (!["vendor", "both"].includes(asVendor!.type)) {
-      // Amino buys eggs from them, so they have to be a vendor as well as a
-      // customer. Luit really is both; a demo contact might not be.
-      await tx.update(contacts).set({ type: "both" }).where(eq(contacts.id, luit.id));
-      console.log("  · made the owner a vendor for the test");
-    }
-
-    const raised = await raiseMonth(tx, luit.id, period, userId);
+    const raised = await raiseMonth(tx, ownerId, period, userId);
     ok("an invoice is raised", !!raised.feedInvoiceId);
     ok("a bill is raised", !!raised.billId);
 
@@ -610,15 +564,15 @@ try {
     }
 
     // ── The month is now closed to a second run ──
-    const after = await draftMonth(tx, luit.id, period);
+    const after = await draftMonth(tx, ownerId, period);
     ok("the draft now says it has been billed", after.billed !== null);
     await refuses("billing the same month twice is refused", () =>
-      raiseMonth(tx, luit.id, period, userId),
+      raiseMonth(tx, ownerId, period, userId),
     );
 
     /* ── An unpriceable line shows a dash, never a zero ────────────────────── */
     await tx.delete(eggBenchmarkPrices);
-    const unpriced = await draftMonth(tx, luit.id, period);
+    const unpriced = await draftMonth(tx, ownerId, period);
     const bad = unpriced.eggLines.find((l) => l.kind === "eggs");
     if (bad) {
       ok("an egg line with no benchmark carries no amount", bad.amount === null && bad.rate === null);

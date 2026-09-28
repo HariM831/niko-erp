@@ -1,6 +1,6 @@
 /**
- * Raises a real purchase order for Shayan Enterprise and checks that bill 518
- * matches it — the decision that now controls whether the boom lifts.
+ * Raises a purchase order shaped like Shayan Enterprise's and checks that bill
+ * 518 matches it — the decision that now controls whether the boom lifts.
  *
  * Also checks the refusals, because a matcher that says yes to everything is
  * worse than none: a wrong rate, an exhausted order and the wrong material must
@@ -10,10 +10,12 @@
  * to be committed so the gate screen could be driven by hand afterwards, but a
  * script that leaves an order behind poisons its own next run: two identical
  * open orders make the delivery ambiguous, and a hard match refuses to guess.
+ * For the same reason the vendor and both materials are the check's own: the
+ * real Shayan has real open orders for real Maize, and any of them could make
+ * the match ambiguous or a refusal pass for the wrong reason.
  *
  * Run: npx tsx scripts/check-po-match.ts
  */
-import { and, eq, inArray, like } from "drizzle-orm";
 import { contacts, items, purchaseOrderLines, purchaseOrders } from "@shared/schema";
 import { db } from "../server/db";
 import { nextDocumentNumber } from "../server/lib/numbering";
@@ -28,27 +30,27 @@ const check = (name: string, pass: boolean, detail = "") => {
 };
 
 async function main() {
-  const [vendor] = await db
-    .select({ id: contacts.id, name: contacts.displayName })
-    .from(contacts)
-    .where(and(like(contacts.displayName, "%hayan%"), inArray(contacts.type, ["vendor", "both"])))
-    .limit(1);
-  if (!vendor) throw new Error("No vendor matching 'Shayan' — create the contact first");
-
-  const [maize] = await db.select({ id: items.id, name: items.name }).from(items).where(eq(items.name, "Maize")).limit(1);
-  const [dorb] = await db.select({ id: items.id, name: items.name }).from(items).where(eq(items.name, "DORB")).limit(1);
-  if (!maize || !dorb) throw new Error("Need both 'Maize' and 'DORB' in the item master");
-
-  const [actor] = await db.select({ id: contacts.id }).from(contacts).limit(1);
   const userRow = await db.execute("select id from users limit 1");
   const userId = (userRow.rows[0] as { id: string }).id;
-
-  console.log(`  Vendor: ${vendor.name}\n`);
 
   // 50 tonnes of maize on order at the rate bill 518 charges, due the day the
   // truck actually turned up.
   try {
   await db.transaction(async (tx) => {
+    const [vendor] = await tx
+      .insert(contacts)
+      .values({ type: "vendor", displayName: "ZZ Check Shayan Enterprise" })
+      .returning({ id: contacts.id, name: contacts.displayName });
+    const [maize, dorb] = await tx
+      .insert(items)
+      .values([
+        { name: "ZZ Check Maize", unit: "kg", isFeedIngredient: true },
+        { name: "ZZ Check DORB", unit: "kg", isFeedIngredient: true },
+      ])
+      .returning({ id: items.id, name: items.name });
+    if (!vendor || !maize || !dorb) throw new Error("could not make the scratch vendor and materials");
+    console.log(`  Vendor: ${vendor.name}\n`);
+
     const number = await nextDocumentNumber(tx, "purchase_order");
     const [row] = await tx
       .insert(purchaseOrders)

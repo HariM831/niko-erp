@@ -36,6 +36,10 @@ const LAT = 26.44521;
 const LNG = 91.44127;
 const RADIUS = 150;
 
+// What was in service before, so the run can prove it stood them back up —
+// "at least one" would fail on a database that has no gates yet.
+const liveBefore = await db.select({ id: gates.id }).from(gates).where(eq(gates.isActive, true));
+
 try {
   await db.transaction(async (tx) => {
     const [site] = await tx.select({ id: locations.id, name: locations.name }).from(locations).limit(1);
@@ -136,8 +140,12 @@ const strayBridges = await db
   .from(weighbridges)
   .where(eq(weighbridges.name, "Check Platform"));
 check("nothing survives the run", strayGates.length === 0 && strayBridges.length === 0);
-const live = await db.select({ n: gates.name }).from(gates).where(eq(gates.isActive, true));
-check("the real gates are live again", live.length > 0, `${live.length} in service`);
+const live = await db.select({ id: gates.id }).from(gates).where(eq(gates.isActive, true));
+check(
+  "the real gates are live again",
+  live.length === liveBefore.length && liveBefore.every((b) => live.some((g) => g.id === b.id)),
+  `${live.length} in service, as before`,
+);
 
 console.log(failed === 0 ? "\n  All site and geofence checks passed.\n" : `\n  ${failed} FAILED.\n`);
 process.exit(failed ? 1 : 0);
