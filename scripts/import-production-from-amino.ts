@@ -235,7 +235,8 @@ try {
       const heldKg = Number(held?.qty ?? 0) * (perUnit || 1);
       const adjKg = openingKg - heldKg;
       const a = aminoNameOf.get(name);
-      const price = lastPrice.get(a ?? "")?.price ?? (a && aminoMaterial.get(a) ? Number(aminoMaterial.get(a)!.cost_per_kg ?? 0) : 0) || (Number(it.costPrice ?? 0) * (perUnit ? 1 / perUnit : 1));
+      const aminoPrice = lastPrice.get(a ?? "")?.price ?? (a && aminoMaterial.get(a) ? Number(aminoMaterial.get(a)!.cost_per_kg ?? 0) : 0);
+      const price = aminoPrice > 0 ? aminoPrice : Number(it.costPrice ?? 0) * (perUnit ? 1 / perUnit : 1);
       if (adjKg > 0.0005 && !(price > 0)) say(`    ! ${name}: no price anywhere (Amino lots, Amino material, niko cost price) — opened at ₹0`);
       const adjUnits = perUnit ? adjKg / perUnit : adjKg;
       say(`    ${name.padEnd(32)} ${kg(t.kg).padStart(12)} (${t.from.padEnd(5)}) ${kg(take).padStart(12)} ${kg(g.kg).padStart(12)} (${kg(g.settledKg)}) ${kg(openingKg).padStart(12)} ${kg(heldKg).padStart(12)} ${kg(adjKg).padStart(12)}  ${price.toFixed(2)}`);
