@@ -41,6 +41,7 @@ import {
   bills,
   feedTransfers,
   flockDay,
+  formulaLines,
   formulas,
   houses,
   inventoryAdjustmentLines,
@@ -57,6 +58,7 @@ import { db, type Tx } from "../server/db";
 import { nextDocumentNumber } from "../server/lib/numbering";
 import { mainStore, moveStock, postInventoryMovement } from "../server/services/inventory";
 import { postJournal } from "../server/services/posting";
+import { getPreferences } from "../server/services/preferences";
 import { produceOne, transferOne } from "../server/routes/feed-production";
 
 const arg = (name: string) => { const i = process.argv.indexOf(`--${name}`); return i > -1 ? process.argv[i + 1] : undefined; };
@@ -110,6 +112,14 @@ try {
     const live = await tx.select().from(formulas).where(eq(formulas.isActive, true));
     const formulaByName = new Map(live.map((f) => [f.name, f]));
     const outputOf = (name: string) => { const f = formulaByName.get(name); if (!f?.outputItemId) throw new Error(`no live niko formula with an output item for "${name}"`); return f; };
+    // What niko's mill will actually yield from a slip: the recipe's input per
+    // batch times the moisture retention, as produceOne computes it — not
+    // Amino's total_output, which is a whole 1% more. Four days of that gap
+    // left Layer 2 975 kg short on the first dry run.
+    const retention = Number((await getPreferences(tx)).millMoistureRetention);
+    const inputPerBatch = new Map<string, number>();
+    for (const r of await tx.select({ formulaId: formulaLines.formulaId, kg: sql<number>`sum(${formulaLines.quantityKg})::float` }).from(formulaLines).where(inArray(formulaLines.formulaId, live.map((f) => f.id))).groupBy(formulaLines.formulaId)) inputPerBatch.set(r.formulaId, Number(r.kg));
+    const nikoYield = (name: string, batches: number) => (inputPerBatch.get(outputOf(name).id) ?? 0) * batches * retention;
 
     /* ── 1. bills that never moved stock ── */
     const unmoved = await tx
@@ -178,11 +188,13 @@ try {
     for (const name of new Set([...plannedTransfers.map((t) => t.feed), ...slips.map((s) => String(s.formula_name))])) {
       const days = [...new Set([...plannedTransfers.filter((t) => t.feed === name).map((t) => t.day), ...slips.filter((s) => s.formula_name === name).map((s) => String(s.made_on))])].sort();
       let stock = 0, lowest = 0;
-      for (const day of days) { stock += slips.filter((s) => s.formula_name === name && s.made_on === day).reduce((a, s) => a + Number(s.total_output), 0); stock -= plannedTransfers.filter((t) => t.feed === name && t.day === day).reduce((a, t) => a + t.kg, 0); lowest = Math.min(lowest, stock); }
+      for (const day of days) { stock += slips.filter((s) => s.formula_name === name && s.made_on === day).reduce((a, s) => a + nikoYield(name, Number(s.batch_count)), 0); stock -= plannedTransfers.filter((t) => t.feed === name && t.day === day).reduce((a, t) => a + t.kg, 0); lowest = Math.min(lowest, stock); }
       const first = slips.find((s) => s.formula_name === name);
       const lots = (D.lot_consumption ?? []).filter((l) => l.production_slip_id === first?.id);
       const rate = first ? lots.reduce((a, l) => a + Number(l.quantity_consumed) * Number(l.price_per_kg), 0) / Number(first.total_output) + prefsOverhead : 0;
-      feedOpening.set(name, { kg: -lowest, rate });
+      // Rounded up to the kilo: the transfers are written to the gram and a
+      // float sum that lands a gram short refuses the day.
+      feedOpening.set(name, { kg: Math.ceil(-lowest), rate });
     }
     say(`\n  opening finished feed on ${OPENING} — feed | needed so no day runs short | ₹/kg (first slip's lots + ₹${prefsOverhead.toFixed(2)} overhead)`);
     for (const [name, o] of feedOpening) { say(`    ${name.padEnd(12)} ${kg(o.kg).padStart(12)}  ${o.rate.toFixed(2)}`); if (o.kg > 0) { const f = outputOf(name); openingLines.push({ itemId: f.outputItemId!, name: `${name} Feed`, qty: o.kg, value: o.kg * o.rate, note: `Finished feed on hand at the takeover: the least that lets every day's transfers out before that day's milling` }); } }
