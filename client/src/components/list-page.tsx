@@ -5,6 +5,7 @@ import { api } from "../api";
 import { AdvancedButton, AdvancedSearch, criteriaCount as countCriteria, type Criteria, type SearchField } from "./advanced-search";
 import { useSearchContext } from "./search-context";
 import { SortCarets, compareBy } from "./sortable-table";
+import { ListPager, usePerPage } from "./list-pager";
 
 export interface Column<T> {
   key: string;
@@ -228,10 +229,6 @@ export function ListPage<T>({
     placeholderData: liveSearch ? keepPreviousData : undefined,
   });
   const criteriaCount = countCriteria(criteria);
-
-  const allSelected = !!data?.length && data.every((r) => selected.has(rowKey(r)));
-  const toggleAll = () =>
-    setSelected(allSelected ? new Set() : new Set(data?.map(rowKey) ?? []));
   const toggleOne = (k: string) =>
     setSelected((s) => {
       const next = new Set(s);
@@ -281,6 +278,38 @@ export function ListPage<T>({
   /** First click sorts ascending; the next reverses it. */
   const toggleSort = (key: string) =>
     setSort((s) => (s?.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" }));
+
+  /**
+   * One page of the ordered rows. Anything that changes WHICH rows the list
+   * holds, or their order, goes back to the first page — page 4 of a search
+   * that has two is nothing. A page past the end (rows gone after a refetch)
+   * falls back to the last one there is.
+   */
+  const [perPage, setPerPage] = usePerPage(title);
+  const [page, setPage] = useState(1);
+  const sortKey = sort ? `${sort.key}:${sort.dir}` : "";
+  useEffect(() => setPage(1), [search, criteria, activeView, sortKey, perPage]);
+  const total = ordered?.length ?? 0;
+  const lastPage = Math.max(1, Math.ceil(total / perPage));
+  const shownPage = Math.min(page, lastPage);
+  const pageRows = ordered?.slice((shownPage - 1) * perPage, shownPage * perPage);
+  // A new page starts at its first row, not wherever the last one was scrolled to.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [shownPage, perPage]);
+
+  // Select-all takes the page in view, as Zoho's does — not rows nobody can see.
+  const allSelected = !!pageRows?.length && pageRows.every((r) => selected.has(rowKey(r)));
+  const toggleAll = () =>
+    setSelected((s) => {
+      const next = new Set(s);
+      for (const r of pageRows ?? []) {
+        if (allSelected) next.delete(rowKey(r));
+        else next.add(rowKey(r));
+      }
+      return next;
+    });
 
   return (
     <div className="flex h-full flex-col">
@@ -342,7 +371,7 @@ export function ListPage<T>({
 
       {banner}
 
-      <div className="flex-1 overflow-auto">
+      <div ref={scrollRef} className="flex-1 overflow-auto">
         {isLoading ? (
           <div className="p-8 text-center text-sm text-gray-500">Loading…</div>
         ) : error ? (
@@ -405,7 +434,7 @@ export function ListPage<T>({
               </tr>
             </thead>
             <tbody>
-              {(ordered ?? []).flatMap((row, i, arr) => {
+              {(pageRows ?? []).flatMap((row, i, arr) => {
                 const group = groupBy?.(row);
                 const isCollapsed = group != null && collapsed.has(group);
                 const header =
@@ -428,7 +457,8 @@ export function ListPage<T>({
                         </span>
                         {group}
                         <span className="ml-2 font-normal normal-case text-gray-400">
-                          {arr.filter((r) => groupBy(r) === group).length}
+                          {/* The whole group, not the part of it on this page. */}
+                          {(ordered ?? []).filter((r) => groupBy(r) === group).length}
                         </span>
                       </td>
                     </tr>
@@ -484,6 +514,10 @@ export function ListPage<T>({
           </div>
         )}
       </div>
+
+      {total > 0 && !isLoading && !error && (
+        <ListPager total={total} page={shownPage} perPage={perPage} onPage={setPage} onPerPage={setPerPage} />
+      )}
 
       {advancedOpen && searchFields && (
         <AdvancedSearch
