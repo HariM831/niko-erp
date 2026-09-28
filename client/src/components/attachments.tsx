@@ -10,7 +10,22 @@ interface Attachment {
   mimeType: string;
   sizeBytes: number;
   createdAt: string;
+  /** Set on a photo a station captured: which station, and when. */
+  kind: string | null;
+  capturedAt: string | null;
 }
+
+/** What a station's photo is, in words a desk understands. */
+const CAPTURE_LABELS: Record<string, string> = {
+  gate_in_bill: "Bill at the gate",
+  gate_in_vehicle: "Vehicle at the gate",
+  gate_in_weighslip: "Vendor's weigh slip",
+  weighbridge_gross: "Gross weighing",
+  weighbridge_tare: "Tare weighing",
+  qc: "Quality check",
+  unloading: "Unloading",
+  gate_out_vehicle: "Vehicle at gate out",
+};
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -19,28 +34,14 @@ function formatSize(bytes: number): string {
 }
 
 /**
- * Paperclip button + dropdown panel for uploading and managing files on a
- * document (invoice, bill, expense, ...). Max 10 MB; pdf/images/sheets/docs.
+ * The one mechanism for files on a document: the attachments table, its
+ * upload, its download and its delete. Two faces of it below — the paperclip
+ * dropdown the document headers use, and an inline panel with thumbnails for
+ * a form that has photographs to show (a goods receipt's station captures).
+ * Both share this hook so neither can drift from the other.
  */
-export function AttachmentsButton({
-  entityType,
-  entityId,
-}: {
-  entityType: string;
-  entityId: string;
-}) {
+function useAttachments(entityType: string, entityId: string) {
   const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
-  const panelRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [open]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -85,6 +86,33 @@ export function AttachmentsButton({
     await api(`/api/attachments/${id}`, { method: "DELETE" });
     await refresh();
   };
+
+  return { files, busy, error, fileRef, uploadFile, remove };
+}
+
+/**
+ * Paperclip button + dropdown panel for uploading and managing files on a
+ * document (invoice, bill, expense, ...). Max 10 MB; pdf/images/sheets/docs.
+ */
+export function AttachmentsButton({
+  entityType,
+  entityId,
+}: {
+  entityType: string;
+  entityId: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+  const { files, busy, error, fileRef, uploadFile, remove } = useAttachments(entityType, entityId);
 
   const count = files?.length ?? 0;
   const [dragging, setDragging] = useState(false);
@@ -189,6 +217,112 @@ export function AttachmentsButton({
           {error && <p className="border-t border-gray-100 px-4 py-2 text-xs text-red-600">{error}</p>}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The same files, inline, with the pictures shown as pictures.
+ *
+ * For a form that has photographs to show — the goods receipt editor, where
+ * the bill at the gate, the weigh slip and the truck at each station are the
+ * evidence behind the numbers being corrected. A photo says which station
+ * took it and when; anything else lists as the dropdown does.
+ */
+export function AttachmentsPanel({
+  entityType,
+  entityId,
+}: {
+  entityType: string;
+  entityId: string;
+}) {
+  const { files, busy, error, fileRef, uploadFile, remove } = useAttachments(entityType, entityId);
+  const photos = (files ?? []).filter((f) => f.mimeType.startsWith("image/"));
+  const others = (files ?? []).filter((f) => !f.mimeType.startsWith("image/"));
+  const when = (iso: string | null) =>
+    iso ? new Date(iso).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+          Photos and files{files ? ` · ${files.length}` : ""}
+        </span>
+        <button onClick={() => fileRef.current?.click()} disabled={busy} className="btn-ghost h-7 px-2 text-[12px]">
+          <Upload size={12} /> {busy ? "Uploading…" : "Upload"}
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xls,.xlsx,.docx"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void uploadFile(f);
+          }}
+        />
+      </div>
+      {files && !files.length && (
+        <p className="py-2 text-[12px] text-gray-400">No photos or files on this receipt.</p>
+      )}
+      {photos.length > 0 && (
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+          {photos.map((f) => (
+            <div key={f.id} className="group relative">
+              <a href={`/api/attachments/${f.id}/download`} target="_blank" rel="noreferrer" title={f.fileName}>
+                <img
+                  src={`/api/attachments/${f.id}/download`}
+                  alt={f.kind ? (CAPTURE_LABELS[f.kind] ?? f.kind) : f.fileName}
+                  className="h-24 w-full rounded-lg border border-gray-100 object-cover"
+                  loading="lazy"
+                />
+              </a>
+              <div className="mt-0.5 truncate text-[11px] text-gray-600">
+                {f.kind ? (CAPTURE_LABELS[f.kind] ?? f.kind) : f.fileName}
+              </div>
+              <div className="text-[10px] text-gray-400">{when(f.capturedAt ?? f.createdAt)}</div>
+              <button
+                onClick={() => void remove(f.id)}
+                className="absolute right-1 top-1 hidden rounded bg-white/90 p-1 text-gray-500 hover:text-red-500 group-hover:block"
+                title="Delete"
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {others.map((f) => (
+        <div key={f.id} className="group flex items-center gap-2.5 border-b border-gray-50 py-2">
+          <span className="chip h-8 w-8 bg-gray-100 text-gray-500">
+            <FileText size={14} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <a
+              href={`/api/attachments/${f.id}/download`}
+              target="_blank"
+              rel="noreferrer"
+              className="block truncate text-[13px] font-medium text-brand-600 hover:underline"
+            >
+              {f.fileName}
+            </a>
+            <div className="flex items-center gap-2 text-[11px] text-gray-400">
+              {f.filingRef && (
+                <span className="rounded border border-gray-200 px-1 font-medium tabular-nums text-gray-600">{f.filingRef}</span>
+              )}
+              <span>{formatSize(f.sizeBytes)}</span>
+            </div>
+          </div>
+          <button
+            onClick={() => void remove(f.id)}
+            className="rounded p-1 text-gray-300 transition-colors hover:bg-red-50 hover:text-red-500"
+            title="Delete"
+          >
+            <Trash2 size={13} />
+          </button>
+        </div>
+      ))}
+      {error && <p className="py-1 text-xs text-red-600">{error}</p>}
     </div>
   );
 }

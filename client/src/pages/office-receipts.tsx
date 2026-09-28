@@ -19,6 +19,7 @@ import { localYmd } from "../lib/utils";
 import { type SearchField, useAdvancedSearch } from "../components/advanced-search";
 import { PURCHASE_CATEGORIES } from "@shared/item-categories";
 import { DateInput } from "../components/date-input";
+import { AttachmentsPanel } from "../components/attachments";
 
 interface ReceiptRow {
   id: string;
@@ -776,6 +777,15 @@ export function ReceiptEditor({
             </div>
           )}
         </>
+      )}
+
+      {/* The evidence behind the numbers being corrected: the bill at the gate,
+          the weigh slip, the truck at each station. Same files as the paperclip
+          on any document; a new receipt has none until it is saved. */}
+      {editing && receiptId && (
+        <div className="mb-3 rounded-lg border border-gray-100 bg-gray-50/60 p-2">
+          <AttachmentsPanel entityType="office_receipt" entityId={receiptId} />
+        </div>
       )}
 
       <div className="flex items-center justify-between">
