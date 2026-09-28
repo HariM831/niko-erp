@@ -16,6 +16,7 @@ import {
   bills,
   breeds,
   contacts,
+  documentSeries,
   eggBenchmarkPrices,
   feedTransfers,
   flocks,
@@ -23,6 +24,7 @@ import {
   invoices,
   items,
   journalEntryLines,
+  numberSeries,
   ownerAgreements,
   ownerBillingRuns,
   preferences,
@@ -135,6 +137,30 @@ try {
     ok("owners are discovered from the houses", list.some((o) => o.id === ownerId), list.map((o) => o.name).join(", "));
     const amino = [aminoPullet];
     const runs = and(eq(ownerBillingRuns.period, from), eq(ownerBillingRuns.contactId, ownerId));
+
+    // Feed invoices are numbered in the Feed series and pullets in Birds, never
+    // the default (the egg series). Used where they exist; made for the run
+    // where they do not, so a bare database exercises the same path.
+    const invoicePrefix = async (name: string) => {
+      const [row] = await tx
+        .select({ prefix: documentSeries.prefix })
+        .from(documentSeries)
+        .innerJoin(numberSeries, eq(numberSeries.id, documentSeries.seriesId))
+        .where(and(eq(numberSeries.name, name), eq(numberSeries.isActive, true), eq(documentSeries.entity, "invoice")));
+      if (row) return row.prefix;
+      const [made] = await tx
+        .insert(numberSeries)
+        .values({ name })
+        .onConflictDoUpdate({ target: numberSeries.name, set: { isActive: true } })
+        .returning();
+      const prefix = `ZZ-${name.slice(0, 2).toUpperCase()}-`;
+      await tx.insert(documentSeries).values({ seriesId: made!.id, entity: "invoice", prefix, padding: 5 });
+      return prefix;
+    };
+    const feedPrefix = await invoicePrefix("Feed");
+    const birdPrefix = await invoicePrefix("Birds");
+    const numberOf = async (id: string | null) =>
+      id ? (await tx.select({ n: invoices.number }).from(invoices).where(eq(invoices.id, id)))[0]?.n ?? "" : "";
 
     /* ── Prices ───────────────────────────────────────────────────────────── */
     // The month's real rates are cleared (inside the rollback) so no day of it
@@ -384,6 +410,10 @@ try {
         three.feedInvoiceId !== three.birdInvoiceId,
         `${three.feedInvoiceId?.slice(0, 8)} vs ${three.birdInvoiceId?.slice(0, 8)}`,
       );
+      const feedNo = await numberOf(three.feedInvoiceId);
+      const birdNo = await numberOf(three.birdInvoiceId);
+      ok("the feed invoice is numbered in the Feed series", feedNo.startsWith(feedPrefix), `${feedNo}, not the egg series`);
+      ok("the pullet invoice is numbered in the Birds series", birdNo.startsWith(birdPrefix), `${birdNo}, not the egg series`);
       if (three.birdInvoiceId) {
         const [inv] = await tx.select().from(invoices).where(eq(invoices.id, three.birdInvoiceId));
         const lines = await tx
@@ -567,6 +597,14 @@ try {
     const after = await draftMonth(tx, ownerId, period);
     ok("the draft now says it has been billed", after.billed !== null);
     await refuses("billing the same month twice is refused", () =>
+      raiseMonth(tx, ownerId, period, userId),
+    );
+
+    // With no Feed series the month is refused — never quietly numbered in the
+    // default, which is the egg series.
+    await tx.delete(ownerBillingRuns).where(runs);
+    await tx.update(numberSeries).set({ isActive: false }).where(eq(numberSeries.name, "Feed"));
+    await refuses("with no Feed series, feed is refused rather than numbered as eggs", () =>
       raiseMonth(tx, ownerId, period, userId),
     );
 

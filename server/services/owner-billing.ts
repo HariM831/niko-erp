@@ -31,6 +31,7 @@ import {
   invoiceLines,
   invoices,
   items,
+  numberSeries,
   ownerAgreements,
   ownerBillingRuns,
   placementDays,
@@ -468,6 +469,31 @@ export async function draftAll(tx: Conn, period: string) {
 /* ── Raising the documents ────────────────────────────────────────────────── */
 
 /**
+ * The number series an owner's invoices are raised in. The default series is
+ * the egg business's (EG), so a feed or pullet invoice left to it would be
+ * numbered as an egg sale; each goes in its own business's series instead.
+ */
+const FEED_SERIES = "Feed";
+const BIRD_SERIES = "Birds";
+
+/**
+ * A series by its name, refused when there is none: falling back to the
+ * default would number the invoice in the egg series without a word.
+ */
+async function seriesNamed(tx: Tx, name: string): Promise<string> {
+  const [row] = await tx
+    .select({ id: numberSeries.id })
+    .from(numberSeries)
+    .where(and(eq(numberSeries.name, name), eq(numberSeries.isActive, true)));
+  if (!row) {
+    throw new PostingError(
+      `There is no active "${name}" number series to number this invoice in — add it under Settings → Transaction Number Series`,
+    );
+  }
+  return row.id;
+}
+
+/**
  * Turn a month's draft into an invoice and a bill.
  *
  * Refuses rather than guesses. A month already billed, a line that cannot be
@@ -530,8 +556,10 @@ export async function raiseMonth(
     lines: DraftLine[],
     itemFor: (l: DraftLine) => string | undefined,
     note: string,
+    seriesName: string,
   ): Promise<string | null> => {
     if (!lines.length) return null;
+    const seriesId = await seriesNamed(tx, seriesName);
     const customer = await loadCustomer(tx, contactId);
     const docLines: DocLineInput[] = lines.map((l) => ({
       itemId: itemFor(l),
@@ -541,7 +569,7 @@ export async function raiseMonth(
       rate: (l.rate ?? 0).toFixed(4),
     }));
     const totals = await computeDocumentTotals(tx, docLines, customer.placeOfSupplyState);
-    const number = await nextDocumentNumber(tx, "invoice");
+    const number = await nextDocumentNumber(tx, "invoice", seriesId);
     const [inv] = await tx
       .insert(invoices)
       .values({
@@ -580,6 +608,7 @@ export async function raiseMonth(
     draft.feedLines,
     (l) => l.itemId,
     `Feed supplied to ${draft.owner.name}'s sheds, ${from} to ${to}.`,
+    FEED_SERIES,
   );
 
   /* ── Amino → owner: the pullets ───────────────────────────────────────── */
@@ -587,6 +616,7 @@ export async function raiseMonth(
     draft.birdLines,
     () => prefs.birdSaleItemId ?? undefined,
     `Pullets housed into ${draft.owner.name}'s sheds, ${from} to ${to}.`,
+    BIRD_SERIES,
   );
 
   /* ── Owner → Amino: the eggs ──────────────────────────────────────────── */
