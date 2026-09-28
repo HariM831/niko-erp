@@ -45,6 +45,9 @@ const RECEIPT_SORTS = {
   status: (r: ReceiptRow) => r.status,
 };
 
+/** The office's reference lists, as the settlement desk also needs them to open the editor. */
+export type OfficeContext = Context;
+
 interface Context {
   locations: Array<{ id: string; name: string; code: string }>;
   vendors: Array<{ id: string; name: string }>;
@@ -146,7 +149,7 @@ const when = (iso: string) =>
  * keeps the receipt's number: a goods receipt number is quoted on the bill it
  * becomes, so it is never reissued.
  */
-function ReceiptEditor({
+export function ReceiptEditor({
   ctx,
   receiptId,
   onClose,

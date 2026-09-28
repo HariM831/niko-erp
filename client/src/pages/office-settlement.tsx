@@ -15,6 +15,7 @@ import { ProportionBar } from "../components/ui/proportion-bar";
 import { StatusBadge } from "../components/status-badge";
 import { useLocalSearch } from "../components/search-context";
 import { matchesTerm } from "../lib/utils";
+import { type OfficeContext, ReceiptEditor } from "./office-receipts";
 
 interface QueueRow {
   id: string;
@@ -88,6 +89,19 @@ export function SettlementPage() {
   // "Search in Settlement" narrows the trucks waiting to be billed.
   const term = useLocalSearch("Settlement", "office:settlement");
   const queue = allQueued?.filter((r) => matchesTerm(term, [r.vehicleNumber, r.number, r.vendorName, r.lineSummary]));
+  /**
+   * The paperwork is often wrong at exactly this desk: a bill total keyed
+   * with a digit missing, a rate that was renegotiated on the phone, a tare
+   * typed for the wrong truck. The same editor the goods-receipts list opens
+   * is offered here, so the person settling corrects the receipt and settles
+   * it without walking to another screen. Saving refreshes this view.
+   */
+  const [editingReceipt, setEditingReceipt] = useState(false);
+  const { data: office } = useQuery<OfficeContext>({
+    queryKey: ["office", "context"],
+    queryFn: () => api("/api/office/context"),
+  });
+
   const { data: ctx } = useQuery<Context>({
     queryKey: ["office", "settlement", selected],
     queryFn: () => api(`/api/office/receipts/${selected}/settlement-context`),
@@ -246,8 +260,29 @@ export function SettlementPage() {
                     Bill {ctx.receipt.vendorBillNumber ?? "—"} · {ctx.receipt.vehicleNumber}
                   </div>
                 </div>
-                <StatusBadge status={ctx.receipt.status} />
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setEditingReceipt(true)}
+                    disabled={!office}
+                    className="text-[12px] text-brand-600 hover:underline disabled:text-gray-400"
+                  >
+                    Edit receipt
+                  </button>
+                  <StatusBadge status={ctx.receipt.status} />
+                </div>
               </div>
+              {editingReceipt && office && (
+                <ReceiptEditor
+                  ctx={office}
+                  receiptId={ctx.receipt.id}
+                  onClose={() => {
+                    setEditingReceipt(false);
+                    // The figures under the deductions may have moved with the edit.
+                    setEdited({});
+                    setDropped(new Set());
+                  }}
+                />
+              )}
 
               <div className="label">Line items</div>
               {ctx.lines.map((l) => {
@@ -342,7 +377,7 @@ export function SettlementPage() {
                           </div>
                         </div>
                         <div className="pr-[124px] text-[11px] text-gray-400">
-                          {d.basis}
+                          {charging.find((x) => keyOf(x) === key)?.basis ?? d.basis}
                           {changed && (
                             <span className="ml-1 text-amber-600">
                               · adjusted from {inr(d.amount)}
