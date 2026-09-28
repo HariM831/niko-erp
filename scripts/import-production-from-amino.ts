@@ -122,7 +122,7 @@ try {
       const qtyUnits = u.unit === "kg" || !itemByName.get(u.name)?.bag ? Number(u.qty) : Number(u.qty); // bills are in the item's own unit already
       await moveStock(tx, { movements: [{ itemId: u.itemId!, quantity: qtyUnits.toFixed(3), value: value.toFixed(2) }], transactionDate: u.date, sourceType: "bill", sourceId: u.billId, stockLocationId: store });
       // Where did the bill's journal put the value? If on the expense, move it to Feed Stock.
-      const debited = u.jeId ? await tx.select({ accountId: journalEntryLines.accountId, debit: journalEntryLines.debit }).from(journalEntryLines).where(and(eq(journalEntryLines.journalEntryId, u.jeId), eq(journalEntryLines.accountId, feedExpense.id))) : [];
+      const debited = u.jeId ? await tx.select({ accountId: journalEntryLines.accountId, debit: journalEntryLines.debit }).from(journalEntryLines).where(and(eq(journalEntryLines.entryId, u.jeId), eq(journalEntryLines.accountId, feedExpense.id))) : [];
       const onExpense = debited.reduce((s, l) => s + Number(l.debit), 0);
       if (onExpense >= value - 0.005) {
         await postJournal(tx, { entryDate: u.date, narration: `Stock for bill ${u.number} — ${u.name} keyed before the item tracked inventory`, sourceType: "bill", sourceId: u.billId, postedBy: userId, lines: [{ accountId: feedStock.id, debit: value.toFixed(2) }, { accountId: feedExpense.id, credit: value.toFixed(2) }] });
