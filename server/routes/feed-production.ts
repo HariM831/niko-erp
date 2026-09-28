@@ -724,98 +724,107 @@ feedProductionRouter.post(
     }),
   ),
   async (req, res) => {
-    const body = req.body as {
-      itemId: string;
-      quantityKg: string;
-      toHouseId: string;
-      fromLocationId?: string;
-      transferDate: string;
-      notes?: string | null;
-    };
+    const body = req.body as TransferBody;
     try {
-      const out = await db.transaction(async (tx) => {
-        await assertPeriodOpen(tx, body.transferDate, "inventory_adjustment");
-
-        const fromLocationId = body.fromLocationId ?? (await millLocation(tx));
-        const [house] = await tx
-          .select({
-            id: houses.id,
-            code: houses.code,
-            locationId: houses.locationId,
-            stockLocationId: houses.stockLocationId,
-            farmName: locations.name,
-          })
-          .from(houses)
-          .innerJoin(locations, eq(locations.id, houses.locationId))
-          .where(eq(houses.id, body.toHouseId));
-        if (!house) throw new PostingError("No such house");
-        if (fromLocationId === house.locationId) {
-          throw new PostingError("A transfer needs two different places");
-        }
-
-        const [level] = await stockOnHand(tx, body.itemId);
-        if (!level) throw new PostingError("That feed does not track inventory");
-        const qty = Number(body.quantityKg);
-        const held = Number(level.quantity);
-        if (qty > held) {
-          throw new PostingError(
-            `Only ${held.toLocaleString("en-IN")} kg of ${level.name} in stock — cannot send ${qty.toLocaleString("en-IN")} kg`,
-          );
-        }
-        const rate = held > 0 ? Number(level.value) / held : 0;
-        const valueP = Math.round(qty * rate * 100);
-
-        const number = await nextDocumentNumber(tx, "feed_transfer");
-        const [transfer] = await tx
-          .insert(feedTransfers)
-          .values({
-            number,
-            transferDate: body.transferDate,
-            itemId: body.itemId,
-            quantityKg: body.quantityKg,
-            fromLocationId,
-            toLocationId: house.locationId,
-            toHouseId: house.id,
-            ratePerKg: rate.toFixed(6),
-            value: (valueP / 100).toFixed(2),
-            notes: body.notes ?? null,
-            createdBy: req.session.user!.id,
-          })
-          .returning();
-
-        const toName = `${house.farmName} ${house.code}`;
-        const journalEntryId = await postInventoryMovement(tx, {
-          movements: [
-            { itemId: body.itemId, quantity: `-${body.quantityKg}`, value: `-${(valueP / 100).toFixed(2)}` },
-          ],
-          transactionDate: body.transferDate,
-          sourceType: "feed_transfer",
-          sourceId: transfer!.id,
-          // Out of the mill's store. The feed is consumed on arrival at the
-          // shed, so there is no receiving movement to place — see the module
-          // note on why a transfer is an expense rather than a move.
-          stockLocationId: await mainStore(tx, fromLocationId),
-          contraAccountId: await feedExpenseAccount(tx),
-          narration: `Feed transfer ${number} — ${level.name} ${qty.toLocaleString("en-IN")} kg to ${toName}`,
-          postedBy: req.session.user!.id,
-          preventNegative: true,
-        });
-        const [updated] = await tx
-          .update(feedTransfers)
-          .set({ journalEntryId })
-          .where(eq(feedTransfers.id, transfer!.id))
-          .returning();
-        // A delivery is a new FIFO layer for the shed, so the feed cost of every
-        // flock that has stood there is restated.
-        await refreshHouse(tx, house.id);
-        return updated!;
-      });
+      const out = await db.transaction(async (tx) => transferOne(tx, body, req.session.user!.id));
       res.status(201).json(out);
     } catch (err) {
       if (!fail(err, res)) throw err;
     }
   },
 );
+
+export interface TransferBody {
+  itemId: string;
+  quantityKg: string;
+  toHouseId: string;
+  fromLocationId?: string;
+  transferDate: string;
+  notes?: string | null;
+}
+
+/**
+ * One transfer: its record, the stock leaving the mill, the journal, and the
+ * house's feed cost restated. Exported, like produceOne, so a script can
+ * drive the real thing.
+ */
+export async function transferOne(tx: Tx, body: TransferBody, userId: string) {
+    await assertPeriodOpen(tx, body.transferDate, "inventory_adjustment");
+
+    const fromLocationId = body.fromLocationId ?? (await millLocation(tx));
+    const [house] = await tx
+      .select({
+        id: houses.id,
+        code: houses.code,
+        locationId: houses.locationId,
+        stockLocationId: houses.stockLocationId,
+        farmName: locations.name,
+      })
+      .from(houses)
+      .innerJoin(locations, eq(locations.id, houses.locationId))
+      .where(eq(houses.id, body.toHouseId));
+    if (!house) throw new PostingError("No such house");
+    if (fromLocationId === house.locationId) {
+      throw new PostingError("A transfer needs two different places");
+    }
+
+    const [level] = await stockOnHand(tx, body.itemId);
+    if (!level) throw new PostingError("That feed does not track inventory");
+    const qty = Number(body.quantityKg);
+    const held = Number(level.quantity);
+    if (qty > held) {
+      throw new PostingError(
+        `Only ${held.toLocaleString("en-IN")} kg of ${level.name} in stock — cannot send ${qty.toLocaleString("en-IN")} kg`,
+      );
+    }
+    const rate = held > 0 ? Number(level.value) / held : 0;
+    const valueP = Math.round(qty * rate * 100);
+
+    const number = await nextDocumentNumber(tx, "feed_transfer");
+    const [transfer] = await tx
+      .insert(feedTransfers)
+      .values({
+        number,
+        transferDate: body.transferDate,
+        itemId: body.itemId,
+        quantityKg: body.quantityKg,
+        fromLocationId,
+        toLocationId: house.locationId,
+        toHouseId: house.id,
+        ratePerKg: rate.toFixed(6),
+        value: (valueP / 100).toFixed(2),
+        notes: body.notes ?? null,
+        createdBy: userId,
+      })
+      .returning();
+
+    const toName = `${house.farmName} ${house.code}`;
+    const journalEntryId = await postInventoryMovement(tx, {
+      movements: [
+        { itemId: body.itemId, quantity: `-${body.quantityKg}`, value: `-${(valueP / 100).toFixed(2)}` },
+      ],
+      transactionDate: body.transferDate,
+      sourceType: "feed_transfer",
+      sourceId: transfer!.id,
+      // Out of the mill's store. The feed is consumed on arrival at the
+      // shed, so there is no receiving movement to place — see the module
+      // note on why a transfer is an expense rather than a move.
+      stockLocationId: await mainStore(tx, fromLocationId),
+      contraAccountId: await feedExpenseAccount(tx),
+      narration: `Feed transfer ${number} — ${level.name} ${qty.toLocaleString("en-IN")} kg to ${toName}`,
+      postedBy: userId,
+      preventNegative: true,
+    });
+    const [updated] = await tx
+      .update(feedTransfers)
+      .set({ journalEntryId })
+      .where(eq(feedTransfers.id, transfer!.id))
+      .returning();
+    // A delivery is a new FIFO layer for the shed, so the feed cost of every
+    // flock that has stood there is restated.
+    await refreshHouse(tx, house.id);
+    return updated!;
+}
 
 /** Void a transfer: reverse its journal, put the feed back. */
 feedProductionRouter.post(
