@@ -10,17 +10,28 @@
  *
  * What it does, in date order:
  *
- *   Bills       a tracked material's bill line that never moved stock (the
- *               item was made tracked after the bill was keyed) gets its
- *               stock movement now, and its journal is reclassed from the
- *               expense to Feed Stock, so the delivery is on the pile.
- *   Opening     each material's stock on the day before niko took over,
- *               worked back from Amino: its stock now + what the slips
- *               consumed − what arrived since; valued at Amino's latest lot
- *               price. And each finished feed's opening, the least that lets
- *               every day's transfers go out before that day's milling.
- *               Both posted as one inventory adjustment against 5007, dated
- *               --opening (default the day before --from).
+ *   Receipts    a gate receipt settled before settlement moved stock (26 Sep
+ *               2026) has a bill and no movement; it gets one now at the net
+ *               kilos the weighbridge allocated, and its journal is reclassed
+ *               from the expense to Feed Stock. Any other tracked bill line
+ *               without a movement is only listed — a hand-keyed bill for a
+ *               load whose receipt is still open is billed again when the
+ *               office settles it.
+ *   Opening     each raw material's stock on --opening (the day before
+ *               --from), worked back from the count at the cutover: the
+ *               mill's stock sheet (--count, a JSON of it) for everything the
+ *               sheet can count, Amino's own figure for the bulk materials
+ *               in silos (--major). Opening = count + what niko's recipes
+ *               consume in the window − what the gate received up to the
+ *               cutover, accepted lines at their net kilos, settled or not,
+ *               because the office settles each one into stock later and the
+ *               ledger must land on the count once it has. Valued at Amino's
+ *               latest lot price. And each finished feed's opening, the least
+ *               that lets every day's transfers go out before that day's
+ *               milling. All posted as one inventory adjustment against 5007.
+ *   Formula     a material niko's recipe carries that a slip drew none of,
+ *   changes     while other slips of the same formula did, is left out of
+ *               that slip (24–26 Sep 2026: no Cantaxanthin).
  *   Production  every confirmed slip, as a production order on the day it
  *               was made, through produceOne — niko's live formula, Amino's
  *               batch count, costed at niko's ledger. A slip already brought
@@ -30,8 +41,12 @@
  *               own transfers say which). A day that already has a transfer
  *               for that house is left alone.
  *
- *   npx tsx scripts/import-production-from-amino.ts --file production-for-niko.json
- *   npx tsx scripts/import-production-from-amino.ts --file production-for-niko.json --apply
+ *   npx tsx scripts/import-production-from-amino.ts --file production-for-niko.json --count feed-stock.json
+ *   npx tsx scripts/import-production-from-amino.ts --file production-for-niko.json --count feed-stock.json --apply
+ *
+ * --cutover defaults to the count's own date (asOn); --major to the five bulk
+ * materials. A count row whose item is null names something niko has no item
+ * for and is only listed.
  */
 import { readFile } from "node:fs/promises";
 import { and, asc, eq, gte, inArray, isNull, lte, ne, sql } from "drizzle-orm";
@@ -49,6 +64,8 @@ import {
   inventoryTransactions,
   items,
   journalEntryLines,
+  officeReceiptLines,
+  officeReceipts,
   placementDays,
   productionOrders,
   roles,
@@ -56,7 +73,7 @@ import {
 } from "@shared/schema";
 import { db, type Tx } from "../server/db";
 import { nextDocumentNumber } from "../server/lib/numbering";
-import { mainStore, moveStock, postInventoryMovement } from "../server/services/inventory";
+import { mainStore, moveStock, postInventoryMovement, stockUnitsPerKg } from "../server/services/inventory";
 import { postJournal } from "../server/services/posting";
 import { getPreferences } from "../server/services/preferences";
 import { produceOne, transferOne } from "../server/routes/feed-production";
@@ -66,6 +83,8 @@ const APPLY = process.argv.includes("--apply");
 const FILE = arg("file") ?? "production-for-niko.json";
 const FROM = arg("from") ?? "2026-09-13";
 const OPENING = arg("opening") ?? new Date(new Date(`${FROM}T00:00:00Z`).getTime() - 86_400_000).toISOString().slice(0, 10);
+const COUNT_FILE = arg("count");
+const MAJOR = new Set((arg("major") ?? "Maize,Lime Stone Grits,DDGS (Rice),DORB (De-Oiled Rice Bran),Soybean Meal").split(",").map((x) => x.trim()));
 const say = (s: string) => console.log(s);
 const kg = (n: number) => `${Math.round(n).toLocaleString("en-IN")} kg`;
 const rs = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
@@ -106,7 +125,7 @@ try {
     const store = await mainStore(tx);
 
     /* ── names to ids ── */
-    const nikoItems = await tx.select({ id: items.id, name: items.name, tracked: items.trackInventory, unit: items.unit, bag: items.unitBagWeightKg }).from(items);
+    const nikoItems = await tx.select({ id: items.id, name: items.name, tracked: items.trackInventory, unit: items.unit, bag: items.unitBagWeightKg, costPrice: items.costPrice }).from(items);
     const itemByName = new Map(nikoItems.map((i) => [i.name, i]));
     const material = (aminoName: string) => { const n = MATERIAL[aminoName]; const it = n ? itemByName.get(n) : undefined; if (!it) throw new Error(`no niko item for Amino material "${aminoName}"`); return it; };
     const live = await tx.select().from(formulas).where(eq(formulas.isActive, true));
@@ -119,56 +138,114 @@ try {
     const retention = Number((await getPreferences(tx)).millMoistureRetention);
     const inputPerBatch = new Map<string, number>();
     for (const r of await tx.select({ formulaId: formulaLines.formulaId, kg: sql<number>`sum(${formulaLines.quantityKg})::float` }).from(formulaLines).where(inArray(formulaLines.formulaId, live.map((f) => f.id))).groupBy(formulaLines.formulaId)) inputPerBatch.set(r.formulaId, Number(r.kg));
-    const nikoYield = (name: string, batches: number) => (inputPerBatch.get(outputOf(name).id) ?? 0) * batches * retention;
 
-    /* ── 1. bills that never moved stock ── */
+    /* ── the slips, and what each one actually drew ── */
+    const slips = (D.slips ?? []).filter((s) => s.status === "confirmed" && String(s.made_on) >= FROM).sort((a, b) => String(a.made_on).localeCompare(String(b.made_on)));
+    const lotsOf = (slipId: unknown) => (D.lot_consumption ?? []).filter((l) => l.production_slip_id === slipId);
+    const recipeLines = await tx.select({ formulaId: formulaLines.formulaId, itemId: formulaLines.itemId, name: items.name, unit: items.unit, bag: items.unitBagWeightKg, kg: formulaLines.quantityKg }).from(formulaLines).innerJoin(items, eq(items.id, formulaLines.itemId)).where(inArray(formulaLines.formulaId, live.map((f) => f.id)));
+    const aminoNameOf = new Map(Object.entries(MATERIAL).map(([a, n]) => [n, a]));
+    // A material the recipe carries that this slip drew none of, while other
+    // slips of the same formula did, was left out of that batch: the formula
+    // was changed for a while (24–26 Sep 2026, no Cantaxanthin: Amino had
+    // none and the mill ran without it). Left out here too.
+    const everDrew = new Map<string, Set<string>>();
+    for (const s of slips) { const set = everDrew.get(String(s.formula_name)) ?? new Set<string>(); for (const l of lotsOf(s.id)) set.add(String(l.material_name)); everDrew.set(String(s.formula_name), set); }
+    const omitted = new Map<unknown, Array<{ itemId: string; name: string; kg: number }>>();
+    for (const s of slips) {
+      const f = outputOf(String(s.formula_name)); const drew = new Set(lotsOf(s.id).map((l) => String(l.material_name)));
+      const omit = recipeLines.filter((r) => r.formulaId === f.id).filter((r) => { const a = aminoNameOf.get(r.name); return a && !drew.has(a) && everDrew.get(String(s.formula_name))?.has(a); }).map((r) => ({ itemId: r.itemId, name: r.name, kg: Number(r.kg) }));
+      if (omit.length) omitted.set(s.id, omit);
+    }
+    const yieldOf = (s: (typeof slips)[number]) => ((inputPerBatch.get(outputOf(String(s.formula_name)).id) ?? 0) - (omitted.get(s.id) ?? []).reduce((a, o) => a + o.kg, 0)) * Number(s.batch_count) * retention;
+    // What niko's recipes will take out, per item in kilos — the figure the opening is worked back from.
+    const planned = new Map<string, number>();
+    for (const s of slips) { const f = outputOf(String(s.formula_name)); const omit = new Set((omitted.get(s.id) ?? []).map((o) => o.itemId)); for (const r of recipeLines.filter((r) => r.formulaId === f.id && !omit.has(r.itemId))) planned.set(r.name, (planned.get(r.name) ?? 0) + Number(r.kg) * Number(s.batch_count)); }
+    if (omitted.size) { say(`  formula changes  ${omitted.size} slip(s) milled without a material the recipe carries:`); for (const s of slips) { const o = omitted.get(s.id); if (o) say(`    ${s.made_on} ${s.formula_name} ${s.batch_count} batch(es): without ${o.map((x) => x.name).join(", ")}`); } }
+
+    /* ── 1. settled gate receipts whose bill never moved stock ── */
+    const settledLines = await tx
+      .select({ number: officeReceipts.number, billId: officeReceipts.billId, billDate: bills.billDate, billNumber: bills.number, jeId: bills.journalEntryId, itemId: officeReceiptLines.itemId, name: items.name, unit: items.unit, unitBagWeightKg: items.unitBagWeightKg, netKg: officeReceiptLines.allocatedNetKg, lineAmount: billLines.amount, receiptAmount: officeReceiptLines.billAmount })
+      .from(officeReceiptLines).innerJoin(officeReceipts, eq(officeReceipts.id, officeReceiptLines.receiptId)).innerJoin(bills, eq(bills.id, officeReceipts.billId)).innerJoin(items, eq(items.id, officeReceiptLines.itemId)).leftJoin(billLines, eq(billLines.id, officeReceiptLines.billLineId))
+      .where(and(eq(officeReceipts.status, "settled"), gte(bills.billDate, OPENING), eq(items.trackInventory, true), sql`${officeReceiptLines.qcVerdict} IS DISTINCT FROM 'rejected'`, sql`${officeReceiptLines.allocatedNetKg} IS NOT NULL`, sql`NOT EXISTS (SELECT 1 FROM inventory_transactions t WHERE t.source_type = 'bill' AND t.source_id = ${bills.id} AND t.item_id = ${officeReceiptLines.itemId})`));
+    say(`  receipts         ${settledLines.length} settled gate receipt line(s) whose bill never moved stock`);
+    for (const u of settledLines) {
+      const value = Number(u.lineAmount ?? u.receiptAmount ?? 0); const units = Number(u.netKg) * (stockUnitsPerKg(u) ?? 1);
+      await moveStock(tx, { movements: [{ itemId: u.itemId!, quantity: units.toFixed(3), value: value.toFixed(2) }], transactionDate: u.billDate, sourceType: "bill", sourceId: u.billId!, stockLocationId: store });
+      const debited = u.jeId ? await tx.select({ debit: journalEntryLines.debit }).from(journalEntryLines).where(and(eq(journalEntryLines.entryId, u.jeId), eq(journalEntryLines.accountId, feedExpense.id))) : [];
+      const onExpense = debited.reduce((a, l) => a + Number(l.debit), 0);
+      if (onExpense >= value - 0.005) {
+        await postJournal(tx, { entryDate: u.billDate, narration: `Stock for bill ${u.billNumber} (${u.number}) — ${u.name}, settled before settlement moved stock`, sourceType: "bill", sourceId: u.billId!, postedBy: userId, lines: [{ accountId: feedStock.id, debit: value.toFixed(2) }, { accountId: feedExpense.id, credit: value.toFixed(2) }] });
+        say(`    ${u.number} → ${u.billNumber} ${u.billDate}: ${u.name} ${kg(Number(u.netKg))} net ${rs(value)} into stock, reclassed 5007 → 1073`);
+      } else say(`    ${u.number} → ${u.billNumber} ${u.billDate}: ${u.name} ${kg(Number(u.netKg))} net ${rs(value)} into stock (journal already on 1073)`);
+    }
     const unmoved = await tx
-      .select({ billId: bills.id, number: bills.number, date: bills.billDate, jeId: bills.journalEntryId, itemId: billLines.itemId, name: items.name, qty: billLines.quantity, amount: billLines.amount, unit: billLines.unit })
+      .select({ number: bills.number, date: bills.billDate, name: items.name, qty: billLines.quantity, unit: billLines.unit })
       .from(billLines).innerJoin(bills, eq(bills.id, billLines.billId)).innerJoin(items, eq(items.id, billLines.itemId))
       .where(and(gte(bills.billDate, FROM), eq(items.trackInventory, true), ne(bills.status, "void"), sql`NOT EXISTS (SELECT 1 FROM inventory_transactions t WHERE t.source_type = 'bill' AND t.source_id = ${bills.id} AND t.item_id = ${billLines.itemId})`));
-    say(`  bills            ${unmoved.length} tracked line(s) since ${FROM} never moved stock`);
-    for (const u of unmoved) {
-      const value = Number(u.amount);
-      const qtyUnits = u.unit === "kg" || !itemByName.get(u.name)?.bag ? Number(u.qty) : Number(u.qty); // bills are in the item's own unit already
-      await moveStock(tx, { movements: [{ itemId: u.itemId!, quantity: qtyUnits.toFixed(3), value: value.toFixed(2) }], transactionDate: u.date, sourceType: "bill", sourceId: u.billId, stockLocationId: store });
-      // Where did the bill's journal put the value? If on the expense, move it to Feed Stock.
-      const debited = u.jeId ? await tx.select({ accountId: journalEntryLines.accountId, debit: journalEntryLines.debit }).from(journalEntryLines).where(and(eq(journalEntryLines.entryId, u.jeId), eq(journalEntryLines.accountId, feedExpense.id))) : [];
-      const onExpense = debited.reduce((s, l) => s + Number(l.debit), 0);
-      if (onExpense >= value - 0.005) {
-        await postJournal(tx, { entryDate: u.date, narration: `Stock for bill ${u.number} — ${u.name} keyed before the item tracked inventory`, sourceType: "bill", sourceId: u.billId, postedBy: userId, lines: [{ accountId: feedStock.id, debit: value.toFixed(2) }, { accountId: feedExpense.id, credit: value.toFixed(2) }] });
-        say(`    ${u.number} ${u.date}: ${u.name} ${kg(Number(u.qty))} ${rs(value)} into stock, reclassed 5007 → 1073`);
-      } else say(`    ${u.number} ${u.date}: ${u.name} ${kg(Number(u.qty))} ${rs(value)} into stock (journal already on 1073)`);
-    }
+    for (const u of unmoved) say(`    ! ${u.number} ${u.date}: ${u.name} ${Number(u.qty).toLocaleString("en-IN")} ${u.unit} has no stock movement and no settled receipt — left alone; if its gate receipt is still open, settling it bills the load a second time`);
 
-    /* ── 2. opening raw-material stock, worked back from Amino ── */
-    const consumed = new Map<string, number>(); const lastPrice = new Map<string, { price: number; at: string }>();
-    for (const l of D.lot_consumption ?? []) { consumed.set(l.material_name, (consumed.get(l.material_name) ?? 0) + Number(l.quantity_consumed)); const p = lastPrice.get(l.material_name); if (!p || String(l.consumed_at) > p.at) lastPrice.set(l.material_name, { price: Number(l.price_per_kg), at: String(l.consumed_at) }); }
-    const delivered = new Map<string, number>();
+    /* ── 2. raw-material stock: the count at the cutover, worked back to the opening ── */
+    if (!COUNT_FILE) throw new Error("--count <feed-stock.json> is needed: the mill's stock count at the cutover");
+    const count = JSON.parse(await readFile(COUNT_FILE, "utf8")) as { source: string; asOn: string; rows: Array<{ sheetName: string; item: string | null; closingKg: number }> };
+    const CUTOVER = arg("cutover") ?? count.asOn;
+    const lastPrice = new Map<string, { price: number; at: string }>();
+    for (const l of D.lot_consumption ?? []) { const p = lastPrice.get(String(l.material_name)); if (!p || String(l.consumed_at) > p.at) lastPrice.set(String(l.material_name), { price: Number(l.price_per_kg), at: String(l.consumed_at) }); }
+    const aminoConsumed = new Map<string, number>();
+    for (const l of D.lot_consumption ?? []) aminoConsumed.set(String(l.material_name), (aminoConsumed.get(String(l.material_name)) ?? 0) + Number(l.quantity_consumed));
     const haveDeliveries = Array.isArray(D.deliveries);
-    for (const d of D.deliveries ?? []) delivered.set(d.material_name, (delivered.get(d.material_name) ?? 0) + Number(d.net_quantity ?? d.quantity));
-    if (!haveDeliveries) say(`  ! the export carries no deliveries: opening stock uses niko's own bills since ${FROM} as the deliveries — re-export with the newer script to be sure`);
-    const nikoIn = new Map<string, number>();
-    for (const r of await tx.select({ itemId: inventoryTransactions.itemId, qty: sql<number>`sum(${inventoryTransactions.quantity})::float` }).from(inventoryTransactions).where(and(eq(inventoryTransactions.sourceType, "bill"), gte(inventoryTransactions.transactionDate, FROM))).groupBy(inventoryTransactions.itemId)) nikoIn.set(r.itemId, Number(r.qty));
+    const aminoMaterial = new Map((D.materials ?? []).map((m) => [String(m.name), m]));
+    // Amino's figure for a bulk material is its stock at the export; a load it
+    // keyed after the cutover comes off, when the export says which those are.
+    const aminoAt = (nikoName: string) => { const a = aminoNameOf.get(nikoName); const m = a ? aminoMaterial.get(a) : undefined; if (!m) throw new Error(`Amino holds no material for "${nikoName}", named among --major`); const after = haveDeliveries ? (D.deliveries ?? []).filter((d) => d.material_name === a && String(d.delivered_on) > CUTOVER).reduce((x, d) => x + Number(d.net_quantity ?? d.quantity), 0) : 0; return Number(m.current_stock ?? 0) - after; };
+    if (!haveDeliveries) say(`  ! the export carries no deliveries: a bulk material's Amino figure may include a load keyed after ${CUTOVER}, and Amino's deliveries cannot be checked against the gate — re-export with the newer script to be sure`);
+    // The gate: every accepted line since FROM at its allocated net kilos, by IST arrival day.
+    const gate = await tx
+      .select({ number: officeReceipts.number, arrived: sql<string>`to_char((${officeReceipts.arrivalAt} AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD')`, status: officeReceipts.status, settled: sql<boolean>`${officeReceipts.settledAt} IS NOT NULL`, name: items.name, netKg: officeReceiptLines.allocatedNetKg, qc: officeReceiptLines.qcVerdict, lineStatus: officeReceiptLines.status, billKg: officeReceiptLines.billQuantityKg })
+      .from(officeReceiptLines).innerJoin(officeReceipts, eq(officeReceipts.id, officeReceiptLines.receiptId)).innerJoin(items, eq(items.id, officeReceiptLines.itemId))
+      .where(and(sql`(${officeReceipts.arrivalAt} AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Kolkata' >= ${FROM}::date`, ne(officeReceipts.status, "rejected"), eq(items.trackInventory, true)))
+      .orderBy(asc(officeReceipts.arrivalAt));
+    const accepted = gate.filter((g) => g.qc !== "rejected" && g.netKg != null);
+    const unallocated = gate.filter((g) => g.qc !== "rejected" && g.netKg == null);
+    const gateUpTo = new Map<string, { kg: number; settledKg: number; open: string[] }>();
+    for (const g of accepted.filter((g) => g.arrived <= CUTOVER)) { const e = gateUpTo.get(g.name) ?? { kg: 0, settledKg: 0, open: [] }; e.kg += Number(g.netKg); if (g.settled) e.settledKg += Number(g.netKg); else e.open.push(`${g.number} ${kg(Number(g.netKg))}`); gateUpTo.set(g.name, e); }
+    const gateAfter = accepted.filter((g) => g.arrived > CUTOVER);
+    if (unallocated.length) say(`  ! ${unallocated.length} gate line(s) accepted but with no net kilos allocated yet, not counted: ${unallocated.map((g) => `${g.number} ${g.name} (bill ${kg(Number(g.billKg))})`).join("; ")}`);
+    if (gateAfter.length) say(`  gate after ${CUTOVER}: ${gateAfter.map((g) => `${g.number} ${g.name} ${kg(Number(g.netKg))}${g.settled ? " settled" : ""}`).join("; ")} — on top of the count when settled`);
+    if (haveDeliveries) {
+      say(`\n  deliveries since ${FROM} — Amino vs the gate (accepted net kg)`);
+      const names = new Set<string>([...(D.deliveries ?? []).map((d) => MATERIAL[String(d.material_name)] ?? String(d.material_name)), ...accepted.map((g) => g.name)]);
+      for (const n of [...names].sort()) { const a = (D.deliveries ?? []).filter((d) => (MATERIAL[String(d.material_name)] ?? String(d.material_name)) === n).reduce((x, d) => x + Number(d.net_quantity ?? d.quantity), 0); const g = accepted.filter((g) => g.name === n).reduce((x, g) => x + Number(g.netKg), 0); say(`    ${n.padEnd(34)} Amino ${kg(a).padStart(12)}   gate ${kg(g).padStart(12)}${Math.abs(a - g) > 1 ? `   ${kg(g - a)} apart` : ""}`); }
+    }
+    const notItems = count.rows.filter((r) => !r.item && r.closingKg > 0);
+    if (notItems.length) say(`  count rows with no niko item, not counted: ${notItems.map((r) => `${r.sheetName} ${kg(r.closingKg)}`).join(", ")}`);
+    const targets = new Map<string, { kg: number; from: string }>();
+    for (const r of count.rows) if (r.item) targets.set(r.item, MAJOR.has(r.item) ? { kg: aminoAt(r.item), from: "Amino" } : { kg: r.closingKg, from: "sheet" });
+    for (const n of MAJOR) if (!targets.has(n)) targets.set(n, { kg: aminoAt(n), from: "Amino" });
+    for (const n of planned.keys()) if (!targets.has(n)) { say(`  ! ${n} is in the recipes but on no count row and not among --major: counted as 0 at ${CUTOVER}`); targets.set(n, { kg: 0, from: "none" }); }
     const openingLines: Array<{ itemId: string; name: string; qty: number; value: number; note: string }> = [];
-    say(`\n  opening raw stock on ${OPENING} (Amino now + consumed − delivered) — material | Amino now | consumed | delivered | opening | niko holds at ${OPENING} | adjustment | ₹/kg`);
-    for (const m of D.materials ?? []) {
-      if (!consumed.has(m.name)) continue;
-      const it = material(m.name);
-      const perUnit = it.unit === "kg" ? 1 : Number(it.bag ?? 0); // a pack item's stock is in packs
-      const nowA = Number(m.current_stock ?? 0), cons = consumed.get(m.name) ?? 0;
-      const deliv = haveDeliveries ? (delivered.get(m.name) ?? 0) : (nikoIn.get(it.id) ?? 0) * (perUnit || 1);
-      const openingKg = nowA + cons - deliv;
+    say(`\n  raw stock on ${OPENING}, worked back from the count at ${CUTOVER} — item | count (source) | recipes take | gate ≤ ${CUTOVER} (of it settled) | opening | niko holds at ${OPENING} | adjustment | ₹/kg`);
+    const negatives: string[] = [];
+    for (const [name, t] of [...targets].sort((a, b) => a[0].localeCompare(b[0]))) {
+      const it = itemByName.get(name); if (!it) throw new Error(`no niko item named "${name}"`);
+      const perUnit = it.unit === "kg" ? 1 : Number(it.bag ?? 0);
+      const take = planned.get(name) ?? 0; const g = gateUpTo.get(name) ?? { kg: 0, settledKg: 0, open: [] };
+      let openingKg = t.kg + take - g.kg;
+      if (openingKg < -0.5) { negatives.push(`${name}: count ${kg(t.kg)} + recipes ${kg(take)} − gate ${kg(g.kg)} = ${kg(openingKg)}; opened at 0, so the ledger will sit ${kg(-openingKg)} above the count once the gate is settled — the sheet's own usage of it since ${FROM}, or a gate weight above the count`); openingKg = 0; }
       const [held] = await tx.select({ qty: sql<number>`coalesce(sum(${inventoryTransactions.quantity}),0)::float` }).from(inventoryTransactions).where(and(eq(inventoryTransactions.itemId, it.id), lte(inventoryTransactions.transactionDate, OPENING)));
       const heldKg = Number(held?.qty ?? 0) * (perUnit || 1);
       const adjKg = openingKg - heldKg;
-      const price = lastPrice.get(m.name)?.price ?? 0;
+      const a = aminoNameOf.get(name);
+      const price = lastPrice.get(a ?? "")?.price ?? (a && aminoMaterial.get(a) ? Number(aminoMaterial.get(a)!.cost_per_kg ?? 0) : 0) || (Number(it.costPrice ?? 0) * (perUnit ? 1 / perUnit : 1));
+      if (adjKg > 0.0005 && !(price > 0)) say(`    ! ${name}: no price anywhere (Amino lots, Amino material, niko cost price) — opened at ₹0`);
       const adjUnits = perUnit ? adjKg / perUnit : adjKg;
-      say(`    ${m.name.padEnd(34)} ${kg(nowA).padStart(12)} ${kg(cons).padStart(12)} ${kg(deliv).padStart(12)} ${kg(openingKg).padStart(12)} ${kg(heldKg).padStart(12)} ${kg(adjKg).padStart(12)}  ${price.toFixed(2)}`);
-      if (Math.abs(adjUnits) >= 0.001) openingLines.push({ itemId: it.id, name: it.name, qty: adjUnits, value: adjKg * price, note: `Amino ${kg(nowA)} now + ${kg(cons)} consumed − ${kg(deliv)} delivered since ${FROM}; at ₹${price.toFixed(2)}/kg (Amino's latest lot)` });
+      say(`    ${name.padEnd(32)} ${kg(t.kg).padStart(12)} (${t.from.padEnd(5)}) ${kg(take).padStart(12)} ${kg(g.kg).padStart(12)} (${kg(g.settledKg)}) ${kg(openingKg).padStart(12)} ${kg(heldKg).padStart(12)} ${kg(adjKg).padStart(12)}  ${price.toFixed(2)}`);
+      if (Math.abs(adjUnits) > 0.0005) openingLines.push({ itemId: it.id, name, qty: adjUnits, value: adjUnits * price * (perUnit || 1), note: `Opening at the takeover, worked back from the count of ${CUTOVER} (${t.from}: ${kg(t.kg)}) + recipes ${kg(take)} − gate ${kg(g.kg)}` });
     }
+    for (const n of negatives) say(`    ! ${n}`);
+    const openGate = [...gateUpTo].filter(([, g]) => g.open.length);
+    if (openGate.length) say(`  gate lines up to ${CUTOVER} still to settle (in the arithmetic, not yet in stock): ${openGate.map(([n, g]) => `${n}: ${g.open.join(", ")}`).join("; ")}`);
 
     /* ── 3. opening finished feed: the least that lets each day's transfers out ── */
-    const slips = (D.slips ?? []).filter((s) => s.status === "confirmed" && String(s.made_on) >= FROM).sort((a, b) => String(a.made_on).localeCompare(String(b.made_on)));
     const houseRows = await tx.select({ id: houses.id, code: houses.code }).from(houses);
     const houseByCode = new Map(houseRows.map((h) => [h.code, h.id]));
     // which feed each house is on: Amino's most recent transfer to it
@@ -188,7 +265,7 @@ try {
     for (const name of new Set([...plannedTransfers.map((t) => t.feed), ...slips.map((s) => String(s.formula_name))])) {
       const days = [...new Set([...plannedTransfers.filter((t) => t.feed === name).map((t) => t.day), ...slips.filter((s) => s.formula_name === name).map((s) => String(s.made_on))])].sort();
       let stock = 0, lowest = 0;
-      for (const day of days) { stock += slips.filter((s) => s.formula_name === name && s.made_on === day).reduce((a, s) => a + nikoYield(name, Number(s.batch_count)), 0); stock -= plannedTransfers.filter((t) => t.feed === name && t.day === day).reduce((a, t) => a + t.kg, 0); lowest = Math.min(lowest, stock); }
+      for (const day of days) { stock += slips.filter((s) => s.formula_name === name && s.made_on === day).reduce((a, s) => a + yieldOf(s), 0); stock -= plannedTransfers.filter((t) => t.feed === name && t.day === day).reduce((a, t) => a + t.kg, 0); lowest = Math.min(lowest, stock); }
       const first = slips.find((s) => s.formula_name === name);
       const lots = (D.lot_consumption ?? []).filter((l) => l.production_slip_id === first?.id);
       const rate = first ? lots.reduce((a, l) => a + Number(l.quantity_consumed) * Number(l.price_per_kg), 0) / Number(first.total_output) + prefsOverhead : 0;
@@ -201,7 +278,7 @@ try {
 
     if (openingLines.length) {
       const number = await nextDocumentNumber(tx, "inventory_adjustment");
-      const [adj] = await tx.insert(inventoryAdjustments).values({ number, adjustmentDate: OPENING, mode: "quantity", reason: "Opening stock at the mill's takeover by niko", description: `Worked back from Amino's export of ${raw.exportedAt}`, adjustmentAccountId: feedExpense.id, createdBy: userId }).returning();
+      const [adj] = await tx.insert(inventoryAdjustments).values({ number, adjustmentDate: OPENING, mode: "quantity", reason: "Opening stock at the mill's takeover by niko", description: `Worked back from the count of ${CUTOVER} (${count.source}) and Amino's export of ${raw.exportedAt}`, adjustmentAccountId: feedExpense.id, createdBy: userId }).returning();
       await tx.insert(inventoryAdjustmentLines).values(openingLines.map((l, i) => ({ adjustmentId: adj!.id, itemId: l.itemId, quantityChange: l.qty.toFixed(3), valueChange: l.value.toFixed(2), notes: l.note, lineOrder: i })));
       const jeId = await postInventoryMovement(tx, { movements: openingLines.map((l) => ({ itemId: l.itemId, quantity: l.qty.toFixed(3), value: l.value.toFixed(2), notes: l.note })), transactionDate: OPENING, sourceType: "inventory_adjustment", sourceId: adj!.id, stockLocationId: store, contraAccountId: feedExpense.id, narration: `Inventory adjustment ${number} — opening stock at the mill's takeover by niko`, postedBy: userId, preventNegative: false });
       if (jeId) await tx.update(inventoryAdjustments).set({ journalEntryId: jeId }).where(eq(inventoryAdjustments.id, adj!.id));
@@ -221,8 +298,9 @@ try {
         const f = outputOf(String(s.formula_name));
         const batchKg = Number(f.batchSizeKg) * Number(s.batch_count);
         if (Math.abs(batchKg - Number(s.total_output)) / Number(s.total_output) > 0.005) say(`    ! ${day} ${s.formula_name}: Amino ${kg(Number(s.total_output))} for ${s.batch_count} batches, niko's batch gives ${kg(batchKg)}`);
-        const order = await produceOne(tx, { formulaId: f.id, batchCount: Number(s.batch_count) }, { orderDate: day, notes: `Amino slip ${s.id} — ${s.formula_name}, ${s.batch_count} batch(es), ${kg(Number(s.total_output))}, confirmed ${String(s.confirmed_at ?? s.generated_at).slice(0, 16)}Z` }, userId);
-        produced++; producedKg += Number(order.actualOutputKg); made.push(`${s.formula_name} ${kg(Number(order.actualOutputKg))} @₹${Number(order.costPerKg).toFixed(2)}`);
+        const omit = omitted.get(s.id) ?? [];
+        const order = await produceOne(tx, { formulaId: f.id, batchCount: Number(s.batch_count), omitItemIds: omit.map((o) => o.itemId) }, { orderDate: day, notes: `Amino slip ${s.id} — ${s.formula_name}, ${s.batch_count} batch(es), ${kg(Number(s.total_output))}, confirmed ${String(s.confirmed_at ?? s.generated_at).slice(0, 16)}Z${omit.length ? `; milled without ${omit.map((o) => o.name).join(", ")} (the slip drew none)` : ""}` }, userId);
+        produced++; producedKg += Number(order.actualOutputKg); made.push(`${s.formula_name} ${kg(Number(order.actualOutputKg))} @₹${Number(order.costPerKg).toFixed(2)}${omit.length ? ` without ${omit.map((o) => o.name).join(", ")}` : ""}`);
       }
       for (const t of plannedTransfers.filter((t) => t.day === day)) {
         const f = outputOf(t.feed);
@@ -237,11 +315,10 @@ try {
     say(`\n  production       ${produced} order(s), ${kg(producedKg)}${skipped ? `; ${skipped} slip(s) already across` : ""}`);
     say(`  transfers        ${transferred} from the daily sheet, ${kg(transferredKg)}; Amino's own in the window: ${(D.transfers ?? []).length}, ${kg((D.transfers ?? []).reduce((a, t) => a + Number(t.quantity_kg), 0))}`);
     say(`\n  materials consumed — niko vs Amino's lots`);
-    for (const [aminoName, cons] of consumed) { const it = material(aminoName); const perUnit = it.unit === "kg" ? 1 : Number(it.bag ?? 1); const n = (consumedNiko.get(it.name) ?? 0) * perUnit; say(`    ${it.name.padEnd(34)} niko ${kg(n).padStart(12)}   Amino ${kg(cons).padStart(12)}   ${cons ? ((n / cons - 1) * 100).toFixed(1) : "—"}%`); }
-    say(`\n  stock after the last day — item | niko | Amino now`);
+    for (const name of [...new Set([...consumedNiko.keys(), ...[...aminoConsumed.keys()].map((a) => MATERIAL[a] ?? a)])].sort()) { const it = itemByName.get(name); const perUnit = it && it.unit !== "kg" ? Number(it.bag ?? 1) : 1; const n = (consumedNiko.get(name) ?? 0) * perUnit; const a = aminoNameOf.get(name); const cons = a ? (aminoConsumed.get(a) ?? 0) : 0; say(`    ${name.padEnd(34)} niko ${kg(n).padStart(12)}   Amino ${kg(cons).padStart(12)}   ${cons ? `${((n / cons - 1) * 100).toFixed(1)}%` : a ? "—" : "(no Amino material)"}`); }
+    say(`\n  stock after the last day — item | niko now | + gate ≤ ${CUTOVER} unsettled | = once settled | count at ${CUTOVER} | apart`);
     const levels = await tx.select({ name: items.name, unit: items.unit, bag: items.unitBagWeightKg, qty: sql<number>`coalesce(sum(${inventoryTransactions.quantity}),0)::float`, value: sql<number>`coalesce(sum(${inventoryTransactions.value}),0)::float` }).from(inventoryTransactions).innerJoin(items, eq(items.id, inventoryTransactions.itemId)).groupBy(items.name, items.unit, items.bag).orderBy(items.name);
-    const aminoNow = new Map((D.materials ?? []).map((m) => [MATERIAL[m.name] ?? m.name, Number(m.current_stock ?? 0)]));
-    for (const l of levels) { const perUnit = l.unit === "kg" ? 1 : Number(l.bag ?? 1); const q = Number(l.qty) * perUnit; if (Math.abs(q) < 1 && !aminoNow.has(l.name)) continue; say(`    ${l.name.padEnd(34)} ${kg(q).padStart(12)} ${rs(Number(l.value)).padStart(14)}   ${aminoNow.has(l.name) ? kg(aminoNow.get(l.name)!).padStart(12) : ""}`); }
+    for (const l of levels) { const perUnit = l.unit === "kg" ? 1 : Number(l.bag ?? 1); const q = Number(l.qty) * perUnit; const t = targets.get(l.name); if (Math.abs(q) < 1 && !t) continue; const g = gateUpTo.get(l.name); const pending = g ? g.kg - g.settledKg : 0; const once = q + pending; say(`    ${l.name.padEnd(34)} ${kg(q).padStart(12)} ${rs(Number(l.value)).padStart(14)} ${kg(pending).padStart(12)} ${kg(once).padStart(12)} ${t ? kg(t.kg).padStart(12) : "".padStart(12)} ${t && Math.abs(once - t.kg) > 0.5 ? kg(once - t.kg).padStart(12) : ""}`); }
 
     if (!APPLY) throw new Rollback();
   });

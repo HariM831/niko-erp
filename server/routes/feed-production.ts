@@ -281,7 +281,13 @@ feedProductionRouter.post(
  */
 export async function produceOne(
   tx: Tx,
-  run: { formulaId: string; batchCount: number },
+  /**
+   * `omitItemIds`: recipe lines to leave out of this run — for a batch the
+   * mill made without a material it had run out of. The Amino import uses it
+   * for the slips of 24–26 Sep 2026, milled without Cantaxanthin; the routes
+   * never pass it. The order records only what was actually consumed.
+   */
+  run: { formulaId: string; batchCount: number; omitItemIds?: string[] },
   body: { orderDate: string; locationId?: string; notes?: string | null },
   userId: string,
 ) {
@@ -290,7 +296,7 @@ export async function produceOne(
   if (!formula.isActive) {
     throw new PostingError(`${formula.name} v${formula.version} is retired — produce the live version`);
   }
-  const recipe = await tx
+  const fullRecipe = await tx
     .select({
       line: formulaLines,
       itemName: items.name,
@@ -302,7 +308,10 @@ export async function produceOne(
     .innerJoin(items, eq(items.id, formulaLines.itemId))
     .where(eq(formulaLines.formulaId, formula.id))
     .orderBy(asc(formulaLines.sortOrder));
-  if (!recipe.length) throw new PostingError("The formula has no ingredient lines");
+  if (!fullRecipe.length) throw new PostingError("The formula has no ingredient lines");
+  const omit = new Set(run.omitItemIds ?? []);
+  const recipe = omit.size ? fullRecipe.filter((r) => !omit.has(r.line.itemId)) : fullRecipe;
+  if (!recipe.length) throw new PostingError("Every line of the formula was left out");
 
   /**
    * A batch is costed at what the material in the silo actually cost.
