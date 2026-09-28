@@ -118,15 +118,19 @@ export function ItemNewPage({ editId }: { editId?: string }) {
     setForm((f) => ({ ...f, [k]: e.target.value }));
   /** Only what niko sells (SALE_CATEGORIES) carries sale terms; everything else is bought to use. */
   const sellable = (SALE_CATEGORIES as readonly string[]).includes(form.category);
-  // Gated on the *effective* flag, not the raw one. The Sales checkbox is
-  // disabled for a non-produce category, so isSold can neither be unticked nor
-  // priced there — reading it literally left Save permanently dead for every
-  // item that isn't eggs, birds or manure.
-  const canSave =
-    form.name.trim() &&
-    (!form.trackInventory || form.inventoryAccountId) &&
-    (!(sellable && form.isSold) || form.sellingPrice.trim()) &&
-    (!form.isPurchased || form.costPrice.trim());
+  /**
+   * A name is all Save waits for; the server refuses anything else it must.
+   *
+   * Save used to stay grey until a cost price, a selling price and a stock
+   * account were all in — and said nothing about which was missing. None of
+   * the three is true of every item: materials are priced from their bills
+   * (services/feed-prices), eggs from the day's benchmark plus the customer's
+   * spread, birds by age at sale, and the egg sizes count boxes with no stock
+   * account on purpose (migration 0076). So 17 of staging's 94 items could
+   * never be saved at all, whatever was changed. A refusal from the server
+   * shows its reason under the form instead.
+   */
+  const canSave = !!form.name.trim();
 
   const save = async () => {
     setBusy(true);
@@ -346,7 +350,7 @@ export function ItemNewPage({ editId }: { editId?: string }) {
           {sellable && form.isSold && (
             <div className="mt-3 grid grid-cols-2 gap-4">
               <div>
-                <label className="label-required">Selling Price *</label>
+                <label className="label">Selling Price</label>
                 <div className="flex overflow-hidden rounded-lg border border-gray-200 focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-100">
                   <span className="flex items-center bg-gray-50 px-2.5 text-[13px] text-gray-500">INR</span>
                   <input
@@ -390,7 +394,7 @@ export function ItemNewPage({ editId }: { editId?: string }) {
           {form.isPurchased && (
             <div className="mt-3 grid grid-cols-2 gap-4">
               <div>
-                <label className="label-required">Cost Price *</label>
+                <label className="label">Cost Price</label>
                 <div className="flex overflow-hidden rounded-lg border border-gray-200 focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-100">
                   <span className="flex items-center bg-gray-50 px-2.5 text-[13px] text-gray-500">INR</span>
                   <input
