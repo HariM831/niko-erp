@@ -1,11 +1,12 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
 import { AdvancedButton, AdvancedSearch, criteriaCount as countCriteria, type Criteria, type SearchField } from "./advanced-search";
 import { useSearchContext } from "./search-context";
 import { SortCarets, compareBy } from "./sortable-table";
 import { ListPager, usePerPage } from "./list-pager";
+import { ListMoreMenu, cellText, downloadCsv } from "./list-more-menu";
 
 export interface Column<T> {
   key: string;
@@ -299,6 +300,24 @@ export function ListPage<T>({
     scrollRef.current?.scrollTo({ top: 0 });
   }, [shownPage, perPage]);
 
+  /**
+   * Export Current View: every row the view holds — all pages, as filtered and
+   * ordered — in the columns shown. A figure goes out as the number it is, not
+   * as "₹1,23,456.00"; anything else as the words its cell shows.
+   */
+  const exportView = () => {
+    const rows = (ordered ?? []).map((row) =>
+      columns.map((c) => {
+        const v = c.sort?.(row);
+        if (typeof v === "number") return v;
+        const text = cellText(c.render(row)).trim();
+        return text || (v == null ? "" : String(v));
+      }),
+    );
+    downloadCsv(viewLabel === "All" ? `All ${title}` : `${viewLabel} ${title}`, columns.map((c) => c.header), rows);
+  };
+  const qc = useQueryClient();
+
   // Select-all takes the page in view, as Zoho's does — not rows nobody can see.
   const allSelected = !!pageRows?.length && pageRows.every((r) => selected.has(rowKey(r)));
   const toggleAll = () =>
@@ -363,9 +382,14 @@ export function ListPage<T>({
               + New
             </button>
           )}
-          <button className="rounded-md border px-2 py-1.5 text-[13px] text-gray-500 hover:bg-gray-50" title="More">
-            ⋯
-          </button>
+          <ListMoreMenu
+            columns={columns.map((c) => ({ key: c.key, header: c.header, sortable: !!c.sort }))}
+            sort={sort}
+            onSort={toggleSort}
+            onExport={exportView}
+            onRefresh={() => void qc.invalidateQueries({ queryKey: [endpoint] })}
+            exportDisabled={!ordered?.length}
+          />
         </div>
       </header>
 
