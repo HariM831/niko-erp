@@ -8,10 +8,9 @@ import { advancedSearch, type DocumentSearch } from "../services/document-search
 export const activityRouter = Router();
 
 /**
- * The log's advanced search. Browsing shows the latest 300 entries, so a
- * question like "what did Ramesh delete in August" has to be asked here — the
- * answer is usually older than what the page holds. The resource box matches
- * anywhere in the path, so "invoices" finds every invoice route.
+ * The log's advanced search, for a question like "what did Ramesh delete in
+ * August". The resource box matches anywhere in the path, so "invoices" finds
+ * every invoice route.
  */
 const activitySearch: DocumentSearch = {
   advanced: {
@@ -30,6 +29,8 @@ activityRouter.get("/", requireAdmin, async (req, res) => {
     .from(activityLog)
     .where(conditions.length ? and(...conditions) : undefined)
     .orderBy(desc(activityLog.createdAt));
-  // A search reaches the whole log; browsing stops at the latest 300.
-  res.json(conditions.length ? await rows : await rows.limit(300));
+  // The whole log, newest first. Browsing used to stop at the latest 300 —
+  // paging by hand before the page had a pager — and everything older could
+  // only be reached through a search. The page pages it now.
+  res.json(await rows);
 });

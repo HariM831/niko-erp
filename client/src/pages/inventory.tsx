@@ -9,6 +9,7 @@ import { useAdvancedSearch, type SearchField } from "../components/advanced-sear
 import { DateInput } from "../components/date-input";
 import { BandStrip } from "../components/ui/band-strip";
 import { SortTh, useSortedRows } from "../components/sortable-table";
+import { ListPager, usePagedRows } from "../components/list-pager";
 
 /** Current on-hand, for the adjustment form's "quantity now" column. */
 interface StockLevel {
@@ -127,6 +128,8 @@ export function StockPage() {
       api<StockPeriodRow[]>(`/api/inventory/stock/period?from=${from}&to=${to}&category=${tab}`),
   });
   const { rows, sort, toggle } = useSortedRows(unsorted, STOCK_SORTS);
+  // The totals above the table stay over every row; only the drawing pages.
+  const { pageRows, pager } = usePagedRows(rows, "Stock", [tab, from, to, sort]);
 
   const totalValue = (rows ?? []).reduce((s, l) => s + Number(l.value), 0);
   const movedIn = (rows ?? []).reduce((s, l) => s + Number(l.inQty), 0);
@@ -250,7 +253,7 @@ export function StockPage() {
                 </td>
               </tr>
             )}
-            {rows?.map((l) => (
+            {pageRows.map((l) => (
               <tr
                 key={l.itemId}
                 onClick={() => navigate(`/items/${l.itemId}`)}
@@ -299,6 +302,7 @@ export function StockPage() {
             ))}
           </tbody>
         </table>
+        {pager && <ListPager {...pager} />}
       </div>
     </div>
   );
@@ -345,6 +349,7 @@ export function InventoryAdjustmentsPage() {
     queryFn: () => api<AdjustmentRow[]>(`/api/inventory/adjustments${qs ? `?${qs}` : ""}`),
   });
   const { rows, sort, toggle } = useSortedRows(unsorted, ADJUSTMENT_SORTS);
+  const { pageRows: adjRows, pager: adjPager } = usePagedRows(rows, "Inventory Adjustments", [adv.criteria, sort]);
 
   return (
     <div className="flex h-full flex-col">
@@ -384,7 +389,7 @@ export function InventoryAdjustmentsPage() {
                 </td>
               </tr>
             )}
-            {rows?.map((r) => (
+            {adjRows.map((r) => (
               <tr
                 key={r.id}
                 onClick={() => navigate(`/inventory/adjustments/${r.id}`)}
@@ -409,6 +414,7 @@ export function InventoryAdjustmentsPage() {
           </tbody>
         </table>
       </div>
+      {adjPager && <ListPager {...adjPager} />}
       {adv.dialog}
     </div>
   );

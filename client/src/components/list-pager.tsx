@@ -43,6 +43,29 @@ export function usePerPage(listKey: string): [number, (n: number) => void] {
   return [perPage, setPerPage];
 }
 
+/**
+ * Paging for a hand-built table — the lists that are not ListPages (the
+ * activity log, gate receipts, stock) take the same bar in two lines:
+ *
+ *   const { pageRows, pager } = usePagedRows(rows, "Activity Log", [filters, sort]);
+ *   …map pageRows…  {pager && <ListPager {...pager} />}
+ *
+ * `resetOn` is whatever changes which rows the table holds or their order; a
+ * change goes back to page one. `pager` is null when there is nothing to page.
+ */
+export function usePagedRows<T>(rows: T[] | undefined, listKey: string, resetOn: unknown[] = []) {
+  const [perPage, setPerPage] = usePerPage(listKey);
+  const [page, setPage] = useState(1);
+  const resetKey = JSON.stringify(resetOn);
+  useEffect(() => setPage(1), [resetKey, perPage]);
+  const total = rows?.length ?? 0;
+  const shown = Math.min(page, Math.max(1, Math.ceil(total / perPage)));
+  return {
+    pageRows: rows?.slice((shown - 1) * perPage, shown * perPage) ?? [],
+    pager: total ? { total, page: shown, perPage, onPage: setPage, onPerPage: setPerPage } : null,
+  };
+}
+
 export function ListPager({
   total,
   page,

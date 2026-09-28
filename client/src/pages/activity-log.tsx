@@ -4,6 +4,7 @@ import { ShieldCheck } from "lucide-react";
 import { api } from "../api";
 import { useAdvancedSearch, type SearchField } from "../components/advanced-search";
 import { SortTh, useSortedRows } from "../components/sortable-table";
+import { ListPager, usePagedRows } from "../components/list-pager";
 
 interface ActivityRow {
   id: string;
@@ -68,7 +69,7 @@ export function ActivityLogPage() {
     ],
     [users],
   );
-  // The log is capped at the latest 300, so the search is the server's.
+  // The search is the server's: it reaches every entry, not just the pages loaded.
   const adv = useAdvancedSearch("Activity Log", fields);
   const qs = new URLSearchParams(adv.criteria).toString();
   const { data: unsorted, error } = useQuery({
@@ -78,6 +79,7 @@ export function ActivityLogPage() {
   // Newest first until a header says otherwise. Time sorts on the raw
   // timestamp, not on the "26 Sep, 09:14" the cell shows.
   const { rows, sort, toggle } = useSortedRows(unsorted, ACTIVITY_SORTS);
+  const { pageRows, pager } = usePagedRows(rows, "Activity Log", [qs, sort]);
 
   return (
     <div className="flex h-full flex-col">
@@ -112,7 +114,7 @@ export function ActivityLogPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {pageRows.map((r) => (
                 <tr key={r.id} className="row-hover border-b border-[#ece3d5]">
                   <td className="whitespace-nowrap px-4 py-2.5 tabular-nums text-gray-600">
                     {new Date(r.createdAt).toLocaleString("en-IN", {
@@ -145,6 +147,7 @@ export function ActivityLogPage() {
           </table>
         )}
       </div>
+      {pager && <ListPager {...pager} />}
     </div>
   );
 }

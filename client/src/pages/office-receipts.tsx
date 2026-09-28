@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearch } from "../components/search-context";
 import { SortTh, useSortedRows } from "../components/sortable-table";
+import { ListPager, usePagedRows } from "../components/list-pager";
 import { ApiError, api, formatMoney } from "../api";
 import { StatusBadge } from "../components/status-badge";
 import type { LineMatch } from "@shared/po-match-types";
@@ -808,6 +809,7 @@ export function GoodsReceiptsPage() {
     placeholderData: keepPreviousData,
   });
   const { rows, sort, toggle } = useSortedRows(unsorted, RECEIPT_SORTS);
+  const { pageRows, pager } = usePagedRows(rows, "Goods Receipts", [term, adv.criteria, sort]);
   const { data: numbering } = useQuery<Array<{ prefix: string; nextNumber: number; padding: number; seriesName: string; isDefault: boolean }>>({
     queryKey: ["office", "numbering"],
     queryFn: () => api("/api/office/numbering"),
@@ -874,7 +876,7 @@ export function GoodsReceiptsPage() {
                 </td>
               </tr>
             )}
-            {rows?.map((r) => (
+            {pageRows.map((r) => (
               <tr key={r.id} className="border-b border-gray-100 hover:bg-gray-50/60">
                 <td className="col-code px-3 py-2 font-mono text-gray-900">{r.number}</td>
                 <td className="col-fill px-3 py-2 font-medium text-gray-900">{r.vehicleNumber}</td>
@@ -900,6 +902,7 @@ export function GoodsReceiptsPage() {
             ))}
           </tbody>
         </table>
+        {pager && <ListPager {...pager} />}
       </div>
 
       {adv.dialog}

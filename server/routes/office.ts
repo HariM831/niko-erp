@@ -610,10 +610,8 @@ officeRouter.get("/receipts", requirePermission("office", "receipts"), async (re
   // Status, vendor and location were query parameters before the advanced
   // search existed; they are fields of it now, read the same way.
   const where: SQL[] = advancedSearch(receiptSearch, query);
-  const searching = where.length > 0;
   // The top-bar search, by the rule every list follows. Here rather than in
-  // the page: the list stops at the newest 200, and a search has to reach past
-  // them, so a search is not capped.
+  // the page, so it reaches every truck on file.
   const term = search?.trim();
   if (term) {
     const cond = or(
@@ -648,8 +646,9 @@ officeRouter.get("/receipts", requirePermission("office", "receipts"), async (re
     .leftJoin(contacts, eq(contacts.id, officeReceipts.vendorId))
     .leftJoin(locations, eq(locations.id, officeReceipts.locationId))
     .where(where.length ? and(...where) : undefined)
-    .orderBy(desc(officeReceipts.arrivalAt))
-    .limit(term || searching ? 100_000 : 200);
+    // Every truck, newest first: the book pages them. It used to stop at the
+    // newest 200, and anything older could only be found by searching.
+    .orderBy(desc(officeReceipts.arrivalAt));
   res.json(rows);
 });
 
