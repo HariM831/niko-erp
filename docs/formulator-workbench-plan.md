@@ -80,12 +80,17 @@ and never blocks a solve.
   standard's methionine plus cystine rows (the loader stored cystine as
   (Met+Cys) − Met, so the sum is the guide's figure).
 - **Crude fibre** is a ceiling on bulk, so it is not scaled with intake. The
-  Hy-Line guide gives no fibre figure. Until a maximum is set in Settings ›
-  Feed Standards the row shows the mix's fibre with "no limit set".
+  Hy-Line guide gives no fibre figure. **Decided 28 Sep 2026: 3–5% at every
+  stage**, held in every standard as version 2.
 - **Additives open locked** when they carry none of the six (or are marked
   fixed-dose). Threonine or valine sources would now open locked too.
-- **Watch for uncapped supplements.** With cystine no longer held on its own,
+- **Uncapped supplements.** With cystine no longer held on its own,
   DL-Methionine (3,564 kcal/kg on file, above maize) is an energy source to
   the solver. An energy-starved solve with no cap on it pours it in: Layer 1
-  eased to the frontier came out 57% DL-Methionine. A max on its formula line
-  (0.5% tried) gives a sane answer.
+  eased to the frontier came out 57% DL-Methionine. **Decided 28 Sep 2026: no
+  inclusion cap on the amino acids.** A solve that leans on them is read by
+  the person saving it; a max on the formula line remains available per mix.
+- **Crude protein** is checked, not held; from 28 Sep 2026 its floor in every
+  standard is 90% of the Hy-Line figure, with no ceiling (version 2).
+- **Sign-off.** From 28 Sep 2026 a standard or a formula version is saved
+  only by a holder of `feed_mill.sign_off` — Admin alone, unless granted.

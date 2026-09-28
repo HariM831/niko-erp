@@ -6,7 +6,7 @@
  * standard, and rewriting the standard would make that formula look like it
  * never met it. One live standard per stage, enforced by a partial unique index.
  *
- * Writing gated on `feed_mill.manage_formulas` — the standard is half of every
+ * Writing gated on `feed_mill.sign_off` (28 Sep 2026: a standard goes live under a signature; Admin alone by default) — the standard is half of every
  * recipe, and whoever may change what a mix must hit may change what goes in it.
  */
 import { Router } from "express";
@@ -103,7 +103,7 @@ feedStandardsRouter.get("/", requirePermission("feed_mill", "view"), async (_req
 /** Supersede: the next version rises, the live one stands down, one transaction. */
 feedStandardsRouter.post(
   "/:stage",
-  requirePermission("feed_mill", "manage_formulas"),
+  requirePermission("feed_mill", "sign_off"),
   validateBody(bodySchema),
   async (req, res) => {
     const stage = req.params.stage as (typeof lifeStage.enumValues)[number];
@@ -166,7 +166,7 @@ feedStandardsRouter.post(
 /** Retire without a successor — the stage stops being judged. */
 feedStandardsRouter.delete(
   "/:stage",
-  requirePermission("feed_mill", "manage_formulas"),
+  requirePermission("feed_mill", "sign_off"),
   async (req, res) => {
     const [row] = await db
       .update(feedStandards)

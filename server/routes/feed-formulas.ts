@@ -423,7 +423,8 @@ feedFormulasRouter.get("/", requirePermission("feed_mill", "formulas"), async (_
  */
 feedFormulasRouter.post(
   "/",
-  requirePermission("feed_mill", "manage_formulas"),
+  // A formula version goes live under a signature (28 Sep 2026): sign_off, which Admin alone holds by default.
+  requirePermission("feed_mill", "sign_off"),
   validateBody(bodySchema),
   async (req, res) => {
     const body = req.body as Body;
@@ -480,7 +481,7 @@ feedFormulasRouter.post(
 /** Retire a formula without a successor. Past orders keep their version. */
 feedFormulasRouter.delete(
   "/:id",
-  requirePermission("feed_mill", "manage_formulas"),
+  requirePermission("feed_mill", "sign_off"),
   async (req, res) => {
     // Refuse while an order is open against it: the floor is mid-mix.
     const [open] = await db

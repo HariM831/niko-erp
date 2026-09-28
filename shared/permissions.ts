@@ -122,6 +122,10 @@ export const PERMISSION_MODULES: PermissionModule[] = [
       // Writing a recipe is not the same as running one. The floor produces to
       // a formula; changing the formula is a different authority.
       { key: "manage_formulas", label: "Write formulas" },
+      // A standard or a formula version goes live only under a signature.
+      // Decided 28 Sep 2026: Admin alone holds this, through its wildcard;
+      // anyone else gets it only by being granted it here.
+      { key: "sign_off", label: "Sign off standards and formula versions" },
       // What a batch costs to make is the mill's margin, and it is read off
       // every material's purchase price. Seeing a formula does not include
       // seeing that — a nutritionist balancing a ration needs the recipe, not
