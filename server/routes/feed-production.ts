@@ -286,8 +286,13 @@ export async function produceOne(
    * mill made without a material it had run out of. The Amino import uses it
    * for the slips of 24–26 Sep 2026, milled without Cantaxanthin; the routes
    * never pass it. The order records only what was actually consumed.
+   *
+   * `allowShort`: mill even when the ledger holds less than the recipe needs,
+   * letting the material's stock go negative. Only the Amino import passes
+   * it, for loads that were at the mill but not yet settled through the gate
+   * when the batches were made; the routes never do.
    */
-  run: { formulaId: string; batchCount: number; omitItemIds?: string[] },
+  run: { formulaId: string; batchCount: number; omitItemIds?: string[]; allowShort?: boolean },
   body: { orderDate: string; locationId?: string; notes?: string | null },
   userId: string,
 ) {
@@ -397,7 +402,7 @@ export async function produceOne(
       have: Number(held.get(r.line.itemId)?.quantity ?? 0) / perKg(r),
     }))
     .filter((x) => x.have < x.need - 0.0005);
-  if (short.length) {
+  if (short.length && !run.allowShort) {
     throw new PostingError(
       `${formula.name} needs more than the mill holds: ` +
         short
