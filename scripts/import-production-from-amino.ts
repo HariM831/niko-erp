@@ -236,6 +236,10 @@ try {
   say(`\n  ${APPLY ? "Applied." : "Dry run — nothing written. Re-run with --apply."}\n`);
 } catch (e) {
   if (e instanceof Rollback) say(`\n  Dry run — nothing written. Re-run with --apply.\n`);
-  else { console.error(`\n  FAILED: ${e instanceof Error ? e.message : e}\n`); process.exit(1); }
+  else {
+    console.error(`\n  FAILED: ${e instanceof Error ? e.message : e}\n`);
+    if (process.argv.includes("--stack") && e instanceof Error) console.error(e.stack);
+    process.exit(1);
+  }
 }
 process.exit(0);
