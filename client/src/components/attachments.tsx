@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText, Image as ImageIcon, Paperclip, Trash2, Upload } from "lucide-react";
 import { api } from "../api";
@@ -232,9 +232,16 @@ export function AttachmentsButton({
 export function AttachmentsPanel({
   entityType,
   entityId,
+  extraTiles,
 }: {
   entityType: string;
   entityId: string;
+  /**
+   * Pictures of a related record shown in the same grid — not this
+   * document's files, so they carry no delete and upload nothing (a goods
+   * receipt shows its weighbridge slip here).
+   */
+  extraTiles?: ReactNode;
 }) {
   const { files, busy, error, fileRef, uploadFile, remove } = useAttachments(entityType, entityId);
   const photos = (files ?? []).filter((f) => f.mimeType.startsWith("image/"));
@@ -262,10 +269,10 @@ export function AttachmentsPanel({
           }}
         />
       </div>
-      {files && !files.length && (
+      {files && !files.length && !extraTiles && (
         <p className="py-2 text-[12px] text-gray-400">No photos or files on this receipt.</p>
       )}
-      {photos.length > 0 && (
+      {(photos.length > 0 || !!extraTiles) && (
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
           {photos.map((f) => (
             <div key={f.id} className="group relative">
@@ -290,6 +297,7 @@ export function AttachmentsPanel({
               </button>
             </div>
           ))}
+          {extraTiles}
         </div>
       )}
       {others.map((f) => (

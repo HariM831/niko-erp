@@ -178,6 +178,14 @@ export function ReceiptEditor({
     queryFn: () => api(`/api/office/receipts/${receiptId}`),
     enabled: editing,
   });
+  /** The weighbridge's own slips for this truck — shown with the photos, never edited here. */
+  const { data: weighSlips } = useQuery<
+    Array<{ id: string; number: string; grossWeightKg: string | null; tareWeightKg: string | null; netWeightKg: string | null; photoId: string | null }>
+  >({
+    queryKey: ["office", "receipt", receiptId, "weigh-slips"],
+    queryFn: () => api(`/api/office/receipts/${receiptId}/weigh-slips`),
+    enabled: editing,
+  });
 
   const [locationId, setLocationId] = useState(ctx.locations[0]?.id ?? "");
   const [vendorId, setVendorId] = useState("");
@@ -784,7 +792,40 @@ export function ReceiptEditor({
           on any document; a new receipt has none until it is saved. */}
       {editing && receiptId && (
         <div className="mb-3 rounded-lg border border-gray-100 bg-gray-50/60 p-2">
-          <AttachmentsPanel entityType="office_receipt" entityId={receiptId} />
+          <AttachmentsPanel
+            entityType="office_receipt"
+            entityId={receiptId}
+            extraTiles={weighSlips?.map((w) => (
+              <a
+                key={w.id}
+                href={`/office/unloading/slips?slip=${w.id}`}
+                target="_blank"
+                rel="noreferrer"
+                title={`Open ${w.number} on the weighbridge`}
+                className="block"
+              >
+                {w.photoId ? (
+                  <img
+                    src={`/api/attachments/${w.photoId}/download`}
+                    alt={`Weighment slip ${w.number}`}
+                    className="h-24 w-full rounded-lg border border-gray-100 object-cover"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="flex h-24 w-full flex-col justify-center rounded-lg border border-gray-200 bg-white px-2 text-[11px] tabular-nums text-gray-600">
+                    <span className="font-mono font-semibold text-gray-900">{w.number}</span>
+                    <span>Gross {kg(w.grossWeightKg)}</span>
+                    <span>Tare {kg(w.tareWeightKg)}</span>
+                    <span>Net {kg(w.netWeightKg)}</span>
+                  </div>
+                )}
+                <div className="mt-0.5 truncate text-[11px] text-gray-600">Our weighment slip · {w.number}</div>
+                <div className="text-[10px] tabular-nums text-gray-400">
+                  {kg(w.grossWeightKg)} − {kg(w.tareWeightKg)} = {kg(w.netWeightKg)}
+                </div>
+              </a>
+            ))}
+          />
         </div>
       )}
 

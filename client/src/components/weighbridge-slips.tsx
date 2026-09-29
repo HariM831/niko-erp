@@ -120,7 +120,15 @@ function KindChoice({ value, onChange }: { value: Kind; onChange: (k: Kind) => v
 
 export function WeighbridgeSlips({ term = "", criteria = {} }: { term?: string; criteria?: Criteria }) {
   const qc = useQueryClient();
-  const [selected, setSelected] = useState<string | null>(null);
+  // A slip named in the address (?slip=…) opens straight away — the goods
+  // receipt's photos link here to show the weighbridge's own record.
+  const [selected, setSelected] = useState<string | null>(() => {
+    try {
+      return new URLSearchParams(window.location.search).get("slip");
+    } catch {
+      return null;
+    }
+  });
   const [error, setError] = useState<string | null>(null);
 
   const { data: ctx } = useQuery<Context>({

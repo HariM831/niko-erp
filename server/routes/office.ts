@@ -1722,6 +1722,45 @@ async function settlementContext(tx: Tx | typeof db, receiptId: string) {
   };
 }
 
+/**
+ * The weighment slips our weighbridge printed for this receipt's truck.
+ *
+ * The weighbridge book (weigh_tickets, WS-…) is kept on its own, because it
+ * also weighs what is not a purchase — scrap, gunny bags, feed going out —
+ * and nothing links a slip to a goods receipt. The two record the same
+ * weighing, though: same vehicle, same gross, same tare (GR-00005 and WS-00006
+ * both read 56,850 − 14,920). Matched on that, or on the vehicle and the net
+ * within three days of arrival where one side's weights were corrected. Read
+ * only; the slip stays the weighbridge's record, shown beside the receipt's
+ * photos (29 Sep 2026).
+ */
+officeRouter.get("/receipts/:id/weigh-slips", requirePermission("office", "view"), async (req, res) => {
+  const receipt = await db.query.officeReceipts.findFirst({ where: eq(officeReceipts.id, req.params.id!) });
+  if (!receipt) return res.status(404).json({ error: "Goods receipt not found" });
+  if (receipt.grossWeightKg == null && receipt.netWeightKg == null) return res.json([]);
+  const rows = await db.execute(sql`
+    SELECT t.id, t.number, t.vehicle_number AS "vehicleNumber",
+           t.gross_weight_kg AS "grossWeightKg", t.tare_weight_kg AS "tareWeightKg", t.net_weight_kg AS "netWeightKg",
+           t.gross_at AS "grossAt", t.tare_at AS "tareAt",
+           (SELECT a.id FROM attachments a
+             WHERE a.entity_type = 'weigh_ticket' AND a.entity_id = t.id AND a.mime_type LIKE 'image/%'
+             ORDER BY a.created_at LIMIT 1) AS "photoId",
+           (t.gross_weight_kg = ${receipt.grossWeightKg} AND t.tare_weight_kg = ${receipt.tareWeightKg}) AS "exact"
+      FROM weigh_tickets t
+     WHERE upper(regexp_replace(t.vehicle_number, '[^A-Za-z0-9]', '', 'g'))
+         = upper(regexp_replace(${receipt.vehicleNumber}, '[^A-Za-z0-9]', '', 'g'))
+       AND (
+             (t.gross_weight_kg = ${receipt.grossWeightKg} AND t.tare_weight_kg = ${receipt.tareWeightKg})
+          OR (t.net_weight_kg = ${receipt.netWeightKg}
+              AND t.created_at BETWEEN ${receipt.arrivalAt}::timestamp - interval '3 days'
+                                   AND ${receipt.arrivalAt}::timestamp + interval '3 days')
+           )
+     ORDER BY "exact" DESC NULLS LAST, abs(extract(epoch FROM t.created_at - ${receipt.arrivalAt}::timestamp))
+     LIMIT 3
+  `);
+  res.json(rows.rows);
+});
+
 officeRouter.get(
   "/receipts/:id/settlement-context",
   requirePermission("office", "settle"),
