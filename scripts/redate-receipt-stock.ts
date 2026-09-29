@@ -12,8 +12,9 @@
  *
  * For each settled receipt whose bill is live:
  *
- *   - the due date moves to the arrival day plus the same number of days the
- *     bill was given (its terms, as they stood);
+ *   - the due date moves to the arrival day plus the vendor's terms, as
+ *     settlement sets it (not the bill's own gap from its date, which a
+ *     first run has already shifted);
  *   - its stock movements move to the arrival day, and the goods-in-transit
  *     pair is posted (services/purchases.ts postGoodsInTransit) so the stock
  *     account holds nothing before the goods do;
@@ -27,7 +28,7 @@
  *   npx tsx scripts/redate-receipt-stock.ts --apply
  */
 import { and, asc, eq, ne, sql } from "drizzle-orm";
-import { bills, inventoryTransactions, journalEntries, officeReceipts, roles, users } from "@shared/schema";
+import { bills, contacts, inventoryTransactions, journalEntries, officeReceipts, roles, users } from "@shared/schema";
 import { db } from "../server/db";
 import { postGoodsInTransit } from "../server/services/purchases";
 
@@ -49,17 +50,19 @@ try {
         bill: bills.number,
         billDate: bills.billDate,
         dueDate: bills.dueDate,
+        terms: contacts.paymentTermsDays,
         arrived: sql<string>`to_char((${officeReceipts.arrivalAt} AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD')`,
       })
       .from(officeReceipts)
       .innerJoin(bills, eq(bills.id, officeReceipts.billId))
+      .innerJoin(contacts, eq(contacts.id, bills.vendorId))
       .where(and(eq(officeReceipts.status, "settled"), ne(bills.status, "void")))
       .orderBy(asc(officeReceipts.number));
 
     const tally = { receipts: rows.length, dueMoved: 0, stockMoved: 0, transitPosted: 0 };
     console.log(`\n  receipt | bill | bill date | arrived | due: was → now | stock: was → now | transit`);
     for (const r of rows) {
-      const due = plus(r.arrived, days(r.billDate, r.dueDate));
+      const due = plus(r.arrived, Number(r.terms ?? 0));
       if (due !== r.dueDate) {
         await tx.update(bills).set({ dueDate: due, updatedAt: new Date() }).where(eq(bills.id, r.billId));
         tally.dueMoved++;
