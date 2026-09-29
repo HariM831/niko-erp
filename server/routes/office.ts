@@ -1427,9 +1427,12 @@ async function settlementContext(tx: Tx | typeof db, receiptId: string) {
       tracked: items.trackInventory,
       unit: items.unit,
       unitBagWeightKg: items.unitBagWeightKg,
+      // Whether the order line this was matched to carries a tax — see valueOf below.
+      orderLineTaxId: purchaseOrderLines.taxId,
     })
     .from(officeReceiptLines)
     .leftJoin(items, eq(items.id, officeReceiptLines.itemId))
+    .leftJoin(purchaseOrderLines, eq(purchaseOrderLines.id, officeReceiptLines.poLineId))
     .where(eq(officeReceiptLines.receiptId, receiptId))
     .orderBy(asc(officeReceiptLines.lineNo))
     /**
@@ -1455,10 +1458,31 @@ async function settlementContext(tx: Tx | typeof db, receiptId: string) {
   // a tax account — eggs are exempt, so it is part of what the goods cost.
   const billTax = Number(receipt.billTaxAmount ?? 0);
   const unloaded = lines.filter((l) => l.line.status === "unloaded");
-  const goodsTotal = unloaded.reduce(
-    (s, l) => s + Number(l.line.billAmount ?? Number(l.line.billQuantityKg) * Number(l.line.agreedRatePerKg ?? 0)),
-    0,
-  );
+
+  /**
+   * A line's goods value before the vendor's tax.
+   *
+   * Where the gate read the line's amount off their bill, that is it. Where
+   * the line is priced from our order instead, the order says whether its
+   * rate is before or after tax: an order line that carries a tax (Shreeram at
+   * 18%, VAS Feed at 5%) quotes the rate before it, and the bill's tax goes on
+   * top; an order line with no tax quotes the all-in price, the way GST
+   * folds into cost here, so the bill's tax is already inside it and comes
+   * OUT of the line rather than on top of it. Feedkart's PO-00004 at ₹60.50
+   * all-in was settling ₹1,21,461 over its own invoice (29 Sep 2026) because
+   * its GST was being added a second time. The printed tax is shared across
+   * the lines by value.
+   */
+  const rawValue = (l: (typeof unloaded)[number]) =>
+    Number(l.line.billAmount ?? Number(l.line.billQuantityKg) * Number(l.line.agreedRatePerKg ?? 0));
+  const rawTotal0 = unloaded.reduce((s, l) => s + rawValue(l), 0);
+  const taxInside = (l: (typeof unloaded)[number]) =>
+    billTax > 0 && l.line.billAmount == null && !!l.line.poLineId && !l.orderLineTaxId;
+  const valueOf = (l: (typeof unloaded)[number]) =>
+    taxInside(l) && rawTotal0 > 0
+      ? Number((rawValue(l) - (billTax * rawValue(l)) / rawTotal0).toFixed(2))
+      : rawValue(l);
+  const goodsTotal = unloaded.reduce((s, l) => s + valueOf(l), 0);
 
   /**
    * The vendor's own rounding, carried rather than recomputed.
@@ -1513,7 +1537,7 @@ async function settlementContext(tx: Tx | typeof db, receiptId: string) {
 
   const goodsLines = unloaded.map((l) => {
     const qty = Number(l.line.billQuantityKg);
-    const goods = Number(l.line.billAmount ?? qty * Number(l.line.agreedRatePerKg ?? 0));
+    const goods = valueOf(l);
     return {
       lineId: l.line.id,
       itemId: l.line.itemId,
