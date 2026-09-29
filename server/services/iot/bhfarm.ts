@@ -557,6 +557,11 @@ export const SAMPLE_COLUMNS = {
   vent_level: "通风级别",
   vent_rate: "通风量",
   mortality_today: "新增死淘",
+
+  // Probe 06, on the outside wall. The coolest live one across the sheds is the
+  // one in shade and stands for the outside air (29 Sep 2026); kept so the
+  // outside humidity can be estimated hour by hour, not only for the moment.
+  outside_temp_c: "温度06",
 } as const;
 
 /** The column order used by every insert and by the migration's pivot. */

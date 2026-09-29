@@ -72,6 +72,8 @@ export const iotHouseSample = pgTable(
 
     tempC: real("temp_c"),
     targetTempC: real("target_temp_c"),
+    /** Probe 06 on the outside wall; the coolest across the sheds is the shade air. From 29 Sep 2026. */
+    outsideTempC: real("outside_temp_c"),
     humidityPct: real("humidity_pct"),
     co2Ppm: real("co2_ppm"),
     pressurePa: real("pressure_pa"),

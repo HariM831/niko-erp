@@ -799,6 +799,13 @@
       "when": 1790700000000,
       "tag": "0110_goods_in_transit",
       "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1790800000000,
+      "tag": "0111_outside_probe_history",
+      "breakpoints": true
     }
   ]
 }

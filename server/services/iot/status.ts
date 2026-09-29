@@ -18,7 +18,7 @@ import { iotHouseSample } from "@shared/schema";
 import { db } from "../../db";
 import { heatIndex, ladderFans } from "./controls";
 import { houseFeelsLike, LEVELS, type Level, type LevelName } from "./feels-like";
-import { outsideHumidityAt, outsideHumidityByHour } from "./weather";
+import { istHourKey, outsideAirByHour, outsideHumidityAt } from "./weather";
 
 export type Verdict = LevelName | "offline";
 
@@ -148,7 +148,7 @@ const maxOf = (xs: number[]) => (xs.length ? Math.max(...xs) : null);
 
 /** The last 24 hours of each house, replayed sample by sample through the same checks as the verdict. */
 export async function dayStatus(houseIds: string[], now = new Date()): Promise<Map<string, DayStatus>> {
-  const outsideRh = await outsideHumidityByHour();
+  const outsideAir = await outsideAirByHour();
   const out = new Map<string, DayStatus>();
   if (!houseIds.length) return out;
   const from = new Date(now.getTime() - 24 * 3_600_000);
@@ -160,6 +160,16 @@ export async function dayStatus(houseIds: string[], now = new Date()): Promise<M
 
   const byHouse = new Map<string, typeof rows>();
   for (const r of rows) byHouse.set(r.houseId, [...(byHouse.get(r.houseId) ?? []), r]);
+  // The shade air each hour: the coolest wall probe any shed stored in it. A
+  // sample is only stored from a live controller, so a dark shed's frozen probe
+  // never counts.
+  const shadeByHour = new Map<number, number>();
+  for (const r of rows) {
+    if (r.outsideTempC == null) continue;
+    const k = istHourKey(r.at);
+    const held = shadeByHour.get(k);
+    if (held == null || r.outsideTempC < held) shadeByHour.set(k, r.outsideTempC);
+  }
 
   for (const houseId of houseIds) {
     const samples = byHouse.get(houseId) ?? [];
@@ -216,7 +226,7 @@ export async function dayStatus(houseIds: string[], now = new Date()): Promise<M
       }
       const thi = heatIndex(s.tempC, s.humidityPct);
       if (thi) thiVals.push(thi.thi);
-      for (const c of instrumentChecks(s.tempC, s.targetTempC, s.humidityPct, s.co2Ppm, outsideHumidityAt(outsideRh, s.at))) {
+      for (const c of instrumentChecks(s.tempC, s.targetTempC, s.humidityPct, s.co2Ppm, outsideHumidityAt(outsideAir, s.at, shadeByHour.get(istHourKey(s.at)) ?? null))) {
         if (c.level > level) reason = c.reason;
         level = Math.max(level, c.level) as Level;
       }

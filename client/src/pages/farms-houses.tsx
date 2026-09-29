@@ -168,7 +168,9 @@ interface IotRow {
 interface IotBoard {
   board: IotRow[];
   /** The shade air at the farm from a weather service; the sheds' own outside probes hang in the sun. */
-  weather: { at: string; tempC: number; humidityPct: number; feelsLikeC: number; cloudPct: number; fetchedAt: string } | null;
+  weather: { at: string; tempC: number; humidityPct: number; dewPointC: number | null; feelsLikeC: number; cloudPct: number; fetchedAt: string } | null;
+  /** The outside air as niko reads it: the coolest live wall probe, and the forecast's moisture at that temperature. */
+  outside: { tempC: number; from: string; humidityPct: number | null; humidityEstimated: boolean; dewPointC: number | null } | null;
   poll: { at: string; ok: boolean; houses: number; readings: number; error: string | null } | null;
   tokenExpires: string | null;
 }
@@ -1159,21 +1161,25 @@ export function FarmsHousesPage() {
                   ? `Wall probes: ${outs.map((r) => `${r.code} ${r.outsideTempC!.toFixed(1)}°`).join(" · ")}. The coolest is the one in shade.`
                   : "No live wall probe; the weather service's temperature stands in.";
                 const service = w
-                  ? ` Weather service at ${w.at.slice(11, 16)}: ${w.tempC.toFixed(1)}°, ${w.humidityPct}% humidity${stale ? " (unreachable; last answer)" : ""}.`
+                  ? ` Weather service at ${w.at.slice(11, 16)}: ${w.tempC.toFixed(1)}°, ${w.humidityPct}% humidity${w.dewPointC != null ? `, dew point ${w.dewPointC.toFixed(1)}°` : ""}${stale ? " (unreachable; last answer)" : ""}.`
+                  : "";
+                const humidityNote = iot.outside?.humidityEstimated
+                  ? ` Outside humidity is estimated: the forecast's dew point read at the shade probe's temperature. There is no humidity sensor outside.`
                   : "";
                 return (
                   <span
                     className="ml-2 rounded-full border border-soil-200 bg-soil-50 px-2 py-0.5 text-[11px] font-medium text-soil-900"
-                    title={`${probes}${service}`}
+                    title={`${probes}${service}${humidityNote}`}
                   >
                     Outside{" "}
                     <strong>{coolest ? `${coolest.outsideTempC!.toFixed(1)}°` : `${w!.tempC.toFixed(1)}°`}</strong>
                     <span className="ml-1 font-normal text-muted-foreground">
                       {coolest ? `${coolest.code} probe, shade` : "weather service"}
                     </span>
-                    {w && (
+                    {iot.outside?.humidityPct != null && (
                       <span className="ml-1 font-normal text-muted-foreground">
-                        · {w.humidityPct}% forecast{stale ? " · old" : ""}
+                        · {iot.outside.humidityPct}% {iot.outside.humidityEstimated ? "est." : "forecast"}
+                        {stale ? " · old" : ""}
                       </span>
                     )}
                   </span>

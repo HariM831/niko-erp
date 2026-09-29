@@ -35,7 +35,7 @@ async function controllerLive(device: string): Promise<boolean | null> {
 import { houseSamples, pollOnce, recentPolls, todayCounters } from "../services/iot/store";
 import { fanEnergyToday, ladderPower, pumpMinutesToday } from "../services/iot/controls";
 import { outsideChangesSince } from "../services/iot/watch";
-import { outsideWeather } from "../services/iot/weather";
+import { outsideWeather, rhFromDewPoint } from "../services/iot/weather";
 import { fansInGroup, houseFeelsLike, velocity, zoneFeelsLike, type LevelName } from "../services/iot/feels-like";
 import { istDaysAgo } from "../services/day-resolution";
 import { dayStatus, verdictNow, type Verdict } from "../services/iot/status";
@@ -101,7 +101,7 @@ iotRouter.get("/status", requirePermission("farms", "view"), async (_req, res) =
   const order: Verdict[] = ["ok", "watch", "severe", "critical", "offline"];
   const counts = Object.fromEntries(order.map((v) => [v, 0])) as Record<Verdict, number>;
   const rows = sheds.map((h) => {
-    const v = verdictNow(h, Date.now(), b.weather?.humidityPct ?? null);
+    const v = verdictNow(h, Date.now(), b.outside?.humidityPct ?? null);
     counts[v.verdict]++;
     return {
       houseId: h.houseId,
@@ -136,6 +136,7 @@ iotRouter.get("/status", requirePermission("farms", "view"), async (_req, res) =
     counts,
     houses: rows,
     weather: b.weather,
+    outside: b.outside,
     poll: b.poll,
   });
 });
@@ -418,9 +419,31 @@ async function buildBoard() {
   const exp = tokenExpiry();
   const [last] = await recentPolls(1);
   const weather = await outsideWeather();
+  /**
+   * The outside air as niko reads it (29 Sep 2026): the coolest wall probe of
+   * the controllers the platform says are alive — the one in shade — and the
+   * forecast's moisture read at that temperature. Without a live probe the
+   * weather service's own figures stand in, and say so.
+   */
+  const live = board.filter((r) => r.outsideTempC != null && r.controllerLive === true);
+  const shade = live.length ? live.reduce((a, r) => (r.outsideTempC! < a.outsideTempC! ? r : a)) : null;
+  const outside =
+    shade || weather
+      ? {
+          tempC: shade ? shade.outsideTempC! : weather!.tempC,
+          from: shade ? shade.code : "weather service",
+          humidityPct:
+            shade && weather?.dewPointC != null
+              ? rhFromDewPoint(weather.dewPointC, shade.outsideTempC!)
+              : (weather?.humidityPct ?? null),
+          humidityEstimated: !!(shade && weather?.dewPointC != null),
+          dewPointC: weather?.dewPointC ?? null,
+        }
+      : null;
   return {
     board,
     weather,
+    outside,
     poll: last
       ? { at: last.startedAt, ok: last.ok, houses: last.houses, readings: last.readings, error: last.error }
       : null,
