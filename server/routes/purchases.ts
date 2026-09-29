@@ -3,7 +3,10 @@ import { and, asc, desc, eq, getTableColumns, gte, inArray, lte, sql } from "dri
 import { z } from "zod";
 import {
   accounts,
+  attachments,
   bankAccounts,
+  bankTransactions,
+  journalEntries,
   orgProfile,
   paymentBatchLines,
   paymentBatches,
@@ -34,7 +37,7 @@ import { db, type Tx } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { nextDocumentNumber } from "../lib/numbering";
-import { PostingError, postJournal, reverseJournal } from "../services/posting";
+import { PostingError, assertPeriodOpen, postJournal, reverseJournal } from "../services/posting";
 import { mainStore, moveStock } from "../services/inventory";
 import { advancedSearch, listLimit, quickSearch } from "../services/document-search";
 import {
@@ -2323,6 +2326,86 @@ purchasesRouter.get("/payables", requirePermission("purchases", "view"), async (
 });
 
 /** The bank accounts a payment file can be raised from — ours, with a code. */
+/**
+ * Delete a payment made, as Zoho's Delete does: the payment is gone and every
+ * bill it paid is owed again.
+ *
+ * Each bill gets back what this payment took off it, and its status follows
+ * (open, or partly paid where something else still pays it). The payment's
+ * journals — the one standing, and any an earlier edit reversed — are
+ * removed with it, so the bank and the vendor's account read as if it had
+ * never been recorded; the activity log keeps who deleted it and when.
+ *
+ * Refused inside a locked period, and refused while any of its journals is
+ * matched to a bank statement line: the statement says the money left, and
+ * the match has to be undone in Banking first.
+ */
+purchasesRouter.delete("/payments/:id", requirePermission("purchases", "delete"), async (req, res) => {
+  try {
+    const out = await db.transaction((tx) => deleteVendorPayment(tx, req.params.id!));
+    res.json(out);
+  } catch (err) {
+    if (!handlePostingError(err, res)) throw err;
+  }
+});
+
+export async function deleteVendorPayment(tx: Tx, paymentId: string) {
+  const payment = await tx.query.vendorPayments.findFirst({ where: eq(vendorPayments.id, paymentId) });
+  if (!payment) throw new PostingError("Payment not found");
+  await assertPeriodOpen(tx, payment.paymentDate, "vendor_payment");
+
+  const entries = await tx
+    .select({ id: journalEntries.id, isReversal: journalEntries.isReversal })
+    .from(journalEntries)
+    .where(and(eq(journalEntries.sourceType, "vendor_payment"), eq(journalEntries.sourceId, payment.id)));
+  const entryIds = entries.map((e) => e.id);
+  if (entryIds.length) {
+    const [matched] = await tx
+      .select({ id: bankTransactions.id })
+      .from(bankTransactions)
+      .where(inArray(bankTransactions.matchedJournalEntryId, entryIds))
+      .limit(1);
+    if (matched) {
+      throw new PostingError(
+        `${payment.number} is matched to a bank statement line — unmatch it in Banking before deleting it`,
+      );
+    }
+  }
+
+  // Every bill it paid is owed again, by what this payment took off it.
+  const apps = await tx
+    .select()
+    .from(vendorPaymentApplications)
+    .where(eq(vendorPaymentApplications.paymentId, payment.id));
+  const reopened: string[] = [];
+  for (const app of apps) {
+    const bill = await tx.query.bills.findFirst({ where: eq(bills.id, app.billId) });
+    if (!bill) continue;
+    const restoredP = toPaise(bill.balanceDue) + toPaise(app.amountApplied);
+    await tx
+      .update(bills)
+      .set({
+        balanceDue: fromPaise(restoredP),
+        status: restoredP === toPaise(bill.total) ? "open" : "partially_paid",
+        updatedAt: new Date(),
+      })
+      .where(eq(bills.id, bill.id));
+    reopened.push(bill.number);
+  }
+  await tx.delete(vendorPaymentApplications).where(eq(vendorPaymentApplications.paymentId, payment.id));
+  await tx.delete(vendorPayments).where(eq(vendorPayments.id, payment.id));
+
+  // Its journals: the reversals an earlier edit made first, then the rest.
+  const reversals = entries.filter((e) => e.isReversal).map((e) => e.id);
+  const originals = entries.filter((e) => !e.isReversal).map((e) => e.id);
+  if (reversals.length) await tx.delete(journalEntries).where(inArray(journalEntries.id, reversals));
+  if (originals.length) await tx.delete(journalEntries).where(inArray(journalEntries.id, originals));
+  await tx
+    .delete(attachments)
+    .where(and(eq(attachments.entityType, "vendor_payment"), eq(attachments.entityId, payment.id)));
+  return { number: payment.number, billsReopened: reopened };
+}
+
 purchasesRouter.get(
   "/payment-batches/accounts",
   requirePermission("purchases", "view"),

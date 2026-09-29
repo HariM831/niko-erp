@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { amountInWords, api, formatMoney } from "../api";
 import { StatusBadge } from "../components/list-page";
 import { AttachmentsButton } from "../components/attachments";
@@ -97,6 +97,7 @@ interface BankAccount {
 
 export function PaymentDetailPage({ side, id }: { side: "customer" | "vendor"; id: string }) {
   const [, navigate] = useLocation();
+  const qc = useQueryClient();
   const isCustomer = side === "customer";
   const endpoint = isCustomer ? "/api/sales/payments" : "/api/purchases/payments";
   const backPath = isCustomer ? "/sales/payments" : "/purchases/payments";
@@ -137,6 +138,23 @@ export function PaymentDetailPage({ side, id }: { side: "customer" | "vendor"; i
           <button onClick={() => navigate(`${backPath}/${id}/edit`)} className="btn-ghost">
             Edit
           </button>
+          {!isCustomer && (
+            <button
+              onClick={async () => {
+                if (!confirm(`Delete ${doc.number}? The bills it paid will be owed again.`)) return;
+                try {
+                  await api(`${endpoint}/${id}`, { method: "DELETE" });
+                  await qc.invalidateQueries();
+                  navigate(backPath);
+                } catch (e) {
+                  alert(e instanceof Error ? e.message : "Could not delete the payment");
+                }
+              }}
+              className="btn-ghost text-red-600 hover:bg-red-50"
+            >
+              Delete
+            </button>
+          )}
           <button onClick={() => window.print()} className="btn-ghost">
             PDF/Print
           </button>
