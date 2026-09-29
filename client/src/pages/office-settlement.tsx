@@ -285,6 +285,18 @@ export function SettlementPage() {
               )}
 
               <div className="label">Line items</div>
+              {/* An accepted line with no net kg bills nothing — say so, rather than show ₹0.00 as if it were a price. */}
+              {ctx.lines.some((l) => l.status !== "qc_rejected" && !(Number(l.allocatedNetKg) > 0)) && (
+                <div className="mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+                  Nothing unloaded yet on{" "}
+                  {ctx.lines.filter((l) => l.status !== "qc_rejected" && !(Number(l.allocatedNetKg) > 0)).map((l) => l.itemName).join(", ")}{" "}
+                  — allocate the net kg on the receipt first.{" "}
+                  <button onClick={() => setEditingReceipt(true)} disabled={!office} className="font-medium underline disabled:no-underline">
+                    Edit receipt
+                  </button>{" "}
+                  and use <span className="font-medium">Split net pro rata</span>.
+                </div>
+              )}
               {ctx.lines.map((l) => {
                 const billed = ctx.billLines.find((b) => b.lineId === l.id);
                 return (
@@ -294,7 +306,7 @@ export function SettlementPage() {
                         {l.itemName}
                       </span>
                       <span className="tabular-nums font-medium text-gray-900">
-                        {billed ? inr(billed.amount) : "₹0.00"}
+                        {billed ? inr(billed.amount) : l.status === "qc_rejected" ? "₹0.00" : <span className="text-amber-600">not unloaded</span>}
                       </span>
                     </div>
                     {l.status === "qc_rejected" ? (

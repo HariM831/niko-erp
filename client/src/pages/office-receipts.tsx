@@ -242,6 +242,17 @@ export function ReceiptEditor({
   );
   const net = gross && tare ? Number(gross) - Number(tare) : null;
 
+  /**
+   * Accepted lines on a weighed truck that have no net kg of their own. Settlement
+   * bills only what came off the lorry, line by line, so a receipt could look
+   * complete here — gross, tare, the net off the truck all filled — and still
+   * settle as nothing (GR-00023, 29 Sep 2026). Said here, where it is fixed.
+   */
+  const unallocated =
+    net != null && net > 0
+      ? lines.filter((l) => l.qcVerdict && l.qcVerdict !== "rejected" && Number(l.billQuantityKg) > 0 && !(Number(l.allocatedNetKg) > 0))
+      : [];
+
   /** Pro rata across whatever is not rejected, mirroring the server. */
   const suggestAllocation = () => {
     if (net == null || net <= 0) return;
@@ -666,8 +677,9 @@ export function ReceiptEditor({
                           ? "Rejected material never came off the truck, so it takes no share of the net"
                           : undefined
                       }
-                      className="input text-right disabled:bg-gray-50"
+                      className={`input text-right disabled:bg-gray-50 ${unallocated.includes(l) ? "border-amber-400 bg-amber-50" : ""}`}
                       inputMode="decimal"
+                      placeholder={unallocated.includes(l) ? "needed" : undefined}
                     />
                   </td>
                   <td className="px-1 py-1 text-center">
@@ -684,6 +696,17 @@ export function ReceiptEditor({
               ))}
             </tbody>
           </table>
+          {unallocated.length > 0 && (
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
+              <span>
+                Net kg not allocated for {unallocated.map((l) => l.itemName || "a line").join(", ")} — Settle will show nothing to
+                bill until it is. The net off the truck is {net!.toLocaleString("en-IN")} kg.
+              </span>
+              <button className="btn-secondary !h-7 text-[12px]" onClick={suggestAllocation}>
+                Split net pro rata
+              </button>
+            </div>
+          )}
 
           {/* Which order each line landed on. Shown because a line that
               silently fails to match reaches gate out and then cannot be
