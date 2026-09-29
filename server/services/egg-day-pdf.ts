@@ -141,8 +141,19 @@ export function renderEggDay(spec: EggDaySpec): Promise<Buffer> {
   return done;
 }
 
-const longDate = (ymd: string) =>
-  new Date(`${ymd}T00:00:00Z`).toLocaleDateString("en-GB", { timeZone: "UTC", weekday: "short", day: "numeric", month: "short", year: "numeric" });
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+/** "Wed, 30 Sep 2026" — spelt out by hand: the locale tables write "Sept". */
+const longDate = (ymd: string) => {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  return `${DOW[d.getUTCDay()]}, ${d.getUTCDate()} ${MON[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+};
+/** Now, in IST: "29 Sep 2026, 16:29". */
+const stampNow = () => {
+  const p = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(new Date());
+  const at = (t: string) => p.find((x) => x.type === t)!.value;
+  return `${Number(at("day"))} ${MON[Number(at("month")) - 1]} ${at("year")}, ${at("hour")}:${at("minute")}`;
+};
 
 /**
  * One day's sheet, from the order book the calendar and the bay read.
@@ -207,8 +218,8 @@ export async function eggDaySpec(conn: Conn, on: string, kind: "orders" | "sales
     const r = rateFor(s, usual);
     if (r != null) rates[s] = r;
   }
-  const stamp = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
-  const bmText = bm ? `Benchmark ${Number(bm.ratePerEgg).toFixed(2)}/egg${bm.effectiveFrom !== on ? ` (set ${bm.effectiveFrom})` : ""}${usual ? ` + ${usual.toFixed(2)} spread` : ""}` : "No benchmark set";
+  const stamp = stampNow();
+  const bmText = bm ? `Benchmark ${Number(bm.ratePerEgg).toFixed(2)}/egg${bm.effectiveFrom !== on ? ` (set ${longDate(bm.effectiveFrom)})` : ""}${usual ? ` + ${usual.toFixed(2)} spread` : ""}` : "No benchmark set";
 
   return {
     kind,
