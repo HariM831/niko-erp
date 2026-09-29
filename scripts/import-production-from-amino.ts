@@ -53,7 +53,12 @@
  *   npx tsx scripts/import-production-from-amino.ts --file production-for-niko.json --count feed-stock.json --apply
  *
  * --cutover defaults to the count's own date (asOn): the gate receipts that
- * arrived up to and including it are in the count. --major defaults to the
+ * arrived up to and including it are in the count. --to is the last day this
+ * import owns, the day before the cutover unless given: the mill went on
+ * paper on 28 Sep 2026, and those days are keyed in niko's own screens, so a
+ * transfer derived here from the daily sheet as well would send that day's
+ * feed twice. An Amino slip after --to is refused, since the count already
+ * has it milled. --major defaults to the
  * five bulk materials. A count row whose item is null names something niko
  * has no item for and is only listed.
  */
@@ -91,7 +96,8 @@ const arg = (name: string) => { const i = process.argv.indexOf(`--${name}`); ret
 const APPLY = process.argv.includes("--apply");
 const FILE = arg("file") ?? "production-for-niko.json";
 const FROM = arg("from") ?? "2026-09-13";
-const OPENING = arg("opening") ?? new Date(new Date(`${FROM}T00:00:00Z`).getTime() - 86_400_000).toISOString().slice(0, 10);
+const dayBefore = (day: string) => new Date(new Date(`${day}T00:00:00Z`).getTime() - 86_400_000).toISOString().slice(0, 10);
+const OPENING = arg("opening") ?? dayBefore(FROM);
 const COUNT_FILE = arg("count");
 /**
  * --allow-short: apply even while gate lines up to the cutover are unsettled.
@@ -220,6 +226,10 @@ try {
     if (!COUNT_FILE) throw new Error("--count <feed-stock.json> is needed: the mill's stock count at the cutover");
     const count = JSON.parse(await readFile(COUNT_FILE, "utf8")) as { source: string; asOn: string; rows: Array<{ sheetName: string; item: string | null; closingKg: number }> };
     const CUTOVER = arg("cutover") ?? count.asOn;
+    const TO = arg("to") ?? dayBefore(CUTOVER);
+    const lateSlips = slips.filter((s) => String(s.made_on) > TO);
+    if (lateSlips.length) throw new Error(`${lateSlips.length} Amino slip(s) after --to ${TO} (${[...new Set(lateSlips.map((s) => String(s.made_on)))].join(", ")}): the count of ${CUTOVER} already has them milled — move --to or the cutover`);
+    say(`  up to ${TO}: slips and the daily sheet's transfers; after it the mill is keyed in niko's own screens`);
     const lastPrice = new Map<string, { price: number; at: string }>();
     for (const l of D.lot_consumption ?? []) { const p = lastPrice.get(String(l.material_name)); if (!p || String(l.consumed_at) > p.at) lastPrice.set(String(l.material_name), { price: Number(l.price_per_kg), at: String(l.consumed_at) }); }
     const aminoConsumed = new Map<string, number>();
@@ -318,8 +328,8 @@ try {
     const sheet = await tx
       .select({ code: houses.code, day: placementDays.day, kg: placementDays.feedConsumedKg })
       .from(placementDays).innerJoin(flockDay, and(eq(flockDay.placementId, placementDays.placementId), eq(flockDay.day, placementDays.day))).innerJoin(houses, eq(houses.id, flockDay.houseId))
-      .where(and(gte(placementDays.day, FROM), sql`${placementDays.feedConsumedKg} > 0`)).orderBy(asc(placementDays.day), asc(houses.code));
-    const existing = await tx.select({ houseId: feedTransfers.toHouseId, day: feedTransfers.transferDate }).from(feedTransfers).where(and(gte(feedTransfers.transferDate, FROM), ne(feedTransfers.status, "void")));
+      .where(and(gte(placementDays.day, FROM), lte(placementDays.day, TO), sql`${placementDays.feedConsumedKg} > 0`)).orderBy(asc(placementDays.day), asc(houses.code));
+    const existing = await tx.select({ houseId: feedTransfers.toHouseId, day: feedTransfers.transferDate }).from(feedTransfers).where(and(gte(feedTransfers.transferDate, FROM), lte(feedTransfers.transferDate, TO), ne(feedTransfers.status, "void")));
     const existingKey = new Set(existing.map((e) => `${e.houseId}|${e.day}`));
     const plannedTransfers = sheet.filter((r) => !existingKey.has(`${houseByCode.get(r.code)}|${r.day}`)).map((r) => ({ code: r.code, day: String(r.day), kg: Number(r.kg), feed: feedOfHouse.get(r.code) ?? "" }));
     const missingFeed = plannedTransfers.filter((t) => !t.feed);
@@ -377,7 +387,7 @@ try {
 
     /* ── 5. the state after ── */
     say(`\n  production       ${produced} order(s), ${kg(producedKg)}${skipped ? `; ${skipped} slip(s) already across` : ""}`);
-    say(`  transfers        ${transferred} from the daily sheet, ${kg(transferredKg)}; Amino's own in the window: ${(D.transfers ?? []).length}, ${kg((D.transfers ?? []).reduce((a, t) => a + Number(t.quantity_kg), 0))}`);
+    say(`  transfers        ${transferred} from the daily sheet to ${TO}, ${kg(transferredKg)}; Amino's own in the window: ${(D.transfers ?? []).length}, ${kg((D.transfers ?? []).reduce((a, t) => a + Number(t.quantity_kg), 0))}`);
     say(`\n  materials consumed — niko vs Amino's lots`);
     for (const name of [...new Set([...consumedNiko.keys(), ...[...aminoConsumed.keys()].map((a) => MATERIAL[a] ?? a)])].sort()) { const it = itemByName.get(name); const perUnit = it && it.unit !== "kg" ? Number(it.bag ?? 1) : 1; const n = (consumedNiko.get(name) ?? 0) * perUnit; const a = aminoNameOf.get(name); const cons = a ? (aminoConsumed.get(a) ?? 0) : 0; say(`    ${name.padEnd(34)} niko ${kg(n).padStart(12)}   Amino ${kg(cons).padStart(12)}   ${cons ? `${((n / cons - 1) * 100).toFixed(1)}%` : a ? "—" : "(no Amino material)"}`); }
     say(`\n  stock after the last day — item | niko now | + gate ≤ ${CUTOVER} unsettled | = once settled | count at ${CUTOVER} | apart`);
