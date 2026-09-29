@@ -1141,26 +1141,39 @@ export function FarmsHousesPage() {
               </span>
               <span className="text-[13px] font-bold text-soil-900">Shed conditions</span>
               {(() => {
-                // Outside air: the average of the outside probes of the controllers the platform says are alive.
-                // A switched-off controller still answers through the platform with its last values, stamped fresh,
-                // bird count and all, and niko's own stock can lag a flock's departure; the platform's device status
-                // is the one thing that says off. A probe in the sun reads the sun, so the hover lists each shed's own.
+                // Outside air: the coolest wall probe of the controllers the platform says are alive. The probes
+                // hang on the outside walls and most of them catch the sun; the coolest is the one in shade, and
+                // the user took it as the outside temperature on 29 Sep 2026 over the weather service, which ran
+                // about 3° under it (31.8° against L3's 34.7°). A switched-off controller still answers through the
+                // platform with its last values, stamped fresh; the platform's device status is the one thing
+                // that says off. The controllers have no outside humidity sensor, so humidity stays the forecast's
+                // and says so.
                 const outs = iot.board.filter((r) => r.outsideTempC != null && r.controllerLive === true);
-                const probes = outs.length ? `Wall probes: ${outs.map((r) => `${r.code} ${r.outsideTempC!.toFixed(1)}°`).join(" · ")} — they hang in the sun and read it.` : "";
+                const coolest = outs.length
+                  ? outs.reduce((a, r) => (r.outsideTempC! < a.outsideTempC! ? r : a))
+                  : null;
                 const w = iot.weather;
-                if (!w && !outs.length) return null;
+                if (!w && !coolest) return null;
                 const stale = w ? Date.now() - new Date(w.fetchedAt).getTime() > 3_600_000 : false;
+                const probes = outs.length
+                  ? `Wall probes: ${outs.map((r) => `${r.code} ${r.outsideTempC!.toFixed(1)}°`).join(" · ")}. The coolest is the one in shade.`
+                  : "No live wall probe; the weather service's temperature stands in.";
+                const service = w
+                  ? ` Weather service at ${w.at.slice(11, 16)}: ${w.tempC.toFixed(1)}°, ${w.humidityPct}% humidity${stale ? " (unreachable; last answer)" : ""}.`
+                  : "";
                 return (
                   <span
                     className="ml-2 rounded-full border border-soil-200 bg-soil-50 px-2 py-0.5 text-[11px] font-medium text-soil-900"
-                    title={w ? `Shade air at Thelamara from the weather service at ${w.at.slice(11, 16)}: ${w.tempC.toFixed(1)}°, ${w.humidityPct}% humidity, feels like ${w.feelsLikeC.toFixed(1)}°, cloud ${w.cloudPct}%${stale ? " (service unreachable; last answer)" : ""}. ${probes}` : probes}
+                    title={`${probes}${service}`}
                   >
                     Outside{" "}
-                    <strong>{w ? `${w.tempC.toFixed(1)}°` : `${(outs.reduce((a, r) => a + (r.outsideTempC ?? 0), 0) / outs.length).toFixed(1)}°`}</strong>
-                    {w && <span className="ml-1 font-normal text-muted-foreground">{w.humidityPct}%{stale ? " · old" : ""}</span>}
-                    {w && outs.length > 0 && (
+                    <strong>{coolest ? `${coolest.outsideTempC!.toFixed(1)}°` : `${w!.tempC.toFixed(1)}°`}</strong>
+                    <span className="ml-1 font-normal text-muted-foreground">
+                      {coolest ? `${coolest.code} probe, shade` : "weather service"}
+                    </span>
+                    {w && (
                       <span className="ml-1 font-normal text-muted-foreground">
-                        · probes {Math.min(...outs.map((r) => r.outsideTempC!)).toFixed(0)} to {Math.max(...outs.map((r) => r.outsideTempC!)).toFixed(0)}
+                        · {w.humidityPct}% forecast{stale ? " · old" : ""}
                       </span>
                     )}
                   </span>
