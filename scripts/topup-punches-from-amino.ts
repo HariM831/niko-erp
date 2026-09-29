@@ -35,7 +35,8 @@
  *
  * A wage worker is matched by the W-code the history import gave him, and
  * only if the names agree too: a worker Amino added after that import sits
- * at a position in the export another code may now hold.
+ * at a position in the export another code may now hold. One whose code niko
+ * does not have at all is matched by name, when exactly one person has it.
  *
  * The export comes from `scripts/export-payroll-history-for-niko.ts` in the
  * Amino repo, run on Replit, handed over as its folder.
@@ -104,13 +105,27 @@ try {
     }
     const sameName = (a: unknown, b: unknown) => String(a ?? "").trim().toUpperCase() === String(b ?? "").trim().toUpperCase();
     const misplaced: string[] = [];
+    const byName: { w: Row; code: string }[] = [];
     (D.wage_workers ?? []).forEach((w, i) => {
       const code = `W-${String(i + 1).padStart(4, "0")}`;
       const id = byCode.get(code);
-      if (!id) return;
+      if (!id) { byName.push({ w, code }); return; }
       if (sameName(nameOf.get(id), w.name)) person.set(String(w.id), id);
       else misplaced.push(`${w.name} → ${code} is ${nameOf.get(id)}`);
     });
+    // A worker Amino added after the history import has no W-code of that
+    // import's making; HR adds him in niko by hand, under a code of their own.
+    // His name is the only link — taken when exactly one niko person carries
+    // it and no Amino record already points at that person.
+    const taken = new Set(person.values());
+    const linkedByName: string[] = [];
+    for (const { w, code } of byName) {
+      const hits = niko.filter((e) => sameName(e.name, w.name) && !taken.has(e.id));
+      if (hits.length !== 1) continue;
+      person.set(String(w.id), hits[0]!.id);
+      taken.add(hits[0]!.id);
+      linkedByName.push(`${w.name} → ${hits[0]!.code} (no ${code} in niko)`);
+    }
 
     const rows = [
       ...(D.attendance_punches ?? []).map((row) => ({ row, who: String(row.employee_id) })),
@@ -252,6 +267,10 @@ try {
     if (odd.length) {
       console.log(`  days with the same direction twice (${odd.length}):`);
       for (const o of odd.slice(0, 20)) console.log(`    ${o}`);
+    }
+    if (linkedByName.length) {
+      console.log(`  wage workers matched by name alone (${linkedByName.length}):`);
+      for (const l of linkedByName) console.log(`    ${l}`);
     }
     if (misplaced.length) {
       console.log(`  wage workers left out — the W-code at their place is someone else (${misplaced.length}):`);
