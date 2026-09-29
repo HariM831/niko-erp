@@ -17,6 +17,7 @@
  *   is why Purchases by Vendor collects them under "Others" rather than
  *   dropping them.
  */
+import { zohoActor } from "./actor";
 import { readFile } from "node:fs/promises";
 import { eq, sql } from "drizzle-orm";
 import { bankAccounts, expenses, users, zohoIdMap } from "@shared/schema";
@@ -98,7 +99,7 @@ async function main() {
     return;
   }
 
-  const [admin] = await db.select({ id: users.id }).from(users).limit(1);
+  const admin = await zohoActor();
   if (!admin) throw new Error("No user to attribute the import to");
 
   const [{ next }] = await db

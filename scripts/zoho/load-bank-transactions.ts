@@ -20,6 +20,7 @@
  * offset_account_id. Guessing what a refund was posted against is not
  * something this script will do; they are reported instead.
  */
+import { zohoActor } from "./actor";
 import { readFile } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import { accounts, bankAccounts, users, zohoIdMap } from "@shared/schema";
@@ -186,7 +187,7 @@ async function main() {
     return;
   }
 
-  const [admin] = await db.select({ id: users.id }).from(users).limit(1);
+  const admin = await zohoActor();
   if (!admin) throw new Error("No user to attribute the import to");
 
   await db.transaction(async (tx) => {

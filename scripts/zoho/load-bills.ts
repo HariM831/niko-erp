@@ -19,6 +19,7 @@
  *   Numbering. Zoho's bill_number is the vendor's own invoice number, not ours.
  *   It goes to vendorBillNumber and niko issues its own sequence.
  */
+import { zohoActor } from "./actor";
 import { readFile } from "node:fs/promises";
 import { and, eq, sql } from "drizzle-orm";
 import { billLines, bills, contacts, journalEntries, users, zohoIdMap } from "@shared/schema";
@@ -144,7 +145,7 @@ async function main() {
     return;
   }
 
-  const [admin] = await db.select({ id: users.id }).from(users).limit(1);
+  const admin = await zohoActor();
   if (!admin) throw new Error("No user to attribute the import to");
 
   // niko issues its own bill numbers; Zoho's belong to the vendor. Numbered in

@@ -17,6 +17,7 @@
  * applications are recorded but the bills' own balances are left alone — those
  * already came across net of the credit.
  */
+import { zohoActor } from "./actor";
 import { readFile } from "node:fs/promises";
 import { eq, sql } from "drizzle-orm";
 import {
@@ -138,7 +139,7 @@ async function main() {
     return;
   }
 
-  const [admin] = await db.select({ id: users.id }).from(users).limit(1);
+  const admin = await zohoActor();
   if (!admin) throw new Error("No user to attribute the import to");
 
   // niko issues its own numbers; Zoho's belong to the vendor and go to

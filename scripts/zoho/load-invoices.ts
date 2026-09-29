@@ -12,6 +12,7 @@
  *
  * Safe to re-run: an invoice already in zoho_id_map is skipped.
  */
+import { zohoActor } from "./actor";
 import { readFile } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import { contacts, invoiceLines, invoices, users, zohoIdMap } from "@shared/schema";
@@ -301,7 +302,7 @@ async function main() {
     return;
   }
 
-  const [admin] = await db.select({ id: users.id }).from(users).limit(1);
+  const admin = await zohoActor();
   if (!admin) throw new Error("No user to attribute the import to");
 
   let posted = 0;

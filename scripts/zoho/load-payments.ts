@@ -14,6 +14,7 @@
  * vendor payments are likewise unapplied. Those are real balances, not
  * missing data, so they are carried rather than forced onto a document.
  */
+import { zohoActor } from "./actor";
 import { readFile } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import {
@@ -170,7 +171,7 @@ async function main() {
     return;
   }
 
-  const [admin] = await db.select({ id: users.id }).from(users).limit(1);
+  const admin = await zohoActor();
   if (!admin) throw new Error("No user to attribute the import to");
 
   /**

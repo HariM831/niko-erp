@@ -17,6 +17,7 @@
  * `attachments` with a filing reference, and the bytes under uploads/ — rather
  * than a second parallel store.
  */
+import { zohoActor } from "./actor";
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import { readFile, unlink, writeFile } from "node:fs/promises";
@@ -165,7 +166,7 @@ async function main() {
     return;
   }
 
-  const [admin] = await db.select({ id: users.id }).from(users).limit(1);
+  const admin = await zohoActor();
   if (!admin) throw new Error("No user to attribute the files to");
   if (!existsSync(UPLOAD_DIR)) mkdirSync(UPLOAD_DIR, { recursive: true });
 
