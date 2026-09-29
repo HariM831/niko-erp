@@ -273,7 +273,7 @@ export function PayrollCanteenGatePage() {
               {servedIds.has(stage.person.id) && <div className="rounded bg-amber-500/90 px-2 py-1 text-sm text-black">Already had {stateQ.data?.mealLabel.toLowerCase()} today</div>}
               {!onList(stage.person) && (
                 <div className="rounded bg-amber-500/90 px-2 py-1 text-sm text-black">
-                  Not on the {stateQ.data?.mealLabel.toLowerCase()} list — it will be recorded as such
+                  Not on the {stateQ.data?.mealLabel.toLowerCase()} list. You can still serve — the plate is marked for HR under Exceptions
                 </div>
               )}
               <div className="flex gap-2">
@@ -303,8 +303,8 @@ export function PayrollCanteenGatePage() {
               <CheckCircle2 size={56} />
               <div className="text-xl font-bold">{stage.plate.personName}</div>
               <div className="text-sm">{stage.plate.mealLabel} · token {stage.plate.tokenNumber}</div>
-              {stage.plate.ineligible && <div className="text-sm">Not on the list — recorded</div>}
-              {stage.plate.attendancePresent === false && <div className="text-sm">No attendance punch today — recorded</div>}
+              {stage.plate.ineligible && <div className="text-sm">Not on the {stage.plate.mealLabel.toLowerCase()} list — HR will see it under Exceptions</div>}
+              {stage.plate.attendancePresent === false && <div className="text-sm">No attendance punch today — HR will see it under Exceptions</div>}
             </div>
           )}
 
@@ -313,6 +313,7 @@ export function PayrollCanteenGatePage() {
               <AlertTriangle size={48} />
               <div className="text-xl font-bold">{stage.name}</div>
               <div className="text-sm">{stage.message}{stage.at ? ` — at ${fmtTime(stage.at)}` : ""}{stage.token ? `, token ${stage.token}` : ""}</div>
+              <div className="text-sm text-white/80">One plate per person per meal. Not served again.</div>
               <button className="btn-secondary mt-2" onClick={() => setStage({ kind: "idle" })}>OK</button>
             </div>
           )}

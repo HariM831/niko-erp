@@ -852,7 +852,7 @@ function EmployeeEditor({ id, departments, onClose, onSaved }: {
                 {sharedId.message}.
                 <div className="mt-2">
                   <button className="underline" disabled={save.isPending} onClick={() => save.mutate(true)}>
-                    Two different people do share this {sharedId.field} number — save anyway
+                    These are two different people who really share this {sharedId.field} number — save anyway
                   </button>
                 </div>
               </div>

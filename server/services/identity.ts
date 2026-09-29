@@ -51,7 +51,7 @@ export async function findIdClash(
 }
 
 export const clashMessage = (c: IdClash) =>
-  `${c.name} (${c.empCode}) is already on file with this ${c.field} number${c.isActive ? "" : " (inactive)"} — reactivate or edit that person instead`;
+  `Not saved: ${c.name} (${c.empCode}) already has this ${c.field} number${c.isActive ? "" : ", and is marked as left"}. If this is the same person, open that record and ${c.isActive ? "edit it" : "reactivate it"} instead of adding them again`;
 
 /* ── What may be uploaded as a photograph or a document ─────────────────── */
 
