@@ -57,8 +57,17 @@
  * import owns, the day before the cutover unless given: the mill went on
  * paper on 28 Sep 2026, and those days are keyed in niko's own screens, so a
  * transfer derived here from the daily sheet as well would send that day's
- * feed twice. An Amino slip after --to is refused, since the count already
- * has it milled. --major defaults to the
+ * feed twice. An Amino slip after --to is refused: that day belongs to
+ * niko's own screens.
+ *
+ * --count-before is the day whose milling the stock sheet does NOT yet show.
+ * The sheet of 26 Sep 2026 was the mill's stock going into 28 Sep — every
+ * load up to the 28th in, none of that day's batches out — while Amino kept
+ * the 28th's slips. So a material counted on the sheet is worked back
+ * without the slips from that day on, and those are milled on top of it; a
+ * bulk material takes Amino's own figure, which already has them out, and is
+ * worked back through all of them. Omitted, the count stands after every
+ * slip. --major defaults to the
  * five bulk materials. A count row whose item is null names something niko
  * has no item for and is only listed.
  */
@@ -100,6 +109,7 @@ const FROM = arg("from") ?? "2026-09-13";
 const dayBefore = (day: string) => new Date(new Date(`${day}T00:00:00Z`).getTime() - 86_400_000).toISOString().slice(0, 10);
 const OPENING = arg("opening") ?? dayBefore(FROM);
 const COUNT_FILE = arg("count");
+const COUNT_BEFORE = arg("count-before");
 /**
  * --allow-short: apply even while gate lines up to the cutover are unsettled.
  * A load unloaded at the mill but not yet settled is not in the ledger, so a
@@ -125,6 +135,7 @@ const rs = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 /** Amino's material names → niko's items. Names, not ids: the two systems never shared one. */
 const MATERIAL: Record<string, string> = {
   "Cantaxanthin": "Cantaxanthin",
+  "CHOLINE CHLORIDE": "Choline Chloride",
   "DCP (Di-Calcium Phosphate)": "Dicalcium Phosphate",
   "DDGS Rice": "DDGS (Rice)",
   "DL-Methionine": "DL-Methionine",
@@ -230,7 +241,11 @@ try {
     const CUTOVER = arg("cutover") ?? count.asOn;
     const TO = arg("to") ?? dayBefore(CUTOVER);
     const lateSlips = slips.filter((s) => String(s.made_on) > TO);
-    if (lateSlips.length) throw new Error(`${lateSlips.length} Amino slip(s) after --to ${TO} (${[...new Set(lateSlips.map((s) => String(s.made_on)))].join(", ")}): the count of ${CUTOVER} already has them milled — move --to or the cutover`);
+    if (lateSlips.length) throw new Error(`${lateSlips.length} Amino slip(s) after --to ${TO} (${[...new Set(lateSlips.map((s) => String(s.made_on)))].join(", ")}): those days are keyed in niko's Production screen — move --to if Amino's are the ones to keep`);
+    // What the slips the sheet has not seen take out, per item: milled on top of a sheet count.
+    const afterCount = new Map<string, number>();
+    if (COUNT_BEFORE) for (const [name, byDay] of takeByDay) for (const [day, k] of byDay) if (day >= COUNT_BEFORE) afterCount.set(name, (afterCount.get(name) ?? 0) + k);
+    if (COUNT_BEFORE) say(`  the sheet stands before ${COUNT_BEFORE}'s milling: ${[...new Set(slips.filter((s) => String(s.made_on) >= COUNT_BEFORE).map((s) => `${s.made_on} ${s.formula_name} ${s.batch_count}`))].join(", ") || "no slips"} milled on top of it`);
     say(`  up to ${TO}: slips and the daily sheet's transfers; after it the mill is keyed in niko's own screens`);
     const lastPrice = new Map<string, { price: number; at: string }>();
     for (const l of D.lot_consumption ?? []) { const p = lastPrice.get(String(l.material_name)); if (!p || String(l.consumed_at) > p.at) lastPrice.set(String(l.material_name), { price: Number(l.price_per_kg), at: String(l.consumed_at) }); }
@@ -293,7 +308,7 @@ try {
     for (const [name, t] of [...targets].sort((a, b) => a[0].localeCompare(b[0]))) {
       const it = itemByName.get(name); if (!it) throw new Error(`no niko item named "${name}"`);
       const perUnit = it.unit === "kg" ? 1 : Number(it.bag ?? 0);
-      const take = planned.get(name) ?? 0; const g = gateUpTo.get(name) ?? { kg: 0, settledKg: 0, open: [] };
+      const take = (planned.get(name) ?? 0) - (t.from === "sheet" ? (afterCount.get(name) ?? 0) : 0); const g = gateUpTo.get(name) ?? { kg: 0, settledKg: 0, open: [] };
       const takes = [...(takeByDay.get(name) ?? [])].map(([day, k]) => ({ day, kg: -k }));
       const landed = inLedger.get(name) ?? [];
       const arriving = accepted.filter((x) => x.name === name && !x.settled && x.arrived <= CUTOVER).map((x) => ({ day: x.arrived, kg: Number(x.netKg) }));
@@ -392,9 +407,9 @@ try {
     say(`  transfers        ${transferred} from the daily sheet to ${TO}, ${kg(transferredKg)}; Amino's own in the window: ${(D.transfers ?? []).length}, ${kg((D.transfers ?? []).reduce((a, t) => a + Number(t.quantity_kg), 0))}`);
     say(`\n  materials consumed — niko vs Amino's lots`);
     for (const name of [...new Set([...consumedNiko.keys(), ...[...aminoConsumed.keys()].map((a) => MATERIAL[a] ?? a)])].sort()) { const it = itemByName.get(name); const perUnit = it && it.unit !== "kg" ? Number(it.bag ?? 1) : 1; const n = (consumedNiko.get(name) ?? 0) * perUnit; const a = aminoNameOf.get(name); const cons = a ? (aminoConsumed.get(a) ?? 0) : 0; say(`    ${name.padEnd(34)} niko ${kg(n).padStart(12)}   Amino ${kg(cons).padStart(12)}   ${cons ? `${((n / cons - 1) * 100).toFixed(1)}%` : a ? "—" : "(no Amino material)"}`); }
-    say(`\n  stock after the last day — item | niko now | + gate ≤ ${CUTOVER} unsettled | = once settled | count at ${CUTOVER} | apart`);
+    say(`\n  stock after the last day — item | niko now | + gate ≤ ${CUTOVER} unsettled | = once settled | count at ${CUTOVER}${COUNT_BEFORE ? `, less the milling from ${COUNT_BEFORE}` : ""} | apart`);
     const levels = await tx.select({ name: items.name, unit: items.unit, bag: items.unitBagWeightKg, qty: sql<number>`coalesce(sum(${inventoryTransactions.quantity}),0)::float`, value: sql<number>`coalesce(sum(${inventoryTransactions.value}),0)::float` }).from(inventoryTransactions).innerJoin(items, eq(items.id, inventoryTransactions.itemId)).groupBy(items.name, items.unit, items.unitBagWeightKg).orderBy(items.name);
-    for (const l of levels) { const perUnit = l.unit === "kg" ? 1 : Number(l.bag ?? 1); const q = Number(l.qty) * perUnit; const t = targets.get(l.name); if (Math.abs(q) < 1 && !t) continue; const g = gateUpTo.get(l.name); const pending = g ? g.kg - g.settledKg : 0; const once = q + pending; say(`    ${l.name.padEnd(34)} ${kg(q).padStart(12)} ${rs(Number(l.value)).padStart(14)} ${kg(pending).padStart(12)} ${kg(once).padStart(12)} ${t ? kg(t.kg).padStart(12) : "".padStart(12)} ${t && Math.abs(once - t.kg) > 0.5 ? kg(once - t.kg).padStart(12) : ""}`); }
+    for (const l of levels) { const perUnit = l.unit === "kg" ? 1 : Number(l.bag ?? 1); const q = Number(l.qty) * perUnit; const t0 = targets.get(l.name); const t = t0 && t0.from === "sheet" ? { ...t0, kg: t0.kg - (afterCount.get(l.name) ?? 0) } : t0; if (Math.abs(q) < 1 && !t) continue; const g = gateUpTo.get(l.name); const pending = g ? g.kg - g.settledKg : 0; const once = q + pending; say(`    ${l.name.padEnd(34)} ${kg(q).padStart(12)} ${rs(Number(l.value)).padStart(14)} ${kg(pending).padStart(12)} ${kg(once).padStart(12)} ${t ? kg(t.kg).padStart(12) : "".padStart(12)} ${t && Math.abs(once - t.kg) > 0.5 ? kg(once - t.kg).padStart(12) : ""}`); }
 
     if (!APPLY) throw new Rollback();
   });
