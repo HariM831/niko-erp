@@ -74,7 +74,7 @@ export interface StatementSpec {
  * reads like a typo rather than an encoding problem. Cheaper to write plain
  * punctuation than to ship a font file for two glyphs.
  */
-function winAnsi(text: string): string {
+export function winAnsi(text: string): string {
   return text
     .replace(/₹\s*/g, "")
     .replace(/\s*[—–]\s*/g, " - ")

@@ -233,9 +233,12 @@ export function AttachmentsPanel({
   entityType,
   entityId,
   extraTiles,
+  readOnly = false,
 }: {
   entityType: string;
   entityId: string;
+  /** Shown, not managed: no upload, no delete (a bill showing its receipt's photos). */
+  readOnly?: boolean;
   /**
    * Pictures of a related record shown in the same grid — not this
    * document's files, so they carry no delete and upload nothing (a goods
@@ -255,9 +258,11 @@ export function AttachmentsPanel({
         <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
           Photos and files{files ? ` · ${files.length}` : ""}
         </span>
-        <button onClick={() => fileRef.current?.click()} disabled={busy} className="btn-ghost h-7 px-2 text-[12px]">
-          <Upload size={12} /> {busy ? "Uploading…" : "Upload"}
-        </button>
+        {!readOnly && (
+          <button onClick={() => fileRef.current?.click()} disabled={busy} className="btn-ghost h-7 px-2 text-[12px]">
+            <Upload size={12} /> {busy ? "Uploading…" : "Upload"}
+          </button>
+        )}
         <input
           ref={fileRef}
           type="file"
@@ -288,13 +293,15 @@ export function AttachmentsPanel({
                 {f.kind ? (CAPTURE_LABELS[f.kind] ?? f.kind) : f.fileName}
               </div>
               <div className="text-[10px] text-gray-400">{when(f.capturedAt ?? f.createdAt)}</div>
-              <button
-                onClick={() => void remove(f.id)}
-                className="absolute right-1 top-1 hidden rounded bg-white/90 p-1 text-gray-500 hover:text-red-500 group-hover:block"
-                title="Delete"
-              >
-                <Trash2 size={12} />
-              </button>
+              {!readOnly && (
+                <button
+                  onClick={() => void remove(f.id)}
+                  className="absolute right-1 top-1 hidden rounded bg-white/90 p-1 text-gray-500 hover:text-red-500 group-hover:block"
+                  title="Delete"
+                >
+                  <Trash2 size={12} />
+                </button>
+              )}
             </div>
           ))}
           {extraTiles}
@@ -321,13 +328,15 @@ export function AttachmentsPanel({
               <span>{formatSize(f.sizeBytes)}</span>
             </div>
           </div>
-          <button
-            onClick={() => void remove(f.id)}
-            className="rounded p-1 text-gray-300 transition-colors hover:bg-red-50 hover:text-red-500"
-            title="Delete"
-          >
-            <Trash2 size={13} />
-          </button>
+          {!readOnly && (
+            <button
+              onClick={() => void remove(f.id)}
+              className="rounded p-1 text-gray-300 transition-colors hover:bg-red-50 hover:text-red-500"
+              title="Delete"
+            >
+              <Trash2 size={13} />
+            </button>
+          )}
         </div>
       ))}
       {error && <p className="py-1 text-xs text-red-600">{error}</p>}

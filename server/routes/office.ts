@@ -10,6 +10,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import { copyFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { renderWeighSlip } from "../services/weigh-slip-pdf";
 import multer from "multer";
 import { type SQL, and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 import { type DocumentSearch, advancedSearch, matches } from "../services/document-search";
@@ -652,7 +653,19 @@ officeRouter.get("/receipts", requirePermission("office", "receipts"), async (re
   res.json(rows);
 });
 
-officeRouter.get("/receipts/:id", requirePermission("office", "view"), async (req, res) => {
+/**
+ * Who may see what stands behind a receipt — its photos and its weighbridge
+ * slip: the office, the person settling it, and anyone who reads the bill it
+ * became. The slip is shown to them here rather than on the weighbridge
+ * screen, which they may not have.
+ */
+const RECEIPT_EVIDENCE: Array<[string, string]> = [
+  ["office", "view"],
+  ["office", "settle"],
+  ["purchases", "view"],
+];
+
+officeRouter.get("/receipts/:id", requireAnyPermission(RECEIPT_EVIDENCE), async (req, res) => {
   const receipt = await db.query.officeReceipts.findFirst({
     where: eq(officeReceipts.id, req.params.id!),
   });
@@ -1736,10 +1749,9 @@ async function settlementContext(tx: Tx | typeof db, receiptId: string) {
  * only; the slip stays the weighbridge's record, shown beside the receipt's
  * photos (29 Sep 2026).
  */
-officeRouter.get("/receipts/:id/weigh-slips", requirePermission("office", "view"), async (req, res) => {
-  const receipt = await db.query.officeReceipts.findFirst({ where: eq(officeReceipts.id, req.params.id!) });
-  if (!receipt) return res.status(404).json({ error: "Goods receipt not found" });
-  if (receipt.grossWeightKg == null && receipt.netWeightKg == null) return res.json([]);
+
+async function weighSlipsFor(receipt: typeof officeReceipts.$inferSelect) {
+  if (receipt.grossWeightKg == null && receipt.netWeightKg == null) return [];
   const rows = await db.execute(sql`
     SELECT t.id, t.number, t.vehicle_number AS "vehicleNumber",
            t.gross_weight_kg AS "grossWeightKg", t.tare_weight_kg AS "tareWeightKg", t.net_weight_kg AS "netWeightKg",
@@ -1771,7 +1783,76 @@ officeRouter.get("/receipts/:id/weigh-slips", requirePermission("office", "view"
   // of the same weighing (WS-00021, a gross never tared, beside WS-00022).
   const found = rows.rows as Array<{ exact: boolean | null }>;
   const exact = found.filter((r) => r.exact);
-  res.json(exact.length ? exact : found);
+  return exact.length ? exact : found;
+}
+
+officeRouter.get("/receipts/:id/weigh-slips", requireAnyPermission(RECEIPT_EVIDENCE), async (req, res) => {
+  const receipt = await db.query.officeReceipts.findFirst({ where: eq(officeReceipts.id, req.params.id!) });
+  if (!receipt) return res.status(404).json({ error: "Goods receipt not found" });
+  res.json(await weighSlipsFor(receipt));
+});
+
+/**
+ * The slip as a PDF — the weights, their times, the operator and the camera's
+ * photograph — for a slip that belongs to this receipt. Served under the
+ * receipt, with the receipt's permissions, so a person without the
+ * weighbridge screen can still read it.
+ */
+officeRouter.get(
+  "/receipts/:id/weigh-slips/:ticketId/pdf",
+  requireAnyPermission(RECEIPT_EVIDENCE),
+  async (req, res) => {
+    const receipt = await db.query.officeReceipts.findFirst({ where: eq(officeReceipts.id, req.params.id!) });
+    if (!receipt) return res.status(404).json({ error: "Goods receipt not found" });
+    const slips = (await weighSlipsFor(receipt)) as unknown as Array<{ id: string; photoId: string | null }>;
+    const mine = slips.find((w) => w.id === req.params.ticketId);
+    if (!mine) return res.status(404).json({ error: "That weighment slip is not this receipt's" });
+    const found = await db.execute(sql`
+      SELECT t.number, t.vehicle_number, t.gross_weight_kg, t.gross_at, t.tare_weight_kg, t.tare_at,
+             t.net_weight_kg, t.notes, p.display_name AS party_name, i.name AS item_name, u.name AS operator_name
+        FROM weigh_tickets t
+        LEFT JOIN contacts p ON p.id = t.party_id
+        LEFT JOIN items i ON i.id = t.item_id
+        LEFT JOIN users u ON u.id = t.created_by
+       WHERE t.id = ${mine.id}::uuid
+    `);
+    const row = found.rows[0] as Record<string, string | null> | undefined;
+    if (!row) return res.status(404).json({ error: "No such weighment slip" });
+    const t = (k: string): string | null => row[k] ?? null;
+    const [org] = await db.select().from(orgProfile).limit(1);
+    const photo = mine.photoId
+      ? await db.query.attachments.findFirst({ where: eq(attachments.id, mine.photoId) })
+      : undefined;
+    const pdf = await renderWeighSlip({
+      org: org ?? null,
+      number: String(t("number")),
+      vehicleNumber: String(t("vehicle_number")),
+      partyName: t("party_name"),
+      itemName: t("item_name"),
+      grossWeightKg: t("gross_weight_kg"),
+      grossAt: t("gross_at"),
+      tareWeightKg: t("tare_weight_kg"),
+      tareAt: t("tare_at"),
+      netWeightKg: t("net_weight_kg"),
+      operatorName: t("operator_name"),
+      notes: t("notes"),
+      receiptNumber: receipt.number,
+      photoPath: photo ? path.join(UPLOAD_DIR, photo.storedName) : null,
+    });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${String(t("number"))}.pdf"`);
+    res.send(pdf);
+  },
+);
+
+/** The goods receipt a bill was settled from, if it was — for the bill's page. */
+officeRouter.get("/receipts/for-bill/:billId", requireAnyPermission(RECEIPT_EVIDENCE), async (req, res) => {
+  const [row] = await db
+    .select({ id: officeReceipts.id, number: officeReceipts.number })
+    .from(officeReceipts)
+    .where(eq(officeReceipts.billId, req.params.billId!))
+    .limit(1);
+  res.json(row ?? null);
 });
 
 officeRouter.get(

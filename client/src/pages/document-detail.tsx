@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { amountInWords, api, formatDate, formatMoney } from "../api";
 import { StatusBadge } from "../components/list-page";
 import { AttachmentsButton } from "../components/attachments";
+import { ReceiptEvidence } from "../components/receipt-evidence";
 import { CommentsButton } from "../components/comments";
 import { JournalSection } from "../components/journal-section";
 import { CustomFieldsDisplay } from "../components/custom-fields";
@@ -540,6 +541,8 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
         </div>
       )}
 
+      {kind === "bill" && <BillReceiptEvidence billId={id} />}
+
       {doc.status === "sent" && kind === "invoice" && Number(doc.balanceDue) > 0 && (
         <div className="flex items-center justify-between border-b bg-brand-50/60 px-6 py-2.5 text-[13px] print:hidden">
           <span>
@@ -1001,3 +1004,25 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
   );
 }
 
+/**
+ * A bill settled from a goods receipt shows what stands behind it: the
+ * station photos and our weighbridge's slip, read-only. The person reading the
+ * bill — an accountant with bills and nothing else — sees the evidence for the
+ * kilos they are paying for without the office screens.
+ */
+function BillReceiptEvidence({ billId }: { billId: string }) {
+  const { data: receipt } = useQuery<{ id: string; number: string } | null>({
+    queryKey: ["office", "receipt-for-bill", billId],
+    queryFn: () => api(`/api/office/receipts/for-bill/${billId}`),
+    retry: false,
+  });
+  if (!receipt) return null;
+  return (
+    <div className="border-b bg-gray-50/60 px-6 py-3 print:hidden">
+      <div className="mb-1 text-[12px] text-gray-500">
+        From goods receipt <span className="font-mono font-medium text-gray-700">{receipt.number}</span>
+      </div>
+      <ReceiptEvidence receiptId={receipt.id} readOnly />
+    </div>
+  );
+}
