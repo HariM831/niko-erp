@@ -288,13 +288,13 @@ export function SettlementPage() {
               {/* An accepted line with no net kg bills nothing — say so, rather than show ₹0.00 as if it were a price. */}
               {ctx.lines.some((l) => l.status !== "qc_rejected" && !(Number(l.allocatedNetKg) > 0)) && (
                 <div className="mb-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
-                  Nothing unloaded yet on{" "}
-                  {ctx.lines.filter((l) => l.status !== "qc_rejected" && !(Number(l.allocatedNetKg) > 0)).map((l) => l.itemName).join(", ")}{" "}
-                  — allocate the net kg on the receipt first.{" "}
+                  No received weight yet for{" "}
+                  {ctx.lines.filter((l) => l.status !== "qc_rejected" && !(Number(l.allocatedNetKg) > 0)).map((l) => l.itemName).join(", ")}
+                  , so there is nothing to pay.{" "}
                   <button onClick={() => setEditingReceipt(true)} disabled={!office} className="font-medium underline disabled:no-underline">
                     Edit receipt
                   </button>{" "}
-                  and use <span className="font-medium">Split net pro rata</span>.
+                  and save — the truck's net is filled in.
                 </div>
               )}
               {ctx.lines.map((l) => {
@@ -306,7 +306,7 @@ export function SettlementPage() {
                         {l.itemName}
                       </span>
                       <span className="tabular-nums font-medium text-gray-900">
-                        {billed ? inr(billed.amount) : l.status === "qc_rejected" ? "₹0.00" : <span className="text-amber-600">not unloaded</span>}
+                        {billed ? inr(billed.amount) : l.status === "qc_rejected" ? "₹0.00" : <span className="text-amber-600">no received weight</span>}
                       </span>
                     </div>
                     {l.status === "qc_rejected" ? (

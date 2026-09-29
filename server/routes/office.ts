@@ -2331,6 +2331,35 @@ officeRouter.patch(
           );
         }
 
+        /*
+         * The received weight, filled in as the weighbridge station fills it.
+         *
+         * Weighing out at the station splits the net off the truck across the
+         * accepted lines by billed kilos; a truck whose tare was keyed here got
+         * nothing, and settled as Rs 0 (GR-00023, 29 Sep 2026). So when the truck
+         * is weighed both ways and no accepted line has a received weight yet,
+         * the same split is made here — one material takes the whole net. Once
+         * any line has a figure it is left to whoever typed it.
+         */
+        {
+          const g = body.grossWeightKg !== undefined ? body.grossWeightKg : receipt.grossWeightKg;
+          const t = body.tareWeightKg !== undefined ? body.tareWeightKg : receipt.tareWeightKg;
+          const taking = body.lines.filter((l) => l.qcVerdict === "pass" && Number(l.billQuantityKg) > 0);
+          const netKg = g != null && t != null ? Number((Number(g) - Number(t)).toFixed(3)) : 0;
+          if (netKg > 0 && taking.length && taking.every((l) => !(Number(l.allocatedNetKg) > 0))) {
+            const billed = taking.reduce((s, l) => s + Number(l.billQuantityKg), 0);
+            let assigned = 0;
+            taking.forEach((l, i) => {
+              const share =
+                i === taking.length - 1
+                  ? Number((netKg - assigned).toFixed(3))
+                  : Number(((netKg * Number(l.billQuantityKg)) / billed).toFixed(3));
+              assigned = Number((assigned + share).toFixed(3));
+              l.allocatedNetKg = share.toFixed(3);
+            });
+          }
+        }
+
         const written: Array<{ qcVerdict: string | null; allocatedNetKg: string | null }> = [];
         for (const [i, l] of body.lines.entries()) {
           // An edit is often exactly the moment a person fixes the pairing —

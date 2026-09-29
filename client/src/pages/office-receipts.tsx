@@ -253,6 +253,14 @@ export function ReceiptEditor({
       ? lines.filter((l) => l.qcVerdict && l.qcVerdict !== "rejected" && Number(l.billQuantityKg) > 0 && !(Number(l.allocatedNetKg) > 0))
       : [];
 
+  // One accepted material and no figure yet: its received weight can only be the whole net.
+  useEffect(() => {
+    const taking = lines.filter((l) => l.qcVerdict === "pass" && Number(l.billQuantityKg) > 0);
+    if (net != null && net > 0 && taking.length === 1 && !(Number(taking[0]!.allocatedNetKg) > 0)) {
+      setLines((ls) => ls.map((l) => (l === taking[0] ? { ...l, allocatedNetKg: net.toFixed(3) } : l)));
+    }
+  }, [net, lines]);
+
   /** Pro rata across whatever is not rejected, mirroring the server. */
   const suggestAllocation = () => {
     if (net == null || net <= 0) return;
@@ -699,8 +707,8 @@ export function ReceiptEditor({
           {unallocated.length > 0 && (
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
               <span>
-                Net kg not allocated for {unallocated.map((l) => l.itemName || "a line").join(", ")} — Settle will show nothing to
-                bill until it is. The net off the truck is {net!.toLocaleString("en-IN")} kg.
+                No received weight yet for {unallocated.map((l) => l.itemName || "a line").join(", ")} — enter the kg received for
+                each (the truck's net is {net!.toLocaleString("en-IN")} kg), or split it by billed kg. Settle pays only what is received.
               </span>
               <button className="btn-secondary !h-7 text-[12px]" onClick={suggestAllocation}>
                 Split net pro rata
