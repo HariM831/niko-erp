@@ -94,10 +94,15 @@ class DryRun extends Error {}
 
 try {
   await db.transaction(async (tx) => {
+    // What came from Amino is recorded as Replit, where it came from, not as
+    // whichever person happens to be first (29 Sep 2026); an admin if not.
     const [actor] = (
       await tx.execute(sql`
-        SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id
-         WHERE u.is_active AND r.permissions ? '*' ORDER BY u.created_at LIMIT 1`)
+        (SELECT id FROM users WHERE username = 'replit')
+        UNION ALL
+        (SELECT u.id FROM users u JOIN roles r ON r.id = u.role_id
+          WHERE u.is_active AND r.permissions ? '*' ORDER BY u.created_at LIMIT 1)
+        LIMIT 1`)
     ).rows as Array<{ id: string }>;
     if (!actor) throw new Error("No active admin user to record the import as");
 

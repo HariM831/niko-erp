@@ -176,7 +176,9 @@ say(`\n  IMPORT PRODUCTION FROM AMINO — export of ${raw.exportedAt}; from ${FR
 
 try {
   await db.transaction(async (tx) => {
-    const [admin] = await tx.select({ id: users.id }).from(users).innerJoin(roles, eq(roles.id, users.roleId)).where(eq(roles.name, "Admin")).orderBy(asc(users.createdAt)).limit(1);
+    // Recorded as Replit, where it came from (29 Sep 2026); an admin if there is no such user.
+    const [replit] = await tx.select({ id: users.id }).from(users).where(eq(users.username, "replit"));
+    const [admin] = replit ? [replit] : await tx.select({ id: users.id }).from(users).innerJoin(roles, eq(roles.id, users.roleId)).where(eq(roles.name, "Admin")).orderBy(asc(users.createdAt)).limit(1);
     if (!admin) throw new Error("no Admin user to post as");
     const userId = admin.id;
     const [feedExpense] = await tx.select({ id: accounts.id }).from(accounts).where(eq(accounts.code, "5007"));

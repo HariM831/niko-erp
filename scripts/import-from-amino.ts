@@ -163,7 +163,10 @@ function batchOn(shedId: string, on: string): string | null {
 
 try {
   await db.transaction(async (tx) => {
-    const userId = ((await tx.execute(sql`SELECT id FROM users LIMIT 1`)).rows[0] as { id: string }).id;
+    // Recorded as Replit, where it came from — not "the first user", which is
+    // whoever Postgres reads first and put Geetanjali's name on every Amino
+    // house record (fixed 29 Sep 2026).
+    const userId = ((await tx.execute(sql`(SELECT id FROM users WHERE username = 'replit') UNION ALL (SELECT id FROM users ORDER BY created_at LIMIT 1) LIMIT 1`)).rows[0] as { id: string }).id;
 
     /* ── 1. Sheds → houses ──────────────────────────────────────────────── */
     step("1. Sheds → houses");
