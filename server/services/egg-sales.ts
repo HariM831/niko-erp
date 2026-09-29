@@ -46,6 +46,7 @@ import { nextDocumentNumber } from "../lib/numbering";
 import { computeDueDate, loadCustomer, postInvoiceJournal } from "../routes/sales";
 import { mainStore, moveStock } from "./inventory";
 import { istDate } from "./day-resolution";
+import { refreshFromPlacement } from "./rollup";
 
 type Tx = Parameters<Parameters<typeof Db.transaction>[0]>[0];
 type Conn = Tx | typeof Db;
@@ -516,6 +517,46 @@ export interface GradingInput {
  * amended to 468 must correct the movement, not add a second one. Stock moves
  * only from `stockFrom` — the same cutover rule as everywhere else.
  */
+/**
+ * A shed's eggs for a day, from the packing room's graded boxes.
+ *
+ * Boxes converted at each size's own capacity (a jumbo box holds 180, a Niko
+ * box 360, the rest 210). Null when the shed has no grading row that day.
+ */
+export async function gradedEggsOn(tx: Conn, houseId: string, day: string): Promise<number | null> {
+  const [g] = await tx
+    .select()
+    .from(eggGrading)
+    .where(and(eq(eggGrading.houseId, houseId), eq(eggGrading.gradedOn, day)));
+  if (!g) return null;
+  const prefs = await eggPrefs(tx);
+  const row = g as unknown as Record<string, unknown>;
+  return EGG_SIZES.reduce((n, size) => n + Number(row[size] ?? 0) * eggsInBox(size, prefs), 0);
+}
+
+/**
+ * The egg stock page is where eggs are entered; the daily record takes its
+ * egg count from it (29 Sep 2026). On 28 Sep the daily records were saved at
+ * 6 pm and the grading at 6:10 and 6:50 pm, and the records kept no eggs —
+ * so grading writes its count into the day's record when one exists, and a
+ * record saved afterwards picks it up at save. A sheet that graded nothing
+ * writes nothing, so an all-zero row never wipes a count.
+ */
+export async function syncGradedEggsToDay(tx: Tx, houseId: string, day: string): Promise<number | null> {
+  const eggs = await gradedEggsOn(tx, houseId, day);
+  if (!eggs) return eggs;
+  const updated = await tx.execute(sql`
+    UPDATE placement_days pd SET eggs_total = ${eggs}, updated_at = now()
+      FROM flock_day fd
+     WHERE fd.placement_id = pd.placement_id AND fd.day = pd.day
+       AND fd.house_id = ${houseId}::uuid AND pd.day = ${day}
+    RETURNING pd.placement_id
+  `);
+  // The flock's day rollup reads the record's eggs, as a saved record refreshes it.
+  for (const r of updated.rows as Array<{ placement_id: string }>) await refreshFromPlacement(tx, r.placement_id);
+  return eggs;
+}
+
 export async function saveGrading(tx: Tx, input: GradingInput, userId: string) {
   const prefs = await eggPrefs(tx);
   const qty = (s: EggSize) => Math.max(0, Math.trunc(input.boxes[s] ?? 0));
@@ -551,6 +592,9 @@ export async function saveGrading(tx: Tx, input: GradingInput, userId: string) {
       },
     })
     .returning();
+
+  // Production follows the sheet whether or not stock counting has begun.
+  await syncGradedEggsToDay(tx, input.houseId, input.gradedOn);
 
   if (input.gradedOn < prefs.stockFrom) return row!;
 

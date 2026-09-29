@@ -294,7 +294,8 @@ export function HouseDetailPage() {
         const data = await r.json();
         if (dropped) return;
         setSensor(data);
-        if (!data.available) return;
+        // A silent controller still leaves the packing room's egg count.
+        if (!data.available && data.eggsProduced == null) return;
         /*
          * Only ever fills a box that is empty. Editing a saved day must keep
          * what the person wrote, and a suggestion that overwrites an entry is
@@ -311,10 +312,12 @@ export function HouseDetailPage() {
             next[field] = String(v);
             marks.add(field);
           };
-          put('feedIntakeKg', data.feedConsumedKg);
-          put('feedStockKg', data.feedClosingKg);
-          put('waterKl', data.waterKl);
-          put('mortality', data.mortality);
+          if (data.available) {
+            put('feedIntakeKg', data.feedConsumedKg);
+            put('feedStockKg', data.feedClosingKg);
+            put('waterKl', data.waterKl);
+            put('mortality', data.mortality);
+          }
           put('eggsProduced', data.eggsProduced);
           return next;
         });

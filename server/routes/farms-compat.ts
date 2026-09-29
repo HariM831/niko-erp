@@ -28,6 +28,7 @@ import type { db as Db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { PostingError } from "../services/posting";
 import { DAILY_KINDS, saveDay } from "../services/daily";
+import { gradedEggsOn } from "../services/egg-sales";
 import { createFlock } from "../services/flocks";
 import { refreshFromPlacement } from "../services/rollup";
 
@@ -145,7 +146,9 @@ async function writeDaily(tx: Tx, body: z.infer<typeof dailyBody>, userId: strin
       feedConsumedKg: body.feedIntakeKg ? String(body.feedIntakeKg) : null,
       feedClosingKg: body.feedStockKg ? String(body.feedStockKg) : null,
       waterKl: body.waterKl ? String(body.waterKl) : null,
-      eggsTotal: body.eggsProduced || null,
+      // Eggs are entered on the egg stock page; a record saved with the box
+      // empty takes the shed's graded count for the day.
+      eggsTotal: body.eggsProduced || (body.shedId ? await gradedEggsOn(tx, body.shedId, day(body.date)) : null) || null,
       losses,
     },
     userId,

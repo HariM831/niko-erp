@@ -24,7 +24,7 @@ import {
   standardSets,
 } from "@shared/schema";
 import { db } from "../db";
-import { EGG_SIZES, eggPrefs, eggsInBox } from "../services/egg-sales";
+import { gradedEggsOn } from "../services/egg-sales";
 import { requirePermission } from "../lib/rbac";
 import { nonBlank, validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
@@ -808,9 +808,13 @@ farmsFlockRouter.get("/daily/sensor", view, async (req, res) => {
   const spanS = Number(r?.span_s ?? 0);
   const moved = r != null && Number(r.temps) > 1;
   const longEnough = spanS >= 600;
+  // The eggs are the packing room's, not the controller's: a shed's graded
+  // count is offered whatever state its controller is in.
+  const eggsProduced = await gradedEggsOn(db, houseId, day);
   if (!moved) {
     return res.json({
       available: false,
+      eggsProduced,
       reason:
         seen === 0
           ? "No readings from this house's controller."
@@ -857,15 +861,7 @@ farmsFlockRouter.get("/daily/sensor", view, async (req, res) => {
    * Boxes, converted at the size's own capacity: a jumbo box holds 180 and a
    * Niko box 360 where the rest hold 210.
    */
-  const graded = await db.execute(sql`
-    SELECT small, medium, large, xl, jumbo, brown, niko, dirty
-      FROM egg_grading WHERE house_id = ${houseId}::uuid AND graded_on = ${day}
-  `);
-  const g = graded.rows[0] as Record<string, number> | undefined;
-  const prefs = await eggPrefs(db);
-  const eggsProduced = g
-    ? EGG_SIZES.reduce((n, size) => n + Number(g[size] ?? 0) * eggsInBox(size, prefs), 0)
-    : null;
+  // (eggsProduced is read above, before the controller is judged.)
 
   /**
    * What the silo says arrived, against what the mill says it sent.
