@@ -1767,7 +1767,11 @@ officeRouter.get("/receipts/:id/weigh-slips", requirePermission("office", "view"
      ORDER BY "exact" DESC NULLS LAST, abs(extract(epoch FROM t.created_at - ${receipt.arrivalAt}::timestamp))
      LIMIT 3
   `);
-  res.json(rows.rows);
+  // An exact slip is the one; the near ones beside it are abandoned halves
+  // of the same weighing (WS-00021, a gross never tared, beside WS-00022).
+  const found = rows.rows as Array<{ exact: boolean | null }>;
+  const exact = found.filter((r) => r.exact);
+  res.json(exact.length ? exact : found);
 });
 
 officeRouter.get(
