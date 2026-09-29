@@ -65,7 +65,7 @@ const COA: Array<[string, string, AcctType, AcctSubtype, string?, string?, boole
   ["1216", "SBI - 43311518227 (Current Account)", "asset", "bank", undefined, "1215"],
   ["1217", "SBI - 44656290967 (CC Account)", "asset", "bank", undefined, "1215"],
 
-  ["1230", "Inventories", "asset", "stock", "inventory", "1200", true],
+  ["1230", "Inventories", "asset", "stock", undefined, "1200", true],
   ["1231", "Bird Stock", "asset", "stock", undefined, "1230"],
   ["1232", "Feed Stock", "asset", "stock", undefined, "1230"],
   // A bill's stock value between the vendor's date and the lorry reaching the gate.
@@ -75,7 +75,7 @@ const COA: Array<[string, string, AcctType, AcctSubtype, string?, string?, boole
 
   ["1270", "Other Current Assets", "asset", "other_current_asset", undefined, "1200", true],
   ["1271", "Prepaid Expenses", "asset", "other_current_asset", undefined, "1270"],
-  ["1272", "TDS Receivable", "asset", "other_current_asset", "tds_receivable", "1270"],
+  ["1272", "TDS Receivable", "asset", "other_current_asset", undefined, "1270"],
   ["1273", "Input GST Credit", "asset", "other_current_asset", "input_gst", "1270"],
 
   // ---------------- Liabilities ----------------
@@ -104,7 +104,7 @@ const COA: Array<[string, string, AcctType, AcctSubtype, string?, string?, boole
 
   // ---------------- Equity ----------------
   ["3000", "Equity", "equity", "equity", undefined, undefined, true],
-  ["3010", "Share Capital", "equity", "equity", "owners_capital", "3000", true],
+  ["3010", "Share Capital", "equity", "equity", undefined, "3000", true],
   ["3011", "Hari Krishna Mulpuri (Share Capital)", "equity", "equity", undefined, "3010"],
   ["3012", "Shilpa Nandamuri (Share Capital)", "equity", "equity", undefined, "3010"],
   ["3013", "Gogineni Venkateswara Rao (Share Capital)", "equity", "equity", undefined, "3010"],
@@ -185,7 +185,7 @@ const COA: Array<[string, string, AcctType, AcctSubtype, string?, string?, boole
   ["6310", "Vehicle Maintenance", "expense", "expense", undefined, "6300"],
   ["6311", "Insurance Expenses", "expense", "expense", undefined, "6300"],
   ["6312", "Interest on TDS", "expense", "expense", undefined, "6300"],
-  ["6313", "Bank Charges & Commission", "expense", "expense", "bank_charges", "6300"],
+  ["6313", "Bank Charges & Commission", "expense", "expense", undefined, "6300"],
 
   ["6400", "Selling & Distribution Expenses", "expense", "expense", undefined, undefined, true],
   ["6401", "Advertisement & Marketing", "expense", "expense", undefined, "6400"],
