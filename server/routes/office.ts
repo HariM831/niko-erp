@@ -1729,8 +1729,10 @@ async function settlementContext(tx: Tx | typeof db, receiptId: string) {
  * also weighs what is not a purchase — scrap, gunny bags, feed going out —
  * and nothing links a slip to a goods receipt. The two record the same
  * weighing, though: same vehicle, same gross, same tare (GR-00005 and WS-00006
- * both read 56,850 − 14,920). Matched on that, or on the vehicle and the net
- * within three days of arrival where one side's weights were corrected. Read
+ * both read 56,850 − 14,920). Matched on that; or, within three days of
+ * arrival, on the vehicle and the same net or the same gross (a tare corrected
+ * on one side, as GR-00022's was), or on the same gross and tare under a plate
+ * keyed differently (GR-00010 AS01MC2885, its slip AS01MC2285). Read
  * only; the slip stays the weighbridge's record, shown beside the receipt's
  * photos (29 Sep 2026).
  */
@@ -1747,13 +1749,20 @@ officeRouter.get("/receipts/:id/weigh-slips", requirePermission("office", "view"
              ORDER BY a.created_at LIMIT 1) AS "photoId",
            (t.gross_weight_kg = ${receipt.grossWeightKg} AND t.tare_weight_kg = ${receipt.tareWeightKg}) AS "exact"
       FROM weigh_tickets t
-     WHERE upper(regexp_replace(t.vehicle_number, '[^A-Za-z0-9]', '', 'g'))
-         = upper(regexp_replace(${receipt.vehicleNumber}, '[^A-Za-z0-9]', '', 'g'))
-       AND (
-             (t.gross_weight_kg = ${receipt.grossWeightKg} AND t.tare_weight_kg = ${receipt.tareWeightKg})
-          OR (t.net_weight_kg = ${receipt.netWeightKg}
-              AND t.created_at BETWEEN ${receipt.arrivalAt}::timestamp - interval '3 days'
-                                   AND ${receipt.arrivalAt}::timestamp + interval '3 days')
+     WHERE (
+             upper(regexp_replace(t.vehicle_number, '[^A-Za-z0-9]', '', 'g'))
+               = upper(regexp_replace(${receipt.vehicleNumber}, '[^A-Za-z0-9]', '', 'g'))
+             AND (
+                   (t.gross_weight_kg = ${receipt.grossWeightKg} AND t.tare_weight_kg = ${receipt.tareWeightKg})
+                OR ((t.net_weight_kg = ${receipt.netWeightKg} OR t.gross_weight_kg = ${receipt.grossWeightKg})
+                    AND t.created_at BETWEEN ${receipt.arrivalAt}::timestamp - interval '3 days'
+                                         AND ${receipt.arrivalAt}::timestamp + interval '3 days')
+                 )
+           )
+        OR (
+             t.gross_weight_kg = ${receipt.grossWeightKg} AND t.tare_weight_kg = ${receipt.tareWeightKg}
+             AND t.created_at BETWEEN ${receipt.arrivalAt}::timestamp - interval '3 days'
+                                  AND ${receipt.arrivalAt}::timestamp + interval '3 days'
            )
      ORDER BY "exact" DESC NULLS LAST, abs(extract(epoch FROM t.created_at - ${receipt.arrivalAt}::timestamp))
      LIMIT 3
