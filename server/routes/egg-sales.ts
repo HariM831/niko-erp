@@ -19,8 +19,10 @@ import {
   eggSizeOffsets,
   eggSpotOrders,
   invoices,
+  orgProfile,
 } from "@shared/schema";
 import { db } from "../db";
+import { eggDaySpec, renderEggDay } from "../services/egg-day-pdf";
 import { latestForecast } from "../services/egg-price-forecast";
 import { requireAnyPermission, requirePermission } from "../lib/rbac";
 import { looseNumber, validateBody } from "../lib/validate";
@@ -524,6 +526,22 @@ eggSalesRouter.get("/day/:date", view, async (req, res) => {
     boxSizes: Object.fromEntries(EGG_SIZES.map((s) => [s, eggsInBox(s, prefs)])),
     boxRates,
   });
+});
+
+/**
+ * The day's sheet as a PDF: Orders (boxes) or Sales (boxes, rates, amounts),
+ * one row per customer and a column per grade — the Benchmark page's two
+ * printouts, as Amino's page had.
+ */
+eggSalesRouter.get("/day/:date/sheet.pdf", view, async (req, res) => {
+  const on = req.params.date!;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(on)) return res.status(400).json({ error: "Bad date" });
+  const kind = req.query.kind === "sales" ? "sales" : "orders";
+  const [org] = await db.select({ name: orgProfile.name }).from(orgProfile).limit(1);
+  const pdf = await renderEggDay(await eggDaySpec(db, on, kind, org?.name ?? "Niko"));
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="${kind === "sales" ? "Sales" : "Orders"}-${on}.pdf"`);
+  res.send(pdf);
 });
 
 /** Customers for the pickers: anyone the books can invoice. */

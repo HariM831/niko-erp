@@ -8,7 +8,7 @@
  * is the spread on their agreement.
  */
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { FileText, Loader2 } from "lucide-react";
 import { api, formatDate } from "../api";
 import { DIRECT_RATE_SIZES, EGG_SIZE_LABEL, VISIBLE_EGG_SIZES, isDirectRate, type EggSize } from "@shared/egg-sizes";
 import { localYmd } from "../lib/utils";
@@ -174,8 +174,20 @@ export function EggBenchmarkPage() {
   return (
     <div className="p-4 md:p-6">
       <div className="page-header -mx-4 px-4 py-3 md:-mx-6 md:px-6 mb-4">
-        <h1 className="text-2xl font-semibold">Egg benchmark</h1>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h1 className="text-2xl font-semibold">Egg benchmark</h1>
+          {/* The day's orders, for the date being set below — tomorrow unless changed. */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">{formatDate(date)}</span>
+            <a className="btn-secondary inline-flex items-center gap-1.5" href={`/api/sales/eggs/day/${date}/sheet.pdf?kind=orders`} target="_blank" rel="noreferrer">
+              <FileText size={14} /> Orders PDF
+            </a>
+            <a className="btn-secondary inline-flex items-center gap-1.5" href={`/api/sales/eggs/day/${date}/sheet.pdf?kind=sales`} target="_blank" rel="noreferrer">
+              <FileText size={14} /> Sales PDF
+            </a>
+          </div>
         </div>
+      </div>
 
       {loading ? (
         <div className="py-16 text-center text-sm text-muted-foreground">reading…</div>
