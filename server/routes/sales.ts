@@ -2,8 +2,11 @@ import { Router } from "express";
 import { and, asc, desc, eq, getTableColumns, gte, inArray, lte, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
+  attachments,
   bankAccounts,
+  bankTransactions,
   eggDispatches,
+  journalEntries,
   contacts,
   customerPayments,
   inventoryTransactions,
@@ -16,7 +19,7 @@ import { db, type Tx } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { gstStateCode, validateBody } from "../lib/validate";
 import { nextDocumentNumber } from "../lib/numbering";
-import { PostingError, postJournal, reverseJournal } from "../services/posting";
+import { PostingError, assertPeriodOpen, postJournal, reverseJournal } from "../services/posting";
 import { moveStock } from "../services/inventory";
 import { retakeInvoiceStock, unapplyInvoicePayments, voidDispatchForInvoice } from "../services/egg-sales";
 import { advancedSearch, listLimit, quickSearch } from "../services/document-search";
@@ -1077,6 +1080,86 @@ salesRouter.patch(
     }
   },
 );
+
+/**
+ * Delete a payment received, as Zoho's Delete does: the payment is gone and
+ * every invoice it settled is owed again.
+ *
+ * Each invoice gets back what this payment took off it — at the time it was
+ * received or through a later application of its excess — and its status
+ * follows (sent, or partly paid where something else still pays it). The
+ * payment's journals, the one standing and any an earlier edit reversed, are
+ * removed with it, so the bank and the customer's account read as if it had
+ * never been recorded; the activity log keeps who deleted it and when.
+ *
+ * Refused inside a locked period, and refused while any of its journals is
+ * matched to a bank statement line: the statement says the money came in, and
+ * the match has to be undone in Banking first.
+ */
+salesRouter.delete("/payments/:id", requirePermission("sales", "delete"), async (req, res) => {
+  try {
+    const out = await db.transaction((tx) => deleteCustomerPayment(tx, req.params.id!));
+    res.json(out);
+  } catch (err) {
+    if (err instanceof PostingError) return res.status(422).json({ error: err.message });
+    throw err;
+  }
+});
+
+export async function deleteCustomerPayment(tx: Tx, paymentId: string) {
+  const payment = await tx.query.customerPayments.findFirst({ where: eq(customerPayments.id, paymentId) });
+  if (!payment) throw new PostingError("Payment not found");
+  await assertPeriodOpen(tx, payment.paymentDate, "customer_payment");
+
+  const entries = await tx
+    .select({ id: journalEntries.id, isReversal: journalEntries.isReversal })
+    .from(journalEntries)
+    .where(and(eq(journalEntries.sourceType, "customer_payment"), eq(journalEntries.sourceId, payment.id)));
+  const entryIds = entries.map((e) => e.id);
+  if (entryIds.length) {
+    const [matched] = await tx
+      .select({ id: bankTransactions.id })
+      .from(bankTransactions)
+      .where(inArray(bankTransactions.matchedJournalEntryId, entryIds))
+      .limit(1);
+    if (matched) {
+      throw new PostingError(
+        `${payment.number} is matched to a bank statement line — unmatch it in Banking before deleting it`,
+      );
+    }
+  }
+
+  // Every invoice it settled is owed again, by what this payment took off it.
+  const apps = await tx.select().from(paymentApplications).where(eq(paymentApplications.paymentId, payment.id));
+  const reopened: string[] = [];
+  for (const app of apps) {
+    const inv = await tx.query.invoices.findFirst({ where: eq(invoices.id, app.invoiceId) });
+    if (!inv) continue;
+    const restoredP = toPaise(inv.balanceDue) + toPaise(app.amountApplied);
+    await tx
+      .update(invoices)
+      .set({
+        balanceDue: fromPaise(restoredP),
+        status: restoredP === toPaise(inv.total) ? "sent" : "partially_paid",
+        updatedAt: new Date(),
+      })
+      .where(eq(invoices.id, inv.id));
+    reopened.push(inv.number);
+  }
+  await tx.delete(paymentApplications).where(eq(paymentApplications.paymentId, payment.id));
+  await tx.delete(customerPayments).where(eq(customerPayments.id, payment.id));
+
+  // Its journals: the reversals an earlier edit made first, then the rest.
+  const reversals = entries.filter((e) => e.isReversal).map((e) => e.id);
+  const originals = entries.filter((e) => !e.isReversal).map((e) => e.id);
+  if (reversals.length) await tx.delete(journalEntries).where(inArray(journalEntries.id, reversals));
+  if (originals.length) await tx.delete(journalEntries).where(inArray(journalEntries.id, originals));
+  await tx
+    .delete(attachments)
+    .where(and(eq(attachments.entityType, "customer_payment"), eq(attachments.entityId, payment.id)));
+
+  return { number: payment.number, invoicesReopened: reopened };
+}
 
 // ---------- Re-post helper (used by Bulk Update) ----------
 //

@@ -138,23 +138,22 @@ export function PaymentDetailPage({ side, id }: { side: "customer" | "vendor"; i
           <button onClick={() => navigate(`${backPath}/${id}/edit`)} className="btn-ghost">
             Edit
           </button>
-          {!isCustomer && (
-            <button
-              onClick={async () => {
-                if (!confirm(`Delete ${doc.number}? The bills it paid will be owed again.`)) return;
-                try {
-                  await api(`${endpoint}/${id}`, { method: "DELETE" });
-                  await qc.invalidateQueries();
-                  navigate(backPath);
-                } catch (e) {
-                  alert(e instanceof Error ? e.message : "Could not delete the payment");
-                }
-              }}
-              className="btn-ghost text-red-600 hover:bg-red-50"
-            >
-              Delete
-            </button>
-          )}
+          <button
+            onClick={async () => {
+              if (!confirm(`Delete ${doc.number}? The ${isCustomer ? "invoices it settled" : "bills it paid"} will be owed again.`)) return;
+              try {
+                await api(`${endpoint}/${id}`, { method: "DELETE" });
+                await qc.invalidateQueries();
+                navigate(backPath);
+              } catch (e) {
+                alert(e instanceof Error ? e.message : "Could not delete the payment");
+              }
+            }}
+            className="btn-ghost text-red-600 hover:bg-red-50"
+          >
+            Delete
+          </button>
+
           <button onClick={() => window.print()} className="btn-ghost">
             PDF/Print
           </button>
