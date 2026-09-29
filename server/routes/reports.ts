@@ -918,6 +918,87 @@ reportsRouter.get("/sales-by-customer", requirePermission("reports", "view"), as
  * there is no vendor to attribute one to. Zoho shows a Journal Count column;
  * printing one full of zeros would claim an attribution that does not exist.
  */
+/**
+ * Every purchase order, with what has actually come off the lorries against it.
+ *
+ * The stored status says what the office did with the paper — issued, billed —
+ * and says nothing about delivery: PO-00014 had all 35,000 kg in and still read
+ * "issued". So the report's status is worked out from the kilos received
+ * (the user, 29 Sep 2026): Open with nothing in, Partial below 95% of the order,
+ * Closed from 95% — a weighbridge difference is not an open order — and past
+ * 105% still Closed but flagged as over-delivered. Billed or closed on paper is
+ * Closed whatever the kilos; cancelled stays Cancelled. Drafts were never sent
+ * and are left out. The date range is on the order date.
+ */
+reportsRouter.get("/purchase-orders", requirePermission("reports", "view"), async (req, res) => {
+  const { from, to } = req.query as Record<string, string | undefined>;
+  const today = istDate();
+  const found = await db.execute(sql`
+    SELECT po.id, po.number, po.order_date, po.expected_delivery_date, po.status, po.total,
+           c.id AS vendor_id, c.display_name AS vendor,
+           string_agg(DISTINCT coalesce(i.name, l.name), ', ') AS items,
+           coalesce(sum(l.quantity), 0) AS ordered,
+           coalesce(sum(l.delivered_quantity), 0) AS received,
+           CASE WHEN count(DISTINCT coalesce(l.unit, 'kg')) = 1 THEN min(coalesce(l.unit, 'kg')) ELSE 'units' END AS unit
+      FROM purchase_orders po
+      JOIN contacts c ON c.id = po.vendor_id
+      LEFT JOIN purchase_order_lines l ON l.purchase_order_id = po.id
+      LEFT JOIN items i ON i.id = l.item_id
+     WHERE po.status <> 'draft'
+       ${from ? sql`AND po.order_date >= ${from}` : sql``}
+       ${to ? sql`AND po.order_date <= ${to}` : sql``}
+     GROUP BY po.id, c.id
+     ORDER BY po.order_date DESC, po.number DESC`);
+
+  type Status = "open" | "partial" | "closed" | "cancelled";
+  const rows = (found.rows as Array<Record<string, string | null>>).map((r) => {
+    const ordered = Number(r.ordered ?? 0);
+    const received = Number(r.received ?? 0);
+    const ratio = ordered > 0 ? received / ordered : 0;
+    const status: Status =
+      r.status === "cancelled"
+        ? "cancelled"
+        : r.status === "billed" || r.status === "closed" || (ordered > 0 && ratio >= 0.95)
+          ? "closed"
+          : received > 0
+            ? "partial"
+            : "open";
+    const pending = status === "open" || status === "partial";
+    return {
+      id: r.id!,
+      number: r.number!,
+      orderDate: r.order_date!,
+      expectedDeliveryDate: r.expected_delivery_date,
+      vendorId: r.vendor_id!,
+      vendor: r.vendor!,
+      items: r.items ?? "",
+      unit: r.unit ?? "kg",
+      ordered,
+      received,
+      balance: pending ? Math.max(ordered - received, 0) : 0,
+      total: r.total ?? "0",
+      storedStatus: r.status!,
+      status,
+      overDelivered: status !== "cancelled" && ordered > 0 && ratio > 1.05,
+      overdue: pending && !!r.expected_delivery_date && r.expected_delivery_date < today,
+    };
+  });
+
+  const summary = Object.fromEntries(
+    (["open", "partial", "closed", "cancelled"] as const).map((s) => {
+      const of = rows.filter((r) => r.status === s);
+      return [s, { count: of.length, value: of.reduce((a, r) => a + Number(r.total), 0).toFixed(2) }];
+    }),
+  );
+  res.json({
+    rows,
+    summary,
+    pendingQuantity: rows.reduce((a, r) => a + r.balance, 0),
+    overdueCount: rows.filter((r) => r.overdue).length,
+    asOf: today,
+  });
+});
+
 reportsRouter.get("/purchases-by-vendor", requirePermission("reports", "view"), async (req, res) => {
   const { from, to } = req.query as Record<string, string | undefined>;
 

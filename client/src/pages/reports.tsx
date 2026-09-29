@@ -82,6 +82,12 @@ const REPORTS: ReportDef[] = [
     period: "range",
   },
   {
+    key: "purchase-orders",
+    label: "Purchase Order Details",
+    category: "Purchases and Expenses",
+    period: "range",
+  },
+  {
     key: "expense-by-category",
     label: "Expenses by Category",
     category: "Purchases and Expenses",
@@ -782,6 +788,8 @@ function ReportBody({
 
     case "purchases-by-vendor":
       return <PurchasesByVendor data={data} />;
+    case "purchase-orders":
+      return <PurchaseOrdersReport data={data as unknown as PoReportData} />;
 
     case "expense-by-category":
       return <ExpenseByCategory data={data} />;
@@ -1025,6 +1033,166 @@ function SalesByCustomer({ data }: { data: Record<string, unknown> }) {
  * spends is claimed rather than billed, so a bills-only version of this report
  * would be missing the larger half of it.
  */
+type PoStatus = "open" | "partial" | "closed" | "cancelled";
+interface PoReportData {
+  rows: Array<{
+    id: string;
+    number: string;
+    orderDate: string;
+    expectedDeliveryDate: string | null;
+    vendorId: string;
+    vendor: string;
+    items: string;
+    unit: string;
+    ordered: number;
+    received: number;
+    balance: number;
+    total: string;
+    status: PoStatus;
+    overDelivered: boolean;
+    overdue: boolean;
+  }>;
+  summary: Record<PoStatus, { count: number; value: string }>;
+  pendingQuantity: number;
+  overdueCount: number;
+}
+
+const PO_STATUS: Record<PoStatus, { label: string; badge: string; bar: string }> = {
+  open: { label: "Open", badge: "bg-amber-50 text-amber-700", bar: "bg-brand-500" },
+  partial: { label: "Partial", badge: "bg-blue-50 text-blue-700", bar: "bg-blue-500" },
+  closed: { label: "Closed", badge: "bg-green-50 text-green-700", bar: "bg-green-600" },
+  cancelled: { label: "Cancelled", badge: "bg-gray-100 text-gray-500", bar: "bg-gray-300" },
+};
+
+/**
+ * Every purchase order and how much of it has come in, filtered by the status
+ * worked out on the server from the kilos received (Open, Partial, Closed at
+ * 95-105% of the order, Cancelled). The filter lives in the URL with the
+ * period, so a filtered view can be shared.
+ */
+function PurchaseOrdersReport({ data }: { data: PoReportData }) {
+  const [location, navigate] = useLocation();
+  const search = useSearch();
+  const status = (new URLSearchParams(search).get("status") ?? "all") as PoStatus | "all";
+  const setStatus = (s: PoStatus | "all") => {
+    const p = new URLSearchParams(search);
+    if (s === "all") p.delete("status");
+    else p.set("status", s);
+    navigate(`${location}?${p}`);
+  };
+  const rows = status === "all" ? data.rows : data.rows.filter((r) => r.status === status);
+  const qty = (n: number) => Math.round(n).toLocaleString("en-IN");
+  const listed = rows.reduce((a, r) => a + Number(r.total), 0);
+
+  return (
+    <Sheet>
+      <div className="mb-4 flex flex-wrap gap-2">
+        {(["all", "open", "partial", "closed", "cancelled"] as const).map((s) => (
+          <button
+            key={s}
+            onClick={() => setStatus(s)}
+            className={`rounded-full border px-3 py-1 text-[13px] ${
+              status === s ? "border-brand-300 bg-brand-50 font-medium text-brand-700" : "border-gray-200 text-gray-700 hover:bg-gray-50"
+            }`}
+          >
+            {s === "all" ? "All" : PO_STATUS[s].label} · {s === "all" ? data.rows.length : data.summary[s].count}
+          </button>
+        ))}
+      </div>
+
+      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {(["open", "partial", "closed"] as const).map((s) => (
+          <div key={s} className="rounded-md bg-gray-50 px-3 py-2">
+            <div className="text-[12px] text-gray-500">{PO_STATUS[s].label}</div>
+            <div className="text-[18px] font-semibold tabular-nums">{data.summary[s].count}</div>
+            <div className="text-[12px] tabular-nums text-gray-500">₹{num(data.summary[s].value)}</div>
+          </div>
+        ))}
+        <div className="rounded-md bg-gray-50 px-3 py-2">
+          <div className="text-[12px] text-gray-500">Still to come</div>
+          <div className="text-[18px] font-semibold tabular-nums">{qty(data.pendingQuantity)} kg</div>
+          <div className={`text-[12px] ${data.overdueCount ? "text-red-600" : "text-gray-500"}`}>
+            {data.overdueCount} past expected date
+          </div>
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
+        <p className="py-6 text-center text-[13px] text-gray-500">No purchase orders with this status in the period.</p>
+      ) : (
+        <table className="w-full text-[13px]">
+          <thead>
+            <tr>
+              <th className={`${HEAD_CELL} pl-5 text-left`}>PO</th>
+              <th className={`${HEAD_CELL} text-left`}>Date</th>
+              <th className={`col-portrait-hide ${HEAD_CELL} text-left`}>Expected</th>
+              <th className={`${HEAD_CELL} text-left`}>Vendor · material</th>
+              <th className={`${HEAD_CELL} w-44 text-left`}>Received of ordered</th>
+              <th className={`col-portrait-hide ${HEAD_CELL} text-right`}>Balance</th>
+              <th className={`${HEAD_CELL} text-right`}>Value (₹)</th>
+              <th className={`${HEAD_CELL} text-left`}>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              const pct = r.ordered > 0 ? Math.min(r.received / r.ordered, 1) : 0;
+              return (
+                <tr key={r.id} className="border-b border-[#eee] align-top">
+                  <td className="px-2 py-2 pl-5">
+                    <Link href={`/purchases/orders/${r.id}`} className="font-medium text-[#e06d05] hover:underline">
+                      {r.number}
+                    </Link>
+                  </td>
+                  <td className="whitespace-nowrap px-2 py-2">{dmy(r.orderDate)}</td>
+                  <td className={`col-portrait-hide whitespace-nowrap px-2 py-2 ${r.overdue ? "text-red-600" : ""}`}>
+                    {r.expectedDeliveryDate ? dmy(r.expectedDeliveryDate) : "—"}
+                  </td>
+                  <td className="px-2 py-2">
+                    <Link href={`/purchases/vendors/${r.vendorId}`} className="hover:underline">
+                      {r.vendor}
+                    </Link>
+                    <div className="text-[12px] text-gray-500">{r.items}</div>
+                  </td>
+                  <td className="px-2 py-2">
+                    <div className="tabular-nums">
+                      {qty(r.received)} / {qty(r.ordered)} {r.unit}
+                      {r.overDelivered && (
+                        <span className="ml-1 text-amber-600" title="More than 105% of the order received">
+                          +{Math.round((r.received / r.ordered - 1) * 100)}% over
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-1 h-1.5 rounded bg-gray-100">
+                      <div className={`h-1.5 rounded ${PO_STATUS[r.status].bar}`} style={{ width: `${Math.round(pct * 100)}%` }} />
+                    </div>
+                  </td>
+                  <td className="col-portrait-hide px-2 py-2 text-right tabular-nums">{r.balance ? qty(r.balance) : "—"}</td>
+                  <td className="px-2 py-2 text-right tabular-nums">{num(r.total)}</td>
+                  <td className="px-2 py-2">
+                    <span className={`rounded px-2 py-0.5 text-[12px] ${PO_STATUS[r.status].badge}`}>{PO_STATUS[r.status].label}</span>
+                    {r.overdue && <div className="mt-1 text-[11px] text-red-600">past expected date</div>}
+                  </td>
+                </tr>
+              );
+            })}
+            <tr className="font-bold">
+              <td className="px-2 py-2.5 pl-5" colSpan={6}>
+                Total · {rows.length} purchase order{rows.length === 1 ? "" : "s"}
+              </td>
+              <td className="px-2 py-2.5 text-right tabular-nums">{num(listed.toFixed(2))}</td>
+              <td />
+            </tr>
+          </tbody>
+        </table>
+      )}
+      <p className="mt-3 text-[12px] text-gray-400">
+        Status is worked out from the kilos received: Closed at 95–105% of the order (flagged when over), Partial below 95%,
+        Open with nothing received. Billed orders count as Closed.
+      </p>
+    </Sheet>
+  );
+}
+
 function PurchasesByVendor({ data }: { data: Record<string, unknown> }) {
   const rows = data.rows as Array<{
     contactId: string | null;
