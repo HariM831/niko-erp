@@ -57,19 +57,29 @@ function withReading(base: Draft, r: SheetReading): { draft: Draft; marks: Set<s
   return { draft, marks };
 }
 
+/**
+ * The paper sheet's closing line laid over the count, one total per size, and
+ * which sizes it touched. Suggestions like the grading cells: nothing is saved
+ * until the count is.
+ */
+function countFromReading(base: Record<Size, string>, r: SheetReading): { draft: Record<Size, string>; marks: Set<Size> } {
+  const draft = { ...base };
+  const marks = new Set<Size>();
+  for (const z of SIZES) {
+    const n = r.stock?.[z]?.closing;
+    if (n == null) continue;
+    draft[z] = n ? String(n) : "";
+    marks.add(z);
+  }
+  return { draft, marks };
+}
+
 interface Row {
   houseId: string;
   code: string;
   purpose: string;
   boxes: Record<Size, number>;
   entered: boolean;
-  /** The shed's previous evening count, and when it was taken. */
-  opening: Record<Size, number> | null;
-  openingFrom: string | null;
-  closing: Record<Size, number> | null;
-  counted: boolean;
-  /** opening + graded − counted: what left the shed. */
-  lifted: Record<Size, number> | null;
 }
 
 interface Summary {
@@ -84,7 +94,8 @@ interface Sheet {
   date: string;
   rows: Row[];
   summary: Record<Size, Summary>;
-  countedTotal: Record<Size, number> | null;
+  /** The evening count, one total per size; null until counted. */
+  count: Record<Size, number> | null;
   /** Counted minus the ledger's closing, per size. */
   variance: Record<Size, number> | null;
   bands: { smallMaxKg: string; mediumMaxKg: string; largeMaxKg: string };
@@ -104,7 +115,11 @@ export function EggGradingPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
-  const [closingDraft, setClosingDraft] = useState<Record<string, Record<Size, string>>>({});
+  const [closingDraft, setClosingDraft] = useState<Record<Size, string>>(
+    () => Object.fromEntries(SIZES.map((z) => [z, ""])) as Record<Size, string>,
+  );
+  /** Count cells the photo's closing line filled that nobody has touched since. */
+  const [countFromPhoto, setCountFromPhoto] = useState<Set<Size>>(new Set());
   const [savingClosing, setSavingClosing] = useState(false);
   const [closingSaved, setClosingSaved] = useState<string | null>(null);
   const [reading, setReading] = useState(false);
@@ -127,25 +142,25 @@ export function EggGradingPage() {
             Object.fromEntries(SIZES.map((z) => [z, r.boxes[z] ? String(r.boxes[z]) : ""])) as Record<Size, string>,
           ]),
         );
+        const countBase = Object.fromEntries(
+          SIZES.map((z) => [z, s.count?.[z] ? String(s.count[z]) : ""]),
+        ) as Record<Size, string>;
         // A photo dated for this day lands once the day's own sheet is here,
         // so it lays over what was already saved rather than replacing it.
         if (pending && pending.date === s.date) {
           const out = withReading(base, pending);
           setDraft(out.draft);
           setFromPhoto(out.marks);
+          const counted = countFromReading(countBase, pending);
+          setClosingDraft(counted.draft);
+          setCountFromPhoto(counted.marks);
           setPending(null);
         } else {
           setDraft(base);
           setFromPhoto(new Set());
+          setClosingDraft(countBase);
+          setCountFromPhoto(new Set());
         }
-        setClosingDraft(
-          Object.fromEntries(
-            s.rows.map((r) => [
-              r.houseId,
-              Object.fromEntries(SIZES.map((z) => [z, r.closing?.[z] ? String(r.closing[z]) : ""])) as Record<Size, string>,
-            ]),
-          ),
-        );
       })
       .finally(() => setLoading(false));
   };
@@ -184,6 +199,9 @@ export function EggGradingPage() {
         const out = withReading(draft, r);
         setDraft(out.draft);
         setFromPhoto(out.marks);
+        const counted = countFromReading(closingDraft, r);
+        setClosingDraft(counted.draft);
+        setCountFromPhoto(counted.marks);
       }
     } catch (e) {
       setReadError(e instanceof Error ? e.message : "Could not read the photo");
@@ -193,9 +211,14 @@ export function EggGradingPage() {
     }
   };
 
-  const setClosing = (houseId: string, size: Size, v: string) => {
+  const setClosing = (size: Size, v: string) => {
     setClosingSaved(null);
-    setClosingDraft({ ...closingDraft, [houseId]: { ...closingDraft[houseId]!, [size]: v } });
+    setClosingDraft({ ...closingDraft, [size]: v });
+    if (countFromPhoto.has(size)) {
+      const next = new Set(countFromPhoto);
+      next.delete(size);
+      setCountFromPhoto(next);
+    }
   };
 
   const saveClosing = async () => {
@@ -206,10 +229,7 @@ export function EggGradingPage() {
         method: "POST",
         body: {
           countedOn: date,
-          rows: Object.entries(closingDraft).map(([houseId, boxes]) => ({
-            houseId,
-            boxes: Object.fromEntries(SIZES.map((z) => [z, Number(boxes[z]) || 0])),
-          })),
+          boxes: Object.fromEntries(SIZES.map((z) => [z, Number(closingDraft[z]) || 0])),
         },
       });
       setClosingSaved(r.adjustmentNumber ? `saved · ledger adjusted by ${r.adjustmentNumber}` : "saved · ledger already agreed");
@@ -423,77 +443,59 @@ export function EggGradingPage() {
 
           <div className="mb-1 mt-6 flex items-baseline justify-between">
             <div className="text-xs font-semibold uppercase tracking-wide text-soil-400">
-              Closing count by shed
+              Closing count
             </div>
             <div className="text-[11px] text-muted-foreground">
-              The evening count in each shed's room. What left the shed is derived: opening + graded − counted.
+              The evening count on the packing room's shelves, one total per size.
             </div>
           </div>
           <div className="overflow-x-auto rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
             <table className="data-table cols-auto w-full text-sm">
               <thead className="bg-soil-50 text-left text-[11px] font-semibold uppercase text-soil-400">
                 <tr className="border-b border-soil-100">
-                  <th className="col-fill whitespace-nowrap px-3 py-2 text-left">Shed</th>
+                  <th className="col-fill whitespace-nowrap px-3 py-2 text-left" />
                   {SIZES.map((z) => (
                     <th key={z} className="whitespace-nowrap px-3 py-2 text-right">
                       <span className="lg:hidden">{SHORT[z]}</span><span className="hidden lg:inline">{LABEL[z]}</span>
                     </th>
                   ))}
                   <th className="whitespace-nowrap px-3 py-2 text-right"><span className="lg:hidden">Tot</span><span className="hidden lg:inline">Total</span></th>
-                  <th className="whitespace-nowrap px-3 py-2 text-right"><span className="lg:hidden">Lift</span><span className="hidden lg:inline">Lifted</span></th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => {
-                  const total = SIZES.reduce((a, z) => a + (Number(closingDraft[r.houseId]?.[z]) || 0), 0);
-                  const liftedTotal = r.lifted ? SIZES.reduce((a, z) => a + (r.lifted![z] ?? 0), 0) : null;
-                  return (
-                    <tr key={r.houseId} className="border-b border-soil-100/70 last:border-0 transition-colors hover:bg-yolk-50/70">
-                      <td className="px-3 py-1.5">
-                        <div className="font-medium">{r.code}</div>
-                        {r.opening && (
-                          <div className="text-[10px] text-muted-foreground">
-                            opened {num(SIZES.reduce((a, z) => a + (r.opening![z] ?? 0), 0))} · counted {r.openingFrom}
-                          </div>
-                        )}
-                      </td>
-                      {SIZES.map((z) => (
-                        <td key={z} className="px-2 py-1.5">
-                          <input
-                            type="number"
-                            min="0"
-                            value={closingDraft[r.houseId]?.[z] ?? ""}
-                            onChange={(e) => setClosing(r.houseId, z, e.target.value)}
-                            className={inputCls}
-                            placeholder="—"
-                          />
-                        </td>
-                      ))}
-                      <td className="px-3 py-1.5 text-right font-medium tabular-nums">{total ? num(total) : "—"}</td>
-                      <td className={`px-3 py-1.5 text-right tabular-nums ${liftedTotal != null && liftedTotal < 0 ? "text-destructive" : "text-muted-foreground"}`}>
-                        {liftedTotal != null ? num(liftedTotal) : "—"}
-                      </td>
-                    </tr>
-                  );
-                })}
-                <tr className="border-t border-soil-100 bg-soil-50 font-semibold">
-                  <td className="col-fill px-3 py-2">Counted</td>
-                  {SIZES.map((z) => {
-                    const v = Object.values(closingDraft).reduce((a, r) => a + (Number(r[z]) || 0), 0);
-                    return (
-                      <td key={z} className="px-3 py-2 text-right tabular-nums">
-                        {v ? num(v) : "—"}
-                      </td>
-                    );
-                  })}
-                  <td className="px-3 py-2 text-right tabular-nums">
-                    {num(SIZES.reduce((a, z) => a + Object.values(closingDraft).reduce((b, r) => b + (Number(r[z]) || 0), 0), 0))}
+                <tr className="border-b border-soil-100/70">
+                  <td className="px-3 py-1.5 font-medium">Counted</td>
+                  {SIZES.map((z) => (
+                    <td key={z} className="px-2 py-1.5">
+                      <input
+                        type="number"
+                        min="0"
+                        value={closingDraft[z] ?? ""}
+                        onChange={(e) => setClosing(z, e.target.value)}
+                        className={`${inputCls} ${countFromPhoto.has(z) ? "border-yolk-400 bg-yolk-50/60" : ""}`}
+                        placeholder="—"
+                        title={countFromPhoto.has(z) ? "From the photo's closing line" : undefined}
+                      />
+                    </td>
+                  ))}
+                  <td className="px-3 py-1.5 text-right font-medium tabular-nums">
+                    {num(SIZES.reduce((a, z) => a + (Number(closingDraft[z]) || 0), 0))}
                   </td>
-                  <td />
+                </tr>
+                <tr className="border-b border-soil-100/70 text-xs text-muted-foreground">
+                  <td className="px-3 py-1.5">Ledger closing</td>
+                  {SIZES.map((z) => (
+                    <td key={z} className="px-3 py-1.5 text-right tabular-nums">
+                      {num(sheet.summary[z]?.closing ?? 0)}
+                    </td>
+                  ))}
+                  <td className="px-3 py-1.5 text-right tabular-nums">
+                    {num(SIZES.reduce((a, z) => a + (sheet.summary[z]?.closing ?? 0), 0))}
+                  </td>
                 </tr>
                 {sheet.variance && (
                   <tr className="border-t border-soil-200 text-xs">
-                    <td className="px-3 py-1.5 text-muted-foreground">vs ledger closing</td>
+                    <td className="px-3 py-1.5 text-muted-foreground">Counted vs ledger</td>
                     {SIZES.map((z) => {
                       const v = sheet.variance![z] ?? 0;
                       return (
@@ -508,7 +510,6 @@ export function EggGradingPage() {
                         return <span className={v === 0 ? "text-success" : v < 0 ? "text-destructive" : "text-warning"}>{v === 0 ? "agrees" : `${v > 0 ? "+" : ""}${num(v)}`}</span>;
                       })()}
                     </td>
-                    <td />
                   </tr>
                 )}
               </tbody>

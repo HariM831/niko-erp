@@ -251,18 +251,18 @@ export const eggGrading = pgTable(
 );
 
 /**
- * The evening count, per shed — the one figure the ledger cannot derive.
- * Recorded as a count, never written into stock by itself; a difference
- * against the ledger is posted as an adjustment, where a difference belongs.
+ * The evening count — the one figure the ledger cannot derive. One total per
+ * size for the day, as the packing room counts its shelves (29 Sep 2026: "closing
+ * is one total per size"); eggs are not counted by the shed they came from once
+ * they are boxed. Recorded as a count, never written into stock by itself; a
+ * difference against the ledger is posted as an adjustment, where a difference
+ * belongs.
  */
-export const eggHouseClosing = pgTable(
-  "egg_house_closing",
+export const eggStockCount = pgTable(
+  "egg_stock_count",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     countedOn: date("counted_on").notNull(),
-    houseId: uuid("house_id")
-      .notNull()
-      .references(() => houses.id),
     small: integer("small").notNull().default(0),
     medium: integer("medium").notNull().default(0),
     large: integer("large").notNull().default(0),
@@ -279,10 +279,7 @@ export const eggHouseClosing = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [
-    uniqueIndex("uq_egg_house_closing_day").on(t.houseId, t.countedOn),
-    index("ix_egg_house_closing_day").on(t.countedOn),
-  ],
+  (t) => [uniqueIndex("uq_egg_stock_count_day").on(t.countedOn)],
 );
 
 /**

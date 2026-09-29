@@ -23,7 +23,7 @@ import {
   eggBoxRates,
   eggDispatches,
   eggGrading,
-  eggHouseClosing,
+  eggStockCount,
   eggSalesPreferences,
   eggSizeItems,
   eggSizeOffsets,
@@ -707,9 +707,12 @@ export async function settleCountAgainstLedger(
     closing[s] = held[s] - Number(after?.q ?? 0);
   }
 
-  // The sum of the sheds' counts.
-  const counts = await tx.select().from(eggHouseClosing).where(eq(eggHouseClosing.countedOn, on));
-  const counted = Object.fromEntries(EGG_SIZES.map((s) => [s, counts.reduce((a, c) => a + c[s], 0)])) as Record<EggSize, number>;
+  // The packing room's count for the day, one total per size.
+  const [count] = await tx.select().from(eggStockCount).where(eq(eggStockCount.countedOn, on));
+  if (!count) {
+    return { adjustmentNumber: null, variance: Object.fromEntries(EGG_SIZES.map((s) => [s, 0])) as Record<EggSize, number> };
+  }
+  const counted = Object.fromEntries(EGG_SIZES.map((s) => [s, count[s]])) as Record<EggSize, number>;
   const variance = Object.fromEntries(EGG_SIZES.map((s) => [s, counted[s] - closing[s]])) as Record<EggSize, number>;
 
   const lines = EGG_SIZES.filter((s) => variance[s] !== 0);
@@ -729,7 +732,7 @@ export async function settleCountAgainstLedger(
       adjustmentDate: on,
       mode: "quantity",
       reason: `Egg count ${on}`,
-      description: `Evening count across the sheds against the ledger: ${lines
+      description: `Evening count in the packing room against the ledger: ${lines
         .map((s) => `${SIZE_LABEL[s]} ${variance[s] > 0 ? "+" : ""}${variance[s]}`)
         .join(", ")}`,
       adjustmentAccountId: account.id,

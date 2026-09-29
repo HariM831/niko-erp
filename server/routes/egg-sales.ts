@@ -9,7 +9,7 @@ import {
   contacts,
   eggAgreementExceptions,
   eggGrading,
-  eggHouseClosing,
+  eggStockCount,
   houses,
   inventoryTransactions,
   eggAgreements,
@@ -593,67 +593,39 @@ eggSalesRouter.get("/grading/:date", eggStockRead, async (req, res) => {
   const byHouse = new Map(entries.map((e) => [e.houseId, e]));
 
   /**
-   * The evening count, and the shed's opening — which is simply the previous
-   * count taken for that shed, however many days back. A shed with no count
-   * on record opens at nothing known.
+   * The evening count: one total per size, as the packing room counts its
+   * shelves. Null until somebody counts.
    */
-  const counts = await db.select().from(eggHouseClosing).where(eq(eggHouseClosing.countedOn, on));
-  const countOf = new Map(counts.map((c) => [c.houseId, c]));
-  const previous = await db
-    .selectDistinctOn([eggHouseClosing.houseId])
-    .from(eggHouseClosing)
-    .where(sql`${eggHouseClosing.countedOn} < ${on}`)
-    .orderBy(eggHouseClosing.houseId, desc(eggHouseClosing.countedOn));
-  const prevOf = new Map(previous.map((c) => [c.houseId, c]));
+  const [countRow] = await db.select().from(eggStockCount).where(eq(eggStockCount.countedOn, on));
 
   const sized = (row: Record<string, unknown> | undefined) =>
     Object.fromEntries(EGG_SIZES.map((s) => [s, Number(row?.[s] ?? 0)])) as Record<(typeof EGG_SIZES)[number], number>;
 
-  const rows = houseRows.map((h) => {
-    const graded = sized(byHouse.get(h.id));
-    const opening = prevOf.has(h.id) ? sized(prevOf.get(h.id)) : null;
-    const closing = countOf.has(h.id) ? sized(countOf.get(h.id)) : null;
-    // What left the shed: opening + graded − counted. Only meaningful once
-    // both ends of the day are known.
-    const lifted =
-      opening && closing
-        ? (Object.fromEntries(EGG_SIZES.map((s) => [s, opening[s] + graded[s] - closing[s]])) as Record<string, number>)
-        : null;
-    return {
-      houseId: h.id,
-      code: h.code,
-      purpose: h.purpose,
-      boxes: graded,
-      entered: byHouse.has(h.id),
-      opening,
-      openingFrom: prevOf.get(h.id)?.countedOn ?? null,
-      closing,
-      counted: countOf.has(h.id),
-      lifted,
-    };
-  });
+  const rows = houseRows.map((h) => ({
+    houseId: h.id,
+    code: h.code,
+    purpose: h.purpose,
+    boxes: sized(byHouse.get(h.id)),
+    entered: byHouse.has(h.id),
+  }));
 
   const summary = await stockSummaryOn(on);
 
   /**
-   * The variance: the ledger's closing against the sum of the sheds' counts.
-   * Zero means the sheets, the bay and the rooms all agree; anything else is
-   * the day's question, and an adjustment's job to answer.
+   * The variance: the ledger's closing against the count. Zero means the
+   * sheets, the bay and the shelves all agree; anything else is the day's
+   * question, and an adjustment's job to answer.
    */
-  const countedTotal = rows.some((r) => r.counted)
-    ? (Object.fromEntries(
-        EGG_SIZES.map((s) => [s, rows.reduce((a, r) => a + (r.closing?.[s] ?? 0), 0)]),
-      ) as Record<string, number>)
-    : null;
-  const variance = countedTotal
-    ? (Object.fromEntries(EGG_SIZES.map((s) => [s, countedTotal[s]! - (summary[s]?.closing ?? 0)])) as Record<string, number>)
+  const count = countRow ? sized(countRow as unknown as Record<string, unknown>) : null;
+  const variance = count
+    ? (Object.fromEntries(EGG_SIZES.map((s) => [s, count[s] - (summary[s]?.closing ?? 0)])) as Record<string, number>)
     : null;
 
   res.json({
     date: on,
     rows,
     summary,
-    countedTotal,
+    count,
     variance,
     bands: {
       smallMaxKg: prefs.bandSmallMaxKg,
@@ -666,20 +638,12 @@ eggSalesRouter.get("/grading/:date", eggStockRead, async (req, res) => {
 
 const closingBody = z.object({
   countedOn: dateStr,
-  rows: z
-    .array(
-      z.object({
-        houseId: z.string().uuid(),
-        boxes: z.object(
-          Object.fromEntries(EGG_SIZES.map((s) => [s, looseNumber(z.number().int().min(0)).default(0)])) as Record<
-            (typeof EGG_SIZES)[number],
-            z.ZodDefault<z.ZodEffects<z.ZodNumber, number, unknown>>
-          >,
-        ),
-      }),
-    )
-    .min(1)
-    .max(50),
+  boxes: z.object(
+    Object.fromEntries(EGG_SIZES.map((s) => [s, looseNumber(z.number().int().min(0)).default(0)])) as Record<
+      (typeof EGG_SIZES)[number],
+      z.ZodDefault<z.ZodEffects<z.ZodNumber, number, unknown>>
+    >,
+  ),
 });
 
 /**
@@ -691,15 +655,13 @@ eggSalesRouter.post("/closing", eggStockWrite, validateBody(closingBody), async 
   const b = req.body as z.infer<typeof closingBody>;
   try {
     const out = await db.transaction(async (tx) => {
-      for (const r of b.rows) {
-        await tx
-          .insert(eggHouseClosing)
-          .values({ houseId: r.houseId, countedOn: b.countedOn, ...r.boxes, recordedBy: req.session.user!.id })
-          .onConflictDoUpdate({
-            target: [eggHouseClosing.houseId, eggHouseClosing.countedOn],
-            set: { ...r.boxes, recordedBy: req.session.user!.id, updatedAt: new Date() },
-          });
-      }
+      await tx
+        .insert(eggStockCount)
+        .values({ countedOn: b.countedOn, ...b.boxes, recordedBy: req.session.user!.id })
+        .onConflictDoUpdate({
+          target: [eggStockCount.countedOn],
+          set: { ...b.boxes, recordedBy: req.session.user!.id, updatedAt: new Date() },
+        });
       return settleCountAgainstLedger(tx, b.countedOn, req.session.user!.id);
     });
     res.status(201).json(out);
