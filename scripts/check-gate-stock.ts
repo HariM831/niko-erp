@@ -15,6 +15,12 @@
  *     negative;
  *   - voiding the bill takes exactly that back out, and reopens the truck.
  *
+ * And three dates, since 29 Sep 2026: the bill keeps the vendor's date, the
+ * stock goes in on the day the lorry reached the gate, and payment falls due
+ * from that day. The truck's vendor date is set three days before its arrival
+ * for the test, so Feed Stock must hold nothing for it until the arrival day
+ * and Goods in Transit must carry the value in between.
+ *
  * Runs against a real gated-out truck on this database, with its materials
  * switched to tracking for the test. Rolled back; nothing survives, and the
  * photo copies settlement makes are removed afterwards.
@@ -27,6 +33,8 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   accounts,
   attachments,
+  contacts,
+  journalEntries,
   inventoryTransactions,
   items,
   journalEntryLines,
@@ -95,6 +103,13 @@ try {
       );
     const before = await heldOf();
 
+    const arrived = istDate(receipt!.arrivalAt);
+    const vendorDate = new Date(Date.parse(`${arrived}T00:00:00Z`) - 3 * 86_400_000).toISOString().slice(0, 10);
+    await tx.update(officeReceipts).set({ vendorBillDate: vendorDate }).where(eq(officeReceipts.id, receiptId));
+    const [git] = await tx.select({ id: accounts.id }).from(accounts).where(eq(accounts.systemKey, "goods_in_transit"));
+    if (!git) throw new Error("No goods_in_transit account — migration 0110 has not run");
+    const [vendor] = await tx.select({ terms: contacts.paymentTermsDays }).from(contacts).where(eq(contacts.id, receipt!.vendorId!));
+
     const out = await settleReceipt(tx, receiptId, {}, user!.id);
     const bill = out.bill;
     for (const a of await tx
@@ -119,6 +134,33 @@ try {
         `${got.toFixed(3)} ${l.unit} (billed ${Number(l.line.billQuantityKg).toFixed(0)} kg, weighed ${Number(l.line.allocatedNetKg ?? 0).toFixed(0)} kg)`,
       );
     }
+    check("the bill keeps the vendor's date", bill.billDate === vendorDate, `${bill.billDate} (arrived ${arrived})`);
+    const wantDue = new Date(Date.parse(`${arrived}T00:00:00Z`) + Number(vendor!.terms ?? 0) * 86_400_000).toISOString().slice(0, 10);
+    check("payment falls due from the arrival day", bill.dueDate === wantDue, `${bill.dueDate} (arrival + ${vendor!.terms ?? 0} days)`);
+    check("the stock goes in on the arrival day", moves.length > 0 && moves.every((m) => m.transactionDate === arrived), [...new Set(moves.map((m) => m.transactionDate))].join(", "));
+    // Every entry the bill made, on each account, before and from the arrival day.
+    const netOn = async (accountId: string, cmp: "before" | "all") =>
+      Number(
+        (
+          (
+            await tx.execute(sql`
+              SELECT coalesce(sum(jl.debit - jl.credit), 0) AS net FROM journal_entry_lines jl
+                JOIN journal_entries je ON je.id = jl.entry_id
+               WHERE je.source_type = 'bill' AND je.source_id = ${bill.id} AND jl.account_id = ${accountId}
+                 ${cmp === "before" ? sql`AND je.entry_date < ${arrived}` : sql``}`)
+          ).rows[0] as { net: string }
+        ).net,
+      );
+    const stockEarly = await netOn(feedStock.id, "before");
+    check("Feed Stock holds nothing for it before the lorry arrives", near(stockEarly, 0), `₹${stockEarly.toFixed(2)}`);
+    const moveValueAll = moves.reduce((s, m) => s + Number(m.value ?? 0), 0);
+    const transitEarly = await netOn(git.id, "before");
+    check("Goods in Transit carries it until then", near(transitEarly, moveValueAll, 0.05), `₹${transitEarly.toFixed(2)} vs ₹${moveValueAll.toFixed(2)}`);
+    const transitAll = await netOn(git.id, "all");
+    check("Goods in Transit is clear once it has arrived", near(transitAll, 0), `₹${transitAll.toFixed(2)}`);
+    const [tab] = await tx.select({ id: journalEntries.id }).from(journalEntries).where(eq(journalEntries.id, bill.journalEntryId!));
+    check("the bill still points at its own entry", !!tab);
+
     const after = await heldOf();
     const rose = itemIds.every((id) => (after.get(id) ?? 0) > (before.get(id) ?? 0));
     check("stock on hand rose for every material", rose);
@@ -154,6 +196,8 @@ try {
     check("voiding the bill takes the stock back out", near(Number(net.q), 0, 0.0005) && near(Number(net.v), 0), `net ${Number(net.q).toFixed(3)} / ₹${Number(net.v).toFixed(2)}`);
     const back = await heldOf();
     check("stock on hand is where it started", itemIds.every((id) => near(back.get(id) ?? 0, before.get(id) ?? 0, 0.0005)));
+    const transitVoid = await netOn(git.id, "all");
+    check("voiding leaves Goods in Transit clear", near(transitVoid, 0), `₹${transitVoid.toFixed(2)}`);
     const [reopened] = await tx.select({ status: officeReceipts.status }).from(officeReceipts).where(eq(officeReceipts.id, receiptId));
     check("the truck is back at gated out", reopened!.status === "gate_out", reopened!.status);
 

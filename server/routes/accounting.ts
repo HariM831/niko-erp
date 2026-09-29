@@ -5,6 +5,7 @@ import {
   accountSubtype,
   accountType,
   accounts,
+  bills,
   journalEntries,
   journalEntryLineTags,
   journalEntryLines,
@@ -217,11 +218,20 @@ accountingRouter.get(
   async (req, res) => {
     const { sourceType, sourceId } = req.query as Record<string, string | undefined>;
     if (!sourceType || !sourceId) return res.status(400).json({ error: "sourceType and sourceId are required" });
+    // A bill can carry more than its own entry — the goods-in-transit pair
+    // posted when the lorry arrived after the vendor's date — so its tab
+    // shows the entry the bill itself points at, not whichever comes first.
+    const own =
+      sourceType === "bill"
+        ? (await db.query.bills.findFirst({ where: eq(bills.id, sourceId), columns: { journalEntryId: true } }))?.journalEntryId
+        : null;
     const entry = await db.query.journalEntries.findFirst({
-      where: and(
-        eq(journalEntries.sourceType, sourceType as typeof journalEntries.$inferSelect.sourceType),
-        eq(journalEntries.sourceId, sourceId),
-      ),
+      where: own
+        ? eq(journalEntries.id, own)
+        : and(
+            eq(journalEntries.sourceType, sourceType as typeof journalEntries.$inferSelect.sourceType),
+            eq(journalEntries.sourceId, sourceId),
+          ),
     });
     if (!entry) return res.json(null);
     const lines = await db

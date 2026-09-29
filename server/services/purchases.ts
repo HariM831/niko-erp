@@ -488,6 +488,12 @@ export interface CreateBillArgs {
    * bill's tracked goods lines go in as billed.
    */
   stockMovements?: Array<{ itemId: string; quantity: string; value: string }>;
+  /**
+   * The day the goods reached the gate, when it is not the bill date. The
+   * bill keeps the vendor's date; the stock goes in on this one, and the
+   * value waits in Goods in Transit between the two.
+   */
+  stockDate?: string;
 }
 
 /** Shared by direct bill creation and PO conversion. Posts the JE immediately (status "open"). */
@@ -560,6 +566,101 @@ async function stockLines(
     }));
 }
 
+/**
+ * A bill's goods into stock, on the day they reached the gate.
+ *
+ * The vendor dates the bill when the lorry is loaded; the mill has the goods
+ * only when it arrives, sometimes a week later (soybean meal billed 14 Sep
+ * 2026, in on the 21st) and once seventeen days (Cantaxanthin, 11 Sep → 28
+ * Sep). Stock taken in on the bill date was stock the mill could not mill.
+ * So the kilos go in on the arrival day, and the value the bill's own entry
+ * put on the stock account waits in Goods in Transit until then.
+ */
+export async function receiveBillStock(
+  tx: Tx,
+  args: {
+    billId: string;
+    billNumber: string;
+    billDate: string;
+    stockDate: string;
+    movements: Array<{ itemId: string; quantity: string; value: string }>;
+    stockLocationId?: string;
+    postedBy: string;
+  },
+) {
+  await moveStock(tx, {
+    movements: args.movements,
+    transactionDate: args.stockDate,
+    sourceType: "bill",
+    sourceId: args.billId,
+    stockLocationId: args.stockLocationId,
+  });
+  if (args.stockDate !== args.billDate) await postGoodsInTransit(tx, args);
+}
+
+/**
+ * The pair that carries a bill's stock value across the days between the
+ * vendor's date and the gate: out of the stock account into Goods in Transit
+ * on the bill date, back on the arrival day.
+ *
+ * Once the goods are in, the two cancel. That is why neither editing nor
+ * voiding a bill has to know about them: both happen after the lorry has
+ * arrived, and both work on the bill's own entry exactly as before.
+ */
+export async function postGoodsInTransit(
+  tx: Tx,
+  args: {
+    billId: string;
+    billNumber: string;
+    billDate: string;
+    stockDate: string;
+    movements: Array<{ itemId: string; value: string }>;
+    postedBy: string;
+  },
+) {
+  const itemIds = [...new Set(args.movements.map((m) => m.itemId))];
+  if (!itemIds.length) return;
+  const rows = await tx
+    .select({ id: items.id, name: items.name, account: items.inventoryAccountId })
+    .from(items)
+    .where(inArray(items.id, itemIds));
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const byAccount = new Map<string, number>();
+  for (const m of args.movements) {
+    const p = toPaise(m.value);
+    if (p === 0) continue;
+    const item = byId.get(m.itemId)!;
+    if (!item.account) throw new PostingError(`"${item.name}" has no inventory account set`);
+    byAccount.set(item.account, (byAccount.get(item.account) ?? 0) + p);
+  }
+  const totalP = [...byAccount.values()].reduce((a, p) => a + p, 0);
+  if (totalP <= 0) return;
+  const asDate = (d: string) => d.split("-").reverse().join("-");
+
+  await postJournal(tx, {
+    entryDate: args.billDate,
+    narration: `Bill ${args.billNumber} — goods in transit, at the gate on ${asDate(args.stockDate)}`,
+    sourceType: "bill",
+    sourceId: args.billId,
+    postedBy: args.postedBy,
+    lines: [
+      { systemKey: "goods_in_transit", debit: fromPaise(totalP) },
+      ...[...byAccount].map(([accountId, p]) => ({ accountId, credit: fromPaise(p) })),
+    ],
+  });
+  await postJournal(tx, {
+    entryDate: args.stockDate,
+    narration: `Bill ${args.billNumber} — goods reached the gate`,
+    sourceType: "bill",
+    sourceId: args.billId,
+    postedBy: args.postedBy,
+    lines: [
+      ...[...byAccount].map(([accountId, p]) => ({ accountId, debit: fromPaise(p) })),
+      { systemKey: "goods_in_transit", credit: fromPaise(totalP) },
+    ],
+  });
+}
+
 export async function createBill(tx: Tx, args: CreateBillArgs) {
   const vendor = args.vendor;
   const c = await computeBill(
@@ -615,14 +716,16 @@ export async function createBill(tx: Tx, args: CreateBillArgs) {
    * A negative line is a deduction, not a return of goods — short weight was
    * never received, so nothing comes back off the pile.
    */
-  await moveStock(tx, {
+  await receiveBillStock(tx, {
+    billId: bill!.id,
+    billNumber: number,
+    billDate: args.billDate,
+    stockDate: args.stockDate ?? args.billDate,
     movements: args.stockMovements ?? (await stockLines(tx, c)),
-    transactionDate: args.billDate,
-    sourceType: "bill",
-    sourceId: bill!.id,
     // Where the goods landed. Procurement passes the receiving site; a bill
     // keyed by hand falls back to the main store of the primary location.
     stockLocationId: await mainStore(tx, args.stockLocationOf ?? null),
+    postedBy: args.postedBy,
   });
 
   // The item master's purchase rate follows the latest bill.

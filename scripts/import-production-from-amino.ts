@@ -87,10 +87,11 @@ import {
 } from "@shared/schema";
 import { db, type Tx } from "../server/db";
 import { nextDocumentNumber } from "../server/lib/numbering";
-import { mainStore, moveStock, postInventoryMovement, stockUnitsPerKg } from "../server/services/inventory";
+import { mainStore, postInventoryMovement, stockUnitsPerKg } from "../server/services/inventory";
 import { postJournal } from "../server/services/posting";
 import { getPreferences } from "../server/services/preferences";
 import { produceOne, transferOne } from "../server/routes/feed-production";
+import { receiveBillStock } from "../server/services/purchases";
 
 const arg = (name: string) => { const i = process.argv.indexOf(`--${name}`); return i > -1 ? process.argv[i + 1] : undefined; };
 const APPLY = process.argv.includes("--apply");
@@ -201,20 +202,21 @@ try {
 
     /* ── 1. settled gate receipts whose bill never moved stock ── */
     const settledLines = await tx
-      .select({ number: officeReceipts.number, billId: officeReceipts.billId, billDate: bills.billDate, billNumber: bills.number, jeId: bills.journalEntryId, itemId: officeReceiptLines.itemId, name: items.name, unit: items.unit, unitBagWeightKg: items.unitBagWeightKg, netKg: officeReceiptLines.allocatedNetKg, lineAmount: billLines.amount, receiptAmount: officeReceiptLines.billAmount })
+      .select({ number: officeReceipts.number, billId: officeReceipts.billId, billDate: bills.billDate, arrived: sql<string>`to_char((${officeReceipts.arrivalAt} AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD')`, billNumber: bills.number, jeId: bills.journalEntryId, itemId: officeReceiptLines.itemId, name: items.name, unit: items.unit, unitBagWeightKg: items.unitBagWeightKg, netKg: officeReceiptLines.allocatedNetKg, lineAmount: billLines.amount, receiptAmount: officeReceiptLines.billAmount })
       .from(officeReceiptLines).innerJoin(officeReceipts, eq(officeReceipts.id, officeReceiptLines.receiptId)).innerJoin(bills, eq(bills.id, officeReceipts.billId)).innerJoin(items, eq(items.id, officeReceiptLines.itemId)).leftJoin(billLines, and(eq(billLines.billId, bills.id), eq(billLines.itemId, officeReceiptLines.itemId)))
       .where(and(eq(officeReceipts.status, "settled"), gte(bills.billDate, OPENING), eq(items.trackInventory, true), sql`${officeReceiptLines.qcVerdict} IS DISTINCT FROM 'rejected'`, sql`${officeReceiptLines.allocatedNetKg} IS NOT NULL`, sql`NOT EXISTS (SELECT 1 FROM inventory_transactions t WHERE t.source_type = 'bill' AND t.source_id = ${bills.id} AND t.item_id = ${officeReceiptLines.itemId})`));
     say(`  receipts         ${settledLines.length} settled gate receipt line(s) whose bill never moved stock`);
     for (const u of settledLines) {
       const value = Number(u.lineAmount ?? u.receiptAmount ?? 0); const units = Number(u.netKg) * (stockUnitsPerKg(u) ?? 1);
       if (!(value > 0)) throw new Error(`${u.number} → ${u.billNumber}: no bill line for ${u.name}, nothing to value the stock at`);
-      await moveStock(tx, { movements: [{ itemId: u.itemId!, quantity: units.toFixed(3), value: value.toFixed(2) }], transactionDate: u.billDate, sourceType: "bill", sourceId: u.billId!, stockLocationId: store });
+      // In on the day the lorry reached the gate, as settlement now takes it in.
+      await receiveBillStock(tx, { billId: u.billId!, billNumber: u.billNumber, billDate: u.billDate, stockDate: u.arrived, movements: [{ itemId: u.itemId!, quantity: units.toFixed(3), value: value.toFixed(2) }], stockLocationId: store, postedBy: userId });
       const debited = u.jeId ? await tx.select({ debit: journalEntryLines.debit }).from(journalEntryLines).where(and(eq(journalEntryLines.entryId, u.jeId), eq(journalEntryLines.accountId, feedExpense.id))) : [];
       const onExpense = debited.reduce((a, l) => a + Number(l.debit), 0);
       if (onExpense >= value - 0.005) {
         await postJournal(tx, { entryDate: u.billDate, narration: `Stock for bill ${u.billNumber} (${u.number}) — ${u.name}, settled before settlement moved stock`, sourceType: "bill", sourceId: u.billId!, postedBy: userId, lines: [{ accountId: feedStock.id, debit: value.toFixed(2) }, { accountId: feedExpense.id, credit: value.toFixed(2) }] });
-        say(`    ${u.number} → ${u.billNumber} ${u.billDate}: ${u.name} ${kg(Number(u.netKg))} net ${rs(value)} into stock, reclassed 5007 → 1073`);
-      } else say(`    ${u.number} → ${u.billNumber} ${u.billDate}: ${u.name} ${kg(Number(u.netKg))} net ${rs(value)} into stock (journal already on 1073)`);
+        say(`    ${u.number} → ${u.billNumber} ${u.billDate}: ${u.name} ${kg(Number(u.netKg))} net ${rs(value)} into stock on ${u.arrived}, reclassed 5007 → 1073`);
+      } else say(`    ${u.number} → ${u.billNumber} ${u.billDate}: ${u.name} ${kg(Number(u.netKg))} net ${rs(value)} into stock on ${u.arrived} (journal already on 1073)`);
     }
     const unmoved = await tx
       .select({ number: bills.number, date: bills.billDate, name: items.name, qty: billLines.quantity, unit: billLines.unit })

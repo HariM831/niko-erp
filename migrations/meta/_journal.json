@@ -792,6 +792,13 @@
       "when": 1790600000000,
       "tag": "0109_egg_count_is_one_total",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1790700000000,
+      "tag": "0110_goods_in_transit",
+      "breakpoints": true
     }
   ]
 }

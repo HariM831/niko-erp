@@ -68,6 +68,8 @@ const COA: Array<[string, string, AcctType, AcctSubtype, string?, string?, boole
   ["1230", "Inventories", "asset", "stock", "inventory", "1200", true],
   ["1231", "Bird Stock", "asset", "stock", undefined, "1230"],
   ["1232", "Feed Stock", "asset", "stock", undefined, "1230"],
+  // A bill's stock value between the vendor's date and the lorry reaching the gate.
+  ["1233", "Goods in Transit", "asset", "stock", "goods_in_transit", "1230"],
 
   ["1250", "Accounts Receivable", "asset", "accounts_receivable", "ar", "1200"],
 

@@ -38,7 +38,7 @@ import { istDate } from "../services/day-resolution";
 import { validateBody } from "../lib/validate";
 import { nextDocumentNumber, resyncDocumentNumber } from "../lib/numbering";
 import { PostingError, assertPeriodOpen } from "../services/posting";
-import { createBill, loadVendor } from "../services/purchases";
+import { computeDueDate, createBill, loadVendor } from "../services/purchases";
 import { stockUnitsPerKg } from "../services/inventory";
 import {
   ALLOWED_MIME,
@@ -1964,8 +1964,18 @@ export async function settleReceipt(tx: Tx, receiptId: string, body: SettleBody,
   }
 
   const vendor = await loadVendor(tx, receipt.vendorId);
-  const billDate = receipt.vendorBillDate ?? istDate();
+  /**
+   * Three dates, and they differ on purpose. The bill carries the vendor's
+   * date, as their paper does. The goods go into stock on the day the lorry
+   * reached the gate, and payment falls due from that day: nothing could be
+   * milled, or checked, before it arrived (soybean meal billed 14 Sep 2026,
+   * in on the 21st; Cantaxanthin billed 11 Sep, in on the 28th).
+   */
+  const arrived = istDate(receipt.arrivalAt);
+  const billDate = receipt.vendorBillDate ?? arrived;
+  const dueDate = computeDueDate(arrived, vendor.paymentTermsDays);
   await assertPeriodOpen(tx, billDate, "bill");
+  await assertPeriodOpen(tx, arrived, "bill");
 
   // What the rules proposed, overlaid with whatever was approved on
   // screen. An edited amount keeps the rule's own basis alongside the
@@ -2074,6 +2084,8 @@ export async function settleReceipt(tx: Tx, receiptId: string, body: SettleBody,
   const bill = await createBill(tx, {
     vendor,
     billDate,
+    dueDate,
+    stockDate: arrived,
     stockMovements,
     // The goods land at the site the lorry came to.
     stockLocationOf: receipt.locationId,
