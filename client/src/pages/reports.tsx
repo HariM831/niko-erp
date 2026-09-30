@@ -1006,7 +1006,7 @@ function SalesByCustomer({ data }: { data: Record<string, unknown> }) {
  * spends is claimed rather than billed, so a bills-only version of this report
  * would be missing the larger half of it.
  */
-type PoStatus = "open" | "partial" | "closed" | "cancelled";
+type PoStatus = "open" | "closed" | "cancelled";
 interface PoReportData {
   rows: Array<{
     id: string;
@@ -1032,7 +1032,6 @@ interface PoReportData {
 
 const PO_STATUS: Record<PoStatus, { label: string; badge: string; bar: string }> = {
   open: { label: "Open", badge: "badge-amber", bar: "bg-amber-400" },
-  partial: { label: "Partial", badge: "bg-blue-50 text-blue-700", bar: "bg-blue-500" },
   closed: { label: "Closed", badge: "badge-green", bar: "bg-green-600" },
   cancelled: { label: "Cancelled", badge: "badge-gray", bar: "bg-gray-300" },
 };
@@ -1085,8 +1084,8 @@ function PurchaseOrdersReport({ data }: { data: PoReportData }) {
     <div className="w-full">
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {card("open", "Open", String(data.summary.open.count), `₹${num(data.summary.open.value)}`)}
-        {card("partial", "Partial", String(data.summary.partial.count), `₹${num(data.summary.partial.value)}`)}
         {card("closed", "Closed", String(data.summary.closed.count), `₹${num(data.summary.closed.value)}`)}
+        {card("cancelled", "Cancelled", String(data.summary.cancelled.count), `₹${num(data.summary.cancelled.value)}`)}
         {card(
           "pending",
           "Still to come",
@@ -1097,7 +1096,7 @@ function PurchaseOrdersReport({ data }: { data: PoReportData }) {
       </div>
 
       <div className="mb-3 flex flex-wrap items-center gap-1 border-b border-gray-200">
-        {(["all", "open", "partial", "closed", "cancelled"] as const).map((s) => (
+        {(["all", "open", "closed", "cancelled"] as const).map((s) => (
           <button
             key={s}
             onClick={() => setStatus(s)}
@@ -1181,6 +1180,7 @@ function PurchaseOrdersReport({ data }: { data: PoReportData }) {
                     <td className="s-td text-right tabular-nums">{num(r.total)}</td>
                     <td className="s-td">
                       <span className={`badge ${PO_STATUS[r.status].badge}`}>{PO_STATUS[r.status].label}</span>
+                      {r.status === "open" && r.received > 0 && <div className="mt-1 text-[11px] text-gray-500">part received</div>}
                       {r.overdue && <div className="mt-1 text-[11px] text-red-600">past expected date</div>}
                     </td>
                   </tr>
@@ -1199,8 +1199,8 @@ function PurchaseOrdersReport({ data }: { data: PoReportData }) {
         </div>
       )}
       <p className="mt-3 text-[12px] text-gray-400">
-        Status is worked out from the kilos received: Closed at 95–105% of the order (flagged when over), Partial below 95%,
-        Open with nothing received. Billed orders count as Closed.
+        Status is worked out from the kilos received: Open below 95% of the order, whether nothing
+        or some of it has come; Closed at 95–105% (flagged when over). Billed orders count as Closed.
       </p>
     </div>
   );

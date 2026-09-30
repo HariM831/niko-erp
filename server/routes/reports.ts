@@ -924,7 +924,8 @@ reportsRouter.get("/sales-by-customer", requirePermission("reports", "view"), as
  * The stored status says what the office did with the paper — issued, billed —
  * and says nothing about delivery: PO-00014 had all 35,000 kg in and still read
  * "issued". So the report's status is worked out from the kilos received
- * (the user, 29 Sep 2026): Open with nothing in, Partial below 95% of the order,
+ * (the user, 29 Sep 2026): Open below 95% of the order, whether nothing or some
+ * of it is in (a partly received order is still open — 30 Sep 2026),
  * Closed from 95% — a weighbridge difference is not an open order — and past
  * 105% still Closed but flagged as over-delivered. Billed or closed on paper is
  * Closed whatever the kilos; cancelled stays Cancelled. Drafts were never sent
@@ -950,7 +951,8 @@ reportsRouter.get("/purchase-orders", requirePermission("reports", "view"), asyn
      GROUP BY po.id, c.id
      ORDER BY po.order_date DESC, po.number DESC`);
 
-  type Status = "open" | "partial" | "closed" | "cancelled";
+  // Partly received is still open (the user, 30 Sep 2026: "partial is also open").
+  type Status = "open" | "closed" | "cancelled";
   const rows = (found.rows as Array<Record<string, string | null>>).map((r) => {
     const ordered = Number(r.ordered ?? 0);
     const received = Number(r.received ?? 0);
@@ -960,10 +962,8 @@ reportsRouter.get("/purchase-orders", requirePermission("reports", "view"), asyn
         ? "cancelled"
         : r.status === "billed" || r.status === "closed" || (ordered > 0 && ratio >= 0.95)
           ? "closed"
-          : received > 0
-            ? "partial"
-            : "open";
-    const pending = status === "open" || status === "partial";
+          : "open";
+    const pending = status === "open";
     return {
       id: r.id!,
       number: r.number!,
@@ -985,7 +985,7 @@ reportsRouter.get("/purchase-orders", requirePermission("reports", "view"), asyn
   });
 
   const summary = Object.fromEntries(
-    (["open", "partial", "closed", "cancelled"] as const).map((s) => {
+    (["open", "closed", "cancelled"] as const).map((s) => {
       const of = rows.filter((r) => r.status === s);
       return [s, { count: of.length, value: of.reduce((a, r) => a + Number(r.total), 0).toFixed(2) }];
     }),
