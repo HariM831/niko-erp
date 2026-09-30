@@ -1058,10 +1058,10 @@ interface PoReportData {
 }
 
 const PO_STATUS: Record<PoStatus, { label: string; badge: string; bar: string }> = {
-  open: { label: "Open", badge: "bg-amber-50 text-amber-700", bar: "bg-brand-500" },
+  open: { label: "Open", badge: "badge-amber", bar: "bg-amber-400" },
   partial: { label: "Partial", badge: "bg-blue-50 text-blue-700", bar: "bg-blue-500" },
-  closed: { label: "Closed", badge: "bg-green-50 text-green-700", bar: "bg-green-600" },
-  cancelled: { label: "Cancelled", badge: "bg-gray-100 text-gray-500", bar: "bg-gray-300" },
+  closed: { label: "Closed", badge: "badge-green", bar: "bg-green-600" },
+  cancelled: { label: "Cancelled", badge: "badge-gray", bar: "bg-gray-300" },
 };
 
 /**
@@ -1083,113 +1083,152 @@ function PurchaseOrdersReport({ data }: { data: PoReportData }) {
   const rows = status === "all" ? data.rows : data.rows.filter((r) => r.status === status);
   const qty = (n: number) => Math.round(n).toLocaleString("en-IN");
   const listed = rows.reduce((a, r) => a + Number(r.total), 0);
+  const listedBalance = rows.reduce((a, r) => a + r.balance, 0);
+
+  /*
+   * Full width, not the 850px sheet the statements use: eight columns in a
+   * statement's width left the names cut short and wide empty margins either
+   * side (the user, 30 Sep 2026). Styled as the Reports Center's own table.
+   */
+  const card = (s: PoStatus | "pending", label: string, big: string, small: string, tone = "text-gray-500") => {
+    const active = s !== "pending" && status === s;
+    return (
+      <button
+        key={s}
+        onClick={() => s !== "pending" && setStatus(active ? "all" : s)}
+        className={`rounded-lg border px-4 py-3 text-left transition-colors ${
+          active ? "border-brand-300 bg-brand-50" : "border-gray-200 bg-white hover:bg-gray-50"
+        } ${s === "pending" ? "cursor-default hover:bg-white" : ""}`}
+      >
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-[#757383]">{label}</div>
+        <div className="mt-1 text-[22px] font-semibold tabular-nums text-[#212529]">{big}</div>
+        <div className={`text-[12px] tabular-nums ${tone}`}>{small}</div>
+      </button>
+    );
+  };
 
   return (
-    <Sheet>
-      <div className="mb-4 flex flex-wrap gap-2">
+    <div className="w-full">
+      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {card("open", "Open", String(data.summary.open.count), `₹${num(data.summary.open.value)}`)}
+        {card("partial", "Partial", String(data.summary.partial.count), `₹${num(data.summary.partial.value)}`)}
+        {card("closed", "Closed", String(data.summary.closed.count), `₹${num(data.summary.closed.value)}`)}
+        {card(
+          "pending",
+          "Still to come",
+          `${qty(data.pendingQuantity)} kg`,
+          `${data.overdueCount} past expected date`,
+          data.overdueCount ? "text-red-600" : "text-gray-500",
+        )}
+      </div>
+
+      <div className="mb-3 flex flex-wrap items-center gap-1 border-b border-gray-200">
         {(["all", "open", "partial", "closed", "cancelled"] as const).map((s) => (
           <button
             key={s}
             onClick={() => setStatus(s)}
-            className={`rounded-full border px-3 py-1 text-[13px] ${
-              status === s ? "border-brand-300 bg-brand-50 font-medium text-brand-700" : "border-gray-200 text-gray-700 hover:bg-gray-50"
+            className={`-mb-px border-b-2 px-3 py-2 text-[13px] ${
+              status === s ? "border-[#e06d05] font-medium text-[#e06d05]" : "border-transparent text-gray-600 hover:text-gray-900"
             }`}
           >
-            {s === "all" ? "All" : PO_STATUS[s].label} · {s === "all" ? data.rows.length : data.summary[s].count}
+            {s === "all" ? "All" : PO_STATUS[s].label}
+            <span className="ml-1.5 rounded bg-gray-100 px-1.5 text-[11px] text-gray-500">
+              {s === "all" ? data.rows.length : data.summary[s].count}
+            </span>
           </button>
         ))}
       </div>
 
-      <div className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {(["open", "partial", "closed"] as const).map((s) => (
-          <div key={s} className="rounded-md bg-gray-50 px-3 py-2">
-            <div className="text-[12px] text-gray-500">{PO_STATUS[s].label}</div>
-            <div className="text-[18px] font-semibold tabular-nums">{data.summary[s].count}</div>
-            <div className="text-[12px] tabular-nums text-gray-500">₹{num(data.summary[s].value)}</div>
-          </div>
-        ))}
-        <div className="rounded-md bg-gray-50 px-3 py-2">
-          <div className="text-[12px] text-gray-500">Still to come</div>
-          <div className="text-[18px] font-semibold tabular-nums">{qty(data.pendingQuantity)} kg</div>
-          <div className={`text-[12px] ${data.overdueCount ? "text-red-600" : "text-gray-500"}`}>
-            {data.overdueCount} past expected date
-          </div>
-        </div>
-      </div>
-
       {rows.length === 0 ? (
-        <p className="py-6 text-center text-[13px] text-gray-500">No purchase orders with this status in the period.</p>
+        <p className="py-10 text-center text-[13px] text-gray-500">No purchase orders with this status in the period.</p>
       ) : (
-        <table className="w-full text-[13px]">
-          <thead>
-            <tr>
-              <th className={`${HEAD_CELL} pl-5 text-left`}>PO</th>
-              <th className={`${HEAD_CELL} text-left`}>Date</th>
-              <th className={`col-portrait-hide ${HEAD_CELL} text-left`}>Expected</th>
-              <th className={`${HEAD_CELL} text-left`}>Vendor · material</th>
-              <th className={`${HEAD_CELL} w-44 text-left`}>Received of ordered</th>
-              <th className={`col-portrait-hide ${HEAD_CELL} text-right`}>Balance</th>
-              <th className={`${HEAD_CELL} text-right`}>Value (₹)</th>
-              <th className={`${HEAD_CELL} text-left`}>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => {
-              const pct = r.ordered > 0 ? Math.min(r.received / r.ordered, 1) : 0;
-              return (
-                <tr key={r.id} className="border-b border-[#eee] align-top">
-                  <td className="px-2 py-2 pl-5">
-                    <Link href={`/purchases/orders/${r.id}`} className="font-medium text-[#e06d05] hover:underline">
-                      {r.number}
-                    </Link>
-                  </td>
-                  <td className="whitespace-nowrap px-2 py-2">{dmy(r.orderDate)}</td>
-                  <td className={`col-portrait-hide whitespace-nowrap px-2 py-2 ${r.overdue ? "text-red-600" : ""}`}>
-                    {r.expectedDeliveryDate ? dmy(r.expectedDeliveryDate) : "—"}
-                  </td>
-                  <td className="px-2 py-2">
-                    <Link href={`/purchases/vendors/${r.vendorId}`} className="hover:underline">
-                      {r.vendor}
-                    </Link>
-                    <div className="text-[12px] text-gray-500">{r.items}</div>
-                  </td>
-                  <td className="px-2 py-2">
-                    <div className="tabular-nums">
-                      {qty(r.received)} / {qty(r.ordered)} {r.unit}
-                      {r.overDelivered && (
-                        <span className="ml-1 text-amber-600" title="More than 105% of the order received">
-                          +{Math.round((r.received / r.ordered - 1) * 100)}% over
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[900px] border-collapse">
+            <colgroup>
+              <col className="w-[120px]" />
+              <col className="w-[100px]" />
+              <col className="w-[100px]" />
+              <col />
+              <col className="w-[230px]" />
+              <col className="w-[120px]" />
+              <col className="w-[130px]" />
+              <col className="w-[120px]" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th className="s-th">PO</th>
+                <th className="s-th">Date</th>
+                <th className="s-th">Expected</th>
+                <th className="s-th">Vendor · material</th>
+                <th className="s-th">Received of ordered</th>
+                <th className="s-th text-right">Balance (kg)</th>
+                <th className="s-th text-right">Value (₹)</th>
+                <th className="s-th">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const pct = r.ordered > 0 ? Math.min(r.received / r.ordered, 1) : 0;
+                return (
+                  <tr key={r.id} className="s-row align-top">
+                    <td className="s-td whitespace-nowrap">
+                      <Link href={`/purchases/orders/${r.id}`} className="s-link">
+                        {r.number}
+                      </Link>
+                    </td>
+                    <td className="s-td whitespace-nowrap tabular-nums text-gray-700">{dmy(r.orderDate)}</td>
+                    <td className={`s-td whitespace-nowrap tabular-nums ${r.overdue ? "font-medium text-red-600" : "text-gray-700"}`}>
+                      {r.expectedDeliveryDate ? dmy(r.expectedDeliveryDate) : "—"}
+                    </td>
+                    <td className="s-td">
+                      <Link href={`/purchases/vendors/${r.vendorId}`} className="font-medium text-[#212529] hover:underline">
+                        {r.vendor}
+                      </Link>
+                      <div className="mt-0.5 text-[12px] text-gray-500">{r.items}</div>
+                    </td>
+                    <td className="s-td">
+                      <div className="flex items-baseline justify-between gap-2 whitespace-nowrap tabular-nums">
+                        <span>
+                          {qty(r.received)} <span className="text-gray-400">/ {qty(r.ordered)} {r.unit}</span>
                         </span>
-                      )}
-                    </div>
-                    <div className="mt-1 h-1.5 rounded bg-gray-100">
-                      <div className={`h-1.5 rounded ${PO_STATUS[r.status].bar}`} style={{ width: `${Math.round(pct * 100)}%` }} />
-                    </div>
-                  </td>
-                  <td className="col-portrait-hide px-2 py-2 text-right tabular-nums">{r.balance ? qty(r.balance) : "—"}</td>
-                  <td className="px-2 py-2 text-right tabular-nums">{num(r.total)}</td>
-                  <td className="px-2 py-2">
-                    <span className={`rounded px-2 py-0.5 text-[12px] ${PO_STATUS[r.status].badge}`}>{PO_STATUS[r.status].label}</span>
-                    {r.overdue && <div className="mt-1 text-[11px] text-red-600">past expected date</div>}
-                  </td>
-                </tr>
-              );
-            })}
-            <tr className="font-bold">
-              <td className="px-2 py-2.5 pl-5" colSpan={6}>
-                Total · {rows.length} purchase order{rows.length === 1 ? "" : "s"}
-              </td>
-              <td className="px-2 py-2.5 text-right tabular-nums">{num(listed.toFixed(2))}</td>
-              <td />
-            </tr>
-          </tbody>
-        </table>
+                        {r.overDelivered ? (
+                          <span className="text-[12px] font-medium text-amber-700" title="More than 105% of the order received">
+                            +{Math.round((r.received / r.ordered - 1) * 100)}% over
+                          </span>
+                        ) : (
+                          <span className="text-[12px] text-gray-400">{Math.round(pct * 100)}%</span>
+                        )}
+                      </div>
+                      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-gray-100">
+                        <div className={`h-full rounded-full ${PO_STATUS[r.status].bar}`} style={{ width: `${Math.round(pct * 100)}%` }} />
+                      </div>
+                    </td>
+                    <td className="s-td text-right tabular-nums">{r.balance ? qty(r.balance) : <span className="text-gray-300">—</span>}</td>
+                    <td className="s-td text-right tabular-nums">{num(r.total)}</td>
+                    <td className="s-td">
+                      <span className={`badge ${PO_STATUS[r.status].badge}`}>{PO_STATUS[r.status].label}</span>
+                      {r.overdue && <div className="mt-1 text-[11px] text-red-600">past expected date</div>}
+                    </td>
+                  </tr>
+                );
+              })}
+              <tr className="bg-[#f9f9fb] font-semibold">
+                <td className="s-td" colSpan={5}>
+                  Total · {rows.length} purchase order{rows.length === 1 ? "" : "s"}
+                </td>
+                <td className="s-td text-right tabular-nums">{listedBalance ? qty(listedBalance) : "—"}</td>
+                <td className="s-td text-right tabular-nums">{num(listed.toFixed(2))}</td>
+                <td className="s-td" />
+              </tr>
+            </tbody>
+          </table>
+        </div>
       )}
       <p className="mt-3 text-[12px] text-gray-400">
         Status is worked out from the kilos received: Closed at 95–105% of the order (flagged when over), Partial below 95%,
         Open with nothing received. Billed orders count as Closed.
       </p>
-    </Sheet>
+    </div>
   );
 }
 
