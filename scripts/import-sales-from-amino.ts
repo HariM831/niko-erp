@@ -36,6 +36,9 @@
  *
  *   npx tsx scripts/import-sales-from-amino.ts --file sales-for-niko.json
  *   npx tsx scripts/import-sales-from-amino.ts --file sales-for-niko.json --apply
+ *
+ * --skip-agreements / --skip-bookings leave those out, for a niko that already
+ * keeps its own (go-live, 30 Sep 2026).
  */
 import { readFile } from "node:fs/promises";
 import { and, eq, inArray, sql } from "drizzle-orm";
@@ -69,6 +72,10 @@ const FILE = arg("file");
 const FROM = arg("from") ?? "2026-09-17";
 const APPLY = process.argv.includes("--apply");
 const OPENING = process.argv.includes("--opening-stock");
+// At go-live (30 Sep 2026) niko already held its own agreements and bookings,
+// kept by hand since 28 Sep: Amino's would sit beside them twice over.
+const SKIP_AGREEMENTS = process.argv.includes("--skip-agreements");
+const SKIP_BOOKINGS = process.argv.includes("--skip-bookings");
 if (!FILE) {
   console.error("\n  --file <sales-for-niko.json> is required\n");
   process.exit(1);
@@ -164,7 +171,7 @@ try {
     let agreements = 0;
     const agreementSkipped: string[] = [];
     const importedAgreements = new Set<string>();
-    for (const a of D.agreements ?? []) {
+    for (const a of SKIP_AGREEMENTS ? [] : (D.agreements ?? [])) {
       const id = String(a.id);
       const customerId = person.get(String(a.customer_id));
       if (!customerId) continue;
@@ -450,7 +457,7 @@ try {
     /* ── Bookings from today ───────────────────────────────────────────── */
     const haveSpots = new Set((await tx.select({ id: eggSpotOrders.id }).from(eggSpotOrders)).map((r) => r.id));
     let spots = 0;
-    for (const o of D.spot_orders ?? []) {
+    for (const o of SKIP_BOOKINGS ? [] : (D.spot_orders ?? [])) {
       if (String(o.order_date) < today || haveSpots.has(String(o.id))) continue;
       const customerId = person.get(String(o.customer_id));
       if (!customerId) continue;
