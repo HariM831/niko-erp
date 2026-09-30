@@ -2,6 +2,7 @@ import { Redirect, Route, Switch } from "wouter";
 import { useAuth } from "./auth";
 import { AppLayout } from "./components/layout";
 import { LoginPage } from "./pages/login";
+import { LandingPage } from "./pages/landing";
 import { HomePage } from "./pages/home";
 import { ReportsPage, ReportViewPage } from "./pages/reports";
 import { WeeklySummaryPage } from "./pages/report-weekly-summary";
@@ -115,7 +116,9 @@ export function App() {
   if (loading) {
     return <div className="grid min-h-screen place-items-center text-sm text-gray-500">Loading…</div>;
   }
-  if (!user) return <LoginPage />;
+  // Signed out: the site's front page is the niko film with Login in its corner;
+  // any deeper address (a bookmarked screen) still goes straight to sign-in.
+  if (!user) return window.location.pathname === "/" ? <LandingPage /> : <LoginPage />;
 
   return (
     <AppLayout>
