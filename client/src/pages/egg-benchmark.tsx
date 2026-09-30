@@ -50,6 +50,13 @@ const tomorrow = () => {
 
 const inputCls = "h-9 w-full rounded-md border border-border bg-background px-2 text-sm";
 
+/** Where the rate is read from every evening, and so what the note says unless changed. */
+const DEFAULT_SOURCE = "NECC Vijayawada";
+const PAGE = 5;
+
+/** One direct-rate grade's form — each grade keeps its own, so Niko and Brown never share a box. */
+type BoxForm = { date: string; rate: string; note: string };
+
 export function EggBenchmarkPage() {
   const [history, setHistory] = useState<BenchmarkRow[]>([]);
   const [forecast, setForecast] = useState<Forecast | null>(null);
@@ -59,7 +66,8 @@ export function EggBenchmarkPage() {
 
   const [date, setDate] = useState(tomorrow());
   const [rate, setRate] = useState("");
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState(DEFAULT_SOURCE);
+  const [page, setPage] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -69,9 +77,10 @@ export function EggBenchmarkPage() {
   /** The box-priced grades — Niko — with a rate of their own. */
   const [boxRates, setBoxRates] = useState<Record<string, BoxRateRow[]>>({});
   const [boxSizes, setBoxSizes] = useState<Record<string, number>>({});
-  const [boxDate, setBoxDate] = useState(tomorrow());
-  const [boxRate, setBoxRate] = useState("");
-  const [boxNote, setBoxNote] = useState("");
+  const [boxForms, setBoxForms] = useState<Record<string, BoxForm>>({});
+  const boxForm = (size: string): BoxForm => boxForms[size] ?? { date: tomorrow(), rate: "", note: "" };
+  const editBox = (size: string, patch: Partial<BoxForm>) =>
+    setBoxForms((f) => ({ ...f, [size]: { ...boxForm(size), ...f[size], ...patch } }));
   const [savingBox, setSavingBox] = useState<string | null>(null);
 
   const load = () =>
@@ -90,6 +99,17 @@ export function EggBenchmarkPage() {
         setEggsPerBox(d.eggsPerBox);
         setBoxSizes(d.boxSizes ?? {});
         setBoxRates(d.boxRates ?? {});
+        // Each form opens on the rate in force — most evenings it only moves a few paise.
+        setRate(d.history[0] ? Number(d.history[0].ratePerEgg).toFixed(2) : "");
+        setNote(DEFAULT_SOURCE);
+        setBoxForms(
+          Object.fromEntries(
+            DIRECT_RATE_SIZES.map((s) => {
+              const last = d.boxRates?.[s]?.[0];
+              return [s, { date: tomorrow(), rate: last ? Number(last.ratePerBox).toFixed(2) : "", note: "" }];
+            }),
+          ),
+        );
         const current = d.offsets[0];
         if (current) {
           setOffsetForm(Object.fromEntries(SIZES.map((s) => [s, Number(current[s] ?? 0).toFixed(2)])));
@@ -101,12 +121,11 @@ export function EggBenchmarkPage() {
     setError(null);
     setSavingBox(size);
     try {
+      const f = boxForm(size);
       await api("/api/sales/eggs/box-rate", {
         method: "POST",
-        body: { size, effectiveFrom: boxDate, ratePerBox: Number(boxRate), note: boxNote || undefined },
+        body: { size, effectiveFrom: f.date, ratePerBox: Number(f.rate), note: f.note || undefined },
       });
-      setBoxRate("");
-      setBoxNote("");
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
@@ -127,8 +146,6 @@ export function EggBenchmarkPage() {
         method: "POST",
         body: { effectiveFrom: date, ratePerEgg: Number(rate), note: note || undefined },
       });
-      setRate("");
-      setNote("");
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed");
@@ -170,6 +187,12 @@ export function EggBenchmarkPage() {
   })();
 
   const current = history[0];
+
+  /** What a box of Large sold at: the benchmark plus Large's differential in force that day. */
+  const largeBox = (h: BenchmarkRow) => {
+    const off = offsets.find((o) => o.effectiveFrom <= h.effectiveFrom);
+    return (Number(h.ratePerEgg) + Number(off?.large ?? 0)) * (boxSizes.large ?? eggsPerBox);
+  };
 
   return (
     <div className="p-4 md:p-6">
@@ -214,7 +237,7 @@ export function EggBenchmarkPage() {
                 </div>
                 <div className="flex-1">
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">Note</label>
-                  <input value={note} onChange={(e) => setNote(e.target.value)} className={inputCls} placeholder="e.g. NECC Guwahati" />
+                  <input value={note} onChange={(e) => setNote(e.target.value)} className={inputCls} placeholder={DEFAULT_SOURCE} />
                 </div>
                 <button
                   onClick={setBenchmark}
@@ -241,6 +264,7 @@ export function EggBenchmarkPage() {
             {DIRECT_RATE_SIZES.map((size) => {
               const rows = boxRates[size] ?? [];
               const inForce = rows[0];
+              const f = boxForm(size);
               return (
                 <div key={size} className="table-surface p-4">
                   <div className="mb-1 text-sm font-medium">{EGG_SIZE_LABEL[size]} box rate</div>
@@ -254,19 +278,19 @@ export function EggBenchmarkPage() {
                   <div className="flex items-end gap-2">
                     <div>
                       <label className="mb-1 block text-xs font-medium text-muted-foreground">For</label>
-                      <DateInput value={boxDate} onChange={(e) => setBoxDate(e.target.value)} className={inputCls} />
+                      <DateInput value={f.date} onChange={(e) => editBox(size, { date: e.target.value })} className={inputCls} />
                     </div>
                     <div className="w-28">
                       <label className="mb-1 block text-xs font-medium text-muted-foreground">₹ / box</label>
-                      <input type="number" step="0.01" min="0" value={boxRate} onChange={(e) => setBoxRate(e.target.value)} className={inputCls} />
+                      <input type="number" step="0.01" min="0" value={f.rate} onChange={(e) => editBox(size, { rate: e.target.value })} className={inputCls} />
                     </div>
                     <div className="flex-1">
                       <label className="mb-1 block text-xs font-medium text-muted-foreground">Note</label>
-                      <input value={boxNote} onChange={(e) => setBoxNote(e.target.value)} className={inputCls} />
+                      <input value={f.note} onChange={(e) => editBox(size, { note: e.target.value })} className={inputCls} />
                     </div>
                     <button
                       onClick={() => setBoxRateFor(size)}
-                      disabled={savingBox === size || !boxRate}
+                      disabled={savingBox === size || !f.rate}
                       className="h-9 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50"
                     >
                       {savingBox === size ? <Loader2 className="h-4 w-4 animate-spin" /> : "Set"}
@@ -329,13 +353,15 @@ export function EggBenchmarkPage() {
                   <th className="table-th text-left">From</th>
                   <th className="table-th text-right">₹ / egg</th>
                   <th className="table-th text-right">Change</th>
-                  <th className="table-th text-right">₹ / box</th>
+                  <th className="table-th text-right">₹ / box, Large</th>
                   <th className="table-th text-left">Note</th>
                   <th className="table-th text-left">Set by</th>
                 </tr>
               </thead>
               <tbody>
-                {history.map((h, i) => (
+                {history.slice(page * PAGE, page * PAGE + PAGE).map((h, k) => {
+                  const i = page * PAGE + k;
+                  return (
                   <tr key={h.id} className="border-b border-border/60 last:border-0">
                     <td className="px-3 py-2">{formatDate(h.effectiveFrom)}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{Number(h.ratePerEgg).toFixed(2)}</td>
@@ -343,12 +369,13 @@ export function EggBenchmarkPage() {
                       <RateChange now={h.ratePerEgg} before={history[i + 1]?.ratePerEgg} />
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
-                      {(Number(h.ratePerEgg) * eggsPerBox).toFixed(0)}
+                      {largeBox(h).toFixed(0)}
                     </td>
                     <td className="px-3 py-2 text-muted-foreground">{h.note ?? ""}</td>
                     <td className="px-3 py-2 text-muted-foreground">{h.setBy ?? ""}</td>
                   </tr>
-                ))}
+                  );
+                })}
                 {!history.length && (
                   <tr>
                     <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
@@ -358,6 +385,25 @@ export function EggBenchmarkPage() {
                 )}
               </tbody>
             </table>
+            {history.length > PAGE && (
+              <div className="flex items-center justify-between border-t border-border/60 px-3 py-2 text-xs text-muted-foreground">
+                <span>
+                  {page * PAGE + 1}–{Math.min(history.length, page * PAGE + PAGE)} of {history.length}
+                </span>
+                <div className="flex gap-1">
+                  <button className="btn-secondary px-2 py-1" disabled={page === 0} onClick={() => setPage(page - 1)}>
+                    ‹ Newer
+                  </button>
+                  <button
+                    className="btn-secondary px-2 py-1"
+                    disabled={(page + 1) * PAGE >= history.length}
+                    onClick={() => setPage(page + 1)}
+                  >
+                    Older ›
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
           </div>
         </div>
