@@ -188,11 +188,9 @@ export function EggBenchmarkPage() {
 
   const current = history[0];
 
-  /** What a box of Large sold at: the benchmark plus Large's differential in force that day. */
-  const largeBox = (h: BenchmarkRow) => {
-    const off = offsets.find((o) => o.effectiveFrom <= h.effectiveFrom);
-    return (Number(h.ratePerEgg) + Number(off?.large ?? 0)) * (boxSizes.large ?? eggsPerBox);
-  };
+  /** A box of Large at that benchmark: (rate + Large's differential) × eggs in the box. */
+  const largeBox = (h: BenchmarkRow) =>
+    (Number(h.ratePerEgg) + Number(offsets[0]?.large ?? 0)) * (boxSizes.large ?? eggsPerBox);
 
   return (
     <div className="p-4 md:p-6">
@@ -353,7 +351,7 @@ export function EggBenchmarkPage() {
                   <th className="table-th text-left">From</th>
                   <th className="table-th text-right">₹ / egg</th>
                   <th className="table-th text-right">Change</th>
-                  <th className="table-th text-right">₹ / box, Large</th>
+                  <th className="table-th text-right">₹ / box</th>
                   <th className="table-th text-left">Note</th>
                   <th className="table-th text-left">Set by</th>
                 </tr>
