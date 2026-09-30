@@ -78,7 +78,7 @@ const paise = (n: number | undefined) => Math.round((n ?? 0) * 100);
 async function main() {
   const commit = process.argv.includes("--commit");
   const read = async <T>(f: string): Promise<T[]> =>
-    (await readFile(`.zoho-dump/detail/${f}.jsonl`, "utf8"))
+    (await readFile(`${process.argv.includes("--dir") ? process.argv[process.argv.indexOf("--dir") + 1] : ".zoho-dump/detail"}/${f}.jsonl`, "utf8").catch(() => ""))
       .trim()
       .split("\n")
       .filter(Boolean)

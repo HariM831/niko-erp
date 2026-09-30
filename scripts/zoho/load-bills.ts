@@ -79,7 +79,12 @@ const paise = (n: number | undefined) => Math.round((n ?? 0) * 100);
 
 async function main() {
   const commit = process.argv.includes("--commit");
-  const raw = await readFile(".zoho-dump/detail/bills.jsonl", "utf8");
+  // --dir: read another folder of Zoho detail, for bringing across particular
+  // documents without the whole dump (29 Sep 2026: four bills entered in Zoho
+  // after the load; the dump would also re-import the ones keyed by hand).
+  const dirAt = process.argv.indexOf("--dir");
+  const dir = dirAt > -1 ? process.argv[dirAt + 1]! : ".zoho-dump/detail";
+  const raw = await readFile(`${dir}/bills.jsonl`, "utf8");
   const all: ZohoBill[] = raw.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
   all.sort((a, b) => a.date.localeCompare(b.date) || a.bill_id.localeCompare(b.bill_id));
 
