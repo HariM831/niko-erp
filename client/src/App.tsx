@@ -271,13 +271,14 @@ export function App() {
         <Route path="/payroll/canteen" component={PayrollCanteenPage} />
         <Route path="/payroll/devices" component={PayrollDevicesPage} />
         {/* Payroll's masters moved to Settings, where every module keeps them. */}
-        <Route path="/payroll/settings">{() => <Redirect to="/settings" />}</Route>
+        <Route path="/payroll/settings">{() => <Redirect to="/settings/m-payroll" />}</Route>
         <Route path="/payroll" component={PayrollOverviewPage} />
         <Route path="/reports/weekly-management-summary" component={WeeklySummaryPage} />
         <Route path="/reports/:key">{(p) => <ReportViewPage reportKey={p.key!} />}</Route>
         <Route path="/reports" component={ReportsPage} />
         <Route path="/activity-log" component={ActivityLogPage} />
         <Route path="/settings" component={SettingsPage} />
+        <Route path="/settings/:section" component={SettingsPage} />
         <Route>
           <div className="p-8 text-sm text-gray-500">Page not found.</div>
         </Route>

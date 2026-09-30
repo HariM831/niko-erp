@@ -1,4 +1,20 @@
 import { type ReactElement, useEffect, useState } from "react";
+import { Link, useLocation, useSearch } from "wouter";
+import {
+  Building2,
+  ClipboardList,
+  Factory,
+  ShoppingBag,
+  ShoppingCart,
+  SlidersHorizontal,
+  Sprout,
+  Search,
+  Settings as SettingsIcon,
+  Truck,
+  UserCog,
+  Users as UsersIcon,
+  Wrench,
+} from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, formatDate } from "../api";
 import { useAuth } from "../auth";
@@ -127,17 +143,165 @@ const SECTIONS: SectionDef[] = [
 /** Sections that are a form rather than a table, and so want a narrow measure. */
 const FORM_SECTIONS = new Set<Section>(["org", "appearance"]);
 
+/**
+ * The landing page, laid out as Zoho's All Settings (the user, 30 Sep 2026):
+ * a card per area with a tinted heading strip, its screens listed underneath,
+ * the organisation-wide areas first and the modules in a panel of their own.
+ * A module's extra screens open on their own tab through ?tab=.
+ */
+type CardLink = { label: string; to: string };
+type Card = { title: string; icon: typeof Building2; strip: string; tint: string; links: CardLink[] };
+
+const LOOKS: Record<string, { icon: typeof Building2; strip: string; tint: string }> = {
+  Organisation: { icon: Building2, strip: "bg-green-50", tint: "text-green-600" },
+  "Users & Roles": { icon: UsersIcon, strip: "bg-rose-50", tint: "text-rose-500" },
+  Setup: { icon: SlidersHorizontal, strip: "bg-orange-50", tint: "text-orange-500" },
+  General: { icon: Wrench, strip: "bg-green-50", tint: "text-green-600" },
+  Sales: { icon: ShoppingCart, strip: "bg-teal-50", tint: "text-teal-600" },
+  Purchases: { icon: ShoppingBag, strip: "bg-amber-50", tint: "text-amber-600" },
+  Office: { icon: Truck, strip: "bg-blue-50", tint: "text-blue-600" },
+  Farms: { icon: Sprout, strip: "bg-lime-50", tint: "text-lime-600" },
+  Payroll: { icon: UserCog, strip: "bg-indigo-50", tint: "text-indigo-500" },
+  "Feed Mill": { icon: Factory, strip: "bg-orange-50", tint: "text-orange-500" },
+};
+const FALLBACK = { icon: ClipboardList, strip: "bg-gray-50", tint: "text-gray-500" };
+
+/** Which Zoho-style card each module sits under. The ones niko has and Zoho does not get their own. */
+const MODULE_CARD: Record<string, string> = {
+  "m-transactions": "General",
+  "m-contacts": "General",
+  "m-items": "General",
+  "m-accountant": "General",
+  "m-invoices": "Sales",
+  "m-bills": "Purchases",
+  "m-expenses": "Purchases",
+  "m-office": "Office",
+  "m-farms": "Farms",
+  "m-payroll": "Payroll",
+  "m-feed-mill": "Feed Mill",
+};
+
+function settingsCards(sections: SectionDef[]): { top: Card[]; modules: Card[] } {
+  const card = (title: string, links: CardLink[]): Card => ({ title, ...(LOOKS[title] ?? FALLBACK), links });
+  const top = ["Organisation", "Users & Roles", "Setup"]
+    .map((g) => card(g, sections.filter((x) => x.group === g).map((x) => ({ label: x.label, to: `/settings/${x.key}` }))))
+    .filter((c) => c.links.length);
+  const order = ["General", "Sales", "Purchases", "Office", "Farms", "Payroll", "Feed Mill"];
+  const modules = order
+    .map((title) => {
+      const defs = sections.filter((x) => x.group === "Module Settings" && MODULE_CARD[x.key] === title);
+      const links: CardLink[] = defs.flatMap((d) =>
+        // A module that is only preferences and fields reads as its own name, as on Zoho's card;
+        // one with screens of its own lists those screens, each opening on its tab.
+        d.extras?.length
+          ? [
+              ...d.extras.map((e) => ({ label: e.label, to: `/settings/${d.key}?tab=${e.key}` })),
+              ...(d.prefs ? [{ label: `${d.label} preferences`, to: `/settings/${d.key}?tab=preferences` }] : []),
+            ]
+          : [{ label: d.label, to: `/settings/${d.key}` }],
+      );
+      return card(title, links);
+    })
+    .filter((c) => c.links.length);
+  return { top, modules };
+}
+
+function SettingsCard({ c }: { c: Card }) {
+  const Icon = c.icon;
+  return (
+    <section className="mb-5 break-inside-avoid rounded-lg border border-gray-100 bg-white p-2 shadow-sm">
+      <div className={`flex items-center gap-2.5 rounded-md px-3 py-2.5 ${c.strip}`}>
+        <Icon size={18} className={c.tint} />
+        <h2 className="text-[16px] font-medium text-[#212529]">{c.title}</h2>
+      </div>
+      <ul className="py-1">
+        {c.links.map((l) => (
+          <li key={l.to}>
+            <Link href={l.to} className="block rounded px-3 py-2.5 text-[14px] text-[#212529] hover:bg-gray-50 hover:text-[#e06d05]">
+              {l.label}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function SettingsHome({ sections }: { sections: SectionDef[] }) {
+  const [search, setSearch] = useState("");
+  const { data: org } = useQuery({ queryKey: ["org"], queryFn: () => api<{ name: string } | null>("/api/settings/org") });
+  const q = search.trim().toLowerCase();
+  const narrow = (cards: Card[]) =>
+    cards
+      .map((c) => ({ ...c, links: q && !c.title.toLowerCase().includes(q) ? c.links.filter((l) => l.label.toLowerCase().includes(q)) : c.links }))
+      .filter((c) => c.links.length);
+  const { top, modules } = settingsCards(sections);
+  const shownTop = narrow(top);
+  const shownModules = narrow(modules);
+  const columns = "columns-1 gap-5 sm:columns-2 lg:columns-3 xl:columns-4 2xl:columns-5";
+
+  return (
+    <div className="h-full overflow-y-auto bg-[#f7f7fa]">
+      <div className="sticky top-0 z-10 flex flex-wrap items-center gap-4 border-b bg-white px-4 py-3 sm:px-8">
+        <div className="flex items-center gap-3">
+          <span className="grid h-10 w-10 place-items-center rounded-lg border border-blue-100 bg-blue-50 text-blue-600">
+            <SettingsIcon size={20} />
+          </span>
+          <div>
+            <h1 className="text-[20px] font-semibold leading-tight text-[#212529]">All Settings</h1>
+            <div className="text-[13px] text-gray-500">{org?.name ?? ""}</div>
+          </div>
+        </div>
+        <div className="relative mx-auto w-full max-w-md sm:w-auto sm:flex-1">
+          <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-blue-500" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search settings" className="input w-full pl-9" />
+        </div>
+      </div>
+
+      <div className="px-4 py-6 sm:px-8">
+        {shownTop.length > 0 && (
+          <div className={columns}>
+            {shownTop.map((c) => (
+              <SettingsCard key={c.title} c={c} />
+            ))}
+          </div>
+        )}
+        {shownModules.length > 0 && (
+          <div className="mt-4 rounded-xl bg-white px-4 pb-1 pt-5 shadow-sm sm:px-6">
+            <h2 className="mb-5 text-[20px] font-normal text-[#212529]">Module Settings</h2>
+            <div className={columns}>
+              {shownModules.map((c) => (
+                <SettingsCard key={c.title} c={c} />
+              ))}
+            </div>
+          </div>
+        )}
+        {shownTop.length + shownModules.length === 0 && (
+          <p className="py-16 text-center text-[13px] text-gray-500">No setting matches “{search}”.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function SettingsPage() {
-  const [active, setActive] = useState<Section>("org");
+  const [location, navigate] = useLocation();
+  const search = useSearch();
   const { can } = useAuth();
   // Hiding the entry is presentation only — every route behind it enforces the
   // same permission server-side, so a guessed URL gains nothing.
   const sections = SECTIONS.filter((s) => !s.perm || can(s.perm[0], s.perm[1]));
+  // /settings is the All Settings page; /settings/<section> opens one, with the list beside it.
+  const active = /^\/settings\/([^/?#]+)/.exec(location)?.[1] ?? null;
+  const tabParam = new URLSearchParams(search).get("tab") ?? undefined;
+  if (!active) return <SettingsHome sections={sections} />;
   const activeDef = sections.find((x) => x.key === active);
   return (
     <div className="flex h-full flex-col lg:flex-row">
       <aside className="flex shrink-0 gap-2 overflow-x-auto border-b bg-white p-2 lg:block lg:w-60 lg:overflow-x-visible lg:border-b-0 lg:border-r lg:p-4">
-        <h2 className="mb-3 hidden text-sm font-semibold lg:block">Settings</h2>
+        <Link href="/settings" className="mb-3 hidden text-[13px] font-medium text-[#e06d05] hover:underline lg:block">
+          ← All Settings
+        </Link>
         {[...new Set(sections.map((s) => s.group))].map((group) => (
           <div key={group} className="flex shrink-0 gap-2 lg:mb-3 lg:block">
             <div className="mb-1 hidden px-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400 lg:block">
@@ -146,7 +310,7 @@ export function SettingsPage() {
             {sections.filter((s) => s.group === group).map((s) => (
               <button
                 key={s.key}
-                onClick={() => setActive(s.key)}
+                onClick={() => navigate(`/settings/${s.key}`)}
                 className={`shrink-0 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] lg:block lg:w-full lg:rounded lg:border-0 lg:px-2 lg:py-1.5 lg:text-left ${
                   active === s.key
                     ? "border-brand-300 bg-brand-50 font-medium text-brand-700"
@@ -163,11 +327,12 @@ export function SettingsPage() {
         {/* Zoho runs settings full-bleed on white — the form-shaped sections
             still read better with a measure on them. */}
         <div className={FORM_SECTIONS.has(active) ? "max-w-3xl" : ""}>
+          {!activeDef && <p className="text-[13px] text-gray-500">No such setting. <Link href="/settings" className="text-[#e06d05] hover:underline">All Settings</Link></p>}
           {active === "org" && <OrgSection />}
           {active === "locations" && <LocationsSection />}
           {active === "appearance" && <AppearanceSection />}
-          {active === "users" && <UsersSection />}
-          {active === "roles" && <RolesSection />}
+          {active === "users" && activeDef && <UsersSection />}
+          {active === "roles" && activeDef && <RolesSection />}
           {active === "taxes" && <TaxesSection />}
           {active === "series" && <SeriesSection />}
           {active === "reporting-tags" && <ReportingTagsSection />}
@@ -175,7 +340,7 @@ export function SettingsPage() {
           {active === "opening-balances" && <OpeningBalancesSection />}
           {active === "financial-years" && <FinancialYearsSection />}
           {activeDef?.group === "Module Settings" && (
-            <ModuleSettings key={activeDef.key} def={activeDef} />
+            <ModuleSettings key={`${activeDef.key}:${tabParam ?? ""}`} def={activeDef} initialTab={tabParam} />
           )}
         </div>
       </div>
@@ -965,7 +1130,7 @@ const MODULE_EXTRAS: Record<string, () => ReactElement> = {
   "payroll-policy": PolicyTab,
 };
 
-function ModuleSettings({ def }: { def: SectionDef }) {
+function ModuleSettings({ def, initialTab }: { def: SectionDef; initialTab?: string }) {
   // The module's own screen leads, because it is what somebody came here for;
   // preferences and custom fields are the standard tail every module carries.
   const tabs: string[] = [
@@ -973,7 +1138,7 @@ function ModuleSettings({ def }: { def: SectionDef }) {
     ...(def.prefs ? ["preferences"] : []),
     ...(def.entity ? ["fields"] : []),
   ];
-  const [tab, setTab] = useState<string>(tabs[0] ?? "fields");
+  const [tab, setTab] = useState<string>(initialTab && tabs.includes(initialTab) ? initialTab : (tabs[0] ?? "fields"));
   // Looked up within this module's own extras, not the global map — a screen
   // this module doesn't declare must never render just because some other
   // module happens to use the same tab key.
