@@ -1,7 +1,7 @@
 import { createContext, Fragment, useContext, useEffect, useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { BarChart3, ChevronDown, ChevronRight, Egg, FileText, HandCoins, PieChart, Receipt, Search, ShoppingBag, ShoppingCart, Wallet } from "lucide-react";
 import { api } from "../api";
 import { SearchSelect } from "../components/search-select";
 import { istTime, localYmd } from "../lib/utils";
@@ -177,119 +177,92 @@ const visitedLabel = (iso: string | undefined) => {
   return `${dmy(localYmd(d))} ${istTime(d)}`;
 };
 
+/**
+ * How each category's card is drawn — Zoho's All Settings page (the user,
+ * 30 Sep 2026: "i want them shown like this"): a tinted heading strip with an
+ * icon, the reports listed underneath as plain links.
+ */
+const CATEGORY_LOOK: Record<string, { icon: typeof BarChart3; strip: string; tint: string }> = {
+  "Business Overview": { icon: BarChart3, strip: "bg-green-50", tint: "text-green-600" },
+  Sales: { icon: ShoppingCart, strip: "bg-teal-50", tint: "text-teal-600" },
+  Receivables: { icon: HandCoins, strip: "bg-blue-50", tint: "text-blue-600" },
+  Payables: { icon: Wallet, strip: "bg-rose-50", tint: "text-rose-500" },
+  "Purchases and Expenses": { icon: ShoppingBag, strip: "bg-amber-50", tint: "text-amber-600" },
+  Taxes: { icon: Receipt, strip: "bg-indigo-50", tint: "text-indigo-500" },
+  Farms: { icon: Egg, strip: "bg-orange-50", tint: "text-orange-500" },
+};
+const FALLBACK_LOOK = { icon: FileText, strip: "bg-gray-50", tint: "text-gray-500" };
+
 export function ReportsPage() {
   const [, navigate] = useLocation();
-  const [category, setCategory] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const visited = readVisited();
 
-  const visible = REPORTS.filter(
-    (r) =>
-      (!category || r.category === category) &&
-      (!search || r.label.toLowerCase().includes(search.toLowerCase())),
-  );
+  const visible = REPORTS.filter((r) => !search || r.label.toLowerCase().includes(search.toLowerCase()));
+  const shown = CATEGORIES.filter((c) => visible.some((r) => r.category === c));
 
   return (
-    <div className="flex h-full flex-col lg:flex-row">
-      <aside className="flex shrink-0 gap-2 overflow-x-auto border-b bg-white p-2 lg:block lg:w-60 lg:overflow-x-visible lg:overflow-y-auto lg:border-b-0 lg:border-r lg:p-0 lg:py-4">
-        <h2 className="mb-3 hidden px-5 text-[15px] font-semibold text-[#212529] lg:block">Reports Center</h2>
-        <button
-          onClick={() => setCategory(null)}
-          className={`shrink-0 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] lg:block lg:w-full lg:rounded-none lg:border-0 lg:px-5 lg:py-1.5 lg:text-left ${
-            category === null
-              ? "border-brand-300 bg-brand-50 font-medium text-brand-700"
-              : "border-gray-200 text-gray-700 hover:bg-gray-50"
-          }`}
-        >
-          All Reports
-        </button>
-        <div className="mb-1 mt-4 hidden px-5 text-[11px] font-semibold uppercase tracking-wide text-gray-400 lg:block">
-          Report Category
+    <div className="h-full overflow-y-auto bg-[#f7f7fa]">
+      <div className="sticky top-0 z-10 flex flex-wrap items-center gap-4 border-b bg-white px-4 py-3 sm:px-8">
+        <div className="flex items-center gap-3">
+          <span className="grid h-10 w-10 place-items-center rounded-lg border border-blue-100 bg-blue-50 text-blue-600">
+            <PieChart size={20} />
+          </span>
+          <div>
+            <h1 className="text-[20px] font-semibold leading-tight text-[#212529]">Reports</h1>
+            <div className="text-[13px] text-gray-500">{REPORTS.length} reports</div>
+          </div>
         </div>
-        {CATEGORIES.map((c) => (
-          <button
-            key={c}
-            onClick={() => setCategory(c)}
-            className={`shrink-0 whitespace-nowrap rounded-full border px-3 py-1 text-[13px] lg:block lg:w-full lg:rounded-none lg:border-0 lg:px-5 lg:py-1.5 lg:text-left ${
-              category === c
-                ? "border-brand-300 bg-brand-50 font-medium text-brand-700"
-                : "border-gray-200 text-gray-700 hover:bg-gray-50"
-            }`}
-          >
-            {c}
-          </button>
-        ))}
-      </aside>
-
-      <div className="min-w-0 flex-1 overflow-y-auto bg-white px-4 py-4 sm:px-8 sm:py-6">
-        <div className="page-header -mx-4 mb-4 flex flex-wrap items-center justify-between gap-3 px-4 py-3 sm:-mx-8 sm:px-8">
-          <h1 className="whitespace-nowrap text-[18px] font-semibold text-[#212529]">
-            {category ?? "All Reports"}{" "}
-            <span className="ml-1 text-[13px] font-normal text-gray-400">{visible.length}</span>
-          </h1>
+        <div className="relative mx-auto w-full max-w-md sm:w-auto sm:flex-1">
+          <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-blue-500" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search reports"
-            className="input w-64"
+            className="input w-full pl-9"
           />
         </div>
+      </div>
 
+      <div className="px-4 py-6 sm:px-8">
         {/*
-          Grouped under category headings rather than carrying a category column.
-          The value repeated down a column of its own said the same word a dozen
-          times and cost the report name half the width; as a heading it is said
-          once and the name gets the room.
+          Columns, not a grid: a short category stacks under the one before it,
+          as "Taxes & Compliance" sits under "Users & Roles" on Zoho's page,
+          instead of leaving a gap the height of Business Overview beside it.
         */}
-        <table className="data-table w-full">
-          <thead>
-            <tr>
-              <th className="col-fill s-th">Report Name</th>
-              <th className="col-portrait-hide s-th w-44">Created By</th>
-              <th className="col-portrait-hide s-th w-44">Last Visited</th>
-            </tr>
-          </thead>
-          <tbody>
-            {CATEGORIES.filter((c) => visible.some((r) => r.category === c)).map((c) => (
-              <Fragment key={c}>
-                <tr>
-                  <td
-                    colSpan={3}
-                    className="border-b border-gray-100 bg-gray-50/70 px-5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500"
-                  >
-                    {c}
-                  </td>
-                </tr>
-                {visible
-                  .filter((r) => r.category === c)
-                  .map((r) => (
-                    <tr key={r.key} className="s-row">
-                      <td className="col-fill s-td">
+        <div className="columns-1 gap-5 sm:columns-2 lg:columns-3 xl:columns-4 2xl:columns-5">
+          {shown.map((c) => {
+            const look = CATEGORY_LOOK[c] ?? FALLBACK_LOOK;
+            const Icon = look.icon;
+            return (
+              <section key={c} className="mb-5 break-inside-avoid rounded-lg border border-gray-100 bg-white p-2 shadow-sm">
+                <div className={`flex items-center gap-2.5 rounded-md px-3 py-2.5 ${look.strip}`}>
+                  <Icon size={18} className={look.tint} />
+                  <h2 className="text-[16px] font-medium text-[#212529]">{c}</h2>
+                </div>
+                <ul className="py-1">
+                  {visible
+                    .filter((r) => r.category === c)
+                    .map((r) => (
+                      <li key={r.key}>
                         <button
                           onClick={() => {
                             markVisited(r.key);
                             navigate(`/reports/${r.key}`);
                           }}
-                          className="s-link"
+                          className="w-full rounded px-3 py-2.5 text-left text-[14px] text-[#212529] hover:bg-gray-50 hover:text-[#e06d05]"
                         >
                           {r.label}
                         </button>
-                      </td>
-                      <td className="col-portrait-hide s-td text-gray-500">System Generated</td>
-                      <td className="col-portrait-hide s-td text-gray-500">{visitedLabel(visited[r.key])}</td>
-                    </tr>
-                  ))}
-              </Fragment>
-            ))}
-            {visible.length === 0 && (
-              <tr>
-                <td colSpan={3} className="px-5 py-10 text-center text-[13px] text-gray-500">
-                  No report matches “{search}”.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+                      </li>
+                    ))}
+                </ul>
+              </section>
+            );
+          })}
+        </div>
+        {shown.length === 0 && (
+          <p className="py-16 text-center text-[13px] text-gray-500">No report matches “{search}”.</p>
+        )}
       </div>
     </div>
   );
