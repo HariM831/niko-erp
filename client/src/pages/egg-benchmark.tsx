@@ -196,7 +196,7 @@ export function EggBenchmarkPage() {
                 </p>
               )}
               <div className="flex flex-wrap items-end gap-2">
-                <div>
+                <div className="w-36">
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">For</label>
                   <DateInput value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
                 </div>
@@ -245,7 +245,7 @@ export function EggBenchmarkPage() {
                       : ` No rate set yet — a ${EGG_SIZE_LABEL[size]} box cannot be invoiced until one is.`}
                   </p>
                   <div className="flex flex-wrap items-end gap-2">
-                    <div>
+                    <div className="w-36">
                       <label className="mb-1 block text-xs font-medium text-muted-foreground">For</label>
                       <DateInput value={f.date} onChange={(e) => editBox(size, { date: e.target.value })} className={inputCls} />
                     </div>
