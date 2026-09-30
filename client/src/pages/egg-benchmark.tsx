@@ -9,7 +9,6 @@
  */
 import { useEffect, useState } from "react";
 import { FileText, Loader2 } from "lucide-react";
-import { Link } from "wouter";
 import { api, formatDate } from "../api";
 import { DIRECT_RATE_SIZES, EGG_SIZE_LABEL, type EggSize } from "@shared/egg-sizes";
 import { localYmd } from "../lib/utils";
@@ -284,14 +283,6 @@ export function EggBenchmarkPage() {
               );
             })}
 
-            {/* The differentials live in Settings › Sales now (the user, 30 Sep 2026). */}
-            <p className="px-1 text-xs text-muted-foreground">
-              Size differentials are set in{" "}
-              <Link href="/settings/m-egg-sales?tab=differentials" className="text-primary hover:underline">
-                Settings › Sales › Size differentials
-              </Link>
-              .
-            </p>
           </div>
 
           {/* ── History ── */}
