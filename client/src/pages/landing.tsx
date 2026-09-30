@@ -8,9 +8,12 @@ import { LoginForm } from "./login";
  * the same sign-in card over it rather than leaving it.
  *
  * A sharp still with a slow CSS push-in replaced the WhatsApp film, whose
- * compression blurred the lettering. The meadow green behind it is what shows
- * before the image loads.
+ * compression blurred the lettering; clouds and grass move as in the film.
+ * The meadow green behind it is what shows before the image loads.
  */
+// Every layer is square and framed the same way, so they stay pixel-aligned.
+const LAYER = "absolute inset-0 h-full w-full object-cover object-[50%_58%]";
+
 export function LandingPage() {
   const [signingIn, setSigningIn] = useState(false);
 
@@ -23,12 +26,14 @@ export function LandingPage() {
 
   return (
     <div className="relative h-[100dvh] w-full overflow-hidden bg-[#6f8f5a]">
-      <img
-        className="landing-drift absolute inset-0 h-full w-full object-cover object-[50%_58%]"
-        src="/niko-landing.webp"
-        alt=""
-        aria-hidden="true"
-      />
+      {/* Three layers under one push-in: the still (shows at once), the loop of
+          drifting clouds and wind in the grass rendered from it, and the box cut
+          from the still on top, so video compression never softens the lettering. */}
+      <div className="landing-drift absolute inset-0" aria-hidden="true">
+        <img className={LAYER} src="/niko-landing.webp" alt="" />
+        <video className={LAYER} src="/niko-landing-loop.mp4" autoPlay muted loop playsInline preload="auto" />
+        <img className={LAYER} src="/niko-landing-box.webp" alt="" />
+      </div>
       {/* Enough shade under the header for the button and logo to read against a bright sky. */}
       <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/35 to-transparent" />
 
