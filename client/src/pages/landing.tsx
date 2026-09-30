@@ -3,13 +3,13 @@ import { LogoMark } from "../components/logo";
 import { LoginForm } from "./login";
 
 /**
- * aminofarms.com for someone not signed in: the niko eggs film, full screen,
- * with Login at the top right (the user, 30 Sep 2026). Login opens the same
- * sign-in card over the film rather than leaving it.
+ * aminofarms.com for someone not signed in: the niko eggs box on the meadow,
+ * full screen, with Login at the top right (the user, 30 Sep 2026). Login opens
+ * the same sign-in card over it rather than leaving it.
  *
- * Muted, looping and inline, because a browser plays nothing else on its own —
- * and the film is five seconds of one shot, so a loop reads as a still that
- * breathes. The meadow green behind it is what shows before the first frame.
+ * A sharp still with a slow CSS push-in replaced the WhatsApp film, whose
+ * compression blurred the lettering. The meadow green behind it is what shows
+ * before the image loads.
  */
 export function LandingPage() {
   const [signingIn, setSigningIn] = useState(false);
@@ -23,14 +23,10 @@ export function LandingPage() {
 
   return (
     <div className="relative h-[100dvh] w-full overflow-hidden bg-[#6f8f5a]">
-      <video
-        className="absolute inset-0 h-full w-full object-cover"
-        src="/niko-landing.mp4"
-        autoPlay
-        muted
-        loop
-        playsInline
-        preload="auto"
+      <img
+        className="landing-drift absolute inset-0 h-full w-full object-cover object-[50%_58%]"
+        src="/niko-landing.webp"
+        alt=""
         aria-hidden="true"
       />
       {/* Enough shade under the header for the button and logo to read against a bright sky. */}

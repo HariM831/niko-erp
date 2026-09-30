@@ -734,3 +734,16 @@ body {
     padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
   }
 }
+
+/* The landing still: a slow push-in so the page breathes like the film did. */
+@keyframes landing-drift {
+  from { transform: scale(1); }
+  to { transform: scale(1.08); }
+}
+.landing-drift {
+  animation: landing-drift 24s ease-in-out infinite alternate;
+  transform-origin: 30% 60%;
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-drift { animation: none; }
+}
