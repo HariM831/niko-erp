@@ -195,7 +195,7 @@ export function EggBenchmarkPage() {
                   {(Number(current.ratePerEgg) * eggsPerBox).toFixed(0)}/box of {eggsPerBox}).
                 </p>
               )}
-              <div className="flex items-end gap-2">
+              <div className="flex flex-wrap items-end gap-2">
                 <div>
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">For</label>
                   <DateInput value={date} onChange={(e) => setDate(e.target.value)} className={inputCls} />
@@ -204,7 +204,7 @@ export function EggBenchmarkPage() {
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">₹ / egg</label>
                   <input type="number" step="0.01" min="0" value={rate} onChange={(e) => setRate(e.target.value)} className={inputCls} />
                 </div>
-                <div className="flex-1">
+                <div className="min-w-[10rem] flex-1">
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">Note</label>
                   <input value={note} onChange={(e) => setNote(e.target.value)} className={inputCls} placeholder={DEFAULT_SOURCE} />
                 </div>
@@ -244,7 +244,7 @@ export function EggBenchmarkPage() {
                       ? ` In force now: ₹${Number(inForce.ratePerBox).toFixed(2)}/box, set for ${formatDate(inForce.effectiveFrom)}.`
                       : ` No rate set yet — a ${EGG_SIZE_LABEL[size]} box cannot be invoiced until one is.`}
                   </p>
-                  <div className="flex items-end gap-2">
+                  <div className="flex flex-wrap items-end gap-2">
                     <div>
                       <label className="mb-1 block text-xs font-medium text-muted-foreground">For</label>
                       <DateInput value={f.date} onChange={(e) => editBox(size, { date: e.target.value })} className={inputCls} />
@@ -253,7 +253,7 @@ export function EggBenchmarkPage() {
                       <label className="mb-1 block text-xs font-medium text-muted-foreground">₹ / box</label>
                       <input type="number" step="0.01" min="0" value={f.rate} onChange={(e) => editBox(size, { rate: e.target.value })} className={inputCls} />
                     </div>
-                    <div className="flex-1">
+                    <div className="min-w-[10rem] flex-1">
                       <label className="mb-1 block text-xs font-medium text-muted-foreground">Note</label>
                       <input value={f.note} onChange={(e) => editBox(size, { note: e.target.value })} className={inputCls} />
                     </div>
