@@ -1046,10 +1046,11 @@ const PO_STATUS: Record<PoStatus, { label: string; badge: string; bar: string }>
 function PurchaseOrdersReport({ data }: { data: PoReportData }) {
   const [location, navigate] = useLocation();
   const search = useSearch();
-  const status = (new URLSearchParams(search).get("status") ?? "all") as PoStatus | "all";
+  // Open orders unless asked otherwise (the user, 30 Sep 2026): what is still to come is why the report is opened.
+  const status = (new URLSearchParams(search).get("status") ?? "open") as PoStatus | "all";
   const setStatus = (s: PoStatus | "all") => {
     const p = new URLSearchParams(search);
-    if (s === "all") p.delete("status");
+    if (s === "open") p.delete("status");
     else p.set("status", s);
     navigate(`${location}?${p}`);
   };
