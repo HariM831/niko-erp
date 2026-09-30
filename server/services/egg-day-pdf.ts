@@ -166,7 +166,9 @@ const stampNow = () => {
  * in its box; Brown and Niko at their box rate.
  */
 export async function eggDaySpec(conn: Conn, on: string, kind: "orders" | "sales", orgName: string): Promise<EggDaySpec> {
-  const lines = (await dayOrders(conn, on)).filter((l) => !l.voided && l.boxes > 0);
+  // A skipped standing order is off the day as surely as a voided spot one — the
+  // calendar strikes both, and a spot booked in its place would otherwise count twice.
+  const lines = (await dayOrders(conn, on)).filter((l) => !l.voided && l.exception?.kind !== "skip" && l.boxes > 0);
   const dispatchIds = lines.map((l) => l.dispatch?.id).filter((v): v is string => !!v);
   const loaded = dispatchIds.length ? await conn.select().from(eggDispatches).where(inArray(eggDispatches.id, dispatchIds)) : [];
   const loadedOf = new Map(loaded.map((d) => [d.id, d]));

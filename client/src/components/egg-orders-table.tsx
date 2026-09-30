@@ -4,7 +4,7 @@
  *
  * Shared by the calendar's day panel and the loading bay so the book reads
  * identically in both places. Only the size columns the listed orders use
- * appear; standing orders booked by count get an Unsized column.
+ * appear; a standing order booked by count sits under Large.
  */
 import type { ReactNode } from "react";
 
@@ -57,14 +57,13 @@ export function EggOrdersTable({
     ) : null;
   }
 
-  const used = EGG_SIZES.filter((s) => lines.some((l) => l.sizes?.[s]));
-  const anyUnsized = lines.some((l) => !l.sizes || !Object.keys(l.sizes).length);
-  const cols: Array<{ key: string; label: string }> = [
-    ...(anyUnsized ? [{ key: "any", label: "Unsized" }] : []),
-    ...used.map((s) => ({ key: s, label: EGG_SIZE_LABEL[s] })),
-  ];
-  const cell = (l: OrderLine, key: string): number =>
-    key === "any" ? (!l.sizes || !Object.keys(l.sizes).length ? l.boxes : 0) : (l.sizes?.[key as EggSize] ?? 0);
+  // A standing order is a box count; until the bay grades it, it is Large —
+  // the default, as on the day sheets (the user, 1 Oct 2026).
+  const sizesOf = (l: OrderLine): Partial<Record<EggSize, number>> =>
+    l.sizes && Object.keys(l.sizes).length ? l.sizes : { large: l.boxes };
+  const used = EGG_SIZES.filter((s) => lines.some((l) => sizesOf(l)[s]));
+  const cols: Array<{ key: string; label: string }> = used.map((s) => ({ key: s, label: EGG_SIZE_LABEL[s] }));
+  const cell = (l: OrderLine, key: string): number => sizesOf(l)[key as EggSize] ?? 0;
   const colTotal = (key: string) => lines.reduce((a, l) => a + cell(l, key), 0);
   const grand = lines.reduce((a, l) => a + l.boxes, 0);
 
