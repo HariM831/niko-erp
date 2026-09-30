@@ -2,7 +2,7 @@
  * The day's WhatsApp message to each customer — Amino's reminder, on niko's
  * order book (the user, 30 Sep 2026).
  *
- * A message exists only for a day whose benchmark was set for THAT day: a rate
+ * A message exists only for today or a day ahead whose benchmark was set for THAT day: a rate
  * carried from an earlier day is yesterday's market, and the message would
  * quote it as today's. Priced by `dayPricer`, the Loading Bay's own rule, so
  * the figure the customer reads is the figure the invoice will carry.
@@ -16,6 +16,7 @@ import { EGG_SIZE_LABEL, type EggSize } from "@shared/egg-sizes";
 import { fillTemplate, inr } from "@shared/egg-whatsapp";
 import type { Db, Tx } from "../db";
 import { dayOrders, dayPricer, eggPrefs } from "./egg-sales";
+import { istDate } from "./day-resolution";
 
 type Conn = Db | Tx;
 
@@ -52,6 +53,8 @@ export function whatsappNumber(mobile: string | null, phone: string | null): str
  * benchmark was set for this very date.
  */
 export async function dayWhatsapp(conn: Conn, on: string): Promise<{ ready: boolean; messages: WhatsappMessage[] }> {
+  // A day gone by has had its delivery; there is nothing left to confirm.
+  if (on < istDate()) return { ready: false, messages: [] };
   const { bm, rateFor } = await dayPricer(conn, on);
   if (!bm || bm.effectiveFrom !== on) return { ready: false, messages: [] };
 

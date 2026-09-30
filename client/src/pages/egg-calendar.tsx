@@ -158,7 +158,7 @@ export function EggCalendarPage() {
                     <span className="flex items-center gap-1 text-xs font-semibold">
                       {Number(d.date.slice(8))}
                       {/* The day's own rate is set: its orders can be messaged. */}
-                      {d.benchmark && d.committed > 0 && (
+                      {d.benchmark && d.committed > 0 && !past && (
                         <span title="Rate set — WhatsApp messages ready">
                           <MessageCircle className="h-3 w-3 text-[#25D366]" />
                         </span>
