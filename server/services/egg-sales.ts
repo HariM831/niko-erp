@@ -144,6 +144,29 @@ export async function boxRateHistory(tx: Conn, size: EggSize, limit = 60) {
     .limit(limit);
 }
 
+/**
+ * The invoice's price rule for one day, as a function: a box of a grade at a
+ * customer's spread. Benchmark + the grade's differential + the spread, times
+ * the eggs in its box; Brown and Niko at their own box rate. Undefined when
+ * the rate it needs is not on file. The day sheets and the WhatsApp message
+ * price with this, so neither can quote what the Loading Bay will not invoice.
+ */
+export async function dayPricer(tx: Conn, on: string) {
+  const [bm, offsets, prefs] = await Promise.all([benchmarkOn(tx, on), sizeOffsetsOn(tx, on), eggPrefs(tx)]);
+  const boxRate: Partial<Record<EggSize, number>> = {};
+  for (const s of DIRECT_RATE_SIZES) {
+    const r = await boxRateOn(tx, s, on);
+    if (r) boxRate[s] = Number(r.ratePerBox);
+  }
+  const rateFor = (s: EggSize, spread: number): number | undefined => {
+    if (boxRate[s] != null) return boxRate[s];
+    if (DIRECT_RATE_SIZES.includes(s)) return undefined;
+    if (!bm) return undefined;
+    return (Number(bm.ratePerEgg) + Number(offsets?.[s] ?? 0) + spread) * eggsInBox(s, prefs);
+  };
+  return { bm, prefs, rateFor };
+}
+
 /** The size differentials in force on a date. */
 export async function sizeOffsetsOn(tx: Conn, on: string) {
   const [row] = await tx

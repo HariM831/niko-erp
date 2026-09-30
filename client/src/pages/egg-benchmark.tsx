@@ -9,8 +9,9 @@
  */
 import { useEffect, useState } from "react";
 import { FileText, Loader2 } from "lucide-react";
+import { Link } from "wouter";
 import { api, formatDate } from "../api";
-import { DIRECT_RATE_SIZES, EGG_SIZE_LABEL, VISIBLE_EGG_SIZES, isDirectRate, type EggSize } from "@shared/egg-sizes";
+import { DIRECT_RATE_SIZES, EGG_SIZE_LABEL, type EggSize } from "@shared/egg-sizes";
 import { localYmd } from "../lib/utils";
 import { DateInput } from "../components/date-input";
 import { Sparkline } from "../components/ui/sparkline";
@@ -37,10 +38,6 @@ interface BoxRateRow {
   note: string | null;
   setBy: string | null;
 }
-
-/** Differentials apply to the grades priced off the benchmark and shown on screen. */
-const SIZES = VISIBLE_EGG_SIZES.filter((s) => !isDirectRate(s));
-const SIZE_LABEL: Record<string, string> = EGG_SIZE_LABEL;
 
 const tomorrow = () => {
   const d = new Date();
@@ -71,8 +68,6 @@ export function EggBenchmarkPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [offsetForm, setOffsetForm] = useState<Record<string, string>>({});
-  const [savingOffsets, setSavingOffsets] = useState(false);
 
   /** The box-priced grades — Niko — with a rate of their own. */
   const [boxRates, setBoxRates] = useState<Record<string, BoxRateRow[]>>({});
@@ -110,10 +105,6 @@ export function EggBenchmarkPage() {
             }),
           ),
         );
-        const current = d.offsets[0];
-        if (current) {
-          setOffsetForm(Object.fromEntries(SIZES.map((s) => [s, Number(current[s] ?? 0).toFixed(2)])));
-        }
       })
       .finally(() => setLoading(false));
 
@@ -151,25 +142,6 @@ export function EggBenchmarkPage() {
       setError(e instanceof Error ? e.message : "Failed");
     } finally {
       setSaving(false);
-    }
-  };
-
-  const saveOffsets = async () => {
-    setError(null);
-    setSavingOffsets(true);
-    try {
-      await api("/api/sales/eggs/size-offsets", {
-        method: "POST",
-        body: {
-          effectiveFrom: localYmd(),
-          ...Object.fromEntries(SIZES.map((s) => [s, Number(offsetForm[s] ?? 0)])),
-        },
-      });
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed");
-    } finally {
-      setSavingOffsets(false);
     }
   };
 
@@ -312,33 +284,14 @@ export function EggBenchmarkPage() {
               );
             })}
 
-            {/* ── Size differentials ── */}
-            <div className="table-surface p-4">
-              <div className="mb-1 text-sm font-medium">Size differentials</div>
-              <div className="grid grid-cols-3 gap-3 sm:grid-cols-6">
-                {SIZES.map((s) => (
-                  <div key={s}>
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">{SIZE_LABEL[s]}</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      value={offsetForm[s] ?? "0"}
-                      onChange={(e) => setOffsetForm({ ...offsetForm, [s]: e.target.value })}
-                      className={inputCls}
-                    />
-                  </div>
-                ))}
-              </div>
-              <div className="mt-3 flex justify-end">
-                <button
-                  onClick={saveOffsets}
-                  disabled={savingOffsets}
-                  className="rounded-md border border-border px-3 py-1.5 text-sm font-medium hover:bg-muted disabled:opacity-50"
-                >
-                  {savingOffsets ? "Saving…" : "Save differentials"}
-                </button>
-              </div>
-            </div>
+            {/* The differentials live in Settings › Sales now (the user, 30 Sep 2026). */}
+            <p className="px-1 text-xs text-muted-foreground">
+              Size differentials are set in{" "}
+              <Link href="/settings/m-egg-sales?tab=differentials" className="text-primary hover:underline">
+                Settings › Sales › Size differentials
+              </Link>
+              .
+            </p>
           </div>
 
           {/* ── History ── */}

@@ -16,6 +16,7 @@ import {
   eggBenchmarkPrices,
   eggBoxRates,
   eggDispatches,
+  eggSalesPreferences,
   eggSizeOffsets,
   eggSpotOrders,
   invoices,
@@ -47,6 +48,8 @@ import {
   loadAndInvoice,
   sizeOffsetsOn,
 } from "../services/egg-sales";
+import { WHATSAPP_PLACEHOLDERS } from "@shared/egg-whatsapp";
+import { dayWhatsapp } from "../services/egg-whatsapp";
 
 export const eggSalesRouter = Router();
 
@@ -526,6 +529,39 @@ eggSalesRouter.get("/day/:date", view, async (req, res) => {
     boxSizes: Object.fromEntries(EGG_SIZES.map((s) => [s, eggsInBox(s, prefs)])),
     boxRates,
   });
+});
+
+/**
+ * The day's WhatsApp messages, one per customer — only once the benchmark is
+ * set for this very day. The calendar puts an icon beside each order it covers.
+ */
+eggSalesRouter.get("/day/:date/whatsapp", view, async (req, res) => {
+  const on = req.params.date!;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(on)) return res.status(400).json({ error: "Bad date" });
+  res.json(await dayWhatsapp(db, on));
+});
+
+/** Settings › Sales › WhatsApp message. */
+eggSalesRouter.get("/message-settings", view, async (_req, res) => {
+  const prefs = await eggPrefs(db);
+  res.json({
+    template: prefs.whatsappTemplate,
+    paymentInstructions: prefs.paymentInstructions ?? "",
+    placeholders: WHATSAPP_PLACEHOLDERS,
+  });
+});
+
+const messageSettingsBody = z.object({
+  template: z.string().trim().min(1, "The message cannot be empty").max(4000),
+  paymentInstructions: z.string().trim().max(500),
+});
+
+eggSalesRouter.put("/message-settings", create, validateBody(messageSettingsBody), async (req, res) => {
+  const b = req.body as z.infer<typeof messageSettingsBody>;
+  await db
+    .update(eggSalesPreferences)
+    .set({ whatsappTemplate: b.template, paymentInstructions: b.paymentInstructions || null });
+  res.json({ ok: true });
 });
 
 /**

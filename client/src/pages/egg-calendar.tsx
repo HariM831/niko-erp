@@ -11,7 +11,7 @@
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
-import { ChevronLeft, ChevronRight, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, MessageCircle, Pencil, Plus, Trash2, X } from "lucide-react";
 import { api } from "../api";
 import { SearchSelect } from "../components/search-select";
 import { EggOrdersTable, EGG_SIZES as SIZES, EGG_SIZE_LABEL as SIZE_LABEL, isStruck, type EggSize as Size, type OrderLine } from "../components/egg-orders-table";
@@ -37,6 +37,39 @@ type DayLine = OrderLine;
 interface Customer {
   id: string;
   name: string;
+}
+
+/** A customer's message for the day, filled on the server from Settings › Sales. */
+interface WaMessage {
+  customerId: string;
+  phone: string | null;
+  message: string;
+}
+
+/**
+ * The WhatsApp button beside an order: opens the customer's chat with the day's
+ * message typed in. Nothing is sent until a person presses send in WhatsApp.
+ */
+function WhatsappButton({ m }: { m: WaMessage }) {
+  if (!m.phone) {
+    return (
+      <span title="No mobile or phone number on this customer" className="rounded p-1 text-muted-foreground/40">
+        <MessageCircle className="h-4 w-4" />
+      </span>
+    );
+  }
+  return (
+    <a
+      href={`https://wa.me/${m.phone}?text=${encodeURIComponent(m.message)}`}
+      target="_blank"
+      rel="noreferrer"
+      title="Send the day's message on WhatsApp"
+      onClick={(e) => e.stopPropagation()}
+      className="rounded p-1 text-[#25D366] hover:bg-[#25D366]/10"
+    >
+      <MessageCircle className="h-4 w-4" />
+    </a>
+  );
 }
 
 const monthName = (ym: string) =>
@@ -122,7 +155,15 @@ export function EggCalendarPage() {
                   } ${d.date === today ? "ring-1 ring-primary" : ""} ${past ? "opacity-70" : ""}`}
                 >
                   <div className="flex items-start justify-between">
-                    <span className="text-xs font-semibold">{Number(d.date.slice(8))}</span>
+                    <span className="flex items-center gap-1 text-xs font-semibold">
+                      {Number(d.date.slice(8))}
+                      {/* The day's own rate is set: its orders can be messaged. */}
+                      {d.benchmark && d.committed > 0 && (
+                        <span title="Rate set — WhatsApp messages ready">
+                          <MessageCircle className="h-3 w-3 text-[#25D366]" />
+                        </span>
+                      )}
+                    </span>
                     {/* A future day with no benchmark yet is a day loading will refuse. */}
                     {!d.benchmark && !past && (
                       <span title="No benchmark set" className="h-1.5 w-1.5 rounded-full bg-warning" />
@@ -199,6 +240,7 @@ function DayDrawer({
   const [capacity, setCapacity] = useState<Capacity | null>(null);
   const [benchmark, setBenchmark] = useState<{ ratePerEgg: string; setFor: string } | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [wa, setWa] = useState<Map<string, WaMessage>>(new Map());
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState<{ id: string | null; customerId: string; sizes: Record<Size, string>; spread: string; notes: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -212,6 +254,10 @@ function DayDrawer({
         setLines(d.lines);
         setBenchmark(d.benchmark);
         setCapacity(d.capacity);
+        // Messages exist only once this very day's benchmark is set.
+        return api<{ ready: boolean; messages: WaMessage[] }>(`/api/sales/eggs/day/${date}/whatsapp`)
+          .then((w) => setWa(new Map(w.messages.map((m) => [m.customerId, m]))))
+          .catch(() => setWa(new Map()));
       })
       .finally(() => setLoading(false));
 
@@ -404,7 +450,19 @@ function DayDrawer({
 
                 {(() => {
                   const struck = lines.filter(isStruck);
-                  const rowActions = (l: OrderLine) =>
+                  // One message per customer: the icon sits on their first order of the day.
+                  const firstOf = new Map<string, string>();
+                  for (const l of live) if (!firstOf.has(l.customerId)) firstOf.set(l.customerId, l.sourceId);
+                  const rowActions = (l: OrderLine) => {
+                    const m = firstOf.get(l.customerId) === l.sourceId ? wa.get(l.customerId) : undefined;
+                    return (
+                      <div className="flex items-center justify-end gap-0.5">
+                        {m && <WhatsappButton m={m} />}
+                        {editActions(l)}
+                      </div>
+                    );
+                  };
+                  const editActions = (l: OrderLine) =>
                     !l.dispatch && !past ? (
                       <div className="flex justify-end gap-0.5">
                         {l.kind === "spot" && (

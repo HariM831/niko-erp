@@ -58,6 +58,7 @@ import {
   TransactionPrefsSection,
 } from "./settings-preferences";
 import { DateInput } from "../components/date-input";
+import { EggDifferentialsSection, WhatsappMessageSection } from "./settings-egg-sales";
 
 type Section = string;
 
@@ -97,6 +98,15 @@ const SECTIONS: SectionDef[] = [
   { key: "m-contacts", label: "Customers and Vendors", group: "Module Settings", entity: "contact", prefs: "contacts" },
   { key: "m-items", label: "Items", group: "Module Settings", prefs: "items" },
   { key: "m-invoices", label: "Invoices", group: "Module Settings", prefs: "invoices" },
+  {
+    key: "m-egg-sales",
+    label: "Egg sales",
+    group: "Module Settings",
+    extras: [
+      { key: "differentials", label: "Size differentials" },
+      { key: "whatsapp", label: "WhatsApp message" },
+    ],
+  },
   { key: "m-bills", label: "Bills", group: "Module Settings", entity: "bill" },
   { key: "m-expenses", label: "Expenses", group: "Module Settings", entity: "expense" },
   {
@@ -173,6 +183,7 @@ const MODULE_CARD: Record<string, string> = {
   "m-items": "General",
   "m-accountant": "General",
   "m-invoices": "Sales",
+  "m-egg-sales": "Sales",
   "m-bills": "Purchases",
   "m-expenses": "Purchases",
   "m-office": "Office",
@@ -1128,6 +1139,8 @@ const MODULE_EXTRAS: Record<string, () => ReactElement> = {
   holidays: HolidaysTab,
   "wage-rates": RatesTab,
   "payroll-policy": PolicyTab,
+  differentials: EggDifferentialsSection,
+  whatsapp: WhatsappMessageSection,
 };
 
 function ModuleSettings({ def, initialTab }: { def: SectionDef; initialTab?: string }) {

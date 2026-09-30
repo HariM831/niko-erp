@@ -213,6 +213,10 @@ export const eggSalesPreferences = pgTable("egg_sales_preferences", {
   bandSmallMaxKg: numeric("band_small_max_kg", { precision: 5, scale: 2 }).notNull().default("10.5"),
   bandMediumMaxKg: numeric("band_medium_max_kg", { precision: 5, scale: 2 }).notNull().default("12"),
   bandLargeMaxKg: numeric("band_large_max_kg", { precision: 5, scale: 2 }).notNull().default("13.5"),
+  /** The day's message to a customer, with [placeholders] — Amino's, copied 30 Sep 2026. */
+  whatsappTemplate: text("whatsapp_template").notNull(),
+  /** The line the message closes on: who to pay and how. */
+  paymentInstructions: text("payment_instructions"),
 });
 
 /**

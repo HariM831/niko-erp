@@ -13,10 +13,10 @@
 import PDFDocument from "pdfkit";
 import { inArray } from "drizzle-orm";
 import { eggDispatches } from "@shared/schema";
-import { DIRECT_RATE_SIZES, EGG_SIZE_LABEL, type EggSize } from "@shared/egg-sizes";
+import { EGG_SIZE_LABEL, type EggSize } from "@shared/egg-sizes";
 import type { Db, Tx } from "../db";
 import { winAnsi } from "./owner-statement-pdf";
-import { benchmarkOn, boxRateOn, dayOrders, eggPrefs, eggsInBox, sizeOffsetsOn } from "./egg-sales";
+import { dayOrders, dayPricer } from "./egg-sales";
 
 type Conn = Db | Tx;
 
@@ -171,18 +171,7 @@ export async function eggDaySpec(conn: Conn, on: string, kind: "orders" | "sales
   const loaded = dispatchIds.length ? await conn.select().from(eggDispatches).where(inArray(eggDispatches.id, dispatchIds)) : [];
   const loadedOf = new Map(loaded.map((d) => [d.id, d]));
 
-  const [bm, offsets, prefs] = await Promise.all([benchmarkOn(conn, on), sizeOffsetsOn(conn, on), eggPrefs(conn)]);
-  const boxRate: Partial<Record<EggSize, number>> = {};
-  for (const s of DIRECT_RATE_SIZES) {
-    const r = await boxRateOn(conn, s, on);
-    if (r) boxRate[s] = Number(r.ratePerBox);
-  }
-  const rateFor = (s: EggSize, spread: number): number | undefined => {
-    if (boxRate[s] != null) return boxRate[s];
-    if ((DIRECT_RATE_SIZES as readonly EggSize[]).includes(s)) return undefined;
-    if (!bm) return undefined;
-    return (Number(bm.ratePerEgg) + Number(offsets?.[s] ?? 0) + spread) * eggsInBox(s, prefs);
-  };
+  const { bm, rateFor } = await dayPricer(conn, on);
 
   const byCustomer = new Map<string, { customer: string; boxes: Partial<Record<EggSize, number>>; amount: number; spreads: Set<number> }>();
   for (const l of lines) {
