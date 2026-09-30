@@ -27,15 +27,13 @@ export interface WhatsappMessage {
   message: string;
 }
 
-/** "Wed, 1 Oct 2026" — Amino's delivery date. */
-const deliveryDate = (on: string) =>
-  new Date(`${on}T00:00:00Z`).toLocaleDateString("en-GB", {
-    timeZone: "UTC",
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+const DAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** "Wed, 1 Oct 2026" — Amino's delivery date. Spelt out by hand: ICU writes September "Sept". */
+const deliveryDate = (on: string) => {
+  const d = new Date(`${on}T00:00:00Z`);
+  return `${DAY[d.getUTCDay()]}, ${d.getUTCDate()} ${MON[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+};
 
 /** A contact's number for wa.me: mobile before phone, India's 91 on a bare ten digits. */
 export function whatsappNumber(mobile: string | null, phone: string | null): string | null {
