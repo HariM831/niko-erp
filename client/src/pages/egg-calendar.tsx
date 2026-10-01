@@ -188,6 +188,10 @@ export function EggCalendarPage() {
                   {d.dispatched > 0 && (
                     <div className="text-[10px] text-success">↑ {d.dispatched} loaded</div>
                   )}
+                  {/* Booked but never loaded in niko: still on the stock ledger. */}
+                  {past && d.committed > d.dispatched && (
+                    <div className="text-[10px] font-medium text-destructive">{d.committed - d.dispatched} not loaded</div>
+                  )}
                   {d.skipped > 0 && <div className="text-[10px] text-muted-foreground">{d.skipped} skipped</div>}
                   {past && d.production != null && d.committed === 0 && (
                     <div className="text-[10px] text-muted-foreground">{d.production} produced</div>

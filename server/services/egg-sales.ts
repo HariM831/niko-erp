@@ -478,7 +478,14 @@ export async function supplyCascade(tx: Conn, from: string, to: string): Promise
     const production = hasSheet ? graded.get(on)! : on >= today ? expected : null;
     const opening: number | null = on <= today ? openingFromLedger(on) : carried;
     const supply: number | null = opening != null && production != null ? opening + production : null;
-    const closing: number | null = supply != null ? supply - committed : null;
+    // A day gone by closes on what the ledger says was left — the next day's
+    // opening — so a closing always carries into the next opening. Orders that
+    // never went through the Loading Bay are still on the shelf there, and the
+    // calendar says so rather than subtracting them (1 Oct 2026).
+    const next = new Date(d);
+    next.setUTCDate(next.getUTCDate() + 1);
+    const closing: number | null =
+      on < today ? openingFromLedger(next.toISOString().slice(0, 10)) : supply != null ? supply - committed : null;
     carried = closing;
     out.push({
       date: on,
