@@ -129,7 +129,16 @@ export function EggCalendarPage() {
             {Array.from({ length: firstWeekday }).map((_, i) => (
               <div key={`pad-${i}`} />
             ))}
-            {days.map((d) => {
+            {days.map((d, i) => {
+              /* The closing against a day's need — the next day's orders, or this
+                 day's when the next is off the page: green covers more than a
+                 day, amber less, red is short (the user, 1 Oct 2026). */
+              const need = days[i + 1]?.committed || d.committed;
+              const cover =
+                d.closing == null ? "text-muted-foreground"
+                : d.closing < 0 ? "text-destructive"
+                : d.closing >= need ? "text-success"
+                : "text-warning";
               /* Supply is the shelf plus the lay: yesterday's closing carried
                  in, plus the day's graded boxes (or the seven-day average
                  until the sheet is in). */
@@ -180,7 +189,7 @@ export function EggCalendarPage() {
                     >
                       {/* Orders / what is left to sell after them — the projected closing (the user, 1 Oct 2026). */}
                       <span className="font-medium tabular-nums">{d.committed}</span>
-                      <span className={`tabular-nums ${d.closing != null && d.closing < 0 ? "text-destructive" : "text-muted-foreground"}`}>
+                      <span className={`font-medium tabular-nums ${cover}`}>
                         {" "}/ {d.closing ?? "?"}
                       </span>
                     </div>
