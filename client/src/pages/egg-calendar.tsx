@@ -181,7 +181,7 @@ export function EggCalendarPage() {
                       {/* Orders / what is left to sell after them — the projected closing (the user, 1 Oct 2026). */}
                       <span className="font-medium tabular-nums">{d.committed}</span>
                       <span className={`tabular-nums ${d.closing != null && d.closing < 0 ? "text-destructive" : "text-muted-foreground"}`}>
-                        {" "}/ {d.closing ?? "?"} {past ? "left" : "to sell"}
+                        {" "}/ {d.closing ?? "?"}
                       </span>
                     </div>
                   )}
