@@ -51,7 +51,20 @@ export interface FaceHealth {
     byDay: Array<{ day: string; scans: number; failures: number }>;
     byHour: Array<{ hour: number; scans: number; failures: number }>;
   };
-  canteen: { plates: number; nameMatched: number; rate: number | null };
+  canteen: {
+    plates: number;
+    nameMatched: number;
+    rate: number | null;
+    /** Hand-picks by meal and hour — the counter's light shows up here first. */
+    byMeal: Array<{ meal: string; plates: number; nameMatched: number }>;
+    byHour: Array<{ hour: number; plates: number; nameMatched: number }>;
+    /** Hand-picks whose scan had already named the right person, just not surely enough. */
+    pickedWasClosest: number;
+    /** Hand-picks that had a scan recorded at all (since 1 Oct 2026). */
+    pickedWithScan: number;
+    /** Plates whose face now teaches the canteen's own gallery. */
+    taught: number;
+  };
   /** Who the gate keeps failing to recognise, worst first. */
   strugglers: Array<{
     name: string;
@@ -385,6 +398,32 @@ export async function buildFaceHealth(conn: Conn, days = 30): Promise<FaceHealth
          AND meal_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - ${days}::int
     `)
   ).rows as Array<{ plates: number; nameMatched: number }>;
+  const canteenWindow = sql`employee_id IS NOT NULL AND extra_plate_kind IS NULL
+         AND meal_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - ${days}::int`;
+  const cByMeal = (
+    await conn.execute(sql`
+      SELECT meal::text AS meal, count(*)::int AS plates,
+             count(*) FILTER (WHERE state = 'name_matched')::int AS "nameMatched"
+        FROM canteen_servings WHERE ${canteenWindow}
+       GROUP BY 1 ORDER BY 1
+    `)
+  ).rows as Array<{ meal: string; plates: number; nameMatched: number }>;
+  const cByHour = (
+    await conn.execute(sql`
+      SELECT extract(hour FROM served_at AT TIME ZONE 'Asia/Kolkata')::int AS hour, count(*)::int AS plates,
+             count(*) FILTER (WHERE state = 'name_matched')::int AS "nameMatched"
+        FROM canteen_servings WHERE ${canteenWindow}
+       GROUP BY 1 ORDER BY 1
+    `)
+  ).rows as Array<{ hour: number; plates: number; nameMatched: number }>;
+  const [cScan] = (
+    await conn.execute(sql`
+      SELECT count(*) FILTER (WHERE state = 'name_matched' AND scan_score IS NOT NULL)::int AS "withScan",
+             count(*) FILTER (WHERE state = 'name_matched' AND scan_closest_id = employee_id)::int AS "wasClosest",
+             count(*) FILTER (WHERE face_embedding IS NOT NULL)::int AS taught
+        FROM canteen_servings WHERE ${canteenWindow}
+    `)
+  ).rows as Array<{ withScan: number; wasClosest: number; taught: number }>;
 
   /* ── What the galleries look like ───────────────────────────────────── */
   const [g] = (
@@ -412,6 +451,11 @@ export async function buildFaceHealth(conn: Conn, days = 30): Promise<FaceHealth
       plates: c?.plates ?? 0,
       nameMatched: c?.nameMatched ?? 0,
       rate: c?.plates ? c.nameMatched / c.plates : null,
+      byMeal: cByMeal,
+      byHour: cByHour,
+      pickedWasClosest: cScan?.wasClosest ?? 0,
+      pickedWithScan: cScan?.withScan ?? 0,
+      taught: cScan?.taught ?? 0,
     },
     strugglers: strugglers.map((s) => ({
       name: s.name,
@@ -720,7 +764,18 @@ export function formatFaceHealth(r: FaceHealth): string {
   } else {
     L.push(`Gate:    ${r.gate.scans} scans, ${r.gate.failures} needed a name by hand = ${pct(r.gate.rate!)} failure rate`);
     if (r.gate.hrResolved) L.push(`         (${r.gate.hrResolved} HR punch-out fixes excluded — not a face failing)`);
-    if (r.canteen.plates) L.push(`Canteen: ${r.canteen.plates} plates, ${r.canteen.nameMatched} by name = ${pct(r.canteen.rate!)}`);
+    if (r.canteen.plates) {
+      L.push(`Canteen: ${r.canteen.plates} plates, ${r.canteen.nameMatched} by name = ${pct(r.canteen.rate!)}`);
+      if (r.canteen.byMeal.length) {
+        L.push(`  by meal: ${r.canteen.byMeal.map((m) => `${m.meal} ${m.plates ? pct(m.nameMatched / m.plates) : "—"}`).join(", ")}`);
+      }
+      const hours = r.canteen.byHour.filter((h) => h.plates >= 10);
+      if (hours.length) L.push(`  by hour: ${hours.map((h) => `${String(h.hour).padStart(2, "0")}h ${pct(h.nameMatched / h.plates)}`).join(", ")}`);
+      if (r.canteen.pickedWithScan) {
+        L.push(`  hand-picked after a scan: ${r.canteen.pickedWithScan}; the scan had already named that person in ${r.canteen.pickedWasClosest} (${pct(r.canteen.pickedWasClosest / r.canteen.pickedWithScan)}) — close, not sure enough`);
+      }
+      L.push(`  plates teaching the canteen's own gallery: ${r.canteen.taught}`);
+    }
     if (r.centred?.recorded) {
       const line = (label: string, b: CentredBand) =>
         b.n

@@ -17,7 +17,7 @@
  *   Who someone is, when it is not sure. As at the attendance gate, a name is
  *   picked by hand only after a scan has failed, or when no scan is possible.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Camera, CameraOff, CheckCircle2, Loader2, ScanFace, SwitchCamera, UserSearch, Utensils } from "lucide-react";
 import { ApiError, api } from "../../api";
@@ -25,7 +25,8 @@ import { SearchSelect } from "../../components/search-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge, ErrorBanner, PageHeader, istToday, useErr } from "../../components/payroll/ui";
 import { DateInput } from "../../components/date-input";
-import { DEFAULT_MATCH_THRESHOLD, MIN_MATCH_MARGIN, getFaceEmbedding, looksSpoofed } from "../../lib/face";
+import { DEFAULT_MATCH_THRESHOLD, MIN_MATCH_MARGIN, frameToDataUrl, getFaceEmbedding, looksSpoofed } from "../../lib/face";
+import { loadRoster, saveRoster } from "../../lib/roster-cache";
 import { useCamera } from "../../lib/use-camera";
 import { buildMatchIndex, findBestMatchIndexed } from "@shared/face-match";
 import { centredOf, useCentredIndex, type CentredResult } from "../../lib/face-model";
@@ -54,6 +55,24 @@ type Stage =
   | { kind: "duplicate"; name: string; message: string; token: string; at: string };
 
 const CANTEEN_KEY = "niko.canteen-gate.canteen";
+
+/**
+ * What the last scan saw, kept until the plate it belongs to is served: the
+ * face (which may teach the canteen's own gallery), the frame (kept for a
+ * hand-picked plate), and what the matcher made of it. Older than this and a
+ * name picked by hand is not about that face any more.
+ */
+interface ScanRecord {
+  at: number;
+  embedding: number[];
+  photo: string;
+  scan: { score: number; closestId: string | null; secondScore: number; secondId: string | null; frames: number };
+}
+const SCAN_FRESH_MS = 90_000;
+/** A short burst instead of one frame: a blink or a turned head fails one frame, not three. */
+const BURST_FRAMES = 3;
+const BURST_GAP_MS = 300;
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" });
 
 export function PayrollCanteenGatePage() {
@@ -82,7 +101,38 @@ export function PayrollCanteenGatePage() {
     enabled: !!canteenId,
     refetchInterval: 60_000,
   });
-  const rosterQ = useQuery({ queryKey: ["canteen-gate", "roster"], queryFn: () => api<Person[]>("/api/canteen/gate/roster"), staleTime: 5 * 60_000 });
+  /*
+   * The roster, accumulated rather than re-downloaded, as the attendance gate
+   * keeps its gallery: the server answers what changed since the cursor and
+   * names whoever has gone; the copy kept in this browser is dropped after a
+   * day, the one time the whole roster is fetched again (lib/roster-cache.ts).
+   */
+  const roster = useRef({ cursor: 0, byId: new Map<string, Person>(), savedAt: 0, seeded: false });
+  const rosterQ = useQuery({
+    queryKey: ["canteen-gate", "roster"],
+    queryFn: async () => {
+      const r = roster.current;
+      if (!r.seeded) {
+        r.seeded = true;
+        const kept = await loadRoster<Person>("canteen");
+        if (kept) {
+          r.cursor = kept.cursor;
+          r.savedAt = kept.savedAt;
+          r.byId = new Map(kept.people.map((p) => [p.id, p]));
+        }
+      }
+      const page = await api<{ cursor: number; people: Person[]; deleted: string[] }>(`/api/canteen/gate/roster?since=${r.cursor}`);
+      for (const id of page.deleted) r.byId.delete(id);
+      for (const p of page.people) r.byId.set(p.id, p);
+      r.cursor = page.cursor;
+      const all = [...r.byId.values()].sort((a, b) => a.empCode.localeCompare(b.empCode));
+      if (!r.savedAt) r.savedAt = Date.now();
+      void saveRoster("canteen", r.cursor, all, r.savedAt);
+      return all;
+    },
+    staleTime: 5 * 60_000,
+  });
+  const lastScan = useRef<ScanRecord | null>(null);
   // What the SERVER says the meal is, asked again every half minute so the
   // label turns over with the clock. Nothing is served until it has answered.
   const stateQ = useQuery({
@@ -133,15 +183,36 @@ export function PayrollCanteenGatePage() {
     if (!video || video.videoWidth === 0) { setErr("Camera not ready."); return; }
     setErr(null);
     setStage({ kind: "matching" });
+    lastScan.current = null;
     try {
-      const face = await getFaceEmbedding(video);
-      if (!face.ok || !face.embedding) { setStage({ kind: "nomatch" }); return; }
-      if (looksSpoofed(face)) { setStage({ kind: "nomatch", spoofed: true }); return; }
-      const m = findBestMatchIndexed(face.embedding, index);
+      // Up to three frames, stopping at the first that passes the gate's rule.
+      // If none does, the best of them is what the record keeps.
+      let best: { m: ReturnType<typeof findBestMatchIndexed>; embedding: number[]; photo: string } | null = null;
+      let frames = 0;
+      let spoofed = false;
+      for (let i = 0; i < BURST_FRAMES; i++) {
+        if (i > 0) await pause(BURST_GAP_MS);
+        frames++;
+        const photo = frameToDataUrl(video);
+        const face = await getFaceEmbedding(video);
+        if (!face.ok || !face.embedding) continue;
+        if (looksSpoofed(face)) { spoofed = true; continue; }
+        const m = findBestMatchIndexed(face.embedding, index);
+        if (!best || m.score > best.m.score) best = { m, embedding: face.embedding, photo };
+        if (m.id && m.score >= DEFAULT_MATCH_THRESHOLD && m.score - m.secondScore >= MIN_MATCH_MARGIN) break;
+      }
+      if (!best) { setStage({ kind: "nomatch", spoofed }); return; }
+      const { m } = best;
+      lastScan.current = {
+        at: Date.now(),
+        embedding: best.embedding,
+        photo: best.photo,
+        scan: { score: m.score, closestId: m.id, secondScore: m.secondScore, secondId: m.secondId, frames },
+      };
       const person = m.id ? byId.get(m.id) ?? null : null;
       if (person && m.score >= DEFAULT_MATCH_THRESHOLD && m.score - m.secondScore >= MIN_MATCH_MARGIN) {
         if (navigator.vibrate) navigator.vibrate(50);
-        setStage({ kind: "confirm", person, method: "face", score: m.score, centred: centredOf(face.embedding, centredIdx) });
+        setStage({ kind: "confirm", person, method: "face", score: m.score, centred: centredOf(best.embedding, centredIdx) });
       } else {
         setStage({ kind: "nomatch" });
       }
@@ -153,11 +224,26 @@ export function PayrollCanteenGatePage() {
 
   async function serve(person: Person, method: "face" | "manual", score: number | null, centred: CentredResult | null = null) {
     setStage({ kind: "posting" });
+    const seen = lastScan.current && Date.now() - lastScan.current.at < SCAN_FRESH_MS ? lastScan.current : null;
+    lastScan.current = null;
     try {
       // Minted here so a retry on a bad connection is the same plate, not a second.
       const plate = await api<Served>("/api/canteen/gate/servings", {
         method: "POST",
-        body: { clientId: crypto.randomUUID(), canteenId, employeeId: person.id, method, matchScore: score, centred },
+        body: {
+          clientId: crypto.randomUUID(),
+          canteenId,
+          employeeId: person.id,
+          method,
+          matchScore: score,
+          centred,
+          // The scan this plate followed, while it is still this plate's.
+          ...(seen && {
+            faceEmbedding: seen.embedding,
+            scan: seen.scan,
+            ...(method === "manual" && { photoUrl: seen.photo }),
+          }),
+        },
       });
       setStage({ kind: "served", plate });
       qc.invalidateQueries({ queryKey: ["canteen-gate", "state"] });

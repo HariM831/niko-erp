@@ -28,7 +28,7 @@ import { db, type Db, type Tx } from "../db";
 import { requireAnyPermission, requirePermission } from "../lib/rbac";
 import { DuplicatePlate, mealWindowsFor, presentForCanteen, recordBrowserServing } from "../services/canteen";
 import { PostingError } from "../services/posting";
-import { taughtCapturesByEmployee, roundEmbedding } from "../services/face-gallery";
+import { canteenCapturesByEmployee, taughtCapturesByEmployee, roundEmbedding } from "../services/face-gallery";
 import { istTimeHHMM, mealForTime, MEAL_LABEL } from "@shared/canteen";
 import { timeOfDay, validateBody } from "../lib/validate";
 
@@ -224,6 +224,11 @@ const servingCols = {
   reasonText: canteenServings.reasonText,
   authorisedBy: canteenServings.authorisedBy,
   hasPhoto: sql<boolean>`${canteenServings.photoUrl} IS NOT NULL`,
+  // What the scan made of the face — on a hand-picked plate, who it thought it was.
+  scanScore: canteenServings.scanScore,
+  scanFrames: canteenServings.scanFrames,
+  scanClosestName: sql<string | null>`(SELECT e2.name FROM employees e2 WHERE e2.id = ${canteenServings.scanClosestId})`,
+  taught: sql<boolean>`${canteenServings.faceEmbedding} IS NOT NULL`,
   attendancePresent: canteenServings.attendancePresent,
   reconciledAt: canteenServings.reconciledAt,
   syncedAt: canteenServings.syncedAt,
@@ -299,6 +304,16 @@ canteenRouter.get("/servings", view, async (req, res) => {
     db.select({ n: sql<number>`count(*)::int` }).from(canteenServings).where(where),
   ]);
   res.json({ rows, total: count?.n ?? 0, date });
+});
+
+/** The frame a hand-picked plate kept, so HR can see what the camera saw. */
+canteenRouter.get("/servings/:id/photo", view, async (req, res) => {
+  const id = req.params.id!;
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: "Bad id" });
+  const [row] = await db.select({ photo: canteenServings.photoUrl }).from(canteenServings).where(eq(canteenServings.id, id));
+  const m = row?.photo ? /^data:(image\/[a-z+]+);base64,(.+)$/i.exec(row.photo) : null;
+  if (!m) return res.status(404).json({ error: "No photo kept for this plate" });
+  res.type(m[1]!).set("Cache-Control", "private, max-age=3600").send(Buffer.from(m[2]!, "base64"));
 });
 
 /** Plates someone should look at: authorised ones, guests, outside the window, or served to a person the gate never saw. */
@@ -500,28 +515,56 @@ canteenRouter.get("/report/monthly", view, async (req, res) => {
  * itself), and whether they are on the list for breakfast and dinner. People
  * with no face are included — they can still be served by name.
  */
-canteenRouter.get("/gate/roster", serve, async (_req, res) => {
-  const people = await db
+canteenRouter.get("/gate/roster", serve, async (req, res) => {
+  const since = Number(req.query.since) || 0;
+  /*
+   * A cursor, as the gate's gallery has (payroll.ts /employees/gallery): with
+   * the canteen's own captures a person carries up to eleven descriptors, and
+   * the whole roster every five minutes was megabytes for a handful of
+   * changes. A person changed when their row did, their meal list did, or a
+   * capture was taught at the gate or the counter. Plain SQL with the table
+   * named, for the reason given there.
+   */
+  const changedAt = sql<number>`(EXTRACT(EPOCH FROM GREATEST(
+    employees.updated_at,
+    COALESCE((SELECT max(m.updated_at) FROM canteen_meal_eligibility m WHERE m.employee_id = employees.id), 'epoch'::timestamptz),
+    COALESCE((SELECT max(p.punched_at) FROM punches p
+               WHERE p.employee_id = employees.id AND p.face_embedding IS NOT NULL), 'epoch'::timestamptz),
+    COALESCE((SELECT max(c.served_at) FROM canteen_servings c
+               WHERE c.employee_id = employees.id AND c.face_embedding IS NOT NULL), 'epoch'::timestamptz)
+  )) * 1000)::float8`;
+  const rows = await db
     .select({
       id: employees.id,
       empCode: employees.empCode,
       name: employees.name,
       payType: employees.payType,
+      isActive: employees.isActive,
       faceDescriptor: employees.faceDescriptor,
       breakfast: sql<boolean>`coalesce(${canteenMealEligibility.breakfast}, false) OR coalesce(${canteenMealEligibility.breakfastAuto}, false)`,
       dinner: sql<boolean>`coalesce(${canteenMealEligibility.dinner}, false)`,
+      changedAt,
     })
     .from(employees)
     .leftJoin(canteenMealEligibility, eq(canteenMealEligibility.employeeId, employees.id))
-    .where(eq(employees.isActive, true))
+    // `>=`: a repeat costs a row, a miss costs a face. The tablet merges by id.
+    .where(since ? sql`${changedAt} >= ${since}` : undefined)
     .orderBy(asc(employees.empCode));
-  const taught = await taughtCapturesByEmployee(db, people.filter((p) => p.faceDescriptor).map((p) => p.id));
-  res.json(
-    people.map(({ faceDescriptor, ...p }) => ({
+  const live = rows.filter((r) => r.isActive);
+  const ids = live.filter((p) => p.faceDescriptor).map((p) => p.id);
+  const taught = await taughtCapturesByEmployee(db, ids);
+  const own = await canteenCapturesByEmployee(db, ids);
+  res.json({
+    cursor: rows.reduce((max, r) => Math.max(max, r.changedAt), since),
+    people: live.map(({ faceDescriptor, changedAt: _c, isActive: _a, ...p }) => ({
       ...p,
-      descriptors: faceDescriptor ? [roundEmbedding(faceDescriptor as number[]), ...(taught.get(p.id) ?? [])] : [],
+      // Enrolment, the gate's captures, then the canteen's own.
+      descriptors: faceDescriptor
+        ? [roundEmbedding(faceDescriptor as number[]), ...(taught.get(p.id) ?? []), ...(own.get(p.id) ?? [])]
+        : [],
     })),
-  );
+    deleted: rows.filter((r) => !r.isActive).map((r) => r.id),
+  });
 });
 
 /** Which meal the server says it is, and who has already had it. */
@@ -585,12 +628,26 @@ const gateServing = z.object({
       secondScore: z.number().min(-1).max(1),
     })
     .nullish(),
+  faceEmbedding: z.array(z.number()).max(2048).nullish(),
+  // A JPEG frame as a data URL, as the gate sends it; ~30 KB, capped well above.
+  photoUrl: z.string().startsWith("data:image/").max(400_000).nullish(),
+  scan: z
+    .object({
+      score: z.number().min(0).max(1),
+      closestId: z.string().uuid().nullable(),
+      secondScore: z.number().min(0).max(1),
+      secondId: z.string().uuid().nullable(),
+      frames: z.number().int().min(1).max(10),
+    })
+    .nullish(),
 });
 
 canteenRouter.post("/gate/servings", serve, validateBody(gateServing), async (req, res) => {
   try {
     const { serving, replay } = await db.transaction((tx) => recordBrowserServing(tx, req.session.user!.id, req.body as z.infer<typeof gateServing>));
-    res.status(replay ? 200 : 201).json({ ...serving, mealLabel: MEAL_LABEL[serving.meal] });
+    // The face and the frame stay on the server: the counter has no use for them back.
+    const { faceEmbedding: _f, photoUrl: _p, ...plate } = serving;
+    res.status(replay ? 200 : 201).json({ ...plate, mealLabel: MEAL_LABEL[serving.meal] });
   } catch (err) {
     if (err instanceof DuplicatePlate) {
       return res.status(409).json({ error: `Already served ${MEAL_LABEL[err.meal].toLowerCase()} today`, duplicate: true, servedAt: err.servedAt, tokenNumber: err.tokenNumber });

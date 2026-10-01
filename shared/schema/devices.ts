@@ -17,10 +17,12 @@ import {
   date,
   index,
   integer,
+  jsonb,
   numeric,
   pgEnum,
   pgTable,
   real,
+  smallint,
   text,
   timestamp,
   uniqueIndex,
@@ -218,6 +220,19 @@ export const canteenServings = pgTable(
     /** Set = this plate was authorised (a legitimate repeat or override). */
     authorisedBy: uuid("authorised_by").references(() => staffPins.id),
     photoUrl: text("photo_url"),
+    /**
+     * The scanned face, kept only when it may teach the canteen's own gallery:
+     * a face match, or a hand-pick among the scan's five closest
+     * (docs/canteen-face-matching-plan.md). Aged out like the gate's captures.
+     */
+    faceEmbedding: jsonb("face_embedding").$type<number[]>(),
+    /** What the scan made of the face — on a face match and a hand-pick alike. */
+    scanScore: real("scan_score"),
+    scanClosestId: uuid("scan_closest_id").references(() => employees.id),
+    scanSecondScore: real("scan_second_score"),
+    scanSecondId: uuid("scan_second_id").references(() => employees.id),
+    /** Frames the scan tried before it passed or gave up (1–3). */
+    scanFrames: smallint("scan_frames"),
     latitude: real("latitude"),
     longitude: real("longitude"),
     accuracyM: real("accuracy_m"),

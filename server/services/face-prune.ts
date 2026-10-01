@@ -18,7 +18,7 @@
 import { sql } from "drizzle-orm";
 import { PHOTO_RETENTION_DAYS } from "@shared/canteen";
 import { db } from "../db";
-import { pruneTaughtCaptures, taughtCaptureCount } from "./face-gallery";
+import { pruneCanteenCaptures, pruneTaughtCaptures, taughtCaptureCount } from "./face-gallery";
 import { buildFaceHealth, formatFaceHealth } from "./face-health";
 import { syncNightShiftBreakfast } from "./canteen";
 import { istDate } from "./day-resolution";
@@ -72,7 +72,7 @@ async function tick() {
   if (running) return; // a slow pass holds the next back rather than stacking
   running = true;
   try {
-    const cleared = await pruneTaughtCaptures(db);
+    const cleared = (await pruneTaughtCaptures(db)) + (await pruneCanteenCaptures(db));
     // Silent when there was nothing to do, which is most hours. A log line
     // every hour saying "0" is a log nobody reads by the second week.
     if (cleared > 0) {

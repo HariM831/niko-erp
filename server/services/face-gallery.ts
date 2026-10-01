@@ -154,6 +154,83 @@ export async function pruneTaughtCaptures(conn: Conn): Promise<number> {
   return res.rowCount ?? 0;
 }
 
+/* ── The canteen's own captures ───────────────────────────────────────────
+ *
+ * The canteen matched only against the gate's captures, so a face in the
+ * canteen's light was always judged against how it looked at the gate — 46%
+ * of plates went out on a hand-picked name against the gate's 4%
+ * (docs/canteen-face-matching-plan.md). Its own scans now teach a gallery of
+ * their own, by the same two rules as the gate's, and are served to the
+ * canteen only: a mistake at the counter never reaches attendance.
+ */
+
+/** One canteen capture a day, newest GALLERY_DAYS capture-days, nothing older than GALLERY_MAX_AGE_DAYS. */
+export async function canteenCaptures(conn: Conn, employeeIds?: string[]): Promise<TaughtCapture[]> {
+  const rows = await conn.execute(sql`
+    WITH per_day AS (
+      SELECT DISTINCT ON (employee_id, meal_date)
+             employee_id, meal_date, face_embedding
+        FROM canteen_servings
+       WHERE face_embedding IS NOT NULL
+         AND employee_id IS NOT NULL
+         AND meal_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - ${GALLERY_MAX_AGE_DAYS}::int
+         ${
+           employeeIds?.length
+             ? sql`AND employee_id IN (${sql.join(employeeIds.map((id) => sql`${id}::uuid`), sql`, `)})`
+             : sql``
+         }
+       -- The day's latest plate: lunch and dinner are lit better than breakfast.
+       ORDER BY employee_id, meal_date, served_at DESC
+    ),
+    ranked AS (
+      SELECT employee_id, face_embedding,
+             row_number() OVER (PARTITION BY employee_id ORDER BY meal_date DESC) AS rn
+        FROM per_day
+    )
+    SELECT employee_id, face_embedding FROM ranked WHERE rn <= ${GALLERY_DAYS}
+  `);
+  return (rows.rows as Array<{ employee_id: string; face_embedding: number[] }>).map((r) => ({
+    employeeId: r.employee_id,
+    embedding: r.face_embedding,
+  }));
+}
+
+export async function canteenCapturesByEmployee(conn: Conn, employeeIds?: string[]): Promise<Map<string, number[][]>> {
+  const out = new Map<string, number[][]>();
+  for (const c of await canteenCaptures(conn, employeeIds)) {
+    const list = out.get(c.employeeId) ?? [];
+    list.push(c.embedding);
+    out.set(c.employeeId, list);
+  }
+  return out;
+}
+
+/** The canteen's prune, keyed on exactly what `canteenCaptures` serves. */
+export async function pruneCanteenCaptures(conn: Conn): Promise<number> {
+  const res = await conn.execute(sql`
+    WITH per_day AS (
+      SELECT DISTINCT ON (employee_id, meal_date)
+             id, employee_id, meal_date
+        FROM canteen_servings
+       WHERE face_embedding IS NOT NULL
+         AND employee_id IS NOT NULL
+         AND meal_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - ${GALLERY_MAX_AGE_DAYS}::int
+       ORDER BY employee_id, meal_date, served_at DESC
+    ),
+    keep AS (
+      SELECT id FROM (
+        SELECT id, row_number() OVER (PARTITION BY employee_id ORDER BY meal_date DESC) AS rn
+          FROM per_day
+      ) r WHERE rn <= ${GALLERY_DAYS}
+    )
+    UPDATE canteen_servings
+       SET face_embedding = NULL
+     WHERE face_embedding IS NOT NULL
+       AND id NOT IN (SELECT id FROM keep)
+  `);
+  return res.rowCount ?? 0;
+}
+
 /** How many captures are being stored, for the prune to report against. */
 export async function taughtCaptureCount(conn: Conn): Promise<number> {
   const [row] = await conn
@@ -209,7 +286,13 @@ export interface CaptureVerdict {
  * A gallery is the enrolment descriptor plus the taught captures — exactly what
  * the gate matches against, so this agrees with what the guard just saw.
  */
-export async function judgeCapture(conn: Conn, selectedId: string, embedding: number[]): Promise<CaptureVerdict> {
+export async function judgeCapture(
+  conn: Conn,
+  selectedId: string,
+  embedding: number[],
+  /** Extra captures per person — the canteen judges against its own as well. */
+  extra?: Map<string, number[][]>,
+): Promise<CaptureVerdict> {
   const people = await conn.execute(sql`
     SELECT id, name, emp_code, face_descriptor
       FROM employees
@@ -219,7 +302,11 @@ export async function judgeCapture(conn: Conn, selectedId: string, embedding: nu
   let ownScore = 0;
   let best: CaptureVerdict["lookalike"] = null;
   for (const p of people.rows as Array<{ id: string; name: string; emp_code: string; face_descriptor: number[] | null }>) {
-    const gallery = [...(isUsableEmbedding(p.face_descriptor) ? [p.face_descriptor] : []), ...(taught.get(p.id) ?? [])];
+    const gallery = [
+      ...(isUsableEmbedding(p.face_descriptor) ? [p.face_descriptor] : []),
+      ...(taught.get(p.id) ?? []),
+      ...(extra?.get(p.id) ?? []),
+    ];
     let score = 0;
     for (const g of gallery) score = Math.max(score, cosine(embedding, g));
     if (p.id === selectedId) ownScore = score;

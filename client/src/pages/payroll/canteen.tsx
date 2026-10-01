@@ -38,6 +38,11 @@ interface Serving {
   personName: string;
   state: "verified" | "name_matched" | "unverified_attendance" | "override" | "guest";
   matchScore: number | null;
+  hasPhoto?: boolean;
+  scanScore?: number | null;
+  scanFrames?: number | null;
+  scanClosestName?: string | null;
+  taught?: boolean;
   servedAt: string;
   tokenNumber: string;
   outsideWindow: boolean;
@@ -229,7 +234,19 @@ function TodayTab({ term, criteria }: { term: string; criteria: Criteria }) {
                   <Td>{canteenName(r)}</Td>
                   <Td className="capitalize">{r.meal}</Td>
                   <Td className="tabular-nums">{ranged && `${dmy(r.mealDate)} `}{fmtTime(r.servedAt)}</Td>
-                  <Td><Badge tone={STATE_TONE[r.state]}>{SERVING_STATE_LABEL[r.state as ServingState] ?? r.state}</Badge></Td>
+                  <Td>
+                    <Badge tone={STATE_TONE[r.state]}>{SERVING_STATE_LABEL[r.state as ServingState] ?? r.state}</Badge>
+                    {/* A hand-picked plate: what the camera thought, and what it saw. */}
+                    {r.state === "name_matched" && r.scanScore != null && (
+                      <div className="mt-0.5 text-[11px] text-gray-500">
+                        scan {Math.round(r.scanScore * 100)}%
+                        {r.scanClosestName && (r.scanClosestName === r.personName ? " · was its first guess" : ` · thought ${r.scanClosestName}`)}
+                        {r.hasPhoto && (
+                          <a className="ml-1 text-blue-600 hover:underline" href={`/api/canteen/servings/${r.id}/photo`} target="_blank" rel="noreferrer">photo</a>
+                        )}
+                      </div>
+                    )}
+                  </Td>
                   <Td>
                     <span className="flex flex-wrap gap-1">
                       {r.outsideWindow && <Badge tone="amber">outside window</Badge>}
