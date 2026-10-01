@@ -744,29 +744,14 @@ body {
   animation: landing-drift 24s ease-in-out infinite alternate;
   transform-origin: 30% 60%;
 }
-/* The square photo fills a wide screen. A tall one (a phone) would crop the box
-   to its middle, so there the square is sized to the width with a little
-   overhang, the box whole, and a blurred copy fills above and below. */
-.landing-stage { position: absolute; inset: 0; }
-.landing-backdrop { display: none; }
+/* A phone gets the tall photo (sky and grass extended); its sides are cropped
+   a little, so the push-in there is gentler and centred, keeping the box whole. */
 @keyframes landing-drift-sm {
   from { transform: scale(1); }
-  to { transform: scale(1.04); }
+  to { transform: scale(1.02); }
 }
 @media (max-aspect-ratio: 1/1) {
-  .landing-stage {
-    inset: auto;
-    left: 50%;
-    top: 50%;
-    width: 118vw;
-    height: 118vw;
-    transform: translate(-50%, -50%);
-    /* Sky and grass fade into the blurred copy rather than ending on a line. */
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 16%, #000 84%, transparent 100%);
-    mask-image: linear-gradient(to bottom, transparent 0, #000 16%, #000 84%, transparent 100%);
-  }
-  .landing-backdrop { display: block; }
-  .landing-drift { animation-name: landing-drift-sm; transform-origin: 50% 60%; }
+  .landing-drift { animation-name: landing-drift-sm; transform-origin: 50% 55%; }
 }
 @media (prefers-reduced-motion: reduce) {
   .landing-drift { animation: none; }
