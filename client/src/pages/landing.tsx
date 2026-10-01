@@ -26,13 +26,22 @@ export function LandingPage() {
 
   return (
     <div className="relative h-[100dvh] w-full overflow-hidden bg-[#6f8f5a]">
+      {/* A phone: the photo, blurred and dimmed, behind the whole box. */}
+      <img
+        className="landing-backdrop absolute inset-0 h-full w-full scale-110 object-cover blur-2xl brightness-90"
+        src="/niko-landing.webp"
+        alt=""
+        aria-hidden="true"
+      />
       {/* Three layers under one push-in: the still (shows at once), the loop of
           drifting clouds and wind in the grass rendered from it, and the box cut
           from the still on top, so video compression never softens the lettering. */}
-      <div className="landing-drift absolute inset-0" aria-hidden="true">
-        <img className={LAYER} src="/niko-landing.webp" alt="" />
-        <video className={LAYER} src="/niko-landing-loop.mp4" autoPlay muted loop playsInline preload="auto" />
-        <img className={LAYER} src="/niko-landing-box.webp" alt="" />
+      <div className="landing-stage" aria-hidden="true">
+        <div className="landing-drift absolute inset-0">
+          <img className={LAYER} src="/niko-landing.webp" alt="" />
+          <video className={LAYER} src="/niko-landing-loop.mp4" autoPlay muted loop playsInline preload="auto" />
+          <img className={LAYER} src="/niko-landing-box.webp" alt="" />
+        </div>
       </div>
       {/* Enough shade under the header for the button and logo to read against a bright sky. */}
       <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-black/35 to-transparent" />
