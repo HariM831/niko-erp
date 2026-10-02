@@ -16,6 +16,7 @@ import {
   eggBenchmarkPrices,
   eggBoxRates,
   eggDispatches,
+  eggMarketRates,
   eggSalesPreferences,
   eggSizeOffsets,
   eggSpotOrders,
@@ -366,8 +367,16 @@ eggSalesRouter.get("/benchmark", view, async (_req, res) => {
   // The grades sold by the box, with their own history — Niko today.
   const boxRates: Record<string, Awaited<ReturnType<typeof boxRateHistory>>> = {};
   for (const size of DIRECT_RATE_SIZES) boxRates[size] = await boxRateHistory(db, size);
+  // The newest Kolkata reading, so the form opens on it as it does the benchmark.
+  const [kolkata] = await db
+    .select({ rateDate: eggMarketRates.rateDate, ratePerEgg: eggMarketRates.ratePerEgg })
+    .from(eggMarketRates)
+    .where(eq(eggMarketRates.market, "kolkata"))
+    .orderBy(desc(eggMarketRates.rateDate))
+    .limit(1);
   res.json({
     history,
+    kolkata: kolkata ?? null,
     offsets,
     eggsPerBox: prefs.eggsPerBox,
     boxSizes: Object.fromEntries(EGG_SIZES.map((z) => [z, eggsInBox(z, prefs)])),
@@ -409,6 +418,8 @@ const benchmarkBody = z.object({
   effectiveFrom: dateStr,
   ratePerEgg: looseNumber(z.number().positive().max(100)),
   note: z.string().max(300).optional(),
+  /** Kolkata's rate that day, kept beside the benchmark for the forecast and the eye. */
+  kolkataRate: looseNumber(z.number().positive().max(100)).optional(),
 });
 
 eggSalesRouter.post("/benchmark", create, validateBody(benchmarkBody), async (req, res) => {
@@ -428,6 +439,15 @@ eggSalesRouter.post("/benchmark", create, validateBody(benchmarkBody), async (re
       set: { ratePerEgg: b.ratePerEgg.toFixed(4), note: b.note || null, createdBy: req.session.user!.id },
     })
     .returning();
+  if (b.kolkataRate != null) {
+    await db
+      .insert(eggMarketRates)
+      .values({ market: "kolkata", rateDate: b.effectiveFrom, ratePerEgg: b.kolkataRate.toFixed(4), source: "sales", createdBy: req.session.user!.id })
+      .onConflictDoUpdate({
+        target: [eggMarketRates.market, eggMarketRates.rateDate],
+        set: { ratePerEgg: b.kolkataRate.toFixed(4), source: "sales", createdBy: req.session.user!.id },
+      });
+  }
   res.status(201).json(row);
 });
 

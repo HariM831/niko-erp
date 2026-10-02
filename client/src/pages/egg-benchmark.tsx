@@ -19,6 +19,8 @@ interface BenchmarkRow {
   id: string;
   effectiveFrom: string;
   ratePerEgg: string;
+  /** Kolkata's rate the same day, when one was kept. */
+  kolkata?: string | null;
   note: string | null;
   setBy: string | null;
 }
@@ -63,6 +65,7 @@ export function EggBenchmarkPage() {
   const [date, setDate] = useState(tomorrow());
   const [rate, setRate] = useState("");
   const [note, setNote] = useState(DEFAULT_SOURCE);
+  const [kolkata, setKolkata] = useState("");
   const [page, setPage] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,6 +83,7 @@ export function EggBenchmarkPage() {
   const load = () =>
     api<{
       history: BenchmarkRow[];
+      kolkata?: { rateDate: string; ratePerEgg: string } | null;
       offsets: OffsetRow[];
       eggsPerBox: number;
       boxSizes: Record<string, number>;
@@ -96,6 +100,7 @@ export function EggBenchmarkPage() {
         // Each form opens on the rate in force — most evenings it only moves a few paise.
         setRate(d.history[0] ? Number(d.history[0].ratePerEgg).toFixed(2) : "");
         setNote(DEFAULT_SOURCE);
+        setKolkata(d.kolkata ? Number(d.kolkata.ratePerEgg).toFixed(2) : "");
         setBoxForms(
           Object.fromEntries(
             DIRECT_RATE_SIZES.map((s) => {
@@ -134,7 +139,12 @@ export function EggBenchmarkPage() {
     try {
       await api("/api/sales/eggs/benchmark", {
         method: "POST",
-        body: { effectiveFrom: date, ratePerEgg: Number(rate), note: note || undefined },
+        body: {
+          effectiveFrom: date,
+          ratePerEgg: Number(rate),
+          note: note || undefined,
+          ...(kolkata ? { kolkataRate: Number(kolkata) } : {}),
+        },
       });
       await load();
     } catch (e) {
@@ -203,6 +213,11 @@ export function EggBenchmarkPage() {
                 <div className="w-28">
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">₹ / egg</label>
                   <input type="number" step="0.01" min="0" value={rate} onChange={(e) => setRate(e.target.value)} className={inputCls} />
+                </div>
+                {/* Kolkata's rate that day: kept beside the benchmark for the forecast; it prices nothing. */}
+                <div className="w-28">
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Kolkata ₹ / egg</label>
+                  <input type="number" step="0.01" min="0" value={kolkata} onChange={(e) => setKolkata(e.target.value)} className={inputCls} />
                 </div>
                 <div className="min-w-[10rem] flex-1">
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">Note</label>
@@ -296,6 +311,7 @@ export function EggBenchmarkPage() {
                   <th className="table-th text-right">₹ / egg</th>
                   <th className="table-th text-right">Change</th>
                   <th className="table-th text-right">₹ / box</th>
+                  <th className="table-th text-right">Kolkata</th>
                   <th className="table-th text-left">Note</th>
                   <th className="table-th text-left">Set by</th>
                 </tr>
@@ -313,6 +329,9 @@ export function EggBenchmarkPage() {
                     <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
                       {largeBox(h).toFixed(0)}
                     </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
+                      {h.kolkata != null ? Number(h.kolkata).toFixed(2) : "—"}
+                    </td>
                     <td className="px-3 py-2 text-muted-foreground">{h.note ?? ""}</td>
                     <td className="px-3 py-2 text-muted-foreground">{h.setBy ?? ""}</td>
                   </tr>
@@ -320,7 +339,7 @@ export function EggBenchmarkPage() {
                 })}
                 {!history.length && (
                   <tr>
-                    <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
+                    <td colSpan={7} className="px-3 py-8 text-center text-muted-foreground">
                       No rates set yet — nothing can be invoiced until one is.
                     </td>
                   </tr>

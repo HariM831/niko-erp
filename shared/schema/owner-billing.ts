@@ -20,6 +20,7 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  varchar,
 } from "drizzle-orm/pg-core";
 import { users } from "./auth";
 import { contacts } from "./contacts";
@@ -44,6 +45,26 @@ export const eggBenchmarkPrices = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [uniqueIndex("uq_egg_benchmark").on(t.effectiveFrom)],
+);
+
+/**
+ * Another market's daily egg rate — Kolkata first (2 Oct 2026). A reading of
+ * the market for the forecast and the Benchmark page; it never prices anything,
+ * which is why it is not a column on the benchmark.
+ */
+export const eggMarketRates = pgTable(
+  "egg_market_rates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    market: varchar("market", { length: 30 }).notNull(),
+    rateDate: date("rate_date").notNull(),
+    ratePerEgg: numeric("rate_per_egg", { precision: 10, scale: 4 }).notNull(),
+    source: text("source"),
+    note: text("note"),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("uq_egg_market_rate").on(t.market, t.rateDate)],
 );
 
 /** What is agreed with one owner, rather than true of everyone. */

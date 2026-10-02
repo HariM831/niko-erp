@@ -1360,6 +1360,9 @@ export async function benchmarkHistory(tx: Conn, limit = 60) {
       id: eggBenchmarkPrices.id,
       effectiveFrom: eggBenchmarkPrices.effectiveFrom,
       ratePerEgg: eggBenchmarkPrices.ratePerEgg,
+      // Kolkata's rate on the same day, read beside it (never pricing anything).
+      kolkata: sql<string | null>`(SELECT m.rate_per_egg FROM egg_market_rates m
+        WHERE m.market = 'kolkata' AND m.rate_date = ${eggBenchmarkPrices.effectiveFrom})`,
       source: eggBenchmarkPrices.source,
       note: eggBenchmarkPrices.note,
       setBy: users.name,
