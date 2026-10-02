@@ -113,8 +113,9 @@ type Bound = { nutrient: string; minValue: number | null; maxValue: number | nul
 
 /**
  * A standard's rows as the formulator reads them: Met+Cys added after lysine
- * as the sum of the two, and a crude fibre row (possibly with no limit) so the
- * mix's fibre is always on show. The stored standard is left as it is.
+ * as the sum of the two (cystine then judged only inside it), and a crude
+ * fibre row (possibly with no limit) so the mix's fibre is always on show. The
+ * stored standard is left as it is.
  */
 export function formulatorBounds<T extends Bound>(bounds: T[]): Bound[] {
   const out: Bound[] = bounds.map((b) => ({ nutrient: b.nutrient, minValue: b.minValue, maxValue: b.maxValue }));
@@ -130,7 +131,10 @@ export function formulatorBounds<T extends Bound>(bounds: T[]): Bound[] {
     const at = out.findIndex((b) => b.nutrient === "avP");
     out.splice(at >= 0 ? at + 1 : out.length, 0, { nutrient: "cf", minValue: null, maxValue: null });
   }
-  return out;
+  // Cystine is judged only inside Met+Cys: a hen makes it from methionine, so
+  // a cystine-only floor would ask for intact protein the requirement does not
+  // (the user, 2 Oct 2026). Methionine alone is still shown.
+  return out.some((b) => b.nutrient === DIG_MET_CYS) ? out.filter((b) => b.nutrient !== "digCyst") : out;
 }
 
 /** A material's profile with the derived figures added. Unmeasured stays absent. */
