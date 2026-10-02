@@ -43,6 +43,7 @@ CAL = None       # the festival calendar, loaded once in main()
 KOL = None       # Kolkata's rate, dense and aligned with the benchmark days (--kol)
 KOL_LAGS = 3     # how many days of Kolkata moves are carried into the benchmark
 KOL_FIT_DAYS = 365
+REAL = None      # days whose benchmark was really set (a "source" column other than zoho-history)
 DETREND = 61     # the window the festival effect is measured against
 
 
@@ -196,6 +197,9 @@ def kolkata_carry(vals, o, horizon):
     dk = np.diff(KOL[a - 1 - KOL_LAGS : o])            # Kolkata change, days a-KOL_LAGS..o-1
     X = np.stack([dk[KOL_LAGS - l : KOL_LAGS - l + len(db)] for l in range(1, KOL_LAGS + 1)], axis=1)
     ok = np.all(np.isfinite(X), axis=1) & np.isfinite(db)
+    if REAL is not None:
+        # As the live forecast does: only changes between two days really set.
+        ok &= REAL[a:o] & REAL[a - 1 : o - 1]
     if ok.sum() < 60:
         return np.zeros(horizon, dtype=np.float32)
     beta, *_ = np.linalg.lstsq(X[ok], db[ok], rcond=None)
@@ -282,6 +286,13 @@ def main():
             last = raw.get(d, last)
             KOL[i] = last
         print(f"Kolkata: {int(np.isfinite(KOL).sum())} of {len(days)} days")
+        global REAL
+        with open(args.csv, newline="", encoding="utf-8") as f:
+            rows = list(csv.DictReader(f))
+        if rows and "source" in rows[0]:
+            real = {r["date"] for r in rows if r.get("source") not in (None, "", "zoho-history")}
+            REAL = np.asarray([d.isoformat() in real for d in days], dtype=bool)
+            print(f"really set: {int(REAL.sum())} of {len(days)} days")
     print(f"{len(vals)} daily points, {days[0]} → {days[-1]}")
 
     report = {"series": {"points": len(vals), "from": days[0].isoformat(), "to": days[-1].isoformat()}}
