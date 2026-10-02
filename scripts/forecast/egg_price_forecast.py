@@ -89,13 +89,18 @@ MIN_HISTORY = YEAR + 120
 Q_LOW, Q_HIGH = 1, 9  # TimesFM returns [mean, q0.1, q0.2 … q0.9]
 
 
-def kolkata_carry(np, vals, kol, horizon):
+def kolkata_carry(np, vals, kol, horizon, real=None):
     """
     Kolkata moves first and the benchmark follows over one to three days. The
     benchmark's daily change is regressed on Kolkata's changes 1..KOL_LAGS
     days earlier over the last year, and the moves Kolkata has made that the
     benchmark has not yet answered are carried forward. The same arithmetic
     as backtest.py's +kol, which scored it.
+
+    `real` marks the days whose benchmark was actually set. The fit uses only
+    changes between two real days: a rate carried over a gap (Feb–May 2026
+    has none) or Zoho's invoice averages would teach it that the benchmark
+    ignores Kolkata, and the carry came out a third of its true size (2 Oct).
     """
     o = len(vals)
     a = max(KOL_LAGS + 2, o - KOL_FIT_DAYS)
@@ -103,6 +108,9 @@ def kolkata_carry(np, vals, kol, horizon):
     dk = np.diff(kol[a - 1 - KOL_LAGS : o])
     X = np.stack([dk[KOL_LAGS - l : KOL_LAGS - l + len(db)] for l in range(1, KOL_LAGS + 1)], axis=1)
     ok = np.all(np.isfinite(X), axis=1) & np.isfinite(db)
+    if real is not None:
+        r = np.asarray(real, dtype=bool)
+        ok &= r[a:o] & r[a - 1 : o - 1]
     if ok.sum() < 60:
         return np.zeros(horizon, dtype=np.float32)
     beta, *_ = np.linalg.lstsq(X[ok], db[ok], rcond=None)
@@ -194,7 +202,14 @@ def main() -> None:
     with_kol = isinstance(kol_raw, list) and len(kol_raw) == len(series)
     if with_kol:
         kol = np.asarray([np.nan if v is None else float(v) for v in kol_raw], dtype=np.float64)
-        carry = kolkata_carry(np, np.asarray([float(p["value"]) for p in series], dtype=np.float64), kol, horizon)
+        real = req.get("real")
+        carry = kolkata_carry(
+            np,
+            np.asarray([float(p["value"]) for p in series], dtype=np.float64),
+            kol,
+            horizon,
+            real if isinstance(real, list) and len(real) == len(series) else None,
+        )
         p50, lo, hi = p50 + carry, lo + carry, hi + carry
 
     points = []

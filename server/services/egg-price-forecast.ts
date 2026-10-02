@@ -100,11 +100,24 @@ export async function kolkataAligned(db: Db, days: string[]): Promise<(number | 
   return days.map((d) => (last = by.get(d) ?? last));
 }
 
+/**
+ * Which days of the series had a benchmark actually set, rather than carried
+ * over a gap or averaged out of invoices (the Zoho history).
+ */
+export async function realBenchmarkDays(db: Db, days: string[]): Promise<boolean[]> {
+  const rows = await db
+    .select({ on: eggBenchmarkPrices.effectiveFrom, source: eggBenchmarkPrices.source })
+    .from(eggBenchmarkPrices);
+  const set = new Set(rows.filter((r) => r.source !== "zoho-history").map((r) => r.on));
+  return days.map((d) => set.has(d));
+}
+
 /** The model, as a child process. Rejects on anything that is not clean JSON. */
 export function forecastWith(
   series: { date: string; value: number }[],
   horizon = HORIZON_DAYS,
   kolkata?: (number | null)[],
+  real?: boolean[],
 ): Promise<{ model: string; contextDays: number; anchorDate: string; points: ForecastPoint[] }> {
   const python = process.env.FORECAST_PYTHON;
   if (!python) throw new Error("FORECAST_PYTHON is not set");
@@ -147,6 +160,8 @@ export function forecastWith(
         // Kolkata, day for day with the series. Scored 1.5% better than
         // without over 180 origins (2 Oct 2026); the user asked for it in.
         ...(kolkata ? { kolkata } : {}),
+        // Which days had a benchmark actually set — the Kolkata fit uses only those.
+        ...(real ? { real } : {}),
       }),
     );
   });
@@ -182,7 +197,12 @@ export async function refreshForecast(
     .limit(1);
   if (!opts.force && have?.anchor === anchorDate) return { ran: false, reason: "already forecast", anchorDate };
 
-  const result = await forecastWith(series, HORIZON_DAYS, await kolkataAligned(db, series.map((p) => p.date)));
+  const result = await forecastWith(
+    series,
+    HORIZON_DAYS,
+    await kolkataAligned(db, series.map((p) => p.date)),
+    await realBenchmarkDays(db, series.map((p) => p.date)),
+  );
   if (result.anchorDate !== anchorDate) {
     throw new Error(`model anchored to ${result.anchorDate}, expected ${anchorDate}`);
   }
