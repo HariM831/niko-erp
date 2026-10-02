@@ -333,3 +333,41 @@ exists: the tile rendered in a browser against live data (checked here only
 as far as the database — `/api/boss-view` is behind auth), and the model's
 first run on the droplet's own CPU, which is slower than the machine the
 timings in this document came from.
+
+## 2 Oct 2026: raw framing + Kolkata, live
+
+Three things changed the history and the method:
+
+1. **The gap.** `egg_benchmark_prices` had no rows from 31 Jan to 20 May 2026,
+   so the series sat flat at ₹4.83 for 3½ months. It was filled from the NECC
+   column of the user's `KOL Rates.xlsx` (source `necc-sheet`, 107 days); since
+   May that column equals the typed benchmark on every day.
+2. **Kolkata** (`egg_market_rates`, 2,334 days from the same workbook) leads the
+   benchmark by one to three days. `+kol` carries its last three days' moves
+   forward by a regression fitted on really-set days only (not Zoho averages,
+   not the gap): about 0.5 of a Kolkata move arrives within three days.
+3. **The framing.** On the complete history the yoy framing loses to a flat
+   line; the rate itself wins.
+
+**Walk-forward, 180 origins (Mar–Sep 2026), complete history, MAE ₹/egg:**
+
+| | overall | h1–7 | h8–14 | h15–28 | p10–p90 held |
+|---|---|---|---|---|---|
+| **TimesFM raw + Kolkata** | **0.3704** | 0.1679 | **0.3264** | **0.4937** | 74% |
+| TimesFM raw | 0.3727 | 0.1620 | 0.3313 | 0.4987 | 74% |
+| flat (last rate) | 0.4076 | **0.1612** | 0.3474 | 0.5608 | — |
+| TimesFM yoy + anchor + Kolkata | 0.4285 | 0.1855 | 0.4063 | 0.5612 | 65% |
+| TimesFM yoy + anchor | 0.4395 | 0.1871 | 0.4223 | 0.5744 | 64% |
+
+Raw + Kolkata is 9.1% better than flat overall and 12% at 15–28 days; nothing
+beats today's rate in week one. Forecasting September from 31 Aug alone:
+raw + Kolkata 0.103, raw 0.109, flat 0.117, yoy + Kolkata 0.150, yoy 0.188.
+
+**Live since 2 Oct 2026:** `FORECAST_FRAMING=raw` in prod.env; rows say
+`timesfm-2.5-200m-raw+kol`. The yoy code stays for comparison. Re-run with
+
+```bash
+.venv-timesfm/bin/python scripts/forecast/backtest.py --csv bench.csv --kol kol.json --variants raw,raw+kol,yoy+anchor --origins 180
+```
+
+where bench.csv carries a `source` column, so the Kolkata fit uses only really-set days.
