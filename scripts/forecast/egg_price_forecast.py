@@ -67,6 +67,10 @@ MODEL_ID = "google/timesfm-2.5-200m-pytorch"
 MODEL_NAME = "timesfm-2.5-200m-yoy"
 # Recorded on every row, so a stored forecast says which framing made it.
 MODEL_NAME_CAL = "timesfm-2.5-200m-yoy-cal"
+# The rate itself, no seasonal step (2 Oct 2026): over 180 origins on the
+# complete history it beat a flat line by 8.6% (9.1% with Kolkata) where the
+# yoy framing lost by 7.8%. The caller chooses; yoy stays for comparison.
+MODEL_NAME_RAW = "timesfm-2.5-200m-raw"
 # Kolkata's lead, carried in (2 Oct 2026): how many days of its moves reach the
 # benchmark, and the year the carry-through is fitted on. Same as backtest.py.
 KOL_LAGS = 3
@@ -131,6 +135,9 @@ def main() -> None:
     series = req["series"]
     horizon = int(req.get("horizon", 28))
     use_calendar = bool(req.get("calendar", False))
+    framing = req.get("framing", "yoy")
+    if framing not in ("yoy", "raw"):
+        raise ValueError(f"framing {framing!r} is neither yoy nor raw")
     if horizon < 1 or horizon > MAX_HORIZON:
         raise ValueError(f"horizon {horizon} outside 1..{MAX_HORIZON}")
     if len(series) < MIN_HISTORY:
@@ -176,23 +183,31 @@ def main() -> None:
             normalize_inputs=True,
             use_continuous_quantile_head=True,
             force_flip_invariance=True,
-            # A difference is signed, so nothing is claimed about its sign;
-            # the quantiles are still ordered and saying so costs nothing.
-            infer_is_positive=False,
+            # A yoy difference is signed, so nothing is claimed about its sign;
+            # a rate is positive. The quantiles are ordered either way.
+            infer_is_positive=framing == "raw",
             fix_quantile_crossing=True,
         )
     )
 
-    point, quantiles = model.forecast(horizon=horizon, inputs=[delta])
-    p50 = np.asarray(point)[0] + back
-    q = np.asarray(quantiles)[0] + back[:, None]
-    lo, hi = q[:, Q_LOW], q[:, Q_HIGH]
+    if framing == "raw":
+        # The rate itself, as backtest.py's "raw" scored it: no seasonal step,
+        # no fade-in — the model starts from where the market is.
+        point, quantiles = model.forecast(horizon=horizon, inputs=[values[-MAX_CONTEXT:]])
+        p50 = np.asarray(point)[0]
+        q = np.asarray(quantiles)[0]
+        lo, hi = q[:, Q_LOW], q[:, Q_HIGH]
+    else:
+        point, quantiles = model.forecast(horizon=horizon, inputs=[delta])
+        p50 = np.asarray(point)[0] + back
+        q = np.asarray(quantiles)[0] + back[:, None]
+        lo, hi = q[:, Q_LOW], q[:, Q_HIGH]
 
-    # Fade in from today's rate over the first week.
-    w = np.clip(np.arange(1, horizon + 1) / ANCHOR_DAYS, 0.0, 1.0)
-    p50 = w * p50 + (1 - w) * last
-    lo = w * lo + (1 - w) * last
-    hi = w * hi + (1 - w) * last
+        # Fade in from today's rate over the first week.
+        w = np.clip(np.arange(1, horizon + 1) / ANCHOR_DAYS, 0.0, 1.0)
+        p50 = w * p50 + (1 - w) * last
+        lo = w * lo + (1 - w) * last
+        hi = w * hi + (1 - w) * last
 
     # Back onto the rate the market will see, festivals included.
     p50, lo, hi = p50 + calendar_adj, lo + calendar_adj, hi + calendar_adj
@@ -226,7 +241,8 @@ def main() -> None:
 
     json.dump(
         {
-            "model": (MODEL_NAME_CAL if use_calendar else MODEL_NAME) + ("+kol" if with_kol else ""),
+            "model": (MODEL_NAME_RAW if framing == "raw" else MODEL_NAME_CAL if use_calendar else MODEL_NAME)
+            + ("+kol" if with_kol else ""),
             "contextDays": int(len(delta)),
             "anchorDate": anchor.isoformat(),
             "points": points,

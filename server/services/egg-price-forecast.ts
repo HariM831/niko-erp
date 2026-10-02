@@ -118,6 +118,8 @@ export function forecastWith(
   horizon = HORIZON_DAYS,
   kolkata?: (number | null)[],
   real?: boolean[],
+  /** "yoy" (the original) or "raw"; FORECAST_FRAMING picks the live one. */
+  framing: "yoy" | "raw" = process.env.FORECAST_FRAMING === "raw" ? "raw" : "yoy",
 ): Promise<{ model: string; contextDays: number; anchorDate: string; points: ForecastPoint[] }> {
   const python = process.env.FORECAST_PYTHON;
   if (!python) throw new Error("FORECAST_PYTHON is not set");
@@ -162,6 +164,7 @@ export function forecastWith(
         ...(kolkata ? { kolkata } : {}),
         // Which days had a benchmark actually set — the Kolkata fit uses only those.
         ...(real ? { real } : {}),
+        framing,
       }),
     );
   });
