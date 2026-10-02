@@ -278,6 +278,28 @@ const FIRST_DELAY_MS = 120_000;
 
 let running = false;
 let timer: ReturnType<typeof setInterval> | null = null;
+/**
+ * Kolkata's newest reading when the forecast last ran. Kolkata is set at 7 am,
+ * the benchmark in the evening, so a new Kolkata rate must rerun the forecast
+ * on its own — the anchor has not moved, but the first days ahead have.
+ */
+let kolkataSeen: string | null = null;
+
+async function kolkataKey(db: Db): Promise<string> {
+  const [k] = await db
+    .select({ d: eggMarketRates.rateDate, r: eggMarketRates.ratePerEgg })
+    .from(eggMarketRates)
+    .where(eq(eggMarketRates.market, "kolkata"))
+    .orderBy(desc(eggMarketRates.rateDate))
+    .limit(1);
+  return k ? `${k.d}:${k.r}` : "";
+}
+
+/** Run the tick soon — after a Kolkata rate is saved, rather than within the half hour. */
+export function nudgePriceForecast() {
+  if (!timer) return; // forecasting is off on this box
+  setTimeout(() => void tick(), 2_000).unref?.();
+}
 /** The last reason printed, so a standing condition is said once, not hourly. */
 let saidWhy: string | null = null;
 
@@ -285,7 +307,9 @@ async function tick() {
   if (running) return; // a slow run holds the next back rather than stacking
   running = true;
   try {
-    const r = await refreshForecast();
+    const key = await kolkataKey(defaultDb);
+    const r = await refreshForecast(defaultDb, { force: kolkataSeen !== null && key !== kolkataSeen });
+    kolkataSeen = key;
     // Silent when the anchor has not moved, which is most half-hours.
     if (r.ran) console.log(`[price] forecast refreshed from ${r.anchorDate}`);
     // But not silent about a reason there is no forecast at all. A blank tile

@@ -66,6 +66,10 @@ export function EggBenchmarkPage() {
   const [rate, setRate] = useState("");
   const [note, setNote] = useState(DEFAULT_SOURCE);
   const [kolkata, setKolkata] = useState("");
+  // Kolkata is decided at 7 am, so its day is today — not the benchmark's tomorrow.
+  const [kolkataDate, setKolkataDate] = useState(localYmd());
+  const [savingKol, setSavingKol] = useState(false);
+  const [kolSaved, setKolSaved] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -143,7 +147,7 @@ export function EggBenchmarkPage() {
           effectiveFrom: date,
           ratePerEgg: Number(rate),
           note: note || undefined,
-          ...(kolkata ? { kolkataRate: Number(kolkata) } : {}),
+          ...(kolkata ? { kolkataRate: Number(kolkata), kolkataDate } : {}),
         },
       });
       await load();
@@ -151,6 +155,22 @@ export function EggBenchmarkPage() {
       setError(e instanceof Error ? e.message : "Failed");
     } finally {
       setSaving(false);
+    }
+  };
+
+  /** Kolkata alone, at 7 am, when it is decided — the forecast reruns on it. */
+  const saveKolkata = async () => {
+    setError(null);
+    setSavingKol(true);
+    setKolSaved(null);
+    try {
+      await api("/api/sales/eggs/kolkata", { method: "POST", body: { rateDate: kolkataDate, ratePerEgg: Number(kolkata) } });
+      setKolSaved(`Saved for ${formatDate(kolkataDate)} — the forecast updates in a minute.`);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setSavingKol(false);
     }
   };
 
@@ -214,11 +234,6 @@ export function EggBenchmarkPage() {
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">₹ / egg</label>
                   <input type="number" step="0.01" min="0" value={rate} onChange={(e) => setRate(e.target.value)} className={inputCls} />
                 </div>
-                {/* Kolkata's rate that day: kept beside the benchmark for the forecast; it prices nothing. */}
-                <div className="w-28">
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Kolkata ₹ / egg</label>
-                  <input type="number" step="0.01" min="0" value={kolkata} onChange={(e) => setKolkata(e.target.value)} className={inputCls} />
-                </div>
                 <div className="min-w-[10rem] flex-1">
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">Note</label>
                   <input value={note} onChange={(e) => setNote(e.target.value)} className={inputCls} placeholder={DEFAULT_SOURCE} />
@@ -236,6 +251,27 @@ export function EggBenchmarkPage() {
                   ₹{Number(rate).toFixed(2)}/egg = ₹{(Number(rate) * eggsPerBox).toFixed(0)} per box of {eggsPerBox}
                 </p>
               )}
+
+              {/* Kolkata, decided at 7 am: its own day and its own Save, so it goes in when it is
+                  known. Kept beside the benchmark for the forecast; it prices nothing. */}
+              <div className="mt-3 flex flex-wrap items-end gap-2 border-t border-border/60 pt-3">
+                <div className="w-36">
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Kolkata, 7 am — on</label>
+                  <DateInput value={kolkataDate} onChange={(e) => setKolkataDate(e.target.value)} className={inputCls} />
+                </div>
+                <div className="w-28">
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Kolkata ₹ / egg</label>
+                  <input type="number" step="0.01" min="0" value={kolkata} onChange={(e) => setKolkata(e.target.value)} className={inputCls} />
+                </div>
+                <button
+                  onClick={saveKolkata}
+                  disabled={savingKol || !kolkata}
+                  className="h-9 rounded-md border border-border px-4 text-sm font-medium hover:bg-muted disabled:opacity-50"
+                >
+                  {savingKol ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Kolkata"}
+                </button>
+              </div>
+              {kolSaved && <p className="mt-1 text-xs text-success">{kolSaved}</p>}
               {missing.length > 0 && (
                 <p className="mt-2 text-xs text-warning">
                   No rate of their own: {missing.map((m) => formatDate(m)).join(", ")} — those days carry

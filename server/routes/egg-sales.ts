@@ -25,7 +25,8 @@ import {
 } from "@shared/schema";
 import { db } from "../db";
 import { eggDaySpec, renderEggDay } from "../services/egg-day-pdf";
-import { latestForecast } from "../services/egg-price-forecast";
+import { latestForecast, nudgePriceForecast } from "../services/egg-price-forecast";
+import { istDate } from "../services/day-resolution";
 import { requireAnyPermission, requirePermission } from "../lib/rbac";
 import { looseNumber, validateBody } from "../lib/validate";
 import { DIRECT_RATE_SIZES, EGG_SIZE_LABEL, HIDDEN_EGG_SIZES, type EggSize } from "@shared/egg-sizes";
@@ -418,8 +419,10 @@ const benchmarkBody = z.object({
   effectiveFrom: dateStr,
   ratePerEgg: looseNumber(z.number().positive().max(100)),
   note: z.string().max(300).optional(),
-  /** Kolkata's rate that day, kept beside the benchmark for the forecast and the eye. */
+  /** Kolkata's rate, kept beside the benchmark for the forecast and the eye. */
   kolkataRate: looseNumber(z.number().positive().max(100)).optional(),
+  /** Kolkata's own day — decided at 7 am, so usually today, not the benchmark's tomorrow. */
+  kolkataDate: dateStr.optional(),
 });
 
 eggSalesRouter.post("/benchmark", create, validateBody(benchmarkBody), async (req, res) => {
@@ -439,16 +442,30 @@ eggSalesRouter.post("/benchmark", create, validateBody(benchmarkBody), async (re
       set: { ratePerEgg: b.ratePerEgg.toFixed(4), note: b.note || null, createdBy: req.session.user!.id },
     })
     .returning();
-  if (b.kolkataRate != null) {
-    await db
-      .insert(eggMarketRates)
-      .values({ market: "kolkata", rateDate: b.effectiveFrom, ratePerEgg: b.kolkataRate.toFixed(4), source: "sales", createdBy: req.session.user!.id })
-      .onConflictDoUpdate({
-        target: [eggMarketRates.market, eggMarketRates.rateDate],
-        set: { ratePerEgg: b.kolkataRate.toFixed(4), source: "sales", createdBy: req.session.user!.id },
-      });
-  }
+  if (b.kolkataRate != null) await saveKolkata(b.kolkataDate ?? istDate(), b.kolkataRate, req.session.user!.id);
   res.status(201).json(row);
+});
+
+/** Kolkata's 7 am rate, kept by its own day; a correction on the same day replaces it. */
+async function saveKolkata(on: string, rate: number, userId: string) {
+  await db
+    .insert(eggMarketRates)
+    .values({ market: "kolkata", rateDate: on, ratePerEgg: rate.toFixed(4), source: "sales", createdBy: userId })
+    .onConflictDoUpdate({
+      target: [eggMarketRates.market, eggMarketRates.rateDate],
+      set: { ratePerEgg: rate.toFixed(4), source: "sales", createdBy: userId },
+    });
+  // The forecast's first days ride on Kolkata's latest move: rerun now, not at the evening's benchmark.
+  nudgePriceForecast();
+}
+
+const kolkataBody = z.object({ rateDate: dateStr, ratePerEgg: looseNumber(z.number().positive().max(100)) });
+
+/** Kolkata on its own, at 7 am, before the evening's benchmark. */
+eggSalesRouter.post("/kolkata", create, validateBody(kolkataBody), async (req, res) => {
+  const b = req.body as z.infer<typeof kolkataBody>;
+  await saveKolkata(b.rateDate, b.ratePerEgg, req.session.user!.id);
+  res.status(201).json({ ok: true });
 });
 
 /**
