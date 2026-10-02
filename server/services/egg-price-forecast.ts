@@ -18,7 +18,7 @@
  */
 import { spawn } from "node:child_process";
 import { asc, desc, eq, lte, sql } from "drizzle-orm";
-import { eggBenchmarkPrices, eggPriceForecasts } from "@shared/schema";
+import { eggBenchmarkPrices, eggMarketRates, eggPriceForecasts } from "@shared/schema";
 import { db as defaultDb, type Db } from "../db";
 import { istDate } from "./day-resolution";
 
@@ -83,10 +83,28 @@ export async function benchmarkSeries(db: Db, until = istDate()): Promise<{ date
   return out;
 }
 
+/**
+ * Kolkata's rate on each day of the benchmark series, carried forward over a
+ * missing day as the benchmark is, null before the first. The model carries
+ * its last moves into the benchmark (it leads by one to three days).
+ */
+export async function kolkataAligned(db: Db, days: string[]): Promise<(number | null)[]> {
+  if (!days.length) return [];
+  const rows = await db
+    .select({ on: eggMarketRates.rateDate, rate: eggMarketRates.ratePerEgg })
+    .from(eggMarketRates)
+    .where(eq(eggMarketRates.market, "kolkata"))
+    .orderBy(asc(eggMarketRates.rateDate));
+  const by = new Map(rows.map((r) => [r.on, Number(r.rate)]));
+  let last: number | null = null;
+  return days.map((d) => (last = by.get(d) ?? last));
+}
+
 /** The model, as a child process. Rejects on anything that is not clean JSON. */
 export function forecastWith(
   series: { date: string; value: number }[],
   horizon = HORIZON_DAYS,
+  kolkata?: (number | null)[],
 ): Promise<{ model: string; contextDays: number; anchorDate: string; points: ForecastPoint[] }> {
   const python = process.env.FORECAST_PYTHON;
   if (!python) throw new Error("FORECAST_PYTHON is not set");
@@ -126,6 +144,9 @@ export function forecastWith(
         // plan doc; worth re-testing against a raw NECC quote rather than
         // this averaged one.
         calendar: process.env.FORECAST_CALENDAR === "1",
+        // Kolkata, day for day with the series. Scored 1.5% better than
+        // without over 180 origins (2 Oct 2026); the user asked for it in.
+        ...(kolkata ? { kolkata } : {}),
       }),
     );
   });
@@ -161,7 +182,7 @@ export async function refreshForecast(
     .limit(1);
   if (!opts.force && have?.anchor === anchorDate) return { ran: false, reason: "already forecast", anchorDate };
 
-  const result = await forecastWith(series);
+  const result = await forecastWith(series, HORIZON_DAYS, await kolkataAligned(db, series.map((p) => p.date)));
   if (result.anchorDate !== anchorDate) {
     throw new Error(`model anchored to ${result.anchorDate}, expected ${anchorDate}`);
   }

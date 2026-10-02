@@ -67,6 +67,10 @@ MODEL_ID = "google/timesfm-2.5-200m-pytorch"
 MODEL_NAME = "timesfm-2.5-200m-yoy"
 # Recorded on every row, so a stored forecast says which framing made it.
 MODEL_NAME_CAL = "timesfm-2.5-200m-yoy-cal"
+# Kolkata's lead, carried in (2 Oct 2026): how many days of its moves reach the
+# benchmark, and the year the carry-through is fitted on. Same as backtest.py.
+KOL_LAGS = 3
+KOL_FIT_DAYS = 365
 # The window a festival's effect is measured against. 61 scored best of
 # 31/61/91/121, and the spread between them was 0.8%.
 DETREND_WINDOW = 61
@@ -83,6 +87,35 @@ ANCHOR_DAYS = 7
 MIN_HISTORY = YEAR + 120
 
 Q_LOW, Q_HIGH = 1, 9  # TimesFM returns [mean, q0.1, q0.2 … q0.9]
+
+
+def kolkata_carry(np, vals, kol, horizon):
+    """
+    Kolkata moves first and the benchmark follows over one to three days. The
+    benchmark's daily change is regressed on Kolkata's changes 1..KOL_LAGS
+    days earlier over the last year, and the moves Kolkata has made that the
+    benchmark has not yet answered are carried forward. The same arithmetic
+    as backtest.py's +kol, which scored it.
+    """
+    o = len(vals)
+    a = max(KOL_LAGS + 2, o - KOL_FIT_DAYS)
+    db = np.diff(vals[a - 1 : o])
+    dk = np.diff(kol[a - 1 - KOL_LAGS : o])
+    X = np.stack([dk[KOL_LAGS - l : KOL_LAGS - l + len(db)] for l in range(1, KOL_LAGS + 1)], axis=1)
+    ok = np.all(np.isfinite(X), axis=1) & np.isfinite(db)
+    if ok.sum() < 60:
+        return np.zeros(horizon, dtype=np.float32)
+    beta, *_ = np.linalg.lstsq(X[ok], db[ok], rcond=None)
+    recent = np.diff(kol[o - 1 - KOL_LAGS : o])
+    if not np.all(np.isfinite(recent)):
+        return np.zeros(horizon, dtype=np.float32)
+    step = np.zeros(horizon, dtype=np.float32)
+    for h in range(1, horizon + 1):
+        for j in range(1, KOL_LAGS + 1):
+            lag = h + j - 1
+            if 1 <= lag <= KOL_LAGS:
+                step[h - 1] += beta[lag - 1] * recent[-j]
+    return np.cumsum(step)
 
 
 def main() -> None:
@@ -156,6 +189,14 @@ def main() -> None:
     # Back onto the rate the market will see, festivals included.
     p50, lo, hi = p50 + calendar_adj, lo + calendar_adj, hi + calendar_adj
 
+    # Kolkata's last moves, not yet answered by the benchmark.
+    kol_raw = req.get("kolkata")
+    with_kol = isinstance(kol_raw, list) and len(kol_raw) == len(series)
+    if with_kol:
+        kol = np.asarray([np.nan if v is None else float(v) for v in kol_raw], dtype=np.float64)
+        carry = kolkata_carry(np, np.asarray([float(p["value"]) for p in series], dtype=np.float64), kol, horizon)
+        p50, lo, hi = p50 + carry, lo + carry, hi + carry
+
     points = []
     for h in range(horizon):
         band = sorted((float(lo[h]), float(p50[h]), float(hi[h])))
@@ -170,7 +211,7 @@ def main() -> None:
 
     json.dump(
         {
-            "model": MODEL_NAME_CAL if use_calendar else MODEL_NAME,
+            "model": (MODEL_NAME_CAL if use_calendar else MODEL_NAME) + ("+kol" if with_kol else ""),
             "contextDays": int(len(delta)),
             "anchorDate": anchor.isoformat(),
             "points": points,
