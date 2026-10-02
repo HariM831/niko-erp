@@ -1,3 +1,5 @@
+import { useState, type PointerEvent, type ReactNode } from "react";
+
 /**
  * `Sparkline` — a small line with one emphasised end.
  *
@@ -20,6 +22,12 @@ export interface SparkAhead extends SparkPoint {
   lo?: number;
   hi?: number;
 }
+/** The point under the pointer, for the caller to put words to. */
+export interface SparkPick extends SparkAhead {
+  /** True on the dashed half — a forecast, not a known value. */
+  ahead: boolean;
+}
+
 export interface SparkColors {
   line: string;
   fill: string;
@@ -50,6 +58,7 @@ export function Sparkline({
   colors,
   className = "h-14 w-full",
   empty = "Not enough history for a line.",
+  readout,
 }: {
   points: SparkPoint[];
   ahead?: SparkAhead[];
@@ -58,7 +67,13 @@ export function Sparkline({
   colors?: Partial<SparkColors>;
   className?: string;
   empty?: string;
+  /**
+   * Point at the line (or tap it) and this says what is there — a day's rate,
+   * or a forecast day's figure and range. Without it the line is a picture only.
+   */
+  readout?: (p: SparkPick) => ReactNode;
 }) {
+  const [pick, setPick] = useState<number | null>(null);
   if (points.length < 2) return <div className="text-xs text-soil-400">{empty}</div>;
   const c = { ...DEFAULT, ...colors };
 
@@ -91,7 +106,7 @@ export function Sparkline({
       " Z"
     : "";
 
-  return (
+  const svg = (
     <svg viewBox={`0 0 ${W} ${H}`} className={className} preserveAspectRatio="none" role="img" aria-label={`${points.length} points, last ${last.y}`}>
       <path d={`${histPath} L${f(joinX)},${H} L0,${H} Z`} fill={c.fill} />
       {bandPath && <path d={bandPath} fill={c.band} opacity={0.7} />}
@@ -106,6 +121,43 @@ export function Sparkline({
         <line x1={joinX} y1={2} x2={joinX} y2={H - 2} stroke={c.join} strokeWidth={1} vectorEffect="non-scaling-stroke" />
       )}
       {end === "dot" && <circle cx={joinX} cy={y(last.y)} r={3} fill={c.dashed} />}
+      {readout && pick != null && (
+        <>
+          <line x1={x(pick)} y1={0} x2={x(pick)} y2={H} stroke={c.reference} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+          <circle cx={x(pick)} cy={y(pointAt(pick).y)} r={3.5} fill="white" stroke={c.dashed} strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+        </>
+      )}
     </svg>
+  );
+  if (!readout) return svg;
+
+  function pointAt(i: number): SparkPick {
+    return i < points.length ? { ...points[i]!, ahead: false } : { ...ahead[i - points.length]!, ahead: true };
+  }
+  // The nearest day to the pointer. A touch keeps its pick after the finger
+  // lifts, so a phone can read it; a mouse lets go when it leaves.
+  const choose = (e: PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (e.clientX - r.left) / (r.width || 1)));
+    setPick(Math.round(frac * (total - 1)));
+  };
+  const leftPct = pick != null ? (pick / (total - 1)) * 100 : 0;
+  return (
+    <div
+      className="relative cursor-crosshair touch-pan-y select-none"
+      onPointerMove={choose}
+      onPointerDown={choose}
+      onPointerLeave={(e) => e.pointerType === "mouse" && setPick(null)}
+    >
+      {svg}
+      {pick != null && (
+        <div
+          className="pointer-events-none absolute -top-1 z-10 whitespace-nowrap rounded-md bg-soil-900/90 px-2 py-1 text-[11px] text-white shadow"
+          style={{ left: `${leftPct}%`, transform: `translate(${leftPct > 70 ? "-100%" : leftPct < 30 ? "0" : "-50%"}, -100%)` }}
+        >
+          {readout(pointAt(pick))}
+        </div>
+      )}
+    </div>
   );
 }

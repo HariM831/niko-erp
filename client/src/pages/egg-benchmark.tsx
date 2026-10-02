@@ -419,7 +419,23 @@ function BenchmarkTrend({ history, forecast }: { history: BenchmarkRow[]; foreca
               : "No forecast ahead of the last rate"}
         </span>
       </div>
-      <Sparkline points={points} ahead={ahead} className="h-24 w-full" />
+      <Sparkline
+        points={points}
+        ahead={ahead}
+        className="h-24 w-full"
+        readout={(p) =>
+          p.ahead ? (
+            <>
+              {formatDate(p.x)} · forecast <strong>₹{p.y.toFixed(2)}</strong>
+              {p.lo != null && p.hi != null && <span className="opacity-75"> (₹{p.lo.toFixed(2)}–{p.hi.toFixed(2)})</span>}
+            </>
+          ) : (
+            <>
+              {formatDate(p.x)} · <strong>₹{p.y.toFixed(2)}</strong>
+            </>
+          )
+        }
+      />
       <div className="mt-1 flex justify-between gap-2 text-[11px] text-muted-foreground">
         <span>
           {formatDate(first.x)} · ₹{first.y.toFixed(2)}

@@ -402,7 +402,20 @@ function Sparkline({
         points={hist.map((p) => ({ x: p.date, y: p.price }))}
         ahead={ahead.map((p) => ({ x: p.date, y: p.p50, lo: p.p10, hi: p.p90 }))}
         colors={YOLK_SPARK}
+        readout={(p) =>
+          p.ahead ? (
+            <>
+              {dmy(p.x)} · forecast <strong>₹{num(p.y, 2)}</strong>
+              {p.lo != null && p.hi != null && <span className="opacity-75"> (₹{num(p.lo, 2)}–{num(p.hi, 2)})</span>}
+            </>
+          ) : (
+            <>
+              {dmy(p.x)} · <strong>₹{num(p.y, 2)}</strong>
+            </>
+          )
+        }
       />
+      {ahead.length > 0 && <div className="text-[10px] text-soil-400">Point at or tap any day on the line for its figure.</div>}
       <div className="mt-1 flex justify-between text-[11px] text-soil-400">
         <span>
           {dmy(hist[0]!.date)} · ₹{num(hist[0]!.price, 2)}
