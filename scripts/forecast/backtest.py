@@ -40,6 +40,9 @@ BUCKETS = [(1, 7), (8, 14), (15, 28)]
 YEAR = 364  # keeps the weekday alignment a 365 would lose
 ANCHOR_DAYS = 7  # days over which the model's path is faded in from today's rate
 CAL = None       # the festival calendar, loaded once in main()
+KOL = None       # Kolkata's rate, dense and aligned with the benchmark days (--kol)
+KOL_LAGS = 3     # how many days of Kolkata moves are carried into the benchmark
+KOL_FIT_DAYS = 365
 DETREND = 61     # the window the festival effect is measured against
 
 
@@ -175,6 +178,41 @@ def forecast_batch(model, contexts, horizon, max_context, variant="raw", frames=
     return point, quant
 
 
+def kolkata_carry(vals, o, horizon):
+    """
+    What Kolkata's last few moves will still do to the benchmark, from origin o.
+
+    Kolkata moves first and the benchmark follows over one to three days
+    (measured 2 Oct 2026 on the user's KOL Rates.xlsx: the change in Kolkata
+    correlates 0.37 with the benchmark's change a day later, 0.27 two days
+    later, 0.15 three). So the benchmark's daily change is regressed on
+    Kolkata's changes 1..KOL_LAGS days earlier, over the year before the
+    origin and nothing after it; then the moves Kolkata has already made, and
+    the benchmark has not yet answered, are carried forward. Only Kolkata up to
+    the day before the origin is used — what the desk would know.
+    """
+    a = max(KOL_LAGS + 2, o - KOL_FIT_DAYS)
+    db = np.diff(vals[a - 1 : o])                      # benchmark change, days a..o-1
+    dk = np.diff(KOL[a - 1 - KOL_LAGS : o])            # Kolkata change, days a-KOL_LAGS..o-1
+    X = np.stack([dk[KOL_LAGS - l : KOL_LAGS - l + len(db)] for l in range(1, KOL_LAGS + 1)], axis=1)
+    ok = np.all(np.isfinite(X), axis=1) & np.isfinite(db)
+    if ok.sum() < 60:
+        return np.zeros(horizon, dtype=np.float32)
+    beta, *_ = np.linalg.lstsq(X[ok], db[ok], rcond=None)
+    recent = np.diff(KOL[o - 1 - KOL_LAGS : o])         # Kolkata's last KOL_LAGS daily moves, oldest first
+    if not np.all(np.isfinite(recent)):
+        return np.zeros(horizon, dtype=np.float32)
+    step = np.zeros(horizon, dtype=np.float32)
+    for h in range(1, horizon + 1):
+        # A move l days back reaches day o-1+h at lag h+l-1... count each move once,
+        # at the lag that lands it inside the horizon.
+        for j in range(1, KOL_LAGS + 1):                 # j = days ago the move happened (1 = yesterday)
+            lag = h + j - 1
+            if 1 <= lag <= KOL_LAGS:
+                step[h - 1] += beta[lag - 1] * recent[-j]
+    return np.cumsum(step)
+
+
 def build(max_context, batch):
     import timesfm
 
@@ -218,10 +256,11 @@ def main():
     ap.add_argument(
         "--variants",
         default="raw",
-        help="comma-separated: raw, log, yoy, yoy+anchor, and any of those +cal",
+        help="comma-separated: raw, log, yoy, yoy+anchor, any of those +cal, and +kol last (needs --kol)",
     )
     ap.add_argument("--detrend", type=int, default=DETREND, help="festival effect window, in days")
     ap.add_argument("--json", help="write the numbers here as well")
+    ap.add_argument("--kol", help="Kolkata rates, a JSON object of ISO date to rate, for the +kol variants")
     args = ap.parse_args()
 
     contexts = [int(c) for c in args.contexts.split(",")]
@@ -233,6 +272,16 @@ def main():
     series = load_dense(args.csv)
     days = [d for d, _ in series]
     vals = np.asarray([v for _, v in series], dtype=np.float32)
+    if args.kol:
+        global KOL
+        with open(args.kol, encoding="utf-8") as f:
+            raw = {date.fromisoformat(k): float(v) for k, v in json.load(f).items()}
+        # Carried forward over a missing day, as the benchmark is; NaN before the first.
+        KOL, last = np.full(len(days), np.nan, dtype=np.float64), np.nan
+        for i, d in enumerate(days):
+            last = raw.get(d, last)
+            KOL[i] = last
+        print(f"Kolkata: {int(np.isfinite(KOL).sum())} of {len(days)} days")
     print(f"{len(vals)} daily points, {days[0]} → {days[-1]}")
 
     report = {"series": {"points": len(vals), "from": days[0].isoformat(), "to": days[-1].isoformat()}}
@@ -255,7 +304,12 @@ def main():
     rows, held = {}, {}
     for c, model in models.items():
         for variant in variants:
-            point, quant = forecast_batch(model, [context], HORIZON, c, variant, [frame(cut)] if CAL else None)
+            base = variant[: -len("+kol")] if variant.endswith("+kol") else variant
+            point, quant = forecast_batch(model, [context], HORIZON, c, base, [frame(cut)] if CAL else None)
+            if variant.endswith("+kol"):
+                carry = kolkata_carry(vals, cut, HORIZON)
+                point = point + carry[None, :]
+                quant = quant + carry[None, :, None]
             p50 = point[0]
             lo = np.minimum(quant[0][:, 1], quant[0][:, 9])
             hi = np.maximum(quant[0][:, 1], quant[0][:, 9])
@@ -294,9 +348,14 @@ def main():
             cover[name] = []
             for i in range(0, len(origins), args.batch):
                 chunk = origins[i : i + args.batch]
+                base = variant[: -len("+kol")] if variant.endswith("+kol") else variant
                 point, quant = forecast_batch(
-                    model, [vals[:o] for o in chunk], HORIZON, c, variant, [frame(o) for o in chunk] if CAL else None
+                    model, [vals[:o] for o in chunk], HORIZON, c, base, [frame(o) for o in chunk] if CAL else None
                 )
+                if variant.endswith("+kol"):
+                    carry = np.stack([kolkata_carry(vals, o, HORIZON) for o in chunk])
+                    point = point + carry
+                    quant = quant + carry[:, :, None]
                 for j, o in enumerate(chunk):
                     a = vals[o : o + HORIZON]
                     lo = np.minimum(quant[j][:, 1], quant[j][:, 9])
