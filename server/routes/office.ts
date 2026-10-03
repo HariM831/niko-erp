@@ -1100,8 +1100,15 @@ officeRouter.patch(
             ? await consumeScans(tx, receipt, lines, line.id, input.nirResultSns, input.readings, req.session.user!.id)
             : null;
 
-          const other = { ...input.readings };
+          // What the line keeps: the figures the technician confirmed, and
+          // under them the NIR's average for anything the screen had no field
+          // for — so a material with no spec yet still keeps what the machine
+          // read, for comparing once a spec is written.
+          const kept: Record<string, number | null> = { ...(qcNir?.average ?? {}) };
+          for (const [k, v] of Object.entries(input.readings)) if (v != null || !qcNir) kept[k] = v;
+          const other = { ...kept };
           for (const k of ["moisture", "protein", "fiber", "fat"]) delete other[k];
+          for (const k of Object.keys(other)) if (other[k] == null) delete other[k];
 
           await tx
             .update(officeReceiptLines)
@@ -1109,10 +1116,10 @@ officeRouter.patch(
               status: accepted ? "qc_accepted" : "qc_rejected",
               qcSpecId: judged.specId,
               qcVerdict: verdict,
-              qcMoisturePct: num(input.readings.moisture),
-              qcProteinPct: num(input.readings.protein),
-              qcFiberPct: num(input.readings.fiber),
-              qcFatPct: num(input.readings.fat),
+              qcMoisturePct: num(kept.moisture),
+              qcProteinPct: num(kept.protein),
+              qcFiberPct: num(kept.fiber),
+              qcFatPct: num(kept.fat),
               qcOtherParams: Object.keys(other).length ? other : null,
               qcSampleCount: input.sampleCount ?? null,
               qcOverrideReason: overrideReason,

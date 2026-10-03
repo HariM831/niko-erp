@@ -54,6 +54,23 @@ export function qcParameterFor(instrumentName: string): string | null {
   return ALIASES[instrumentName.toLowerCase().replace(/[^a-z]/g, "")] ?? null;
 }
 
+/**
+ * A reading the model reports on a dry-matter basis — "Protein (DM)".
+ *
+ * Specs and vendor terms are as received, so such a figure is converted with
+ * the same scan's own moisture before it goes anywhere near a limit (the user,
+ * 3 Oct 2026): as received = DM × (100 − moisture) / 100. Returns the name
+ * with the basis taken off, or null for an as-received reading.
+ */
+export function dryMatterBase(instrumentName: string): string | null {
+  const m = instrumentName.match(/^(.*?)\s*[([]\s*(?:DM|DB|dry\s*matter|dry\s*basis)\s*[)\]]\s*$/i)
+    ?? instrumentName.match(/^(.*?)\s*[-_ ]\s*(?:DM|DB)$/i);
+  return m ? m[1]!.trim() : null;
+}
+
+export const asReceived = (dryMatterValue: number, moisturePct: number) =>
+  (dryMatterValue * (100 - moisturePct)) / 100;
+
 /** One scan as the bench uploads it. */
 export interface NirUploadRow {
   iasId: number;

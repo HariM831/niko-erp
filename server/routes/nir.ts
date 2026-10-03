@@ -9,7 +9,7 @@
 import { Router } from "express";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { nirModelItems, qcSpecs } from "@shared/schema";
+import { nirModelItems } from "@shared/schema";
 import { db } from "../db";
 import { requireAnyPermission, requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
@@ -91,10 +91,6 @@ nirRouter.put(
     const { itemIds } = req.body as { itemIds: string[] };
     try {
       await db.transaction(async (tx) => {
-        for (const itemId of itemIds) {
-          const spec = await tx.query.qcSpecs.findFirst({ where: eq(qcSpecs.itemId, itemId) });
-          if (!spec) throw new LinkError("Only a material with a quality spec can take NIR readings");
-        }
         await tx.delete(nirModelItems).where(eq(nirModelItems.shortName, shortName));
         if (itemIds.length) {
           await tx.insert(nirModelItems).values(

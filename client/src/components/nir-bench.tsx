@@ -32,7 +32,7 @@ interface BenchStatus {
     matterNames: Record<string, string>;
     items: Array<{ itemId: string; itemName: string }>;
   }>;
-  specItems: Array<{ id: string; name: string }>;
+  specItems: Array<{ id: string; name: string; hasSpec: boolean }>;
   waiting: Array<{ scan: ScanView; receiptNumber: string | null; itemName: string | null }>;
   unplaced: Array<{ scan: ScanView; receiptNumber: string | null; reason: string }>;
 }
@@ -243,7 +243,7 @@ export function NirBench() {
                     {data.specItems
                       .filter((s) => !linkedElsewhere.has(s.id))
                       .map((s) => (
-                        <option key={s.id} value={s.id}>{s.name}</option>
+                        <option key={s.id} value={s.id}>{s.name}{s.hasSpec ? "" : " (no spec yet)"}</option>
                       ))}
                   </select>
                 )}
@@ -251,7 +251,7 @@ export function NirBench() {
             </div>
           ))}
           <p className="mt-2 text-[11px] text-gray-400">
-            Only materials with a quality spec can be linked. A material is scanned with one model; one model may serve several materials.
+            A material is scanned with one model; one model may serve several materials. A material with no spec yet keeps its NIR readings unjudged, for comparing once a spec is written.
           </p>
         </div>
       )}

@@ -31,7 +31,7 @@ import {
   officeReceipts,
   type NirResult,
 } from "@shared/schema";
-import { type NirUploadModel, type NirUploadRow, qcParameterFor, sampleKey } from "@shared/nir";
+import { type NirUploadModel, type NirUploadRow, asReceived, dryMatterBase, qcParameterFor, sampleKey } from "@shared/nir";
 import type { Db, Tx } from "../db";
 
 /** A bench PC clock a little ahead of the server is not a reason to refuse a scan. */
@@ -117,10 +117,14 @@ export interface ScanView {
 
 export interface LineNir {
   scans: ScanView[];
-  /** Average across the scans, keyed by QC parameter, to 3 places. */
+  /** Average across the scans, keyed by QC parameter, as received, to 3 places. */
   average: Record<string, number>;
+  /** Every reading averaged as the instrument reported it, starch and all. */
+  instrument: Record<string, number>;
   /** QC parameters at least one scan was flagged on by the instrument. */
   flagged: string[];
+  /** QC parameters the model reports on dry matter, converted with each scan's moisture. */
+  fromDryMatter: string[];
 }
 
 export interface Unplaced {
@@ -149,24 +153,54 @@ function view(r: NirResult): ScanView {
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 
-/** Average the scans on one line into QC parameters. */
+const add = (m: Map<string, { total: number; n: number }>, k: string, v: number) => {
+  const acc = m.get(k) ?? { total: 0, n: 0 };
+  acc.total += v;
+  acc.n += 1;
+  m.set(k, acc);
+};
+const means = (m: Map<string, { total: number; n: number }>) =>
+  Object.fromEntries([...m].map(([k, { total, n }]) => [k, round3(total / n)]));
+
+/**
+ * Average the scans on one line into QC parameters, as received.
+ *
+ * A dry-matter reading is converted scan by scan with that scan's own
+ * moisture, then averaged — the sample that was wetter is discounted by its
+ * own water, not by the average's. A dry-matter reading on a scan with no
+ * moisture cannot be converted and fills nothing.
+ */
 export function averageScans(scans: ScanView[]): LineNir {
   const sums = new Map<string, { total: number; n: number }>();
+  const raw = new Map<string, { total: number; n: number }>();
   const flagged = new Set<string>();
+  const fromDryMatter = new Set<string>();
   for (const s of scans) {
+    const moistureName = Object.keys(s.readings).find((n) => !dryMatterBase(n) && qcParameterFor(n) === "moisture");
+    const moisture = moistureName == null ? null : s.readings[moistureName]!;
     for (const [name, value] of Object.entries(s.readings)) {
-      const param = qcParameterFor(name);
-      if (!param || !Number.isFinite(value)) continue;
-      const acc = sums.get(param) ?? { total: 0, n: 0 };
-      acc.total += value;
-      acc.n += 1;
-      sums.set(param, acc);
+      if (!Number.isFinite(value)) continue;
+      add(raw, name, value);
+      const base = dryMatterBase(name);
+      const param = qcParameterFor(base ?? name);
+      if (!param) continue;
+      let v = value;
+      if (base) {
+        if (moisture == null || !Number.isFinite(moisture)) continue;
+        v = asReceived(value, moisture);
+        fromDryMatter.add(param);
+      }
+      add(sums, param, v);
       if (s.flagged.includes(name)) flagged.add(param);
     }
   }
-  const average: Record<string, number> = {};
-  for (const [param, { total, n }] of sums) average[param] = round3(total / n);
-  return { scans, average, flagged: [...flagged] };
+  return {
+    scans,
+    average: means(sums),
+    instrument: means(raw),
+    flagged: [...flagged],
+    fromDryMatter: [...fromDryMatter],
+  };
 }
 
 /**
@@ -292,7 +326,14 @@ export async function consumeScans(
   resultSns: string[],
   readings: Record<string, number | null>,
   userId: string,
-): Promise<{ results: string[]; average: Record<string, number>; edited: string[]; flagged: string[] }> {
+): Promise<{
+  results: string[];
+  average: Record<string, number>;
+  instrument: Record<string, number>;
+  edited: string[];
+  flagged: string[];
+  fromDryMatter: string[];
+}> {
   const scans = (await scansFor(tx, receipt.number)).filter((s) => resultSns.includes(s.resultSn));
   const { placed } = placeScans(scans, [receipt], lines, await loadModelItems(tx));
   const onLine = placed.get(lineId) ?? [];
@@ -303,8 +344,10 @@ export async function consumeScans(
     );
   }
   const nir = averageScans(onLine);
+  // Only a field the screen had can have been typed over. A material with no
+  // spec has no fields, and its NIR figures are kept as they came.
   const edited = Object.entries(nir.average)
-    .filter(([p, v]) => readings[p] == null || Math.abs(Number(readings[p]) - v) > 0.0005)
+    .filter(([p, v]) => p in readings && (readings[p] == null || Math.abs(Number(readings[p]) - v) > 0.0005))
     .map(([p]) => p);
 
   const used = await tx
@@ -315,7 +358,14 @@ export async function consumeScans(
   if (used.length !== resultSns.length) {
     throw new NirMatchError("Another QC used one of these NIR scans a moment ago. Reload and check.");
   }
-  return { results: resultSns, average: nir.average, edited, flagged: nir.flagged };
+  return {
+    results: resultSns,
+    average: nir.average,
+    instrument: nir.instrument,
+    edited,
+    flagged: nir.flagged,
+    fromDryMatter: nir.fromDryMatter,
+  };
 }
 
 export class NirMatchError extends Error {}
@@ -382,11 +432,16 @@ export async function benchStatus(db: Db) {
     .orderBy(desc(nirResults.updatedAt))
     .limit(1);
 
-  // Only materials somebody has written a spec for can be judged, so only
-  // those are worth linking a model to.
+  // Feed materials, and anything with a spec. A model may be linked before
+  // the material has a spec: its readings are then kept, unjudged, for
+  // comparing once one is written (the user, 3 Oct 2026).
   const specItems = await db.execute(sql`
-    SELECT i.id, i.name FROM qc_specs s JOIN items i ON i.id = s.item_id
-     WHERE s.is_active ORDER BY i.name`);
+    SELECT i.id, i.name,
+           EXISTS (SELECT 1 FROM qc_specs s WHERE s.item_id = i.id AND s.is_active) AS "hasSpec"
+      FROM items i
+     WHERE i.is_active
+       AND (i.is_feed_ingredient OR EXISTS (SELECT 1 FROM qc_specs s WHERE s.item_id = i.id))
+     ORDER BY i.name`);
 
   return {
     lastUploadAt: last?.at?.toISOString() ?? null,
@@ -398,7 +453,7 @@ export async function benchStatus(db: Db) {
       matterNames: m.matterNames as Record<string, string>,
       items: modelItems.get(m.shortName) ?? [],
     })),
-    specItems: specItems.rows as Array<{ id: string; name: string }>,
+    specItems: specItems.rows as Array<{ id: string; name: string; hasSpec: boolean }>,
     waiting,
     unplaced,
   };

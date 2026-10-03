@@ -22,9 +22,11 @@ import {
   qcSpecParams,
   qcSpecs,
 } from "@shared/schema";
-import { qcParameterFor, sampleKey, type NirUploadRow } from "@shared/nir";
+import { dryMatterBase, qcParameterFor, sampleKey, type NirUploadRow } from "@shared/nir";
 import { db, type Tx } from "../server/db";
-import { NirMatchError, consumeScans, ingest, nirForReceipt } from "../server/services/nir";
+import { NirMatchError, averageScans, consumeScans, ingest, nirForReceipt } from "../server/services/nir";
+
+const round = (n: number) => Math.round(n * 1000) / 1000;
 
 let failed = 0;
 const check = (name: string, pass: boolean, detail = "") => {
@@ -43,6 +45,22 @@ async function main() {
   check("oil is fat, fibre is fiber, SS is sand silica",
     qcParameterFor("oil") === "fat" && qcParameterFor("Fibre") === "fiber" && qcParameterFor("SS") === "sand_silica");
   check("an unknown name fills nothing", qcParameterFor("UA") === null);
+
+  console.log("\n  DRY MATTER TO AS RECEIVED\n");
+  check("Protein (DM) is dry matter, Moisture is not", dryMatterBase("Protein (DM)") === "Protein" && dryMatterBase("Moisture") === null);
+  const corn = (sn: string, moisture: number, proteinDm: number) => ({
+    resultSn: sn, model: "Corn", sampleName: "GR-1", scannedAt: new Date().toISOString(),
+    readings: { "Fat (DM)": 3.6, Moisture: moisture, "Starch (DM)": 63.5, "Protein (DM)": proteinDm }, flagged: [],
+  });
+  const dm = averageScans([corn("a", 6, 10), corn("b", 14, 10)]);
+  // 10 × 0.94 = 9.4 and 10 × 0.86 = 8.6, so 9.0.
+  check("each scan converts with its own moisture", dm.average.protein === 9, String(dm.average.protein));
+  const uneven = averageScans([corn("a", 6, 10), corn("b", 14, 12)]);
+  check("…and is averaged after converting", uneven.average.protein === round(((10 * 94) / 100 + (12 * 86) / 100) / 2),
+    String(uneven.average.protein));
+  check("moisture itself is untouched", dm.average.moisture === 10);
+  check("protein and fat are marked as from DM", dm.fromDryMatter.sort().join() === "fat,protein");
+  check("starch is kept as the instrument reported it", dm.instrument["Starch (DM)"] === 63.5 && !("starch" in dm.average));
 
   try {
     await db.transaction(async (tx: Tx) => {

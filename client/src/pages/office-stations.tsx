@@ -246,7 +246,13 @@ interface QcLine {
   params: QcParam[];
   judged: QcJudged;
   /** Scans the NIR bench took under this truck's GR, already averaged. */
-  nir: { scans: NirScan[]; average: Record<string, number>; flagged: string[] } | null;
+  nir: {
+    scans: NirScan[];
+    average: Record<string, number>;
+    instrument: Record<string, number>;
+    flagged: string[];
+    fromDryMatter: string[];
+  } | null;
 }
 
 const hhmm = (iso: string) =>
@@ -464,6 +470,18 @@ function QcPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
                       · instrument flagged {l.nir.flagged.join(", ")}
                     </span>
                   )}
+                  <div className="mt-0.5 text-brand-900">
+                    {Object.entries(l.nir.average)
+                      .map(([p, v]) => `${p.replace(/_/g, " ")} ${v}${l.nir!.fromDryMatter.includes(p) ? " (from DM)" : ""}`)
+                      .join(" · ")}
+                  </div>
+                  <div className="mt-0.5 text-[10px] opacity-80">
+                    As the instrument reported:{" "}
+                    {Object.entries(l.nir.instrument)
+                      .map(([n, v]) => `${n} ${v}`)
+                      .join(" · ")}
+                    {l.params.length === 0 && " — no spec yet, so these are kept on the line unjudged."}
+                  </div>
                 </div>
               )}
 
