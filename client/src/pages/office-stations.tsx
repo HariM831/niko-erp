@@ -16,7 +16,7 @@
  * in a weighbridge cabin and at an NIR bench, but they are the same components
  * as the rest of niko — no second design system.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { useLocalSearch } from "../components/search-context";
 import { matchesTerm } from "../lib/utils";
@@ -29,6 +29,7 @@ import { StatusBadge } from "../components/status-badge";
 import { FeedTransferForm } from "../components/feed-transfer-form";
 import { PlatformWeight } from "../components/platform-weight";
 import { WeighbridgeSlips } from "../components/weighbridge-slips";
+import { NirBench, NirFeedStatus, useNirFeed } from "../components/nir-bench";
 import { type SearchField, useAdvancedSearch } from "../components/advanced-search";
 
 export type Station = "weighbridge" | "qc" | "weigh-out" | "transfer" | "slips";
@@ -226,6 +227,15 @@ interface QcJudged {
   missing: string[];
 }
 
+interface NirScan {
+  resultSn: string;
+  model: string;
+  sampleName: string | null;
+  scannedAt: string;
+  readings: Record<string, number>;
+  flagged: string[];
+}
+
 interface QcLine {
   id: string;
   lineNo: number;
@@ -235,7 +245,12 @@ interface QcLine {
   sampleCount: number | null;
   params: QcParam[];
   judged: QcJudged;
+  /** Scans the NIR bench took under this truck's GR, already averaged. */
+  nir: { scans: NirScan[]; average: Record<string, number>; flagged: string[] } | null;
 }
+
+const hhmm = (iso: string) =>
+  new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
 
 const VERDICT_STYLE: Record<string, string> = {
   pass: "text-green-600",
@@ -295,14 +310,44 @@ function QcPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
   const [overrides, setOverrides] = useState<Record<string, { verdict: "accept" | "reject"; reason: string }>>({});
   const [manual, setManual] = useState<Record<string, "accept" | "reject">>({});
   const [error, setError] = useState<string | null>(null);
+  /** Fields the technician typed in, which the NIR must no longer overwrite. */
+  const [typed, setTyped] = useState<Record<string, Record<string, true>>>({});
 
-  const { data: ctx } = useQuery<{ lines: QcLine[] }>({
+  const { data: ctx } = useQuery<{
+    lines: QcLine[];
+    nirUnplaced: Array<{ scan: NirScan; reason: string }>;
+  }>({
     queryKey: ["office", "qc-context", receipt.id],
     queryFn: () => api(`/api/office/receipts/${receipt.id}/qc-context`),
+    // A scan taken while this panel is open should land in it.
+    refetchInterval: 10_000,
   });
 
-  const set = (lineId: string, param: string, value: string) =>
+  // The NIR fills every field the technician has not typed in, and keeps it
+  // in step as more scans of the same truck arrive (they are averaged).
+  // Saving is still the technician's.
+  useEffect(() => {
+    if (!ctx) return;
+    setReadings((prev) => {
+      let next = prev;
+      for (const l of ctx.lines) {
+        if (!l.nir) continue;
+        for (const p of l.params) {
+          const avg = l.nir.average[p.parameter];
+          if (avg == null || typed[l.id]?.[p.parameter]) continue;
+          const v = String(avg);
+          if (prev[l.id]?.[p.parameter] === v) continue;
+          next = { ...next, [l.id]: { ...next[l.id], [p.parameter]: v } };
+        }
+      }
+      return next;
+    });
+  }, [ctx, typed]);
+
+  const set = (lineId: string, param: string, value: string) => {
+    setTyped((t) => ({ ...t, [lineId]: { ...t[lineId], [param]: true } }));
     setReadings((r) => ({ ...r, [lineId]: { ...r[lineId], [param]: value } }));
+  };
 
   const numbersFor = (lineId: string) => {
     const out: Record<string, number | null> = {};
@@ -365,7 +410,9 @@ function QcPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
             readings: numbersFor(l.id),
             override: overrides[l.id],
             manualVerdict: manual[l.id],
-            sampleCount: l.sampleCount ?? undefined,
+            // With the NIR the count is what was actually scanned.
+            sampleCount: l.nir?.scans.length || (l.sampleCount ?? undefined),
+            nirResultSns: l.nir?.scans.map((s) => s.resultSn),
           })),
         },
       }),
@@ -376,6 +423,15 @@ function QcPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
   return (
     <>
       {error && <Err msg={error} />}
+      {!!ctx?.nirUnplaced.length && (
+        <div className="mb-3 rounded-md border border-amber-200 bg-amber-50 p-2 text-[12px] text-amber-800">
+          {ctx.nirUnplaced.map((u) => (
+            <div key={u.scan.resultSn}>
+              NIR {u.scan.model} · {hhmm(u.scan.scannedAt)}: {u.reason}
+            </div>
+          ))}
+        </div>
+      )}
       <div className="space-y-3">
         {lines.map((l) => {
           const v = verdictFor(l);
@@ -399,6 +455,17 @@ function QcPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
                 {kg(l.billQuantityKg)}
                 {l.sampleCount ? ` · ${l.sampleCount} samples` : ""}
               </div>
+              {l.nir && (
+                <div className="mb-2 rounded-md bg-brand-50 px-2 py-1 text-[11px] text-brand-800">
+                  From NIR · {l.nir.scans.length === 1 ? "1 scan" : `${l.nir.scans.length} scans averaged`} ·{" "}
+                  {l.nir.scans.map((s) => hhmm(s.scannedAt)).join(", ")}
+                  {l.nir.flagged.length > 0 && (
+                    <span className="ml-1 text-amber-700">
+                      · instrument flagged {l.nir.flagged.join(", ")}
+                    </span>
+                  )}
+                </div>
+              )}
 
               {l.params.length === 0 ? (
                 <>
@@ -433,7 +500,18 @@ function QcPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
                           value={readings[l.id]?.[p.parameter] ?? ""}
                           onChange={(e) => set(l.id, p.parameter, e.target.value)}
                           inputMode="decimal"
-                          className="input text-right"
+                          className={`input text-right ${
+                            l.nir?.average[p.parameter] != null && typed[l.id]?.[p.parameter]
+                              ? "border-amber-400"
+                              : ""
+                          }`}
+                          title={
+                            l.nir?.average[p.parameter] != null
+                              ? typed[l.id]?.[p.parameter]
+                                ? `Typed over the NIR's ${l.nir.average[p.parameter]}`
+                                : "From the NIR"
+                              : undefined
+                          }
                         />
                         <QcStrip p={p} raw={readings[l.id]?.[p.parameter]} />
                       </div>
@@ -739,6 +817,8 @@ export function StationPage({ station }: { station: Station }) {
   const [, navigate] = useLocation();
   const [selected, setSelected] = useState<string | null>(null);
   const meta = TITLE[station];
+  // The NIR bench shares this desk; read its file whatever tab is open.
+  useNirFeed();
 
   // Every queue, every tab — the counts are the point of putting them together.
   const queues: Record<string, ReturnType<typeof useQueue>> = {
@@ -811,6 +891,7 @@ export function StationPage({ station }: { station: Station }) {
             it is a diagnostic for a platform that has stopped making sense,
             not something a shift needs in front of it. */}
         {(station === "weighbridge" || station === "weigh-out") && <PlatformWeight compact />}
+        {station === "qc" && <NirFeedStatus />}
         {QUEUELESS.includes(station) && adv.button}
       </div>
       <div className="mb-4 flex gap-1 border-b border-gray-200" role="tablist">
@@ -911,6 +992,7 @@ export function StationPage({ station }: { station: Station }) {
         </div>
       </div>
       )}
+      {station === "qc" && <NirBench />}
     </div>
   );
 }

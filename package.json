@@ -38,6 +38,7 @@
     "react-dom": "^19.2.8",
     "recharts": "^3.10.1",
     "sharp": "^0.35.3",
+    "sql.js": "^1.14.2",
     "tailwind-merge": "^3.6.0",
     "wouter": "^3.10.0",
     "zod": "^3.24.1"
@@ -52,6 +53,7 @@
     "@types/pg": "^8.11.10",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
+    "@types/sql.js": "^1.4.11",
     "@vitejs/plugin-react": "^6.0.5",
     "drizzle-kit": "^0.30.2",
     "esbuild": "^0.28.2",

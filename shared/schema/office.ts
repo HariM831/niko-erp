@@ -295,6 +295,12 @@ export const officeReceiptLines = pgTable(
     qcOverrideReason: text("qc_override_reason"),
     qcOverrideBy: uuid("qc_override_by").references(() => users.id),
     qcRejectionReason: text("qc_rejection_reason"),
+    /**
+     * Where the readings came from when the NIR supplied them: the scans
+     * averaged, their average, and which parameters the technician typed over.
+     * Null when every figure was typed. See `nirResults`.
+     */
+    qcNir: jsonb("qc_nir"),
 
     // ── Station 4 · unloading, per line ──
     warehouseLocationId: uuid("warehouse_location_id").references(() => locations.id),
@@ -595,3 +601,91 @@ export const weighTickets = pgTable(
 );
 
 export type WeighTicket = typeof weighTickets.$inferSelect;
+
+// ───────────────────────────── The NIR bench ─────────────────────────────
+
+/**
+ * A calibration model the NIR analyser carries, as IAS names it.
+ *
+ * The analyser reports its readings as "1", "2", "3"…; which number is
+ * moisture depends on the model, and the model list arrives from IAS's own
+ * device record (`DBDevice.info`). Kept here so a scan can be read by name
+ * and so the bench can say which material each model is for.
+ */
+export const nirModels = pgTable("nir_models", {
+  /** IAS's ShortName — what `DBResult.modelname` holds. */
+  shortName: varchar("short_name", { length: 60 }).primaryKey(),
+  modelName: text("model_name"),
+  version: varchar("version", { length: 20 }),
+  /** { "1": "Moisture", "2": "Protein", … } as the instrument spells them. */
+  matterNames: jsonb("matter_names").notNull().default({}),
+  deviceSn: varchar("device_sn", { length: 40 }),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+/**
+ * Which material a model is for. One model may serve several materials
+ * (one soya-meal calibration for two grades of DOC) but a material is scanned
+ * with one model — hence the unique item.
+ */
+export const nirModelItems = pgTable(
+  "nir_model_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shortName: varchar("short_name", { length: 60 }).notNull(),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => items.id),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("uq_nir_model_item").on(t.itemId)],
+);
+
+/**
+ * One NIR scan, as IAS recorded it, copied off the bench PC.
+ *
+ * Raw and unjudged. Which truck it belongs to is NOT stored at arrival: the
+ * technician types the GR number as the sample name, and IAS lets that name
+ * be corrected after the scan, so the match is worked out each time the QC
+ * screen asks. Only committing QC fixes it, by setting `receiptLineId`.
+ */
+export const nirResults = pgTable(
+  "nir_results",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** IAS's ResultSN — unique per scan, so a re-read is an update. */
+    resultSn: varchar("result_sn", { length: 60 }).notNull().unique(),
+    /** IAS's own row id, for tracing a figure back to the bench. */
+    iasId: integer("ias_id"),
+    deviceSn: varchar("device_sn", { length: 40 }).notNull(),
+    model: varchar("model", { length: 60 }).notNull(),
+    modelVersion: varchar("model_version", { length: 20 }),
+    sampleName: text("sample_name"),
+    /** The sample name folded for matching: "gr 26" and "GR-00026" both GR26. */
+    sampleKey: varchar("sample_key", { length: 60 }),
+    scannedAt: timestamp("scanned_at", { withTimezone: true }).notNull(),
+    /** IAS's DBResult.status, kept unread until we know what it means. */
+    iasStatus: integer("ias_status"),
+    /** Name → value, the figure the IAS screen shows (TestValues), unrounded. */
+    readings: jsonb("readings").notNull().default({}),
+    /** Name → IAS's ResultColors code. Non-zero is the instrument flagging it. */
+    flags: jsonb("flags").notNull().default({}),
+    /** IAS's `items` JSON verbatim, so nothing it said is lost to our reading of it. */
+    raw: jsonb("raw"),
+    receiptLineId: uuid("receipt_line_id").references(() => officeReceiptLines.id),
+    usedAt: timestamp("used_at"),
+    usedBy: uuid("used_by").references(() => users.id),
+    uploadedBy: uuid("uploaded_by").references(() => users.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("ix_nir_sample_key").on(t.sampleKey),
+    index("ix_nir_scanned").on(t.scannedAt),
+    index("ix_nir_line").on(t.receiptLineId),
+  ],
+);
+
+export type NirModel = typeof nirModels.$inferSelect;
+export type NirResult = typeof nirResults.$inferSelect;

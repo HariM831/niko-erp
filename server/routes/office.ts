@@ -56,6 +56,7 @@ import { type LineToMatch, matchPurchaseOrderLines } from "../services/po-match"
 import { resolveVendor } from "../services/vendor-match";
 import { normalisePlate } from "../services/ocr";
 import { computeDeductions, judgeLine, loadDeductionRules, loadSpecs } from "../services/qc";
+import { NirMatchError, consumeScans, nirForReceipt } from "../services/nir";
 import { learnAlias } from "../services/item-names";
 
 export const officeRouter = Router();
@@ -904,10 +905,14 @@ officeRouter.get(
       .orderBy(asc(officeReceiptLines.lineNo));
 
     const specs = await loadSpecs(db, lines.map((l) => l.itemId).filter(Boolean) as string[]);
+    // What the NIR bench has scanned under this truck's GR number. Worked out
+    // now rather than stored, because a sample can be renamed in IAS.
+    const nir = await nirForReceipt(db, receipt, lines);
 
     res.json({
       number: receipt.number,
       status: receipt.status,
+      nirUnplaced: nir.unplaced,
       lines: lines.map((l) => {
         const spec = l.itemId ? specs.get(l.itemId) : undefined;
         const readings = readingsOf(l);
@@ -929,6 +934,7 @@ officeRouter.get(
             rejectAt: p.rejectAt,
           })),
           judged: judgeLine(readings, spec),
+          nir: nir.byLine[l.id] ?? null,
         };
       }),
     });
@@ -984,6 +990,8 @@ officeRouter.patch(
             manualVerdict: z.enum(["accept", "reject"]).optional(),
             rejectionReason: z.string().optional(),
             sampleCount: z.number().int().positive().optional(),
+            /** The NIR scans these readings were filled from, if any. */
+            nirResultSns: z.array(z.string().min(1).max(60)).max(20).optional(),
           }),
         )
         .min(1),
@@ -998,6 +1006,7 @@ officeRouter.patch(
         manualVerdict?: "accept" | "reject";
         rejectionReason?: string;
         sampleCount?: number;
+        nirResultSns?: string[];
       }>;
     };
     const mayOverride =
@@ -1085,6 +1094,12 @@ officeRouter.patch(
             }
           }
 
+          // Scans the readings came from are fixed to this line now, and the
+          // line says which figures the technician typed over.
+          const qcNir = input.nirResultSns?.length
+            ? await consumeScans(tx, receipt, lines, line.id, input.nirResultSns, input.readings, req.session.user!.id)
+            : null;
+
           const other = { ...input.readings };
           for (const k of ["moisture", "protein", "fiber", "fat"]) delete other[k];
 
@@ -1103,6 +1118,7 @@ officeRouter.patch(
               qcOverrideReason: overrideReason,
               qcOverrideBy: overrideReason ? req.session.user!.id : null,
               qcRejectionReason: rejectionReason,
+              qcNir,
             })
             .where(eq(officeReceiptLines.id, line.id));
 
@@ -1147,6 +1163,7 @@ officeRouter.patch(
       res.json(out);
     } catch (err) {
       if (err instanceof TransitionError) return res.status(409).json({ error: err.message });
+      if (err instanceof NirMatchError) return res.status(409).json({ error: err.message });
       if (!fail(err, res)) throw err;
     }
   },
