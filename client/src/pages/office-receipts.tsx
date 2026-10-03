@@ -6,7 +6,7 @@
  * testing leaves the counter where it started.
  */
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { type QcNirRecord, nirRemark } from "@shared/nir";
+import { type QcNirRecord, lineQcRemarks } from "@shared/nir";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearch } from "../components/search-context";
 import { SortTh, useSortedRows } from "../components/sortable-table";
@@ -236,13 +236,7 @@ export function ReceiptEditor({
         allocatedNetKg: l.allocatedNetKg ?? "",
         purchaseOrderId: l.purchaseOrderId ?? "",
         poLineId: l.poLineId ?? "",
-        qcRemarks: [
-          nirRemark(l.qcNir),
-          l.qcOverrideReason ? `Overridden: ${l.qcOverrideReason}` : null,
-          l.qcVerdict === "rejected" && l.qcRejectionReason ? `Rejected: ${l.qcRejectionReason}` : null,
-        ]
-          .filter(Boolean)
-          .join(" — "),
+        qcRemarks: lineQcRemarks(l) ?? "",
       })),
     );
   }, [existing, ctx.locations]);

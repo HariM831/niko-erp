@@ -145,3 +145,22 @@ export function nirRemark(nir: QcNirRecord | null | undefined): string | null {
   const n = nir.results.length;
   return `NIR, ${n === 1 ? "1 scan" : `${n} scans averaged`}: ${[...parts, ...others].join(" · ")}`;
 }
+
+/**
+ * Everything QC said about one line, as one remark: the NIR's readings, an
+ * override and why, a refusal and why. Shared by the goods receipt and the
+ * bill's note, so the two can never word the same truck differently.
+ */
+export function lineQcRemarks(l: {
+  qcNir?: unknown;
+  qcVerdict?: string | null;
+  qcOverrideReason?: string | null;
+  qcRejectionReason?: string | null;
+}): string | null {
+  const parts = [
+    nirRemark(l.qcNir as QcNirRecord | null | undefined),
+    l.qcOverrideReason ? `Overridden: ${l.qcOverrideReason}` : null,
+    l.qcVerdict === "rejected" && l.qcRejectionReason ? `Rejected: ${l.qcRejectionReason}` : null,
+  ].filter(Boolean);
+  return parts.length ? parts.join(" — ") : null;
+}

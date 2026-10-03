@@ -57,6 +57,7 @@ import { resolveVendor } from "../services/vendor-match";
 import { normalisePlate } from "../services/ocr";
 import { computeDeductions, judgeLine, loadDeductionRules, loadSpecs } from "../services/qc";
 import { NirMatchError, consumeScans, nirForReceipt } from "../services/nir";
+import { lineQcRemarks } from "@shared/nir";
 import { learnAlias } from "../services/item-names";
 
 export const officeRouter = Router();
@@ -2068,7 +2069,17 @@ export async function settleReceipt(tx: Tx, receiptId: string, body: SettleBody,
    * Gross, tare and net are deliberately absent. They are on the goods
    * receipt for anyone who needs them, and printing three weights nobody
    * asked about only buries the one sentence that answers the question.
+   *
+   * What QC found is the exception (the user, 3 Oct 2026): the NIR's readings
+   * are the reason behind most deductions, so each material's QC remarks
+   * follow the header, worded exactly as the goods receipt words them.
    */
+  const quality = ctx.lines
+    .map((l) => {
+      const remark = lineQcRemarks(l.line);
+      return remark ? `  ${l.line.itemName ?? "Material"}: ${remark}` : null;
+    })
+    .filter((r): r is string => !!r);
   const explanation = [
     [
       receipt.number,
@@ -2078,6 +2089,7 @@ export async function settleReceipt(tx: Tx, receiptId: string, body: SettleBody,
     ]
       .filter(Boolean)
       .join(" · "),
+    ...(quality.length ? ["", "Quality", ...quality] : []),
     ...(charging.length
       ? [
           "",
