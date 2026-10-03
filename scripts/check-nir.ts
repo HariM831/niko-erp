@@ -126,8 +126,8 @@ async function main() {
 
       console.log("\n  SAVING QC\n");
       const used = await consumeScans(tx, a.receipt, a.lines, sbmLine.id, ["ZZ-1", "ZZ-2", "ZZ-3"],
-        { moisture: 11.8, protein: 46, sand_silica: 1.233 }, userId);
-      check("a typed-over figure is recorded as edited", used.edited.includes("moisture") && !used.edited.includes("protein"), used.edited.join(","));
+        { moisture: 11.6, protein: 46, sand_silica: 1.2 }, userId);
+      check("a typed-over figure is recorded as edited", used.edited.join() === "moisture", used.edited.join(","));
       const after = await tx.select().from(nirResults).where(eq(nirResults.resultSn, "ZZ-1"));
       check("a used scan is fixed to its line", after[0]?.receiptLineId === sbmLine.id);
 
