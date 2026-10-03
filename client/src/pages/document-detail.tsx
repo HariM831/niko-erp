@@ -9,6 +9,7 @@ import { CommentsButton } from "../components/comments";
 import { JournalSection } from "../components/journal-section";
 import { CustomFieldsDisplay } from "../components/custom-fields";
 import { billNo, localYmd } from "../lib/utils";
+import { printSheet } from "../lib/print-sheet";
 import { GST_STATES, toGstStateCode } from "@shared/gst-states";
 import { ApplyCreditsDialog, useCredits } from "../components/apply-credits";
 import { useAuth } from "../auth";
@@ -391,6 +392,7 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
    * Print resets it in CSS, so what comes out of the printer is unaffected.
    */
   const sheetWrapRef = useRef<HTMLDivElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
   const [sheetZoom, setSheetZoom] = useState(1);
   useEffect(() => {
     const A4_PX = 794; // 210mm at 96dpi
@@ -529,7 +531,13 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
           />
           <AttachmentsButton entityType={ENTITY_TYPE[kind] ?? kind} entityId={id} />
           <button
-            onClick={() => window.print()}
+            onClick={() => {
+              // The sheet alone, not the app around it — see print-sheet.ts.
+              // The title is the PDF's suggested file name.
+              const name = [config.titlePrefix, doc.number, contact?.displayName].filter(Boolean).join(" ");
+              if (sheetRef.current) void printSheet(sheetRef.current, name);
+              else window.print();
+            }}
             className="rounded px-2.5 py-1.5 font-medium text-gray-700 hover:bg-gray-100"
           >
             PDF/Print
@@ -610,6 +618,7 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
 
       <div ref={sheetWrapRef} className="flex-1 overflow-y-auto bg-gray-100 p-3 print:bg-white print:p-0 sm:p-6">
         <div
+          ref={sheetRef}
           className="a4-sheet relative mx-auto border bg-white shadow-sm print:border-0 print:shadow-none"
           style={{ "--sheet-zoom": sheetZoom } as React.CSSProperties}
         >
