@@ -936,6 +936,7 @@ reportsRouter.get("/purchase-orders", requirePermission("reports", "view"), asyn
   const today = istDate();
   const found = await db.execute(sql`
     SELECT po.id, po.number, po.order_date, po.expected_delivery_date, po.status, po.total,
+           po.extra_allowance_pct,
            c.id AS vendor_id, c.display_name AS vendor,
            string_agg(DISTINCT coalesce(i.name, l.name), ', ') AS items,
            coalesce(sum(l.quantity), 0) AS ordered,
@@ -979,7 +980,8 @@ reportsRouter.get("/purchase-orders", requirePermission("reports", "view"), asyn
       total: r.total ?? "0",
       storedStatus: r.status!,
       status,
-      overDelivered: status !== "cancelled" && ordered > 0 && ratio > 1.05,
+      // Over 105%, or further if a purchase manager extended this order (3 Oct 2026).
+      overDelivered: status !== "cancelled" && ordered > 0 && ratio > 1.05 + Number(r.extra_allowance_pct ?? 0) / 100,
       overdue: pending && !!r.expected_delivery_date && r.expected_delivery_date < today,
     };
   });

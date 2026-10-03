@@ -45,6 +45,14 @@ export const PERMISSION_MODULES: PermissionModule[] = [
     key: "purchases",
     label: "Purchases",
     description: "Vendors, bills, purchase orders, expenses, payments made",
+    actions: [
+      { key: "view", label: "View" },
+      { key: "create", label: "Create" },
+      { key: "edit", label: "Edit" },
+      { key: "delete", label: "Delete" },
+      // Up to 5% more over-delivery on one order, beyond the org-wide allowance (3 Oct 2026).
+      { key: "extend", label: "Extend an order's over-delivery allowance" },
+    ],
   },
   {
     key: "items",

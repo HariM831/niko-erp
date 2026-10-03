@@ -78,6 +78,7 @@ import {
 } from "../services/payment-file";
 import { syncPurchaseRates } from "../services/purchases";
 import { istDate } from "../services/day-resolution";
+import { getPreferences } from "../services/preferences";
 import {
   applyCreditPlan,
   applyCredits,
@@ -234,7 +235,12 @@ purchasesRouter.get("/orders/:id", requirePermission("purchases", "view"), async
     .from(purchaseOrderLines)
     .where(eq(purchaseOrderLines.purchaseOrderId, po.id))
     .orderBy(asc(purchaseOrderLines.lineOrder));
-  res.json({ ...po, lines });
+  // The allowance the gate applies to this order: the org's, plus any extension.
+  const [ext] = po.extraAllowanceBy
+    ? await db.select({ name: users.name }).from(users).where(eq(users.id, po.extraAllowanceBy))
+    : [];
+  const orgPct = Number((await getPreferences(db)).poOverDeliveryPct);
+  res.json({ ...po, lines, allowance: { orgPct, extraPct: Number(po.extraAllowancePct), by: ext?.name ?? null } });
 });
 
 /** A PO posts no journal, so editing is a plain re-state — but not once it's been billed. */
@@ -404,6 +410,37 @@ purchasesRouter.post(
     } catch (err) {
       if (!handlePostingError(err, res)) throw err;
     }
+  },
+);
+
+/**
+ * Let one order take up to 5% more than the org-wide allowance (3 Oct 2026):
+ * a purchase manager's decision, kept on the order with the reason. Setting it
+ * again replaces it; 0 takes it back.
+ */
+purchasesRouter.post(
+  "/orders/:id/extend",
+  requirePermission("purchases", "extend"),
+  validateBody(z.object({ pct: z.number().min(0).max(5), reason: z.string().trim().min(3).max(300) })),
+  async (req, res) => {
+    const { pct, reason } = req.body as { pct: number; reason: string };
+    const po = await db.query.purchaseOrders.findFirst({ where: eq(purchaseOrders.id, req.params.id!) });
+    if (!po) return res.status(404).json({ error: "Purchase order not found" });
+    if (po.status === "cancelled" || po.status === "closed") {
+      return res.status(422).json({ error: `${po.number} is ${po.status} — reopen it before extending` });
+    }
+    const [row] = await db
+      .update(purchaseOrders)
+      .set({
+        extraAllowancePct: pct.toFixed(2),
+        extraAllowanceReason: pct > 0 ? reason : `Taken back: ${reason}`,
+        extraAllowanceBy: req.session.user!.id,
+        extraAllowanceAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(purchaseOrders.id, po.id))
+      .returning();
+    res.json(row);
   },
 );
 

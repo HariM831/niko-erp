@@ -31,7 +31,7 @@ export const OPEN_PO_STATUSES = ["issued", "partially_billed"] as const;
 export const RATE_TOLERANCE = 0.01;
 
 /**
- * How much over the outstanding quantity a delivery may run, in percent, when
+ * How much over the ordered quantity a delivery may run, in percent, when
  * the org has expressed no preference. Read from preferences.poOverDeliveryPct
  * in practice — see that column for why this cannot be zero.
  */
@@ -65,11 +65,26 @@ function checkRate(billRate: number | null, poRate: number): MatchReason {
   };
 }
 
-function checkQuantity(qty: number | null, remaining: number, tolerancePct: number): MatchReason {
+/**
+ * The allowance is a share of what was ORDERED, not of what is left (3 Oct
+ * 2026): 5% on a 100 t order lets 105 t come in, however much has arrived —
+ * as the Purchase Order Details report has always read it. Taken off what is
+ * left, it shrank as the order filled, and a 31 t truck on a 26 t remainder
+ * was turned to another order at another rate.
+ */
+function checkQuantity(
+  qty: number | null,
+  remaining: number,
+  tolerancePct: number,
+  ordered: number = remaining,
+  extraPct = 0,
+): MatchReason {
   if (qty == null) {
     return { factor: "quantity", passed: false, detail: "No quantity on the bill" };
   }
-  const ceiling = remaining * (1 + tolerancePct / 100);
+  const allowedPct = tolerancePct + extraPct;
+  const ceiling = remaining + (ordered * allowedPct) / 100;
+  const pctText = extraPct > 0 ? `${tolerancePct}% + ${extraPct}% extended` : `${tolerancePct}%`;
   const passed = qty <= ceiling;
   const over = qty - remaining;
   return {
@@ -78,10 +93,10 @@ function checkQuantity(qty: number | null, remaining: number, tolerancePct: numb
     detail: passed
       ? over > 0
         ? `${kg(qty)} is ${kg(Number(over.toFixed(3)))} over the ${kg(remaining)} still due, ` +
-          `within the ${tolerancePct}% allowed`
+          `within the ${pctText} of the ${kg(ordered)} ordered`
         : `${kg(qty)} is within the ${kg(remaining)} still due`
       : `${kg(qty)} is more than the ${kg(remaining)} still due, ` +
-        `beyond the ${tolerancePct}% allowed`,
+        `beyond the ${pctText} of the ${kg(ordered)} ordered (up to ${kg(Number(ceiling.toFixed(3)))} now)`,
   };
 }
 
@@ -146,6 +161,7 @@ export async function matchPurchaseOrderLines(
       rate: purchaseOrderLines.rate,
       quantity: purchaseOrderLines.quantity,
       delivered: purchaseOrderLines.deliveredQuantity,
+      extraPct: purchaseOrders.extraAllowancePct,
     })
     .from(purchaseOrders)
     .innerJoin(purchaseOrderLines, eq(purchaseOrderLines.purchaseOrderId, purchaseOrders.id))
@@ -196,7 +212,7 @@ export async function matchPurchaseOrderLines(
           detail: sameItem ? `${po.name} is on this order` : `"${line.itemName}" is a known name for ${po.name}`,
         },
         checkRate(line.ratePerKg ?? null, n(po.rate)),
-        checkQuantity(line.quantityKg ?? null, remaining, tolerancePct),
+        checkQuantity(line.quantityKg ?? null, remaining, tolerancePct, n(po.quantity), n(po.extraPct)),
         checkDate(billDate, po.expectedDeliveryDate),
       ];
 

@@ -11,6 +11,7 @@ import { CustomFieldsDisplay } from "../components/custom-fields";
 import { billNo, localYmd } from "../lib/utils";
 import { GST_STATES, toGstStateCode } from "@shared/gst-states";
 import { ApplyCreditsDialog, useCredits } from "../components/apply-credits";
+import { useAuth } from "../auth";
 
 /** A vendor credit applied to the bill being viewed. */
 interface AppliedCredit {
@@ -81,6 +82,8 @@ interface ActionDef {
   /** Statuses in which this action is shown. */
   when: string[];
   danger?: boolean;
+  /** Shown only to someone holding this right, e.g. ["purchases", "extend"]. */
+  need?: [string, string];
   run: (doc: DetailDoc, helpers: ActionHelpers) => Promise<void> | void;
 }
 
@@ -274,6 +277,36 @@ const CONFIGS: Record<string, DetailConfig> = {
         },
       },
       {
+        // A purchase manager's call: up to 5% more over-delivery on this order,
+        // on top of the org-wide allowance, with a reason kept on it (3 Oct 2026).
+        label: "Extend allowance",
+        when: ["issued", "partially_billed"],
+        need: ["purchases", "extend"],
+        run: async (doc, h) => {
+          const a = doc.allowance as { orgPct: number; extraPct: number } | undefined;
+          const raw = prompt(
+            `${doc.number} may take ${a?.orgPct ?? 5}% over its ordered quantity${a?.extraPct ? ` + ${a.extraPct}% already extended` : ""}.
+
+` +
+              `Extra percent to allow on this order (0 to 5; 0 takes an extension back):`,
+            String(a?.extraPct || 5),
+          );
+          if (raw == null) return;
+          const pct = Number(raw);
+          if (!Number.isFinite(pct) || pct < 0 || pct > 5) {
+            alert("Enter a number from 0 to 5.");
+            return;
+          }
+          const reason = prompt("Why? (kept on the order)", "");
+          if (!reason || reason.trim().length < 3) {
+            alert("A reason is needed.");
+            return;
+          }
+          await h.post(`/api/purchases/orders/${doc.id}/extend`, { pct, reason: reason.trim() });
+          await h.refresh();
+        },
+      },
+      {
         label: "Cancel",
         when: ["draft", "issued"],
         danger: true,
@@ -309,6 +342,7 @@ const CONFIGS: Record<string, DetailConfig> = {
 };
 
 export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
+  const { can } = useAuth();
   const config = CONFIGS[kind];
   const [, navigate] = useLocation();
   const qc = useQueryClient();
@@ -426,7 +460,7 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
     }
   };
 
-  const visibleActions = config.actions.filter((a) => a.when.includes(doc.status));
+  const visibleActions = config.actions.filter((a) => a.when.includes(doc.status) && (!a.need || can(a.need[0], a.need[1])));
   const balance = doc.balanceDue ?? doc.balance;
 
   // Zoho prints vendor credits under the same "CREDIT NOTE" heading as customer credit notes.
@@ -653,6 +687,23 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
                     <span className="font-semibold">: {doc.reference}</span>
                   </div>
                 ) : null}
+                {kind === "purchase-order" && doc.allowance ? (() => {
+                  const a = doc.allowance as { orgPct: number; extraPct: number; by: string | null };
+                  return (
+                    <div className="flex">
+                      <span className="w-24 shrink-0 text-[#333]">Allowance</span>
+                      <span className="font-semibold">
+                        : {a.orgPct}% over ordered
+                        {a.extraPct > 0 && (
+                          <span className="text-amber-700">
+                            {" "}+ {a.extraPct}% extended{a.by ? ` by ${a.by}` : ""}
+                            {doc.extraAllowanceReason ? ` — ${doc.extraAllowanceReason}` : ""}
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })() : null}
               </div>
               <div className="w-1/2 px-2.5 pb-2.5 pt-1.5">
                 {supply && (

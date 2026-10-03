@@ -834,6 +834,13 @@
       "when": 1791200000000,
       "tag": "0114_egg_market_rates",
       "breakpoints": true
+    },
+    {
+      "idx": 116,
+      "version": "7",
+      "when": 1791300000000,
+      "tag": "0115_po_extra_allowance",
+      "breakpoints": true
     }
   ]
 }

@@ -76,6 +76,14 @@ export const purchaseOrders = pgTable("purchase_orders", {
   ...totalsColumns,
   notes: text("notes"),
   termsAndConditions: text("terms_and_conditions"),
+  /**
+   * Over-delivery allowed on this order beyond the org-wide allowance, set by a
+   * purchase manager (at most 5%), with who, when and why (3 Oct 2026).
+   */
+  extraAllowancePct: numeric("extra_allowance_pct", { precision: 5, scale: 2 }).notNull().default("0"),
+  extraAllowanceReason: text("extra_allowance_reason"),
+  extraAllowanceBy: uuid("extra_allowance_by").references(() => users.id),
+  extraAllowanceAt: timestamp("extra_allowance_at", { withTimezone: true }),
   createdBy: uuid("created_by")
     .notNull()
     .references(() => users.id),
