@@ -716,12 +716,21 @@ export async function createBill(tx: Tx, args: CreateBillArgs) {
    * A negative line is a deduction, not a return of goods — short weight was
    * never received, so nothing comes back off the pile.
    */
+  // The bill's own round-off (total to the rupee) folds into the first line's
+  // account — the stock account, for goods — so the first line's material
+  // carries it too, or stock is worth paise more than the entry put there
+  // (GR-00027: ₹10,52,350.20 into stock, ₹10,52,350.00 on Feed Stock).
+  const movements = args.stockMovements ?? (await stockLines(tx, c));
+  const roundOffP = toPaise(c.totals.roundOff);
+  const firstItem = c.computedLines[0]?.itemId;
+  const carrier = roundOffP && firstItem ? movements.find((m) => m.itemId === firstItem) : undefined;
+  if (carrier) carrier.value = fromPaise(toPaise(carrier.value) + roundOffP);
   await receiveBillStock(tx, {
     billId: bill!.id,
     billNumber: number,
     billDate: args.billDate,
     stockDate: args.stockDate ?? args.billDate,
-    movements: args.stockMovements ?? (await stockLines(tx, c)),
+    movements,
     // Where the goods landed. Procurement passes the receiving site; a bill
     // keyed by hand falls back to the main store of the primary location.
     stockLocationId: await mainStore(tx, args.stockLocationOf ?? null),
