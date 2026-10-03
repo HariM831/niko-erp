@@ -1963,6 +1963,29 @@ export async function settleReceipt(tx: Tx, receiptId: string, body: SettleBody,
     throw new PostingError(`${unmatched.length} line(s) have no purchase order behind them`);
   }
 
+  /**
+   * The lines cannot have received more than came off the truck.
+   *
+   * Stock goes in at what the lines say was received, so a figure typed into
+   * the wrong box goes straight into the silo: GR-00026 (Inamul Hoque's maize,
+   * 30 Sep 2026) took its gross weight, 49,969 kg, for a truck that netted
+   * 37,000, and stock read 13 t of maize the godown never had. Half a percent
+   * or 20 kg, whichever is more, is rounding; anything beyond is refused.
+   */
+  if (receipt.grossWeightKg != null && receipt.tareWeightKg != null) {
+    const truckNet = Number(receipt.grossWeightKg) - Number(receipt.tareWeightKg);
+    const received = ctx.lines
+      .filter((l) => l.line.status === "unloaded")
+      .reduce((s, l) => s + Number(l.line.allocatedNetKg ?? 0), 0);
+    if (truckNet > 0 && received > truckNet + Math.max(20, truckNet * 0.005)) {
+      throw new PostingError(
+        `The lines received ${received.toLocaleString("en-IN")} kg but the truck netted ` +
+          `${truckNet.toLocaleString("en-IN")} kg (${Number(receipt.grossWeightKg).toLocaleString("en-IN")} gross − ` +
+          `${Number(receipt.tareWeightKg).toLocaleString("en-IN")} tare) — correct the received weight on Edit receipt`,
+      );
+    }
+  }
+
   const vendor = await loadVendor(tx, receipt.vendorId);
   /**
    * Three dates, and they differ on purpose. The bill carries the vendor's

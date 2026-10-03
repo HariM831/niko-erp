@@ -110,6 +110,21 @@ try {
     if (!git) throw new Error("No goods_in_transit account — migration 0110 has not run");
     const [vendor] = await tx.select({ terms: contacts.paymentTermsDays }).from(contacts).where(eq(contacts.id, receipt!.vendorId!));
 
+    // A received weight beyond the truck's own net is refused (GR-00026, 3 Oct 2026).
+    if (receipt!.grossWeightKg != null && receipt!.tareWeightKg != null) {
+      const truckNet = Number(receipt!.grossWeightKg) - Number(receipt!.tareWeightKg);
+      const first = lines[0]!.line;
+      await tx.update(officeReceiptLines).set({ allocatedNetKg: (Number(first.allocatedNetKg ?? 0) + truckNet).toFixed(3) }).where(eq(officeReceiptLines.id, first.id));
+      let refused = "";
+      try {
+        await tx.transaction((sp) => settleReceipt(sp, receiptId, {}, user!.id));
+      } catch (e) {
+        refused = e instanceof Error ? e.message : String(e);
+      }
+      check("a line received beyond the truck's net is refused at settlement", refused.includes("netted"), refused.slice(0, 120));
+      await tx.update(officeReceiptLines).set({ allocatedNetKg: first.allocatedNetKg }).where(eq(officeReceiptLines.id, first.id));
+    }
+
     const out = await settleReceipt(tx, receiptId, {}, user!.id);
     const bill = out.bill;
     for (const a of await tx
