@@ -5,7 +5,8 @@
  * six station screens exist. Deleting hands the number back to the series, so
  * testing leaves the counter where it started.
  */
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { type QcNirRecord, nirRemark } from "@shared/nir";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearch } from "../components/search-context";
 import { SortTh, useSortedRows } from "../components/sortable-table";
@@ -76,6 +77,11 @@ interface LineDraft {
    */
   purchaseOrderId: string;
   poLineId: string;
+  /**
+   * What QC recorded, as words: the NIR's readings, and why a line was
+   * refused. Read-only here — it is written by the QC station, not this form.
+   */
+  qcRemarks: string;
 }
 
 const emptyLine = (): LineDraft => ({
@@ -92,6 +98,7 @@ const emptyLine = (): LineDraft => ({
   allocatedNetKg: "",
   purchaseOrderId: "",
   poLineId: "",
+  qcRemarks: "",
 });
 
 /** The full receipt as the detail endpoint returns it. */
@@ -120,6 +127,8 @@ interface Receipt {
     qcVerdict: string | null;
     qcMoisturePct: string | null;
     qcRejectionReason: string | null;
+    qcOverrideReason: string | null;
+    qcNir: QcNirRecord | null;
     bagCountActual: number | null;
     damagePercent: string | null;
     allocatedNetKg: string | null;
@@ -227,6 +236,13 @@ export function ReceiptEditor({
         allocatedNetKg: l.allocatedNetKg ?? "",
         purchaseOrderId: l.purchaseOrderId ?? "",
         poLineId: l.poLineId ?? "",
+        qcRemarks: [
+          nirRemark(l.qcNir),
+          l.qcOverrideReason ? `Overridden: ${l.qcOverrideReason}` : null,
+          l.qcVerdict === "rejected" && l.qcRejectionReason ? `Rejected: ${l.qcRejectionReason}` : null,
+        ]
+          .filter(Boolean)
+          .join(" — "),
       })),
     );
   }, [existing, ctx.locations]);
@@ -609,7 +625,8 @@ export function ReceiptEditor({
             </thead>
             <tbody>
               {lines.map((l, i) => (
-                <tr key={i} className="border-b border-gray-100">
+                <Fragment key={i}>
+                <tr className={l.qcRemarks ? "" : "border-b border-gray-100"}>
                   <td className="px-2 py-1">
                     <SearchSelect
                       value={l.itemId || null}
@@ -701,6 +718,15 @@ export function ReceiptEditor({
                     )}
                   </td>
                 </tr>
+                {l.qcRemarks && (
+                  <tr className="border-b border-gray-100">
+                    <td colSpan={9} className="px-2 pb-2 pt-0 text-[11px] text-gray-500">
+                      <span className="font-semibold uppercase tracking-wide text-gray-400">QC remarks</span>{" "}
+                      {l.qcRemarks}
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               ))}
             </tbody>
           </table>

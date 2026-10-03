@@ -93,3 +93,55 @@ export interface NirUploadModel {
   version: string | null;
   matterNames: Record<string, string>;
 }
+
+/** What QC keeps on a receipt line when the NIR supplied the readings. */
+export interface QcNirRecord {
+  results: string[];
+  average: Record<string, number>;
+  instrument?: Record<string, number>;
+  edited?: string[];
+  flagged?: string[];
+  fromDryMatter?: string[];
+}
+
+const LABEL: Record<string, string> = {
+  moisture: "Moisture",
+  protein: "Protein",
+  fat: "Fat",
+  fiber: "Fibre",
+  sand_silica: "Sand silica",
+};
+
+/**
+ * The NIR's part of a line's QC, written out as a remark a person can read on
+ * the goods receipt: what was measured, on what basis, and what was changed.
+ *
+ *   NIR, 2 scans averaged: Moisture 6.023% · Protein 9.554% (DM 10.166) ·
+ *   Fat 3.465% (DM 3.687) · Starch (DM) 63.579
+ */
+export function nirRemark(nir: QcNirRecord | null | undefined): string | null {
+  if (!nir?.results?.length) return null;
+  const fmt = (v: number) => Number(v.toFixed(3)).toString();
+  const order = Object.keys(LABEL);
+  const rank = (p: string) => (order.indexOf(p) + 1 || order.length + 1);
+  const instrument = nir.instrument ?? {};
+  const dmFor = (param: string) =>
+    Object.entries(instrument).find(([n]) => {
+      const base = dryMatterBase(n);
+      return base != null && qcParameterFor(base) === param;
+    })?.[1];
+  const parts = Object.entries(nir.average)
+    .sort(([a], [b]) => rank(a) - rank(b))
+    .map(([p, v]) => {
+    const dm = nir.fromDryMatter?.includes(p) ? dmFor(p) : undefined;
+    const typed = nir.edited?.includes(p) ? ", typed over" : "";
+    const flag = nir.flagged?.includes(p) ? ", flagged by the instrument" : "";
+    return `${LABEL[p] ?? p} ${fmt(v)}%${dm != null ? ` (DM ${fmt(dm)})` : ""}${typed}${flag}`;
+  });
+  // Readings no QC parameter takes — starch, NDF, ash — as the instrument gave them.
+  const others = Object.entries(instrument)
+    .filter(([n]) => !qcParameterFor(dryMatterBase(n) ?? n))
+    .map(([n, v]) => `${n} ${fmt(v)}`);
+  const n = nir.results.length;
+  return `NIR, ${n === 1 ? "1 scan" : `${n} scans averaged`}: ${[...parts, ...others].join(" · ")}`;
+}
