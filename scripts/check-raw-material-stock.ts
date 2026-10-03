@@ -14,8 +14,8 @@
  *
  * Run: npx tsx scripts/check-raw-material-stock.ts
  */
-import { eq, sql } from "drizzle-orm";
-import { contacts, formulaLines, formulas, items } from "@shared/schema";
+import { and, eq, sql } from "drizzle-orm";
+import { contacts, formulaLines, formulas, inventoryTransactions, items, taxes } from "@shared/schema";
 import { db } from "../server/db";
 import { produceOne } from "../server/routes/feed-production";
 import { stockOnHand } from "../server/services/inventory";
@@ -106,6 +106,41 @@ try {
       GROUP BY 1 ORDER BY 1`);
     const debited = (je.rows as Array<{ code: string; dr: string }>).map((r) => r.code);
     check("it capitalised rather than expensed", debited.includes("1072"), `debits ${debited.join(", ")}`);
+
+    console.log("\n  A HAND-KEYED BILL WITH GST VALUES STOCK WITH ITS TAX\n");
+
+    // GST is a cost (no input credit), so the bill folds it into the stock
+    // account; the stock has to carry the same paise. Awkward figures on
+    // purpose, so the tax splits unevenly and the total rounds to the rupee.
+    const [gst] = await tx.insert(taxes).values({ name: "TEST STK GST 5", rate: "5" }).returning();
+    const bran = await raw("TEST STK BRAN");
+    const dorb = await raw("TEST STK DORB");
+    const taxed = await createBill(tx, {
+      vendor: vend,
+      billDate: "2026-08-19",
+      reference: "TEST-STK-GST",
+      lines: [
+        { itemId: bran.id, name: bran.name, quantity: "1234.567", unit: "kg", rate: "23.457000", taxId: gst!.id },
+        { itemId: dorb.id, name: dorb.name, quantity: "777.000", unit: "kg", rate: "41.130000", taxId: gst!.id },
+      ],
+      postedBy: user.id!,
+    });
+    const taxedMoves = await tx
+      .select({ value: inventoryTransactions.value })
+      .from(inventoryTransactions)
+      .where(and(eq(inventoryTransactions.sourceType, "bill"), eq(inventoryTransactions.sourceId, taxed.id)));
+    const movedP = taxedMoves.reduce((s, m) => s + Math.round(n(m.value) * 100), 0);
+    const onStock = await one(sql`
+      SELECT coalesce(sum(l.debit - l.credit), 0) AS net FROM journal_entry_lines l
+       WHERE l.entry_id = ${taxed.journalEntryId}::uuid AND l.account_id = ${stock.id}::uuid`);
+    const taxP = Math.round((n(taxed.cgst) + n(taxed.sgst) + n(taxed.igst)) * 100);
+    check("the bill carries tax", taxP > 0, `₹${(taxP / 100).toFixed(2)}`);
+    check(
+      "stock value matches the stock debit to the paisa",
+      movedP === Math.round(n(onStock.net) * 100),
+      `₹${(movedP / 100).toFixed(2)} vs ₹${n(onStock.net).toFixed(2)} (round-off ₹${n(taxed.roundOff).toFixed(2)})`,
+    );
+    check("both materials took a share of the tax", taxedMoves.length === 2 && taxedMoves.every((m) => n(m.value) > 0));
 
     console.log("\n  PRODUCING EATS IT\n");
 

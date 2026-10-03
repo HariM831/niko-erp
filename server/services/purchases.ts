@@ -126,6 +126,46 @@ export function computeDueDate(billDate: string, termsDays: number): string {
 }
 
 /**
+ * The bill's tax, per account.
+ *
+ * Tax rides on the value it was charged on, so it is apportioned by each
+ * group's share of the positive line value. Only positive groups take a
+ * share — a deduction credit is not something GST was charged on — and the
+ * last one absorbs the rounding remainder so the total lands exactly.
+ * Shared by the journal and the stock it values, so the two agree to the paisa.
+ */
+export function apportionBillTax(
+  groups: Array<{ accountId: string; netP: number }>,
+  taxTotalP: number,
+  billNumber: string,
+): Map<string, number> {
+  const positive = groups.filter((g) => g.netP > 0);
+  const positiveTotalP = positive.reduce((s, g) => s + g.netP, 0);
+  const taxShare = new Map<string, number>();
+  if (taxTotalP > 0) {
+    // Nothing positive to attach it to would strand the tax: the payable
+    // credit includes it, so it has to land on a debit somewhere or the
+    // entry will not balance. In practice a bill is never all-deductions,
+    // and refusing here is clearer than silently posting a broken journal.
+    if (!positive.length) {
+      throw new PostingError(
+        `Bill ${billNumber} carries tax but no positive line to absorb it into`,
+      );
+    }
+    let allocated = 0;
+    positive.forEach((g, i) => {
+      const share =
+        i === positive.length - 1
+          ? taxTotalP - allocated
+          : Math.round((taxTotalP * g.netP) / positiveTotalP);
+      allocated += share;
+      taxShare.set(g.accountId, (taxShare.get(g.accountId) ?? 0) + share);
+    });
+  }
+  return taxShare;
+}
+
+/**
  * Bill journal: DR each line's account (net of discount, tax folded in),
  * CR Accounts Payable for the grand total. Round-off folds into the
  * first line's account group.
@@ -153,34 +193,8 @@ export function buildBillJeLines(
     tagOptionIds?: string[];
   }> = [];
 
-  // Tax rides on the value it was charged on, so it is apportioned by each
-  // group's share of the positive line value. Only positive groups take a
-  // share — a deduction credit is not something GST was charged on — and the
-  // last one absorbs the rounding remainder so the total lands exactly.
   const groups = [...grouped.values()];
-  const positive = groups.filter((g) => g.netP > 0);
-  const positiveTotalP = positive.reduce((s, g) => s + g.netP, 0);
-  const taxShare = new Map<string, number>();
-  if (taxTotalP > 0) {
-    // Nothing positive to attach it to would strand the tax: the payable
-    // credit below includes it, so it has to land on a debit somewhere or
-    // the entry will not balance. In practice a bill is never all-deductions,
-    // and refusing here is clearer than silently posting a broken journal.
-    if (!positive.length) {
-      throw new PostingError(
-        `Bill ${billNumber} carries tax but no positive line to absorb it into`,
-      );
-    }
-    let allocated = 0;
-    positive.forEach((g, i) => {
-      const share =
-        i === positive.length - 1
-          ? taxTotalP - allocated
-          : Math.round((taxTotalP * g.netP) / positiveTotalP);
-      allocated += share;
-      taxShare.set(g.accountId, (taxShare.get(g.accountId) ?? 0) + share);
-    });
-  }
+  const taxShare = apportionBillTax(groups, taxTotalP, billNumber);
 
   let first = true;
   for (const { accountId, netP, tagOptionIds } of groups) {
@@ -398,7 +412,7 @@ export async function saveBillLineTags(
  * would merge diesel for one vehicle with diesel for another into a single
  * ledger line, and the second vehicle's tag would have nowhere to go.
  */
-export function billGoodsJeLines(c: BillComputation, number: string) {
+function billLineGroups(c: BillComputation) {
   const grouped = new Map<string, { accountId: string; netP: number; tagOptionIds?: string[] }>();
   c.computedLines.forEach((l, i) => {
     const accountId = c.resolvedLines[i]!.accountId;
@@ -407,10 +421,16 @@ export function billGoodsJeLines(c: BillComputation, number: string) {
     if (existing) existing.netP += toPaise(l.amount);
     else grouped.set(key, { accountId, netP: toPaise(l.amount), tagOptionIds: l.tagOptionIds });
   });
-  const taxTotalP = toPaise(c.totals.cgst) + toPaise(c.totals.sgst) + toPaise(c.totals.igst);
+  return grouped;
+}
+
+const billTaxP = (c: BillComputation) =>
+  toPaise(c.totals.cgst) + toPaise(c.totals.sgst) + toPaise(c.totals.igst);
+
+export function billGoodsJeLines(c: BillComputation, number: string) {
   return buildBillJeLines(
-    grouped,
-    taxTotalP,
+    billLineGroups(c),
+    billTaxP(c),
     toPaise(c.totals.roundOff),
     toPaise(c.totals.total),
     number,
@@ -556,14 +576,38 @@ async function stockLines(
       ),
     );
   const ids = new Set(tracked.map((t) => t.id));
-  return withItems
-    .filter((l) => ids.has(l.itemId!))
-    .map((l) => ({
-      itemId: l.itemId!,
-      quantity: Number(l.quantity).toFixed(3),
-      // What the goods cost us, which is the line net of its own discount.
-      value: Number(l.amount).toFixed(2),
-    }));
+
+  /**
+   * GST is a cost here (no input credit), and the journal folds it into the
+   * stock account. Each account's share, exactly as the journal took it, is
+   * spread over that account's positive lines by value — the last one takes
+   * the remainder — so the stock is worth what the entry put there.
+   */
+  const accountTaxP = apportionBillTax([...billLineGroups(c).values()], billTaxP(c), "");
+  const lineTaxP = c.computedLines.map(() => 0);
+  for (const [accountId, taxP] of accountTaxP) {
+    const idx = [...c.computedLines.keys()].filter((i) => c.resolvedLines[i]!.accountId === accountId && toPaise(c.computedLines[i]!.amount) > 0);
+    const baseP = idx.reduce((s, i) => s + toPaise(c.computedLines[i]!.amount), 0);
+    let allocated = 0;
+    idx.forEach((i, k) => {
+      const share =
+        k === idx.length - 1 ? taxP - allocated : Math.round((taxP * toPaise(c.computedLines[i]!.amount)) / baseP);
+      allocated += share;
+      lineTaxP[i] = share;
+    });
+  }
+
+  return c.computedLines.flatMap((l, i) =>
+    l.itemId && toPaise(l.amount) > 0 && ids.has(l.itemId)
+      ? [{
+          itemId: l.itemId,
+          quantity: Number(l.quantity).toFixed(3),
+          // What the goods cost us: the line net of its own discount, plus
+          // its share of the tax.
+          value: fromPaise(toPaise(l.amount) + lineTaxP[i]!),
+        }]
+      : [],
+  );
 }
 
 /**
