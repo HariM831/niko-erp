@@ -218,8 +218,10 @@ async function main() {
       check("saving QC closes the request", closed?.status === "done");
 
       let refusedAsk = "";
+      // As saving QC leaves it.
+      await tx.update(officeReceiptLines).set({ status: "qc_accepted" }).where(eq(officeReceiptLines.id, sbmLine.id));
       try {
-        await createRequest(tx, one.lines.find((l) => l.itemId === sbm.id)!.id, userId);
+        await createRequest(tx, sbmLine.id, userId);
       } catch (e) {
         if (e instanceof NirMatchError) refusedAsk = e.message;
         else throw e;
