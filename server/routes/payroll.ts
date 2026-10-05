@@ -60,6 +60,7 @@ import {
   onRollsDuring,
   withinService,
 } from "../services/day-resolution";
+import { PAYROLL_REPORTS, payrollReportFile, type PayrollReport } from "../services/payroll-reports";
 import { siteForPoint, siteLegend } from "../services/punch-sites";
 import { applyLeave, approveLeave, deleteLeave, leaveBalance, leavesInRange, rejectLeave } from "../services/leave";
 import {
@@ -2295,20 +2296,18 @@ payrollRouter.delete("/runs/:id", runPerm, async (req, res) => {
 });
 
 /** The bank's upload: name, account, IFSC, net — nothing more. */
-payrollRouter.get("/runs/:id/bank-file", view, async (req, res) => {
+/** A run's files — register, NEFT, PF, ESI, cost by department — as CSV or Excel. */
+payrollRouter.get("/runs/:id/export", view, async (req, res) => {
+  const report = String(req.query.report ?? "") as PayrollReport;
+  const format = req.query.format === "xlsx" ? "xlsx" : "csv";
+  if (!PAYROLL_REPORTS.includes(report)) return res.status(400).json({ error: "Unknown report" });
   const [run] = await db.select().from(payrollRuns).where(eq(payrollRuns.id, req.params.id!));
   if (!run) return res.status(404).json({ error: "No such run" });
-  const slips = await runSlips(db, run.id);
-  const esc = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
-  const lines = [
-    "Name,Account Number,IFSC,Net Pay",
-    ...slips
-      .filter((s) => Number(s.netPay) > 0)
-      .map((s) => [esc(s.name), esc(s.bankAccountNumber ?? ""), esc(s.bankIfsc ?? ""), Number(s.netPay).toFixed(2)].join(",")),
-  ];
-  res.setHeader("Content-Type", "text/csv");
-  res.setHeader("Content-Disposition", `attachment; filename=payroll-${run.year}-${String(run.month).padStart(2, "0")}.csv`);
-  res.send(lines.join("\n"));
+  const [settings] = await db.select({ pfWageCeiling: payrollSettings.pfWageCeiling }).from(payrollSettings);
+  const file = payrollReportFile(report, format, run, await runSlips(db, run.id), Number(settings?.pfWageCeiling ?? 0));
+  res.setHeader("Content-Type", file.contentType);
+  res.setHeader("Content-Disposition", `attachment; filename="${file.filename}"`);
+  res.send(file.body);
 });
 
 payrollRouter.get("/slips/:id", view, async (req, res) => {

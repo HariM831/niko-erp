@@ -9,7 +9,8 @@
  *   leave:     CL/SL accrual with opening balances; comp-off earned by a
  *              punch on a holiday, expiring on schedule
  *   run:       one salaried (PF + ESI + PT + bonus + an advance whose EMI
- *              swallows the net) and one daily-wage employee; totals; a
+ *              swallows the net); the daily-wage employee gets no slip and
+ *              his approved overtime is left for the wages; totals; a
  *              reprocess reverts the draft's side effects first
  *   confirm:   the journal is balanced with exactly the plan's lines;
  *              a confirmed run refuses deletion and reprocessing
@@ -295,12 +296,16 @@ try {
       .insert(advances)
       .values({ employeeId: sal!.id, amount: "50000.00", emiAmount: "20000.00", givenOn: "2026-06-15", createdBy: uid })
       .returning();
+    // Wage workers are paid outside the run, their overtime with them.
+    const [wageOt] = await tx
+      .insert(payInputs)
+      .values({ employeeId: wage!.id, kind: "overtime", month: 7, year: 2026, amount: "300.00", status: "approved", createdBy: uid })
+      .returning();
 
     const run = await processRun(tx, { month: 7, year: 2026, userId: uid });
     const slips = await tx.select().from(salarySlips).where(eq(salarySlips.payrollRunId, run.id));
-    ok("two slips, one per person", slips.length === 2);
+    ok("one slip: the salaried employee; the wage worker is paid outside the run", slips.length === 1 && slips[0]!.employeeId === sal!.id);
     const s = slips.find((x) => x.employeeId === sal!.id)!;
-    const w = slips.find((x) => x.employeeId === wage!.id)!;
 
     // Salaried: P2 H3 WO3 HO1 L2 → paid 9.5 of 31.
     ok("salaried paid days = P + H/2 + WO + HO + L; LOP = A", s.paidDays === 9.5 && s.lopDays === 20, `paid ${s.paidDays}, lop ${s.lopDays}`);
@@ -316,14 +321,12 @@ try {
     ok("net pay lands at zero, never below", approx(Number(s.netPay), 0), s.netPay);
     ok("outstanding fell by exactly the recovery", approx(await advanceOutstanding(tx, adv!.id), 38032.63));
 
-    // Daily wage: 3 P + 1 H at ₹500 → 1750, nothing withheld.
-    ok("daily wage earns rate × (P + H/2)", approx(Number(w.earnedGross), 1750) && approx(Number(w.earnedBasic), 1750), w.earnedGross);
-    ok("no PF/ESI with the flags off", Number(w.pfEmployee) === 0 && Number(w.esiEmployee) === 0);
-    ok("wage net = wage gross", approx(Number(w.netPay), 1750));
+    const [otAfter] = await tx.select().from(payInputs).where(eq(payInputs.id, wageOt!.id));
+    ok("the wage worker's overtime is left approved, not paid by the run", otAfter?.status === "approved" && otAfter?.payrollRunId === null);
 
     ok(
       "run totals foot",
-      approx(Number(run.totalGross), 15100) && approx(Number(run.totalNet), 1750) && approx(Number(run.totalEmployerCost), 16641.38),
+      approx(Number(run.totalGross), 13350) && approx(Number(run.totalNet), 0) && approx(Number(run.totalEmployerCost), 14891.38),
       `gross ${run.totalGross}, net ${run.totalNet}, CTC ${run.totalEmployerCost}`,
     );
 
@@ -333,6 +336,7 @@ try {
     const exceptions = await runExceptions(tx, run.id);
     ok("the zero-net slip surfaces as an exception", exceptions.some((e) => e.employeeId === sal!.id && e.issue.includes("Net pay")));
     ok("missing bank details surface too", exceptions.some((e) => e.issue.includes("bank")));
+    ok("the wage worker is no exception: neither a missing slip nor unpaid overtime", !exceptions.some((e) => e.employeeId === wage!.id));
 
     /* ── Reprocess: the draft's side effects revert first ──────────────── */
     console.log("\n  reprocess\n");
@@ -343,7 +347,7 @@ try {
     ok("outstanding unchanged by the reprocess", approx(await advanceOutstanding(tx, adv!.id), 38032.63));
     const [bonusAfter2] = await tx.select().from(payInputs).where(eq(payInputs.id, bonus!.id));
     ok("the bonus is paid by the reprocessed draft", bonusAfter2?.status === "paid" && bonusAfter2?.payrollRunId === run2.id);
-    ok("still exactly two slips", (await tx.select().from(salarySlips).where(eq(salarySlips.payrollRunId, run2.id))).length === 2);
+    ok("still exactly one slip", (await tx.select().from(salarySlips).where(eq(salarySlips.payrollRunId, run2.id))).length === 1);
 
     /* ── Confirm: one balanced journal, the plan's lines ───────────────── */
     console.log("\n  confirm\n");
@@ -357,13 +361,12 @@ try {
     const line = (key: string) => lines.find((l) => l.systemKey === key);
     const expect: [string, "debit" | "credit", number][] = [
       ["salary_expense", "debit", 13350], // 12350 gross + 1000 bonus
-      ["wages_expense", "debit", 1750],
       ["pf_employer_expense", "debit", 1140],
       ["esi_employer_expense", "debit", 401.38],
       ["pf_payable", "credit", 2280],
       ["esi_payable", "credit", 494.01],
       ["pt_payable", "credit", 150],
-      ["salary_payable", "credit", 13717.37], // net 1750 + advance 11967.37
+      ["salary_payable", "credit", 11967.37], // net 0 + advance 11967.37
     ];
     for (const [key, side, amount] of expect) {
       const l = line(key);

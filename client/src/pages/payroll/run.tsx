@@ -3,7 +3,12 @@
  *
  * Processing is repeatable while the run is a draft (it reverts its own side
  * effects first); confirming posts ONE journal dated the last day of the
- * month and locks it. The bank file is a CSV of name / account / IFSC / net.
+ * month and locks it. Salaried staff only: daily-wage workers are paid outside
+ * the run, with their wages (5 Oct 2026).
+ *
+ * Downloads, as Amino's Payroll Reports had them: the salary register, NEFT,
+ * PF and ESI challans and cost by department as CSV or Excel, and every
+ * payslip on one printable sheet.
  */
 import { useMemo, useState, type ReactElement } from "react";
 import { Bar, CartesianGrid, Cell, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from "recharts";
@@ -13,6 +18,8 @@ import { AlertTriangle, Download, Printer } from "lucide-react";
 import { useLocalSearch } from "../../components/search-context";
 import { filterRows, useAdvancedSearch, type SearchField } from "../../components/advanced-search";
 import { matchesTerm } from "../../lib/utils";
+import { SearchSelect } from "../../components/search-select";
+import { printSheet } from "../../lib/print-sheet";
 import { api, formatMoney } from "../../api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -40,6 +47,7 @@ interface Slip {
   name?: string;
   empCode?: string;
   department?: string | null;
+  designation?: string | null;
   payType: "salaried" | "daily_wage";
   totalDays: number;
   presentDays: number;
@@ -90,15 +98,6 @@ const slipName = (s: Slip) => s.name ?? "—";
  */
 const searchFields = (departments: string[]): SearchField[] => [
   { key: "employee", label: "Employee", kind: "employee" },
-  {
-    key: "payType",
-    label: "Pay Type",
-    kind: "select",
-    options: [
-      { value: "salaried", label: "Salaried" },
-      { value: "daily_wage", label: "Daily wage" },
-    ],
-  },
   { key: "department", label: "Department", kind: "select", options: departments },
   { key: "paidDays", label: "Paid Days", kind: "numberRange" },
   { key: "lopDays", label: "LOP Days", kind: "numberRange" },
@@ -132,6 +131,9 @@ export function PayrollRunPage() {
   const [openRunId, setOpenRunId] = useState<string | null>(null);
   const [slipOpen, setSlipOpen] = useState<Slip | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [report, setReport] = useState<ReportId>("register");
+  const [printing, setPrinting] = useState(false);
+  const orgQ = useQuery({ queryKey: ["org"], queryFn: () => api<{ name?: string | null } | null>("/api/settings/org") });
 
   const runsQ = useQuery({ queryKey: ["payroll", "runs"], queryFn: () => api<Run[]>("/api/payroll/runs") });
   const monthRun = runsQ.data?.find((r) => r.year === year && r.month === month);
@@ -185,8 +187,6 @@ export function PayrollRunPage() {
         switch (key) {
           case "employee":
             return sl.employeeId;
-          case "payType":
-            return sl.payType;
           case "department":
             return sl.department;
           case "paidDays":
@@ -249,9 +249,33 @@ export function PayrollRunPage() {
               </span>
             )}
             <span className="ml-auto flex gap-2">
-              <a className="btn-secondary" href={`/api/payroll/runs/${run.id}/bank-file`} download>
-                <Download size={14} /> Bank file
+              <SearchSelect
+                className="w-44"
+                keepOrder
+                value={report}
+                onChange={(v) => v && setReport(v as ReportId)}
+                options={REPORTS}
+              />
+              <a className="btn-secondary" href={`/api/payroll/runs/${run.id}/export?report=${report}&format=csv`} download>
+                <Download size={14} /> CSV
               </a>
+              <a className="btn-secondary" href={`/api/payroll/runs/${run.id}/export?report=${report}&format=xlsx`} download>
+                <Download size={14} /> Excel
+              </a>
+              <button
+                className="btn-secondary"
+                disabled={printing || !slips.length}
+                onClick={async () => {
+                  setPrinting(true);
+                  try {
+                    await printPayslips(slips, run, orgQ.data?.name || "Amino Farms");
+                  } finally {
+                    setPrinting(false);
+                  }
+                }}
+              >
+                <Printer size={14} /> Print payslips
+              </button>
               {run.status === "draft" && (
                 <>
                   <button className="btn-ghost text-red-600" disabled={deleteM.isPending} onClick={() => deleteM.mutate(run.id)}>Delete draft</button>
@@ -283,7 +307,7 @@ export function PayrollRunPage() {
               <table className="data-table w-full whitespace-nowrap">
                 <thead className="table-head">
                   <tr>
-                    <Th className="col-fill">Employee</Th><Th className="col-portrait-hide">Pay</Th>
+                    <Th className="col-fill">Employee</Th>
                     <Th right className="col-portrait-hide">Paid days</Th><Th right className="col-portrait-hide">LOP</Th>
                     <Th right className="col-portrait-hide">Earned</Th><Th right className="col-portrait-hide">Extras</Th>
                     <Th right className="col-portrait-hide">PF</Th><Th right className="col-portrait-hide">ESI</Th><Th right className="col-portrait-hide">PT</Th>
@@ -298,7 +322,6 @@ export function PayrollRunPage() {
                         <span className="font-medium">{slipName(s)}</span>
                         <span className="ml-1 text-[11px] text-gray-400">{s.empCode}</span>
                       </Td>
-                      <Td className="col-portrait-hide"><Badge tone={s.payType === "salaried" ? "blue" : "gray"}>{s.payType === "salaried" ? "S" : "W"}</Badge></Td>
                       <Td right className="col-portrait-hide">{num(s.paidDays, 1)}/{s.totalDays}</Td>
                       <Td right className={`col-portrait-hide ${Number(s.lopDays) > 0 ? "text-red-600" : ""}`}>{num(s.lopDays, 1)}</Td>
                       <Td right className="col-portrait-hide">{formatMoney(s.earnedGross)}</Td>
@@ -311,7 +334,7 @@ export function PayrollRunPage() {
                       <Td right className="font-semibold">{formatMoney(s.netPay)}</Td>
                     </tr>
                   ))}
-                  {!paged.page.length && <tr><Td colSpan={12}><Empty>{(term.trim() || adv.active) && slips.length ? "No slips match." : "No slips."}</Empty></Td></tr>}
+                  {!paged.page.length && <tr><Td colSpan={11}><Empty>{(term.trim() || adv.active) && slips.length ? "No slips match." : "No slips."}</Empty></Td></tr>}
                 </tbody>
               </table>
             )}
@@ -395,6 +418,69 @@ export function PayrollRunPage() {
   );
 }
 
+type ReportId = "register" | "neft" | "pf" | "esi" | "dept";
+const REPORTS: { id: ReportId; label: string }[] = [
+  { id: "register", label: "Salary Register" },
+  { id: "neft", label: "Bank NEFT" },
+  { id: "pf", label: "PF Challan" },
+  { id: "esi", label: "ESI Challan" },
+  { id: "dept", label: "Department Cost" },
+];
+
+/**
+ * Every slip of the run on one printable sheet, a page each — Amino's payslip
+ * layout: who, the days, earnings beside deductions, net take-home. Printed
+ * from a clean frame, so "Save as PDF" gives the month's payslips alone.
+ */
+async function printPayslips(slips: Slip[], run: Run, company: string) {
+  const esc = (v: unknown) => String(v ?? "").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+  const inr = (v: number | string) => `₹${Math.round(Number(v)).toLocaleString("en-IN")}`;
+  const month = `${MONTHS_LONG[run.month - 1]} ${run.year}`;
+  const row = (label: string, v: number | string, always = false) =>
+    Number(v) === 0 && !always
+      ? ""
+      : `<tr><td style="padding:4px 8px;color:#555">${label}</td><td style="padding:4px 8px;text-align:right">${inr(v)}</td></tr>`;
+  const field = (label: string, value: string) =>
+    `<div><div style="font-size:10px;color:#888;letter-spacing:.04em">${label}</div><div style="font-size:13px;margin-top:2px">${value}</div></div>`;
+  const sheet = (s: Slip) => {
+    const gross = Number(s.earnedGross) + Number(s.bonus) + Number(s.overtime) + Number(s.reimbursement) + Number(s.arrears);
+    const lop = Number(s.lopDays) > 0 ? ` (${num(s.lopDays, 1)} LOP)` : "";
+    return `<div class="a4-sheet" style="break-after:page;padding:14mm 16mm;font-family:Arial,sans-serif;font-size:12px;color:#111">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;padding-bottom:10px;border-bottom:2px solid #850206;margin-bottom:14px">
+    <div><div style="font-size:18px;font-weight:700;color:#850206">${esc(company)}</div><div style="color:#888;margin-top:4px">Salary Slip — ${month}</div></div>
+    <div style="text-align:right;color:#888">Emp Code: <b style="color:#111">${esc(s.empCode)}</b></div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;background:#f9fafb;padding:10px;border-radius:6px;margin-bottom:14px">
+    ${field("EMPLOYEE NAME", `<b>${esc(s.name)}</b>`)}
+    ${field("DESIGNATION", esc(s.designation ?? "—"))}
+    ${field("DEPARTMENT", esc(s.department ?? "—"))}
+    ${field("WORKING DAYS", `${num(s.paidDays, 1)} / ${s.totalDays} days${lop}`)}
+    ${s.bankName ? field("BANK", esc(s.bankName)) : ""}
+    ${s.bankAccountNumber ? field("ACCOUNT", `XXXX${esc(s.bankAccountNumber.slice(-4))}`) : ""}
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden">
+    <div style="border-right:1px solid #e5e7eb">
+      <div style="background:#f0fdf4;padding:6px 8px;font-size:11px;font-weight:700;color:#166534">EARNINGS</div>
+      <table style="width:100%;border-collapse:collapse">${row("Basic Salary", s.earnedBasic, true)}${row("HRA", s.earnedHra)}${row("Allowances", s.earnedAllowances)}${row("Bonus / Incentive", s.bonus)}${row("Overtime", s.overtime)}${row("Arrears (earlier period)", s.arrears)}${row("Expense Reimbursement", s.reimbursement)}</table>
+      <div style="border-top:1px solid #e5e7eb;padding:6px 8px;display:flex;justify-content:space-between;font-weight:700;background:#f0fdf4"><span>Gross Earnings</span><span>${inr(gross)}</span></div>
+    </div>
+    <div>
+      <div style="background:#fef2f2;padding:6px 8px;font-size:11px;font-weight:700;color:#991b1b">DEDUCTIONS</div>
+      <table style="width:100%;border-collapse:collapse">${row("PF (Employee)", s.pfEmployee)}${row("ESI (Employee)", s.esiEmployee)}${row("Professional Tax", s.professionalTax)}${row("Other Deductions", s.otherDeductions)}${row("Advance Recovery", s.advanceRecovery)}</table>
+      <div style="border-top:1px solid #e5e7eb;padding:6px 8px;display:flex;justify-content:space-between;font-weight:700;background:#fef2f2"><span>Total Deductions</span><span>${inr(s.totalDeductions)}</span></div>
+    </div>
+  </div>
+  <div style="margin-top:12px;background:#850206;color:#fff;padding:12px 16px;border-radius:6px;display:flex;justify-content:space-between;align-items:center">
+    <span style="font-size:14px;font-weight:600">NET TAKE-HOME</span><span style="font-size:20px;font-weight:700">${inr(s.netPay)}</span>
+  </div>
+  <div style="margin-top:12px;font-size:10px;color:#aaa;text-align:center">This is a computer-generated payslip and does not require a signature.</div>
+</div>`;
+  };
+  const el = document.createElement("div");
+  el.innerHTML = slips.map(sheet).join("");
+  await printSheet(el, `Payslips ${month}`);
+}
+
 function PayslipDialog({ slip: s, run, onClose }: { slip: Slip; run: Run; onClose: () => void }) {
   const Row = ({ label, value, bold, neg }: { label: string; value: number | string; bold?: boolean; neg?: boolean }) =>
     Number(value) === 0 && !bold ? null : (
@@ -413,8 +499,7 @@ function PayslipDialog({ slip: s, run, onClose }: { slip: Slip; run: Run; onClos
           <div className="mb-2">
             <div className="text-[15px] font-semibold">{slipName(s)}</div>
             <div className="text-gray-500">
-              {s.empCode} · {s.department ?? "—"} · {s.payType === "salaried" ? "Salaried" : "Daily wage"}
-              {s.payType === "daily_wage" && s.dailyRate != null && <> · {formatMoney(s.dailyRate)}/day</>}
+              {s.empCode} · {s.department ?? "—"}{s.designation ? ` · ${s.designation}` : ""}
             </div>
           </div>
           <div className="mb-2 grid grid-cols-4 gap-1 rounded-md bg-gray-50 p-2 text-center text-[12px]">

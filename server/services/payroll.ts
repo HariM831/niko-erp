@@ -18,6 +18,7 @@ import {
   advanceRepayments,
   advances,
   departments,
+  designations,
   employees,
   journalEntries,
   payInputs,
@@ -180,7 +181,10 @@ export async function processRun(tx: Tx, input: ProcessInput) {
     })
     .from(employees)
     .leftJoin(wageRoles, eq(wageRoles.id, employees.wageRoleId))
-    .where(onRollsDuring(from, to));
+    // Salaried staff only. Daily-wage workers are paid outside the run, with
+    // their overtime and reimbursements (5 Oct 2026); Payroll › Wages is their
+    // report, and a wage slip here would book the same wages a second time.
+    .where(and(onRollsDuring(from, to), eq(employees.payType, "salaried")));
 
   const totals = await monthTotals(tx, from, to);
   // Wage days priced per day-role: the slip must match the wages report to
@@ -189,10 +193,14 @@ export async function processRun(tx: Tx, input: ProcessInput) {
   const ratesByRole = new Map(
     (await tx.select({ id: wageRoles.id, dailyRate: wageRoles.dailyRate }).from(wageRoles)).map((r) => [r.id, Number(r.dailyRate)]),
   );
-  const inputs = await tx
-    .select()
-    .from(payInputs)
-    .where(and(eq(payInputs.year, year), eq(payInputs.month, month), eq(payInputs.status, "approved")));
+  // A wage worker's approved inputs are left as they are: they go out with the wages.
+  const inputs = (
+    await tx
+      .select({ input: payInputs })
+      .from(payInputs)
+      .innerJoin(employees, eq(employees.id, payInputs.employeeId))
+      .where(and(eq(payInputs.year, year), eq(payInputs.month, month), eq(payInputs.status, "approved"), eq(employees.payType, "salaried")))
+  ).map((r) => r.input);
   const inputsByEmp = new Map<string, typeof inputs>();
   for (const i of inputs) inputsByEmp.set(i.employeeId, [...(inputsByEmp.get(i.employeeId) ?? []), i]);
 
@@ -412,14 +420,10 @@ export async function runExceptions(tx: Conn, runId: string): Promise<RunExcepti
     .select({
       employeeId: salarySlips.employeeId,
       name: employees.name,
-      payType: salarySlips.payType,
       paidDays: salarySlips.paidDays,
       netPay: salarySlips.netPay,
       bankAccountNumber: salarySlips.bankAccountNumber,
       bankIfsc: salarySlips.bankIfsc,
-      wageRoleId: employees.wageRoleId,
-      pfEmployee: salarySlips.pfEmployee,
-      esiEmployee: salarySlips.esiEmployee,
     })
     .from(salarySlips)
     .innerJoin(employees, eq(employees.id, salarySlips.employeeId))
@@ -429,17 +433,6 @@ export async function runExceptions(tx: Conn, runId: string): Promise<RunExcepti
     if (r.paidDays <= 0) out.push({ employeeId: r.employeeId, name: r.name, issue: "Zero paid days" });
     if (Number(r.netPay) <= 0) out.push({ employeeId: r.employeeId, name: r.name, issue: "Net pay is zero or negative" });
     if (!r.bankAccountNumber || !r.bankIfsc) out.push({ employeeId: r.employeeId, name: r.name, issue: "Missing bank details" });
-    if (r.payType === "daily_wage" && !r.wageRoleId) out.push({ employeeId: r.employeeId, name: r.name, issue: "Daily-wage employee without a wage role" });
-    // PF is reckoned on earned basic, and a wage worker's whole earnings ARE
-    // the basic — so a tick left on quietly takes 12% of the day's pay. Said
-    // here, before the run is confirmed and the money moves.
-    if (r.payType === "daily_wage" && (Number(r.pfEmployee) > 0 || Number(r.esiEmployee) > 0)) {
-      out.push({
-        employeeId: r.employeeId,
-        name: r.name,
-        issue: `Daily-wage worker with ${Number(r.pfEmployee) > 0 ? "PF" : ""}${Number(r.pfEmployee) > 0 && Number(r.esiEmployee) > 0 ? " and " : ""}${Number(r.esiEmployee) > 0 ? "ESI" : ""} deducted — check the employee's statutory ticks`,
-      });
-    }
   }
 
   // The people the run passed over. A slip that does not exist cannot flag
@@ -449,7 +442,11 @@ export async function runExceptions(tx: Conn, runId: string): Promise<RunExcepti
   if (!run) return out;
   const { from, to } = monthRange(run.year, run.month);
   const slipped = new Set(rows.map((r) => r.employeeId));
-  const onRolls = await tx.select({ id: employees.id, name: employees.name }).from(employees).where(onRollsDuring(from, to)).orderBy(asc(employees.empCode));
+  const onRolls = await tx
+    .select({ id: employees.id, name: employees.name })
+    .from(employees)
+    .where(and(onRollsDuring(from, to), eq(employees.payType, "salaried")))
+    .orderBy(asc(employees.empCode));
   for (const e of onRolls) {
     if (!slipped.has(e.id)) out.push({ employeeId: e.id, name: e.name, issue: "No paid days — no slip" });
   }
@@ -457,7 +454,7 @@ export async function runExceptions(tx: Conn, runId: string): Promise<RunExcepti
     .select({ employeeId: payInputs.employeeId, name: employees.name, kind: payInputs.kind, amount: payInputs.amount, approvedAmount: payInputs.approvedAmount })
     .from(payInputs)
     .innerJoin(employees, eq(employees.id, payInputs.employeeId))
-    .where(and(eq(payInputs.year, run.year), eq(payInputs.month, run.month), eq(payInputs.status, "approved")));
+    .where(and(eq(payInputs.year, run.year), eq(payInputs.month, run.month), eq(payInputs.status, "approved"), eq(employees.payType, "salaried")));
   for (const w of waiting) {
     if (slipped.has(w.employeeId)) continue;
     const amount = Number(w.approvedAmount ?? w.amount).toLocaleString("en-IN");
@@ -480,13 +477,25 @@ export async function runSlips(tx: Conn, runId: string) {
       name: employees.name,
       empCode: employees.empCode,
       department: departments.name,
+      designation: designations.name,
+      uanNumber: employees.uanNumber,
+      esiNumber: employees.esiNumber,
     })
     .from(salarySlips)
     .innerJoin(employees, eq(employees.id, salarySlips.employeeId))
     .leftJoin(departments, eq(departments.id, employees.departmentId))
+    .leftJoin(designations, eq(designations.id, employees.designationId))
     .where(eq(salarySlips.payrollRunId, runId))
     .orderBy(asc(employees.empCode));
-  return rows.map((r) => ({ ...r.slip, name: r.name, empCode: r.empCode, department: r.department }));
+  return rows.map((r) => ({
+    ...r.slip,
+    name: r.name,
+    empCode: r.empCode,
+    department: r.department,
+    designation: r.designation,
+    uanNumber: r.uanNumber,
+    esiNumber: r.esiNumber,
+  }));
 }
 
 export async function listRuns(tx: Conn) {
