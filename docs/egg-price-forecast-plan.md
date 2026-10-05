@@ -371,3 +371,28 @@ raw + Kolkata 0.103, raw 0.109, flat 0.117, yoy + Kolkata 0.150, yoy 0.188.
 ```
 
 where bench.csv carries a `source` column, so the Kolkata fit uses only really-set days.
+
+## Does it need to know when Dussehra is? Not yet (5 Oct 2026)
+
+The 180-origin replay holds no Sharad Navratri, so `scripts/forecast/backtest_festival.py`
+scores the season itself: every origin from 10 days before each Navratri to 21
+days after its Dussehra, 2020–2025 (246 origins), 28 days ahead. Against the
+live framing, a Dussehra-aligned path — earlier years' change from Dussehra+k
+to Dussehra+k+h, averaged, learned only from years before the origin.
+
+| MAE ₹/egg | 2020 | 2021 | 2022 | 2023 | 2024 | 2025 | all |
+|---|---|---|---|---|---|---|---|
+| flat (last rate) | 0.287 | 0.271 | 0.253 | **0.099** | 0.189 | 0.213 | **0.218** |
+| TimesFM + aligned ×0.5 | 0.243 | 0.245 | 0.297 | 0.171 | 0.192 | 0.189 | 0.223 |
+| TimesFM (live framing) | 0.272 | 0.250 | 0.260 | 0.148 | 0.196 | 0.223 | 0.225 |
+| Dussehra-aligned alone | **0.223** | 0.319 | 0.330 | 0.205 | 0.181 | **0.138** | 0.233 |
+| TimesFM + aligned ×1 | 0.236 | 0.302 | 0.339 | 0.230 | 0.213 | 0.178 | 0.249 |
+| seasonal delta (by date) | 0.487 | 0.505 | 0.324 | 0.308 | 0.206 | 0.156 | 0.331 |
+
+Nothing beats a flat line across the season; the aligned path is 1% better than
+TimesFM at half weight and worse at full. It wins the two latest years, the ones
+with five and six Dussehras behind them, and loses 2021–2023 — suggestive, not
+proof. Every method is biased low (−0.04 to −0.13): prices rose after Dussehra
+more than anything predicted. Kept as it is; re-run after Diwali 2026 with this
+season added. Pre-2026 history is Zoho's average invoice price, which smooths
+the festival out — a raw daily quote may show more.
