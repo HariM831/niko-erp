@@ -229,3 +229,26 @@ steps.
 Still open: the vendor's calibrations for our materials; what `ResultColors`
 codes and `DBResult.status` mean. Only status 1 is matched, and any other
 status is shown as the reason.
+
+## Phase 1: readings asked for from niko (5 Oct 2026)
+
+The operator no longer types a GR into IAS (the user, 5 Oct 2026). On the QC
+panel, **Take NIR reading** on a receipt line creates a `nir_requests` row.
+Scans that reach niko for the first time while it waits are claimed for that
+line (`nir_results.claimed_line_id`), whatever their sample name, provided:
+
+- the model is linked to the line's material. A scan with the wrong model is
+  refused, and the request shows "Scanned with Corn — Maize needs X";
+- IAS gave the scan status 1;
+- the scan is not dated more than 10 min before the request. An older scan is
+  a backlog being read, not this truck.
+
+Repeat scans are averaged. One analyser, so asking for another line stops the
+first. A request expires 30 min after it was made or after its last scan, and
+saving QC closes it. A claim beats a typed GR, so a request also settles the
+"two lines of one material" case. The typed GR stays as the fallback.
+
+What the operator still does in IAS: select the model niko names, and press
+scan. **Phase 2** removes that with the vendor's Modbus TCP register map
+(select product, trigger scan, status, results), driven by a small program on
+the bench PC. The user is asking the vendor for the map.
