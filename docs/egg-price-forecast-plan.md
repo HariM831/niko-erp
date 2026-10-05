@@ -252,12 +252,12 @@ every window beats calendar-off by about 2.5%, and it consistently gives some
 of that back in week one. The effects themselves are real but small — Bohag
 Bihu +₹0.04, Diwali +₹0.04, Shravan −₹0.03, Magh Bihu −₹0.03.
 
-Two reasons they are this faint, and both say when to revisit:
+Why they are this faint:
 
-1. **The series is already an average.** Zoho's *average invoice price* moves
-   ₹0.06 a day; a nine-day Navratri collapse is averaged into the mean before
-   it reaches the sheet. A raw NECC daily quote should show the festivals
-   properly.
+1. ~~The series is already an average.~~ Wrong, corrected 5 Oct 2026: Zoho's
+   *Average Price by Invoice Date* is a daily price — each day's own invoices
+   averaged, nothing carried across days. A festival is in it as sharply as
+   the market made it. The effects are small because the market's are.
 2. **The yoy framing already carries most of it.** Diwali, Durga Puja and Bihu
    fall in nearly the same weeks each year, so "last year's same days" has
    them. What the calendar adds is only the 10–20 day lunar drift.
@@ -394,5 +394,5 @@ TimesFM at half weight and worse at full. It wins the two latest years, the ones
 with five and six Dussehras behind them, and loses 2021–2023 — suggestive, not
 proof. Every method is biased low (−0.04 to −0.13): prices rose after Dussehra
 more than anything predicted. Kept as it is; re-run after Diwali 2026 with this
-season added. Pre-2026 history is Zoho's average invoice price, which smooths
-the festival out — a raw daily quote may show more.
+season added. Pre-2026 history is Zoho's average price by invoice date — a
+daily price, so this is the market's own festival behaviour, not smoothing.

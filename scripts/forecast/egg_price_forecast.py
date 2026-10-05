@@ -46,11 +46,11 @@ worth 0.7% — 0.16 paise an egg:
   the same, + calendar       MAE ₹0.2311   h15-28 ₹0.2761
 
 The long horizon does improve consistently, and week one consistently does
-not. Two reasons the rest is so faint: this series is Zoho's *average invoice
-price*, which has already smoothed a nine-day Navratri into its mean, and the
-year-over-year framing is carrying most of the festival calendar anyway —
-Diwali and Bihu land in nearly the same weeks each year. Worth re-testing the
-day the input is a raw NECC daily quote.
+not. The reason the rest is so faint: the year-over-year framing is carrying
+most of the festival calendar anyway — Diwali and Bihu land in nearly the same
+weeks each year. (The series is Zoho's average price by invoice date: a daily
+price, each day's own invoices averaged, nothing carried across days — so a
+festival is in it as sharply as the market made it; corrected 5 Oct 2026.)
 
 in   {"series": [{"date": "YYYY-MM-DD", "value": 4.83}, ...],   # daily, dense
       "horizon": 28, "calendar": false}
