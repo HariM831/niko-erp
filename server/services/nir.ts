@@ -16,16 +16,23 @@
  * see. A scan is never forced onto a line, because a wrong attachment would
  * pass QC looking exactly like a right one.
  *
- * The match is NOT stored when a scan arrives. IAS lets a sample be renamed
+ * Or the QC person asks for the reading from niko (`createRequest`): then the
+ * scans that arrive while it waits are claimed for that line as they come in,
+ * whatever IAS called them, provided the model is the one linked to the
+ * line's material. That is the way the bench is meant to work; the typed GR
+ * is the fallback.
+ *
+ * A typed-GR match is NOT stored when a scan arrives. IAS lets a sample be renamed
  * after the scan, and a truck can be scanned before its gross weight is
  * keyed in, so the answer is worked out each time QC asks. Committing QC is
  * what fixes it (`nir_results.receipt_line_id`).
  */
-import { and, desc, eq, gte, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, isNull, or, sql } from "drizzle-orm";
 import {
   items,
   nirModelItems,
   nirModels,
+  nirRequests,
   nirResults,
   officeReceiptLines,
   officeReceipts,
@@ -48,7 +55,7 @@ export async function ingest(
   models: NirUploadModel[],
   deviceSn: string | null,
   userId: string,
-): Promise<{ received: number; stored: number }> {
+): Promise<{ received: number; stored: number; claimed: number }> {
   for (const m of models) {
     await db
       .insert(nirModels)
@@ -70,6 +77,17 @@ export async function ingest(
         },
       });
   }
+
+  const known = rows.length
+    ? new Set(
+        (
+          await db
+            .select({ sn: nirResults.resultSn })
+            .from(nirResults)
+            .where(inArray(nirResults.resultSn, rows.map((r) => r.resultSn)))
+        ).map((x) => x.sn),
+      )
+    : new Set<string>();
 
   let stored = 0;
   for (const r of rows) {
@@ -99,7 +117,148 @@ export async function ingest(
       .returning({ id: nirResults.id });
     stored += out.length;
   }
-  return { received: rows.length, stored };
+
+  // Only a scan arriving for the first time can answer a waiting request — a
+  // re-read of an old scan is not "the next scan".
+  const fresh = rows
+    .filter((r) => !known.has(r.resultSn))
+    .sort((a, b) => a.scannedAt.localeCompare(b.scannedAt));
+  const claimed = fresh.length ? await claimForRequest(db, fresh) : 0;
+  return { received: rows.length, stored, claimed };
+}
+
+// ───────────────────────────── Asking from niko ─────────────────────────────
+
+/** How long a request waits for its first scan, and after each one. */
+const REQUEST_WAIT_MS = 30 * 60_000;
+/**
+ * A scan dated this long before the request was not taken for it. Covers the
+ * bench PC's clock running behind; anything older is a backlog being read for
+ * the first time (a freshly connected file), not this truck.
+ */
+const REQUEST_BACKDATE_MS = 10 * 60_000;
+
+/** The request waiting now, if any, with the line it is for. */
+export async function activeRequest(db: Db | Tx) {
+  const [row] = await db
+    .select({
+      id: nirRequests.id,
+      receiptLineId: nirRequests.receiptLineId,
+      requestedAt: nirRequests.requestedAt,
+      expiresAt: nirRequests.expiresAt,
+      lastScanAt: nirRequests.lastScanAt,
+      lastError: nirRequests.lastError,
+      itemId: officeReceiptLines.itemId,
+      itemName: officeReceiptLines.itemName,
+      receiptId: officeReceiptLines.receiptId,
+    })
+    .from(nirRequests)
+    .innerJoin(officeReceiptLines, eq(officeReceiptLines.id, nirRequests.receiptLineId))
+    .where(and(eq(nirRequests.status, "waiting"), gt(nirRequests.expiresAt, new Date())))
+    .limit(1);
+  return row ?? null;
+}
+
+/** The models linked to a material — what the analyser must be set to for it. */
+export function modelsForItem(
+  modelItems: Map<string, Array<{ itemId: string; itemName: string }>>,
+  itemId: string | null,
+): string[] {
+  if (!itemId) return [];
+  return [...modelItems].filter(([, list]) => list.some((i) => i.itemId === itemId)).map(([m]) => m);
+}
+
+async function claimForRequest(db: Db | Tx, fresh: NirUploadRow[]): Promise<number> {
+  const req = await activeRequest(db);
+  if (!req) return 0;
+  const wanted = modelsForItem(await loadModelItems(db), req.itemId);
+  const material = req.itemName ?? "this material";
+  let claimed = 0;
+  let lastError: string | null = null;
+  for (const r of fresh) {
+    if (new Date(r.scannedAt).getTime() < req.requestedAt.getTime() - REQUEST_BACKDATE_MS) continue;
+    if (r.iasStatus != null && r.iasStatus !== 1) {
+      lastError = `The analyser marked the scan at ${istTime(r.scannedAt)} with status ${r.iasStatus} — scan again`;
+      continue;
+    }
+    if (!wanted.includes(r.model)) {
+      lastError = wanted.length
+        ? `Scanned with ${r.model} — ${material} needs ${wanted.join(" or ")}. Change the model on the analyser and scan again.`
+        : `${material} has no NIR model linked to it`;
+      continue;
+    }
+    const took = await db
+      .update(nirResults)
+      .set({ claimedLineId: req.receiptLineId, requestId: req.id, updatedAt: new Date() })
+      .where(and(eq(nirResults.resultSn, r.resultSn), isNull(nirResults.receiptLineId)))
+      .returning({ id: nirResults.id });
+    claimed += took.length;
+    if (took.length) lastError = null;
+  }
+  await db
+    .update(nirRequests)
+    .set({
+      lastError,
+      ...(claimed ? { lastScanAt: new Date(), expiresAt: new Date(Date.now() + REQUEST_WAIT_MS) } : {}),
+    })
+    .where(eq(nirRequests.id, req.id));
+  return claimed;
+}
+
+const istTime = (iso: string) =>
+  new Date(iso).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" });
+
+/**
+ * Ask for a reading on one line. Refused unless the line is waiting on QC and
+ * its material has a model linked — otherwise no scan could ever answer it.
+ * Any other waiting request stops: there is one analyser.
+ */
+export async function createRequest(tx: Tx, lineId: string, userId: string) {
+  const [line] = await tx
+    .select({
+      id: officeReceiptLines.id,
+      itemId: officeReceiptLines.itemId,
+      itemName: officeReceiptLines.itemName,
+      status: officeReceiptLines.status,
+      receiptStatus: officeReceipts.status,
+      receiptNumber: officeReceipts.number,
+    })
+    .from(officeReceiptLines)
+    .innerJoin(officeReceipts, eq(officeReceipts.id, officeReceiptLines.receiptId))
+    .where(eq(officeReceiptLines.id, lineId));
+  if (!line) throw new NirMatchError("That receipt line no longer exists");
+  if (!OPEN_FOR_QC.has(line.receiptStatus) || line.status !== "pending") {
+    throw new NirMatchError(`${line.receiptNumber} is not waiting on QC`);
+  }
+  const models = modelsForItem(await loadModelItems(tx), line.itemId);
+  if (!models.length) {
+    throw new NirMatchError(`${line.itemName ?? "This material"} has no NIR model linked — link one under Models first`);
+  }
+  await tx
+    .update(nirRequests)
+    .set({ status: "cancelled", closedAt: new Date() })
+    .where(eq(nirRequests.status, "waiting"));
+  const [req] = await tx
+    .insert(nirRequests)
+    .values({ receiptLineId: lineId, requestedBy: userId, expiresAt: new Date(Date.now() + REQUEST_WAIT_MS) })
+    .returning();
+  return { request: req!, models };
+}
+
+export async function cancelRequest(db: Db | Tx, id: string) {
+  await db
+    .update(nirRequests)
+    .set({ status: "cancelled", closedAt: new Date() })
+    .where(and(eq(nirRequests.id, id), eq(nirRequests.status, "waiting")));
+}
+
+/** QC has been saved: whatever was waiting on these lines is answered. */
+export async function closeRequestsFor(tx: Tx, lineIds: string[]) {
+  if (!lineIds.length) return;
+  await tx
+    .update(nirRequests)
+    .set({ status: "done", closedAt: new Date() })
+    .where(and(inArray(nirRequests.receiptLineId, lineIds), eq(nirRequests.status, "waiting")));
 }
 
 // ───────────────────────────────── Placing ────────────────────────────────
@@ -226,6 +385,20 @@ export function placeScans(
     unplaced.push({ scan: view(s), receiptNumber, reason });
 
   for (const s of scans) {
+    // Taken by a request: the line was chosen in niko and the model checked
+    // when the scan arrived. It goes there, or nowhere.
+    if (s.claimedLineId) {
+      const line = lines.find((l) => l.id === s.claimedLineId);
+      const receipt = line && receipts.find((r) => r.id === line.receiptId);
+      if (!line || !receipt) {
+        miss(s, null, "Taken for a truck that is no longer on this screen");
+      } else if (!OPEN_FOR_QC.has(receipt.status) || line.status !== "pending") {
+        miss(s, receipt.number, `Taken for ${receipt.number}, which is no longer waiting on QC`);
+      } else {
+        placed.set(line.id, [...(placed.get(line.id) ?? []), view(s)]);
+      }
+      continue;
+    }
     const found = s.sampleKey ? byKey.get(s.sampleKey) ?? [] : [];
     if (!found.length) {
       miss(s, null, s.sampleKey
@@ -286,14 +459,18 @@ export async function loadModelItems(db: Db | Tx) {
   return out;
 }
 
-/** The unused scans whose sample name folds to this receipt's number. */
-async function scansFor(db: Db | Tx, receiptNumber: string) {
+/**
+ * The unused scans for this receipt: those a request took for one of its
+ * lines, and those whose sample name folds to its number that no request
+ * took for somewhere else.
+ */
+async function scansFor(db: Db | Tx, receiptNumber: string, lineIds: string[]) {
   const key = sampleKey(receiptNumber);
-  if (!key) return [];
-  return db
-    .select()
-    .from(nirResults)
-    .where(and(eq(nirResults.sampleKey, key), isNull(nirResults.receiptLineId)));
+  const byName = key ? and(eq(nirResults.sampleKey, key), isNull(nirResults.claimedLineId)) : undefined;
+  const byClaim = lineIds.length ? inArray(nirResults.claimedLineId, lineIds) : undefined;
+  const which = byName && byClaim ? or(byName, byClaim) : (byName ?? byClaim);
+  if (!which) return [];
+  return db.select().from(nirResults).where(and(which, isNull(nirResults.receiptLineId)));
 }
 
 /** The NIR side of one receipt's QC screen. */
@@ -302,7 +479,7 @@ export async function nirForReceipt(
   receipt: ReceiptLite,
   lines: LineLite[],
 ): Promise<{ byLine: Record<string, LineNir>; unplaced: Unplaced[] }> {
-  const scans = await scansFor(db, receipt.number);
+  const scans = await scansFor(db, receipt.number, lines.map((l) => l.id));
   if (!scans.length) return { byLine: {}, unplaced: [] };
   const { placed, unplaced } = placeScans(scans, [receipt], lines, await loadModelItems(db));
   const byLine: Record<string, LineNir> = {};
@@ -334,7 +511,9 @@ export async function consumeScans(
   flagged: string[];
   fromDryMatter: string[];
 }> {
-  const scans = (await scansFor(tx, receipt.number)).filter((s) => resultSns.includes(s.resultSn));
+  const scans = (await scansFor(tx, receipt.number, lines.map((l) => l.id))).filter((s) =>
+    resultSns.includes(s.resultSn),
+  );
   const { placed } = placeScans(scans, [receipt], lines, await loadModelItems(tx));
   const onLine = placed.get(lineId) ?? [];
   const missing = resultSns.filter((sn) => !onLine.some((s) => s.resultSn === sn));
@@ -386,9 +565,18 @@ export async function benchStatus(db: Db) {
     .limit(200);
 
   const keys = [...new Set(recent.map((s) => s.sampleKey).filter(Boolean))] as string[];
+  const claimedLines = [...new Set(recent.map((s) => s.claimedLineId).filter(Boolean))] as string[];
+  const claimedReceipts = claimedLines.length
+    ? (
+        await db
+          .select({ receiptId: officeReceiptLines.receiptId })
+          .from(officeReceiptLines)
+          .where(inArray(officeReceiptLines.id, claimedLines))
+      ).map((r) => r.receiptId)
+    : [];
   // Receipts are few and recent; fold their numbers here rather than teach
   // SQL the same folding and risk the two disagreeing.
-  const receipts = keys.length
+  const receipts = keys.length || claimedReceipts.length
     ? (
         await db
           .select({
@@ -399,7 +587,7 @@ export async function benchStatus(db: Db) {
           })
           .from(officeReceipts)
           .where(gte(officeReceipts.arrivalAt, new Date(Date.now() - 30 * 86_400_000)))
-      ).filter((r) => keys.includes(sampleKey(r.number) ?? ""))
+      ).filter((r) => keys.includes(sampleKey(r.number) ?? "") || claimedReceipts.includes(r.id))
     : [];
   const lines = receipts.length
     ? await db

@@ -13,7 +13,7 @@ import { nirModelItems } from "@shared/schema";
 import { db } from "../db";
 import { requireAnyPermission, requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
-import { benchStatus, ingest } from "../services/nir";
+import { NirMatchError, benchStatus, cancelRequest, createRequest, ingest } from "../services/nir";
 
 export const nirRouter = Router();
 
@@ -71,6 +71,32 @@ nirRouter.post(
     res.json(out);
   },
 );
+
+/**
+ * Ask for a reading on one receipt line: the next scans are taken for it.
+ * The QC person's act, so the QC permission.
+ */
+nirRouter.post(
+  "/requests",
+  requirePermission("office", "quality_control"),
+  validateBody(z.object({ lineId: z.string().uuid() })),
+  async (req, res) => {
+    try {
+      const out = await db.transaction((tx) =>
+        createRequest(tx, (req.body as { lineId: string }).lineId, req.session.user!.id),
+      );
+      res.json(out);
+    } catch (err) {
+      if (err instanceof NirMatchError) return res.status(422).json({ error: err.message });
+      throw err;
+    }
+  },
+);
+
+nirRouter.delete("/requests/:id", requirePermission("office", "quality_control"), async (req, res) => {
+  await cancelRequest(db, req.params.id!);
+  res.json({ ok: true });
+});
 
 nirRouter.get("/status", atTheBench, async (_req, res) => {
   res.json(await benchStatus(db));

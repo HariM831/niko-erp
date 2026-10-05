@@ -245,6 +245,8 @@ interface QcLine {
   sampleCount: number | null;
   params: QcParam[];
   judged: QcJudged;
+  /** The analyser models linked to this material — what it must be set to. */
+  nirModels: string[];
   /** Scans the NIR bench took under this truck's GR, already averaged. */
   nir: {
     scans: NirScan[];
@@ -257,6 +259,107 @@ interface QcLine {
 
 const hhmm = (iso: string) =>
   new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+
+interface NirRequestView {
+  id: string;
+  lineId: string;
+  thisReceipt: boolean;
+  itemName: string | null;
+  requestedAt: string;
+  expiresAt: string;
+  lastScanAt: string | null;
+  lastError: string | null;
+}
+
+/**
+ * Asking the analyser for this line's reading, from niko.
+ *
+ * The QC person never types a GR into IAS: they press Take NIR reading here,
+ * set the analyser to the model named, and scan. Every scan that arrives while
+ * this waits belongs to this line — repeat scans are averaged — and a scan
+ * taken with the wrong model is refused with the model it needed.
+ */
+function NirAsk({
+  line,
+  request,
+  scans,
+}: {
+  line: QcLine;
+  request: NirRequestView | null;
+  scans: number;
+}) {
+  const qc = useQueryClient();
+  const [err, setErr] = useState<string | null>(null);
+  const refresh = () => void qc.invalidateQueries({ queryKey: ["office"] });
+  const ask = useMutation({
+    mutationFn: () => api("/api/office/nir/requests", { method: "POST", body: { lineId: line.id } }),
+    onSuccess: () => {
+      setErr(null);
+      refresh();
+    },
+    onError: (e) => setErr(e instanceof ApiError ? e.message : "Could not ask the analyser"),
+  });
+  const stop = useMutation({
+    mutationFn: (id: string) => api(`/api/office/nir/requests/${id}`, { method: "DELETE" }),
+    onSuccess: refresh,
+  });
+
+  if (!line.nirModels.length) {
+    return (
+      <p className="mb-2 text-[11px] text-gray-400">
+        No NIR model is linked to {line.itemName ?? "this material"} — link one under Models below to take readings.
+      </p>
+    );
+  }
+  const models = line.nirModels.join(" or ");
+  const mine = request?.lineId === line.id;
+
+  if (mine) {
+    return (
+      <div className="mb-2 rounded-md border border-brand-300 bg-brand-50 px-2 py-1.5 text-[12px] text-brand-900">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="flex items-center gap-1.5 font-semibold">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-brand-500" />
+              {scans ? `${scans} scan${scans === 1 ? "" : "s"} taken — scan again to add one, or confirm QC` : "Waiting for the scan"}
+            </div>
+            <div className="mt-0.5">
+              Set the analyser to <span className="font-mono font-semibold">{models}</span> and scan the sample.
+            </div>
+            {request.lastError && <div className="mt-1 font-medium text-red-700">{request.lastError}</div>}
+          </div>
+          <button
+            className="shrink-0 text-[11px] text-brand-700 hover:underline"
+            onClick={() => stop.mutate(request.id)}
+            disabled={stop.isPending}
+          >
+            Stop
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-2">
+      <button
+        className="btn-secondary !h-8 w-full text-[12px]"
+        onClick={() => ask.mutate()}
+        disabled={ask.isPending}
+        title={`The next scans taken with ${models} land on this line`}
+      >
+        {scans ? "Take another NIR reading" : "Take NIR reading"}
+      </button>
+      {request && (
+        <p className="mt-1 text-[11px] text-amber-700">
+          The analyser is waiting for {request.itemName ?? "another line"}
+          {request.thisReceipt ? " on this truck" : " on another truck"} — this will take over from it.
+        </p>
+      )}
+      {err && <p className="mt-1 text-[11px] text-red-600">{err}</p>}
+    </div>
+  );
+}
 
 const VERDICT_STYLE: Record<string, string> = {
   pass: "text-green-600",
@@ -322,11 +425,13 @@ function QcPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
   const { data: ctx } = useQuery<{
     lines: QcLine[];
     nirUnplaced: Array<{ scan: NirScan; reason: string }>;
+    nirRequest: NirRequestView | null;
   }>({
     queryKey: ["office", "qc-context", receipt.id],
     queryFn: () => api(`/api/office/receipts/${receipt.id}/qc-context`),
-    // A scan taken while this panel is open should land in it.
-    refetchInterval: 10_000,
+    // A scan taken while this panel is open should land in it — quickly while
+    // the analyser is waiting on this truck.
+    refetchInterval: (q) => (q.state.data?.nirRequest?.thisReceipt ? 3_000 : 10_000),
   });
 
   // The NIR fills every field the technician has not typed in, and keeps it
@@ -461,6 +566,7 @@ function QcPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
                 {kg(l.billQuantityKg)}
                 {l.sampleCount ? ` · ${l.sampleCount} samples` : ""}
               </div>
+              <NirAsk line={l} request={ctx?.nirRequest ?? null} scans={l.nir?.scans.length ?? 0} />
               {l.nir && (
                 <div className="mb-2 rounded-md bg-brand-50 px-2 py-1 text-[11px] text-brand-800">
                   From NIR · {l.nir.scans.length === 1 ? "1 scan" : `${l.nir.scans.length} scans averaged`} ·{" "}

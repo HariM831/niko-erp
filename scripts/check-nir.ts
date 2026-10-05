@@ -16,6 +16,7 @@ import {
   items,
   locations,
   nirModelItems,
+  nirRequests,
   nirResults,
   officeReceiptLines,
   officeReceipts,
@@ -24,7 +25,15 @@ import {
 } from "@shared/schema";
 import { dryMatterBase, qcParameterFor, sampleKey, type NirUploadRow } from "@shared/nir";
 import { db, type Tx } from "../server/db";
-import { NirMatchError, averageScans, consumeScans, ingest, nirForReceipt } from "../server/services/nir";
+import {
+  NirMatchError,
+  averageScans,
+  closeRequestsFor,
+  consumeScans,
+  createRequest,
+  ingest,
+  nirForReceipt,
+} from "../server/services/nir";
 
 const round = (n: number) => Math.round(n * 1000) / 1000;
 
@@ -64,6 +73,9 @@ async function main() {
 
   try {
     await db.transaction(async (tx: Tx) => {
+      // A real request waiting at the bench would claim these scans; stand it
+      // down inside this transaction, which is rolled back.
+      await tx.update(nirRequests).set({ status: "cancelled" }).where(eq(nirRequests.status, "waiting"));
       const [site] = await tx.insert(locations).values({ code: "NIRTEST", name: "TEST NIR SITE" }).returning();
       const [vendor] = await tx.insert(contacts).values({ displayName: "TEST NIR VENDOR", type: "vendor" }).returning();
       const material = async (name: string) => {
@@ -161,6 +173,58 @@ async function main() {
       await ingest(tx, [scan("ZZ-1", "ZQ-90002", { Moisture: 99, Protein: 1 })], [], "ZZDEV", userId);
       const still = await tx.select().from(nirResults).where(eq(nirResults.resultSn, "ZZ-1"));
       check("renaming a used scan in IAS changes nothing", still[0]?.sampleName === "zq 90001" && (still[0]?.readings as Record<string, number>).Moisture === 11.5);
+
+      console.log("\n  ASKING FROM NIKO\n");
+      await tx.insert(nirModelItems).values({ shortName: "ZZMaizeM", itemId: maize.id });
+      const maizeLine = one.lines.find((l) => l.itemId === maize.id)!;
+      const asked = await createRequest(tx, maizeLine.id, userId);
+      check("the request names the model to set", asked.models.join() === "ZZMaizeM");
+      await ingest(tx, [
+        scan("ZZ-6", "Sfdoc20", { Moisture: 12.4, Protein: 8.9 }, { model: "ZZMaizeM" }),
+      ], [], "ZZDEV", userId);
+      const afterAsk = await nirForReceipt(tx, a.receipt, a.lines);
+      check("the next scan lands on the asked line, whatever its name", afterAsk.byLine[maizeLine.id]?.scans.length === 1);
+
+      await ingest(tx, [scan("ZZ-7", "anything", { Moisture: 12, Protein: 46 })], [], "ZZDEV", userId);
+      const [waitingReq] = await tx.select().from(nirRequests).where(eq(nirRequests.id, asked.request.id));
+      check("a scan with the wrong model is refused with the model it needed",
+        (waitingReq?.lastError ?? "").includes("needs ZZMaizeM"), waitingReq?.lastError ?? "");
+      const [z7] = await tx.select().from(nirResults).where(eq(nirResults.resultSn, "ZZ-7"));
+      check("…and is not taken", !z7?.claimedLineId);
+
+      await ingest(tx, [
+        scan("ZZ-8", "x", { Moisture: 12, Protein: 9 }, { model: "ZZMaizeM", scannedAt: new Date(Date.now() - 2 * 3_600_000).toISOString() }),
+      ], [], "ZZDEV", userId);
+      const [z8] = await tx.select().from(nirResults).where(eq(nirResults.resultSn, "ZZ-8"));
+      check("an old scan read for the first time is not taken", !z8?.claimedLineId);
+
+      await ingest(tx, [scan("ZZ-6", "Sfdoc20", { Moisture: 12.4, Protein: 8.9 }, { model: "ZZMaizeM" })], [], "ZZDEV", userId);
+      const again = await nirForReceipt(tx, a.receipt, a.lines);
+      check("re-reading a taken scan does not take it twice", again.byLine[maizeLine.id]?.scans.length === 1);
+
+      // The case a typed GR cannot settle: two lines of one material.
+      const firstSbm = two.lines[0]!;
+      await createRequest(tx, firstSbm.id, userId);
+      const [old] = await tx.select().from(nirRequests).where(eq(nirRequests.id, asked.request.id));
+      check("asking for another line stops the first", old?.status === "cancelled");
+      await ingest(tx, [scan("ZZ-9", "whatever", { Moisture: 11, Protein: 47 })], [], "ZZDEV", userId);
+      const twoNow = await nirForReceipt(tx, b.receipt, b.lines);
+      check("a request settles two lines of one material", twoNow.byLine[firstSbm.id]?.scans.length === 1
+        && !twoNow.byLine[two.lines[1]!.id]);
+
+      await consumeScans(tx, b.receipt, b.lines, firstSbm.id, ["ZZ-9"], { moisture: 11, protein: 47 }, userId);
+      await closeRequestsFor(tx, b.lines.map((l) => l.id));
+      const [closed] = await tx.select().from(nirRequests).where(eq(nirRequests.receiptLineId, firstSbm.id));
+      check("saving QC closes the request", closed?.status === "done");
+
+      let refusedAsk = "";
+      try {
+        await createRequest(tx, one.lines.find((l) => l.itemId === sbm.id)!.id, userId);
+      } catch (e) {
+        if (e instanceof NirMatchError) refusedAsk = e.message;
+        else throw e;
+      }
+      check("a line already through QC cannot be asked for", refusedAsk !== "", refusedAsk);
 
       throw new Rollback();
     });

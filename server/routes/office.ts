@@ -56,7 +56,15 @@ import { type LineToMatch, matchPurchaseOrderLines } from "../services/po-match"
 import { resolveVendor } from "../services/vendor-match";
 import { normalisePlate } from "../services/ocr";
 import { computeDeductions, judgeLine, loadDeductionRules, loadSpecs } from "../services/qc";
-import { NirMatchError, consumeScans, nirForReceipt } from "../services/nir";
+import {
+  NirMatchError,
+  activeRequest,
+  closeRequestsFor,
+  consumeScans,
+  loadModelItems,
+  modelsForItem,
+  nirForReceipt,
+} from "../services/nir";
 import { lineQcRemarks } from "@shared/nir";
 import { learnAlias } from "../services/item-names";
 
@@ -909,11 +917,27 @@ officeRouter.get(
     // What the NIR bench has scanned under this truck's GR number. Worked out
     // now rather than stored, because a sample can be renamed in IAS.
     const nir = await nirForReceipt(db, receipt, lines);
+    const modelItems = await loadModelItems(db);
+    const waiting = await activeRequest(db);
 
     res.json({
       number: receipt.number,
       status: receipt.status,
       nirUnplaced: nir.unplaced,
+      // The one request waiting at the bench, wherever it is — so this screen
+      // can say the analyser is busy with another truck.
+      nirRequest: waiting
+        ? {
+            id: waiting.id,
+            lineId: waiting.receiptLineId,
+            thisReceipt: waiting.receiptId === receipt.id,
+            itemName: waiting.itemName,
+            requestedAt: waiting.requestedAt,
+            expiresAt: waiting.expiresAt,
+            lastScanAt: waiting.lastScanAt,
+            lastError: waiting.lastError,
+          }
+        : null,
       lines: lines.map((l) => {
         const spec = l.itemId ? specs.get(l.itemId) : undefined;
         const readings = readingsOf(l);
@@ -936,6 +960,8 @@ officeRouter.get(
           })),
           judged: judgeLine(readings, spec),
           nir: nir.byLine[l.id] ?? null,
+          /** What the analyser must be set to for this material. */
+          nirModels: modelsForItem(modelItems, l.itemId),
         };
       }),
     });
@@ -1144,6 +1170,9 @@ officeRouter.patch(
           }
           decided.push({ line, accepted });
         }
+
+        // Whatever was waiting at the bench for these lines is answered now.
+        await closeRequestsFor(tx, lines.map((l) => l.id));
 
         const anyAccepted = decided.some((d) => d.accepted);
         const next: ReceiptStatus = anyAccepted ? "qc_passed" : "rejected";

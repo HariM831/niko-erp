@@ -674,6 +674,13 @@ export const nirResults = pgTable(
     /** IAS's `items` JSON verbatim, so nothing it said is lost to our reading of it. */
     raw: jsonb("raw"),
     receiptLineId: uuid("receipt_line_id").references(() => officeReceiptLines.id),
+    /**
+     * The line a waiting request took this scan for. Set when the scan arrives,
+     * because unlike a typed GR there is nothing on the scan to work it out from
+     * later. QC still fixes it for good, in receiptLineId.
+     */
+    claimedLineId: uuid("claimed_line_id").references(() => officeReceiptLines.id),
+    requestId: uuid("request_id"),
     usedAt: timestamp("used_at"),
     usedBy: uuid("used_by").references(() => users.id),
     uploadedBy: uuid("uploaded_by").references(() => users.id),
@@ -689,3 +696,33 @@ export const nirResults = pgTable(
 
 export type NirModel = typeof nirModels.$inferSelect;
 export type NirResult = typeof nirResults.$inferSelect;
+
+/**
+ * "The next scan is for this line." The QC person picks the truck and the
+ * material in niko and asks for a reading; scans that arrive while it waits
+ * belong to that line whatever IAS called the sample, so nobody types a GR
+ * number into IAS (the user, 5 Oct 2026). One analyser, so at most one is
+ * waiting at a time — asking for another line stops the first.
+ */
+export const nirRequests = pgTable(
+  "nir_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    receiptLineId: uuid("receipt_line_id")
+      .notNull()
+      .references(() => officeReceiptLines.id, { onDelete: "cascade" }),
+    /** waiting | done | cancelled — expiry is read from expiresAt, not written. */
+    status: varchar("status", { length: 12 }).notNull().default("waiting"),
+    requestedBy: uuid("requested_by").references(() => users.id),
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Pushed out by every scan it takes, so a slow bench is not cut off mid-truck. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    lastScanAt: timestamp("last_scan_at", { withTimezone: true }),
+    /** Why the last scan that arrived was not taken — the wrong model, usually. */
+    lastError: text("last_error"),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+  },
+  (t) => [index("ix_nir_req_status").on(t.status, t.expiresAt)],
+);
+
+export type NirRequest = typeof nirRequests.$inferSelect;
