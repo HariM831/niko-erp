@@ -33,6 +33,8 @@ export function sampleKey(name: string | null | undefined): string | null {
  */
 const ALIASES: Record<string, string> = {
   moisture: "moisture",
+  // Sic: the Maize Grain IND model on the bench spells it this way (seen 5 Oct 2026).
+  mositure: "moisture",
   water: "moisture",
   protein: "protein",
   crudeprotein: "protein",

@@ -54,6 +54,7 @@ async function main() {
   check("oil is fat, fibre is fiber, SS is sand silica",
     qcParameterFor("oil") === "fat" && qcParameterFor("Fibre") === "fiber" && qcParameterFor("SS") === "sand_silica");
   check("an unknown name fills nothing", qcParameterFor("UA") === null);
+  check("the maize model's MOSITURE is moisture", qcParameterFor("MOSITURE") === "moisture");
 
   console.log("\n  DRY MATTER TO AS RECEIVED\n");
   check("Protein (DM) is dry matter, Moisture is not", dryMatterBase("Protein (DM)") === "Protein" && dryMatterBase("Moisture") === null);
