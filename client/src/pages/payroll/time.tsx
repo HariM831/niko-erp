@@ -1,8 +1,8 @@
 /**
  * Time — attendance in five tabs.
  *
+ *   Team grid  every employee × every day, bulk override — the tab it opens on
  *   Calendar   one employee × one month, day cells with punches, click → override
- *   Team grid  every employee × every day, bulk override
  *   Leave      apply / approve, with the balance beside the decision
  *   Exceptions dangling `in` punches → insert the missing out or set the day
  *   Roster     current shift assignments
@@ -109,7 +109,7 @@ const EXCEPTION_SEARCH: SearchField[] = [
 ];
 
 export function PayrollTimePage() {
-  const [tab, setTab] = useState<Tab>("calendar");
+  const [tab, setTab] = useState<Tab>("grid");
   // "Search in Time" narrows the tabs that list people. The calendar is one
   // person's month, picked from its own selector, so it offers no box.
   const term = useLocalSearch("Time", tab === "calendar" ? null : `payroll:time:${tab}`);
@@ -160,8 +160,8 @@ export function PayrollTimePage() {
       {adv?.dialog}
       <PillTabs
         tabs={[
-          { key: "calendar", label: "Calendar" },
           { key: "grid", label: "Team grid" },
+          { key: "calendar", label: "Calendar" },
           { key: "leave", label: "Leave", count: pendingLeaveQ.data?.length },
           { key: "exceptions", label: "Exceptions", count: openQ.data?.length },
           { key: "roster", label: "Roster" },
