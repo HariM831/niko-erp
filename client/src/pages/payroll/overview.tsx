@@ -1,12 +1,15 @@
 /**
- * Payroll overview — the HR desk's one screen: who is in today, where this
- * month's run stands, what is waiting for a decision, and what is coming up.
+ * Payroll overview — the HR desk's one screen: who is in today, how many came
+ * through the gate each of the last seven days, what is waiting for a
+ * decision, and what is coming up.
  */
+import type { ReactElement } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Bar, BarChart, CartesianGrid, LabelList, Legend, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from "recharts";
 import { Link } from "wouter";
 import { api, formatMoney } from "../../api";
 import {
-  Avatar, Badge, Empty, MONTHS, PageHeader, Spinner, Td, Th, dmy, fmtTime, istToday, num, statusTone, useEmployees,
+  Avatar, Badge, Empty, MONTHS, PageHeader, Spinner, Td, Th, dmy, fmtTime, istToday, num, useEmployees,
 } from "../../components/payroll/ui";
 
 interface Today {
@@ -15,11 +18,72 @@ interface Today {
   absent: { id: string; empCode: string; name: string; department?: string | null }[];
   counts: { present: number; insideNow: number; absent: number; total: number };
 }
-interface Run { id: string; month: number; year: number; status: "draft" | "confirmed"; employeeCount: number; totalNet: number; totalGross: number; journalEntryNumber?: string | null }
+interface DayCount { day: string; present: number; bySite: Record<string, number> }
+interface GateDays { sites: string[]; days: DayCount[] }
 interface Leave { id: string; name?: string; empCode?: string; leaveType: string; fromDate: string; toDate: string; days: number; status: string }
 interface PayInput { id: string; name?: string; empCode?: string; kind: string; amount: number | string; status: string }
 interface OpenPunch { id: string; employeeId: string; name?: string; empCode?: string; punchDate: string; punchedAt: string }
 interface Holiday { id: string; name: string; date: string; type: string; isRecurring: boolean }
+
+/** recharts types its Tooltip more tightly than this chart needs; widened once, as elsewhere. */
+const Tooltip = RechartsTooltip as unknown as (props: Record<string, unknown>) => ReactElement;
+
+/** One colour a site, in the order the sites come; a punch with no place is grey. */
+const SITE_COLOURS = ["#2f80d1", "#2a9d8f", "#f39a4a", "#a77bd8", "#e0697a", "#62b86b", "#e2b93b"];
+const siteColour = (site: string, i: number) => (site === "Unknown" ? "#b8c0c8" : SITE_COLOURS[i % SITE_COLOURS.length]);
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** Gate attendance, day by day, stacked by site: each site's count in its band, the day's total on top. */
+function GateWeek({ data: src, today }: { data: GateDays; today: string }) {
+  const data = src.days.map((r) => ({
+    ...r,
+    ...Object.fromEntries(src.sites.map((st) => [st, r.bySite[st] ?? 0])),
+    label: `${r.day.slice(8, 10)} ${MONTHS[Number(r.day.slice(5, 7)) - 1]}`,
+    wd: r.day === today ? "Today" : WEEKDAYS[new Date(`${r.day}T00:00:00`).getDay()],
+  }));
+  const total = src.days.reduce((n, r) => n + r.present, 0);
+  const avg = src.days.length ? Math.round(total / src.days.length) : 0;
+  const best = src.days.reduce<DayCount | null>((b, r) => (!b || r.present > b.present ? r : b), null);
+  const last = src.sites.length - 1;
+  const XTick = (props: Record<string, unknown>) => {
+    const { x, y, payload } = props as { x: number; y: number; payload: { value: string } };
+    const d = data.find((r) => r.day === payload.value);
+    if (!d) return <g />;
+    const isToday = d.day === today;
+    return (
+      <g transform={`translate(${x},${y + 4})`}>
+        <text textAnchor="middle" fontSize={11} fill={isToday ? "#111827" : "#4b5563"} fontWeight={isToday ? 600 : 400} dy={8}>{d.label}</text>
+        <text textAnchor="middle" fontSize={10} fill="#9ca3af" dy={21}>{d.wd}</text>
+      </g>
+    );
+  };
+  return (
+    <>
+      <div className="h-60">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} margin={{ top: 22, right: 4, bottom: 0, left: -18 }}>
+            <CartesianGrid vertical={false} stroke="#eef0f2" />
+            <XAxis dataKey="day" tickLine={false} axisLine={{ stroke: "#d1d5db" }} interval={0} height={34} tick={XTick} />
+            <YAxis allowDecimals={false} tickLine={false} axisLine={false} fontSize={11} />
+            <Tooltip cursor={{ fill: "rgba(0,0,0,0.04)" }} labelFormatter={(d: string) => dmy(d)} />
+            {src.sites.length > 1 && <Legend verticalAlign="top" align="right" height={22} iconType="square" iconSize={9} wrapperStyle={{ fontSize: 11, top: -4 }} />}
+            {src.sites.map((st, i) => (
+              <Bar key={st} dataKey={st} stackId="gate" fill={siteColour(st, i)} maxBarSize={44} isAnimationActive={false} radius={i === last ? [4, 4, 0, 0] : [0, 0, 0, 0]}>
+                {/* the site's own count, inside its band when the band has room */}
+                <LabelList dataKey={st} position="center" fontSize={11} fontWeight={600} fill="#ffffff" formatter={(v: unknown) => (Number(v) >= 8 && src.sites.length > 1 ? String(v) : "")} />
+                {i === last && <LabelList dataKey="present" position="top" fontSize={12} fontWeight={700} fill="#111827" />}
+              </Bar>
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="mt-2 flex justify-between text-[12px] text-gray-500">
+        <span>Average <span className="font-semibold tabular-nums text-gray-800">{num(avg)}</span> a day</span>
+        {best && <span>Highest <span className="font-semibold tabular-nums text-gray-800">{num(best.present)}</span> on {dmy(best.day)}</span>}
+      </div>
+    </>
+  );
+}
 
 /** The routes join the person in flat, as `name`. */
 const empName = (r: { name?: string }) => r.name ?? "—";
@@ -39,10 +103,9 @@ function Tile({ label, value, sub, href, tone }: { label: string; value: string;
 export function PayrollOverviewPage() {
   const today = istToday();
   const year = Number(today.slice(0, 4));
-  const month = Number(today.slice(5, 7));
 
   const todayQ = useQuery({ queryKey: ["payroll", "attendance-today"], queryFn: () => api<Today>("/api/payroll/attendance/today"), refetchInterval: 60_000 });
-  const runsQ = useQuery({ queryKey: ["payroll", "runs"], queryFn: () => api<Run[]>("/api/payroll/runs") });
+  const weekQ = useQuery({ queryKey: ["payroll", "attendance-daily", 7], queryFn: () => api<GateDays>("/api/payroll/attendance/daily?days=7"), refetchInterval: 60_000 });
   const leaveQ = useQuery({ queryKey: ["payroll", "leave", "pending"], queryFn: () => api<Leave[]>("/api/payroll/leave?status=pending") });
   const inputsQ = useQuery({ queryKey: ["payroll", "pay-inputs", "pending"], queryFn: () => api<PayInput[]>("/api/payroll/pay-inputs?status=pending") });
   const openQ = useQuery({ queryKey: ["payroll", "punches-open"], queryFn: () => api<OpenPunch[] | { rows: OpenPunch[] }>("/api/payroll/punches/open"), select: (d) => (Array.isArray(d) ? d : d.rows) });
@@ -50,7 +113,6 @@ export function PayrollOverviewPage() {
   const empQ = useEmployees();
 
   const t = todayQ.data;
-  const thisRun = runsQ.data?.find((r) => r.year === year && r.month === month);
   const upcoming = (holQ.data ?? []).filter((h) => h.date >= today).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6);
 
   const byDept = (() => {
@@ -90,30 +152,13 @@ export function PayrollOverviewPage() {
       )}
 
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        {/* This month's run */}
+        {/* Gate attendance, last seven days */}
         <div className="card p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-[14px] font-semibold">
-              {MONTHS[month - 1]} {year} run
-            </h2>
-            <Link href="/payroll/run" className="text-[12px] text-brand-600 hover:underline">Open</Link>
+          <div className="mb-1 flex items-center justify-between">
+            <h2 className="text-[14px] font-semibold">Gate attendance, last 7 days</h2>
+            <Link href="/payroll/time" className="text-[12px] text-brand-600 hover:underline">Open</Link>
           </div>
-          {thisRun ? (
-            <div className="space-y-1 text-[13px]">
-              <div className="flex items-center justify-between">
-                <span className="text-gray-500">Status</span>
-                <Badge tone={statusTone(thisRun.status)}>{thisRun.status}</Badge>
-              </div>
-              <div className="flex justify-between"><span className="text-gray-500">Employees</span><span className="tabular-nums">{thisRun.employeeCount}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Gross</span><span className="tabular-nums">{formatMoney(thisRun.totalGross)}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Net</span><span className="font-semibold tabular-nums">{formatMoney(thisRun.totalNet)}</span></div>
-              {thisRun.journalEntryNumber && (
-                <div className="flex justify-between"><span className="text-gray-500">Journal</span><span>{thisRun.journalEntryNumber}</span></div>
-              )}
-            </div>
-          ) : (
-            <div className="text-[13px] text-gray-400">Not processed yet.</div>
-          )}
+          {weekQ.isLoading ? <Spinner /> : weekQ.data ? <GateWeek data={weekQ.data} today={today} /> : null}
         </div>
 
         {/* Headcount by department */}

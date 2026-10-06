@@ -1653,8 +1653,9 @@ payrollRouter.post(
 /** Who is here right now — the dashboard's people card. */
 /**
  * Gate attendance by day: the people who punched at least once, for the last
- * `days` days ending today (IST). One count a day, whoever they are — the
- * Overview's bar chart.
+ * `days` days ending today (IST), split by the site they punched at. A person
+ * counts once a day, at the site of their first punch that carries a location;
+ * a day with no located punch counts under "Unknown". The Overview's chart.
  */
 payrollRouter.get("/attendance/daily", view, async (req, res) => {
   const days = Math.min(31, Math.max(1, Number(req.query.days) || 7));
@@ -1662,14 +1663,29 @@ payrollRouter.get("/attendance/daily", view, async (req, res) => {
   const from = addDays(to, -(days - 1));
   const rows = (
     await db.execute(sql`
-      SELECT punch_date::text AS day, count(DISTINCT employee_id)::int AS present
+      SELECT DISTINCT ON (employee_id, punch_date)
+             employee_id AS "employeeId", punch_date::text AS day, latitude::float8 AS lat, longitude::float8 AS lng
         FROM punches
        WHERE employee_id IS NOT NULL AND punch_date BETWEEN ${from}::date AND ${to}::date
-       GROUP BY 1
+       ORDER BY employee_id, punch_date, (latitude IS NULL), punched_at
     `)
-  ).rows as Array<{ day: string; present: number }>;
-  const of = new Map(rows.map((r) => [r.day, r.present]));
-  res.json(Array.from({ length: days }, (_, i) => { const day = addDays(from, i); return { day, present: of.get(day) ?? 0 }; }));
+  ).rows as Array<{ employeeId: string; day: string; lat: number | null; lng: number | null }>;
+  const counts = new Map<string, Map<string, number>>();
+  for (const r of rows) {
+    const site = (await siteForPoint(r.lat, r.lng))?.name ?? "Unknown";
+    const day = counts.get(r.day) ?? new Map<string, number>();
+    day.set(site, (day.get(site) ?? 0) + 1);
+    counts.set(r.day, day);
+  }
+  const sites = [...new Set([...counts.values()].flatMap((m) => [...m.keys()]))].sort((x, y) => (x === "Unknown" ? 1 : y === "Unknown" ? -1 : x.localeCompare(y)));
+  res.json({
+    sites,
+    days: Array.from({ length: days }, (_, i) => {
+      const day = addDays(from, i);
+      const m = counts.get(day) ?? new Map<string, number>();
+      return { day, present: [...m.values()].reduce((n, v) => n + v, 0), bySite: Object.fromEntries(m) };
+    }),
+  });
 });
 
 payrollRouter.get("/attendance/today", view, async (_req, res) => {
