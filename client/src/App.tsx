@@ -14,6 +14,7 @@ import { BulkUpdatePage } from "./pages/bulk-update";
 import { FeedFormulasPage } from "./pages/feed-formulas";
 import { FeedProductionPage } from "./pages/feed-production";
 import { FeedScadaPage } from "./pages/feed-scada";
+import { FeedScadaLivePage } from "./pages/feed-scada-live";
 import { FarmsHousesPage } from "./pages/farms-houses";
 import { FarmsBatchesPage } from "./pages/farms-batches";
 import { ShedConditionsPage } from "./pages/shed-conditions";
@@ -216,6 +217,7 @@ export function App() {
         <Route path="/feed-mill/formulator">{() => <Redirect to="/feed-mill/formulas" />}</Route>
         <Route path="/feed-mill/production" component={FeedProductionPage} />
         <Route path="/feed-mill/scada" component={FeedScadaPage} />
+        <Route path="/feed-mill/live" component={FeedScadaLivePage} />
         <Route path="/accountant/group-companies" component={OwnerBillingPage} />
         {/* The page moved under Accountant; old links keep working. */}
         <Route path="/farms/owner-billing">{() => <Redirect to="/accountant/group-companies" />}</Route>

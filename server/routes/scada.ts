@@ -18,7 +18,8 @@
 import { Router } from "express";
 import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { z } from "zod";
-import { formulas, items, scadaBatches, scadaNames } from "@shared/schema";
+import { formulas, items, scadaBatches, scadaLive, scadaNames } from "@shared/schema";
+import { LIVE_STALE_MS, LIVE_TAG_NAMES, LIVE_TAGS } from "@shared/scada-live";
 import { db, type Tx } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
@@ -107,6 +108,38 @@ scadaDeviceRouter.post(
   },
 );
 
+// ────────────────────────────── Live values ──────────────────────────────
+
+/**
+ * Which WinCC tags the helper should read for the Live Mill screen. Served
+ * from niko so the list is kept in one place (shared/scada-live.ts): a tag
+ * added there is read from the helper's next start, with no change on the PC.
+ */
+scadaDeviceRouter.get("/live-tags", requireDeviceToken("scada"), (_req, res) => {
+  res.json({ tags: LIVE_TAG_NAMES, intervalMs: 2000 });
+});
+
+/** The latest reading. Only tags on the list are kept, so nothing else rides in. */
+scadaDeviceRouter.post(
+  "/live",
+  requireDeviceToken("scada"),
+  validateBody(
+    z.object({
+      at: z.string().datetime({ offset: true }),
+      values: z.record(z.string(), z.union([z.number(), z.string().max(200), z.boolean(), z.null()])),
+    }),
+  ),
+  async (req, res) => {
+    const body = req.body as { at: string; values: Record<string, number | string | boolean | null> };
+    const device = (req as unknown as { device: { id: string } }).device;
+    const allowed = new Set(LIVE_TAG_NAMES);
+    const values = Object.fromEntries(Object.entries(body.values).filter(([k]) => allowed.has(k)));
+    const row = { id: 1, readAt: new Date(body.at), values, deviceId: device.id, receivedAt: new Date() };
+    await db.insert(scadaLive).values(row).onConflictDoUpdate({ target: scadaLive.id, set: row });
+    res.json({ kept: Object.keys(values).length });
+  },
+);
+
 // ─────────────────────────────── The screens ──────────────────────────────
 
 const view = requirePermission("feed_mill", "scada");
@@ -149,6 +182,27 @@ async function nameMaps() {
 }
 
 type Bin = { bin: number; name: string | null; setKg: number; actKg: number };
+
+/**
+ * The Live Mill screen's data: the latest snapshot, read through the tag map,
+ * and whether it is fresh. Stale means the helper, the OPC UA server or the
+ * SCADA PC has stopped — the screen says so rather than showing old numbers
+ * as though they were now.
+ */
+scadaRouter.get("/live", view, async (_req, res) => {
+  const [row] = await db.select().from(scadaLive).limit(1);
+  if (!row) return res.json({ readAt: null, receivedAt: null, stale: true, values: null, missing: [] });
+  const raw = row.values as Record<string, unknown>;
+  const values = Object.fromEntries(Object.entries(LIVE_TAGS).map(([key, tag]) => [key, raw[tag] ?? null]));
+  res.json({
+    readAt: row.readAt,
+    receivedAt: row.receivedAt,
+    stale: Date.now() - row.receivedAt.getTime() > LIVE_STALE_MS,
+    values,
+    /** Tags the helper could not read — usually a name the OPC UA server does not know. */
+    missing: Object.entries(LIVE_TAGS).filter(([, tag]) => !(tag in raw)).map(([key]) => key),
+  });
+});
 
 /** The batches in a window, newest first, each bin read by its own name. */
 scadaRouter.get("/batches", view, async (req, res) => {

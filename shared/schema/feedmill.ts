@@ -397,6 +397,19 @@ export const scadaNames = pgTable(
   (t) => [uniqueIndex("uq_scada_name").on(t.kind, t.name)],
 );
 
+/**
+ * The SCADA's latest live values — one row, overwritten by the helper every
+ * couple of seconds (tag name → value). The Live Mill screen reads it; nothing
+ * is kept beyond the newest reading.
+ */
+export const scadaLive = pgTable("scada_live", {
+  id: integer("id").primaryKey().default(1),
+  readAt: timestamp("read_at", { withTimezone: true }).notNull(),
+  values: jsonb("values").notNull(),
+  deviceId: uuid("device_id"),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type ScadaBatch = typeof scadaBatches.$inferSelect;
 export type ItemNutrient = typeof itemNutrients.$inferSelect;
 export type FeedStandard = typeof feedStandards.$inferSelect;

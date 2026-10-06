@@ -869,6 +869,13 @@
       "when": 1791700000000,
       "tag": "0119_scada_batches",
       "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1791800000000,
+      "tag": "0120_scada_live",
+      "breakpoints": true
     }
   ]
 }

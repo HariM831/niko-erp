@@ -13,6 +13,13 @@ outward connection is HTTPS to niko.
     py -3 niko_scada_agent.py pair ABCD1234          # once, with a code from niko
     py -3 niko_scada_agent.py once                   # one pass, to try it
     py -3 niko_scada_agent.py run                    # forever (what the scheduled task runs)
+    py -3 niko_scada_agent.py live                   # read the live tags once and print them
+    py -3 niko_scada_agent.py browse                 # show what WinCC's OPC UA server offers
+
+Live values (Feed Mill > Live Mill) need WinCC's OPC UA server running on this
+PC, and one more package:  py -3 -m pip install asyncua
+Without either, the helper carries on copying batches and says so in its log.
+The OPC UA side is READ ONLY too: it reads tag values and writes none.
 
 The pairing code comes from niko: Payroll > Devices > Pair a device, role
 "scada", site Dhekiajuli. The token it returns is kept in niko_scada.json
@@ -29,6 +36,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -36,6 +44,10 @@ CONFIG = HERE / "niko_scada.json"
 LOG = HERE / "niko_scada.log"
 
 DEFAULT_URL = "https://aminofarms.com"
+# WinCC's OPC UA server on this same PC (the project's OPCUASERVERWINCCPRO.XML says 4861).
+OPC_URL = "opc.tcp://localhost:4861"
+LIVE_EVERY_S = 2
+LIVE_KEEPALIVE_S = 10
 SQL = r"DRIVER={SQL Server};SERVER=.\WINCC;DATABASE=BATCH;Trusted_Connection=yes;APP=niko-scada-helper"
 CHUNK = 500
 INTERVAL_S = 60
@@ -175,37 +187,190 @@ def one_pass(cfg: dict) -> int:
             return sent
 
 
+# ─────────────────────────────── Live values ───────────────────────────────
+
+class Live:
+    """WinCC's tags over OPC UA, read only. Connects lazily and reconnects on failure."""
+
+    def __init__(self, tags: list[str]):
+        self.tags = tags
+        self.client = None
+        self.nodes: dict[str, object] = {}
+        self.next_try = 0.0
+
+    def _plain(self, v):
+        if v is None or isinstance(v, (bool, int, float, str)):
+            return v
+        if hasattr(v, "isoformat"):
+            return v.isoformat()
+        return str(v)[:200]
+
+    def connect(self) -> bool:
+        if self.client is not None:
+            return True
+        if time.time() < self.next_try:
+            return False
+        try:
+            from asyncua.sync import Client  # imported here: batches work without it
+        except ImportError:
+            log.warning("live values off: asyncua not installed (py -3 -m pip install asyncua)")
+            self.next_try = time.time() + 3600
+            return False
+        try:
+            c = Client(OPC_URL, timeout=10)
+            c.connect()
+        except Exception as e:
+            log.warning("live values off: cannot reach WinCC OPC UA at %s (%s)", OPC_URL, e)
+            self.next_try = time.time() + 30
+            return False
+        self.client = c
+        self.nodes = self._resolve(c)
+        log.info("OPC UA connected: %d of %d tags found", len(self.nodes), len(self.tags))
+        missing = [t for t in self.tags if t not in self.nodes]
+        if missing:
+            log.info("not found on the OPC UA server: %s", ", ".join(missing[:40]))
+        return True
+
+    def _resolve(self, c) -> dict:
+        """Work out how this WinCC names its tags (namespace and prefix), then find each one."""
+        ns_count = len(c.get_namespace_array())
+        patterns = [(ns, fmt) for ns in range(1, ns_count) for fmt in ("t|{}", "{}")]
+        probe = self.tags[0]
+        chosen = None
+        for ns, fmt in patterns:
+            try:
+                c.get_node(f"ns={ns};s={fmt.format(probe)}").read_value()
+                chosen = (ns, fmt)
+                break
+            except Exception:
+                continue
+        found = {}
+        if chosen is None:
+            log.warning("could not find %s on the OPC UA server in any namespace - run 'browse'", probe)
+            return found
+        ns, fmt = chosen
+        log.info("WinCC tags are ns=%d;s=%s", ns, fmt.format("<tag>"))
+        for t in self.tags:
+            node = c.get_node(f"ns={ns};s={fmt.format(t)}")
+            try:
+                node.read_value()
+                found[t] = node
+            except Exception:
+                pass
+        return found
+
+    def read(self) -> dict:
+        names = list(self.nodes)
+        values = self.client.read_values([self.nodes[n] for n in names])
+        return {n: self._plain(v) for n, v in zip(names, values)}
+
+    def drop(self, why: str) -> None:
+        log.warning("OPC UA connection lost (%s) - reconnecting", why)
+        try:
+            self.client.disconnect()
+        except Exception:
+            pass
+        self.client = None
+        self.nodes = {}
+        self.next_try = time.time() + 10
+
+
 def run(forever: bool) -> None:
     cfg = load_config()
     if not cfg.get("token"):
         raise SystemExit("Not paired yet: run  py -3 niko_scada_agent.py pair <CODE>")
+    base, token = cfg["base_url"], cfg["token"]
     log.info("niko SCADA helper starting (%s)", "forever" if forever else "one pass")
-    while True:
+    live = None
+    if forever:
         try:
-            n = one_pass(cfg)
-            if not forever:
-                log.info("done, %d new batches", n)
-                return
+            tags = http("GET", f"{base}/api/scada/device/live-tags", token)["tags"]
+            live = Live(tags)
         except Revoked:
-            log.error("this device was revoked in niko - stopping")
-            raise SystemExit(2)
-        except Exception as e:  # keep going; the mill never waits on niko
-            log.warning("pass failed: %s", e)
-            if not forever:
-                raise
-        time.sleep(INTERVAL_S)
+            raise
+        except Exception as e:
+            log.warning("live values off: could not get the tag list from niko (%s)", e)
+    last_sent: dict | None = None
+    last_post = 0.0
+    next_batches = 0.0
+    while True:
+        now = time.time()
+        if now >= next_batches:
+            next_batches = now + INTERVAL_S
+            try:
+                n = one_pass(cfg)
+                if not forever:
+                    log.info("done, %d new batches", n)
+                    return
+            except Revoked:
+                log.error("this device was revoked in niko - stopping")
+                raise SystemExit(2)
+            except Exception as e:  # keep going; the mill never waits on niko
+                log.warning("pass failed: %s", e)
+                if not forever:
+                    raise
+        if live is not None and live.connect() and live.nodes:
+            try:
+                values = live.read()
+            except Exception as e:
+                live.drop(str(e))
+            else:
+                if values != last_sent or now - last_post >= LIVE_KEEPALIVE_S:
+                    try:
+                        at = datetime.now(timezone.utc).isoformat()
+                        http("POST", f"{base}/api/scada/device/live", token, {"at": at, "values": values}, timeout=15)
+                        last_sent, last_post = values, now
+                    except Revoked:
+                        log.error("this device was revoked in niko - stopping")
+                        raise SystemExit(2)
+                    except Exception as e:
+                        log.warning("live post failed: %s", e)
+        time.sleep(LIVE_EVERY_S if live is not None else INTERVAL_S)
+
+
+def live_once() -> None:
+    """Read the live tags once and print them - to check the OPC UA side by hand."""
+    cfg = load_config()
+    tags = http("GET", f"{cfg['base_url']}/api/scada/device/live-tags", cfg["token"])["tags"]
+    live = Live(tags)
+    if not live.connect():
+        raise SystemExit("could not connect - see the log line above")
+    for name, value in sorted(live.read().items()):
+        print(f"{name:45} {value}")
+
+
+def browse() -> None:
+    """What WinCC's OPC UA server offers: namespaces and the top of its address space."""
+    from asyncua.sync import Client
+
+    c = Client(OPC_URL, timeout=10)
+    c.connect()
+    try:
+        for i, ns in enumerate(c.get_namespace_array()):
+            print(f"ns={i}  {ns}")
+        objects = c.nodes.objects
+        for child in objects.get_children()[:40]:
+            print(f"  {child.nodeid.to_string():50} {child.read_browse_name().Name}")
+            for g in child.get_children()[:15]:
+                print(f"      {g.nodeid.to_string():46} {g.read_browse_name().Name}")
+    finally:
+        c.disconnect()
 
 
 def main() -> None:
     setup_logging()
     args = sys.argv[1:]
-    if not args or args[0] not in ("pair", "once", "run"):
+    if not args or args[0] not in ("pair", "once", "run", "live", "browse"):
         print(__doc__)
         raise SystemExit(1)
     if args[0] == "pair":
         if len(args) < 2:
             raise SystemExit("usage: niko_scada_agent.py pair <CODE> [base_url]")
         pair(args[1], args[2].rstrip("/") if len(args) > 2 else DEFAULT_URL)
+    elif args[0] == "live":
+        live_once()
+    elif args[0] == "browse":
+        browse()
     else:
         run(forever=args[0] == "run")
 
