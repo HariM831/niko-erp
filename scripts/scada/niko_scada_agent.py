@@ -400,7 +400,15 @@ def live_once() -> None:
     live = Live(tags) if cfg.get("live_source") == "opcua" else SqlLive(tags)
     if not live.connect():
         raise SystemExit("could not connect - see the log line above")
-    values, at = live.read()
+    try:
+        values, at = live.read()
+    except Exception as e:
+        if "NIKO_LIVE" in str(e):
+            raise SystemExit(
+                "BATCH.dbo.NIKO_LIVE does not exist yet - the integrator's WinCC script creates and fills it\n"
+                "(see INTEGRATOR-live-values.md). Batches are still copied as before."
+            )
+        raise SystemExit(f"could not read live values: {e}")
     for name, value in sorted(values.items()):
         print(f"{name:45} {value}")
     missing = sorted(set(tags) - set(values))
