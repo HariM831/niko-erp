@@ -22,6 +22,7 @@ import { useLocalSearch } from "../components/search-context";
 import { matchesTerm } from "../lib/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api } from "../api";
+import { shrink } from "../lib/image";
 import { BandStrip } from "../components/ui/band-strip";
 import { specAxis, specBands, specTicks } from "../lib/spec-bands";
 import { useAuth } from "../auth";
@@ -255,7 +256,35 @@ interface QcLine {
     flagged: string[];
     fromDryMatter: string[];
   } | null;
+  /** The last photo grading of this sample (maize), if one was taken. */
+  photoGrading: PhotoGrading | null;
 }
+
+interface PhotoGrading {
+  grainCount: number;
+  counts: Record<string, number>;
+  foreignMatter: Array<{ what: string; size: string }>;
+  liveInsects: number;
+  readings: Record<string, number | null>;
+  observations: string[];
+  photoQuality: "good" | "usable" | "poor";
+  warnings: string[];
+  model: string;
+  usage: { inputTokens: number; outputTokens: number };
+  gradedAt: string;
+  attachmentId: string;
+}
+
+/** The grading figures, in the order a maize bench reads them out. */
+const GRADING_ORDER: Array<[string, string]> = [
+  ["fungus", "Fungus"],
+  ["damaged_grain", "Damaged"],
+  ["discoloured", "Discolour"],
+  ["broken", "Broken"],
+  ["foreign_matter", "FM"],
+  ["immature", "Immature"],
+  ["live_insects", "Live insects"],
+];
 
 const hhmm = (iso: string) =>
   new Date(iso).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
@@ -361,6 +390,132 @@ function NirAsk({
   );
 }
 
+/** Photo grading parameters a spec might carry — any one marks a grain line. */
+const GRADING_KEYS = new Set(GRADING_ORDER.map(([k]) => k));
+
+/**
+ * Is this a line the photo grading is for? A spec that measures fungus or
+ * broken says so; failing that, the name does. Only maize is graded today.
+ */
+const isGrain = (l: QcLine) =>
+  l.params.some((p) => GRADING_KEYS.has(p.parameter)) || /\b(maize|corn|makka)\b/i.test(l.itemName ?? "");
+
+/**
+ * Grading a maize sample from a photo of the plate.
+ *
+ * The technician spreads the sample, photographs it from above and the server
+ * has Claude count and sort the kernels. What comes back fills the reading
+ * boxes the same way an NIR scan does — anything typed by hand stays as typed —
+ * and the spec judges it when QC is confirmed. Nothing is decided here.
+ */
+function PhotoGrade({ receiptId, line }: { receiptId: string; line: QcLine }) {
+  const qc = useQueryClient();
+  const [err, setErr] = useState<string | null>(null);
+  const grade = useMutation({
+    mutationFn: async (file: File) => {
+      const body = new FormData();
+      // Kernels are small: the photo keeps far more edge than a bill does.
+      body.append("file", await shrink(file, 2600), "grain.jpg");
+      const r = await fetch(`/api/office/receipts/${receiptId}/lines/${line.id}/photo-grade`, {
+        method: "POST",
+        body,
+        credentials: "same-origin",
+      });
+      const json = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(json.error ?? "Could not grade the photo");
+      return json as PhotoGrading;
+    },
+    onSuccess: () => {
+      setErr(null);
+      void qc.invalidateQueries({ queryKey: ["office", "qc-context", receiptId] });
+    },
+    onError: (e) => setErr(e instanceof Error ? e.message : "Could not grade the photo"),
+  });
+
+  const g = line.photoGrading;
+  const unspecced = g
+    ? GRADING_ORDER.filter(([k]) => g.readings[k] != null && !line.params.some((p) => p.parameter === k))
+    : [];
+
+  return (
+    <div className="mb-2">
+      <label
+        className={`btn-secondary !h-8 flex w-full cursor-pointer items-center justify-center text-[12px] ${
+          grade.isPending ? "pointer-events-none opacity-60" : ""
+        }`}
+        title="Spread the sample on the plate in one layer, kernels not touching, and photograph it from straight above"
+      >
+        {grade.isPending ? "Grading the photo… about half a minute" : g ? "Grade another photo" : "Grade from photo"}
+        <input
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          disabled={grade.isPending}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) grade.mutate(f);
+          }}
+        />
+      </label>
+      {err && <p className="mt-1 text-[11px] text-red-600">{err}</p>}
+
+      {g && (
+        <div className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-[11px] text-amber-900">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="font-semibold">
+              From photo · {g.grainCount} grains · {hhmm(g.gradedAt)}
+            </span>
+            <a
+              href={`/api/attachments/${g.attachmentId}/download`}
+              target="_blank"
+              rel="noreferrer"
+              className="shrink-0 text-amber-700 hover:underline"
+            >
+              Photo
+            </a>
+          </div>
+          <div className="mt-0.5 text-amber-950">
+            {GRADING_ORDER.filter(([k]) => g.readings[k] != null)
+              .map(([k, label]) =>
+                k === "live_insects"
+                  ? `${label} ${g.readings[k]}`
+                  : `${label} ${g.readings[k]}%${g.counts[k] != null ? ` (${g.counts[k]})` : ""}`,
+              )
+              .join(" · ")}
+          </div>
+          {g.foreignMatter.length > 0 && (
+            <div className="mt-0.5">FM: {g.foreignMatter.map((f) => `${f.what} (${f.size})`).join(", ")}</div>
+          )}
+          {g.observations.length > 0 && (
+            <ul className="mt-1 list-disc pl-4">
+              {g.observations.map((o, i) => (
+                <li key={i}>{o}</li>
+              ))}
+            </ul>
+          )}
+          {g.warnings.map((w, i) => (
+            <div key={i} className="mt-0.5 font-medium text-red-700">
+              {w}
+            </div>
+          ))}
+          {unspecced.length > 0 && (
+            <div className="mt-1 opacity-80">
+              {unspecced.map(([, label]) => label).join(", ")} {unspecced.length === 1 ? "is" : "are"} not in this
+              material's quality spec — kept on the line, but not judged.
+            </div>
+          )}
+          <div className="mt-1 text-[10px] opacity-70">
+            By count, not weight — confirm against the bench. {g.model} ·{" "}
+            {(g.usage.inputTokens + g.usage.outputTokens).toLocaleString("en-IN")} tokens
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const VERDICT_STYLE: Record<string, string> = {
   pass: "text-green-600",
   warning: "text-amber-600",
@@ -455,6 +610,28 @@ function QcPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
     });
   }, [ctx, typed]);
 
+  // The photo grading fills its figures the same way, into fields the NIR has
+  // no reading for — the two never measure the same thing, but if they ever
+  // did, the instrument wins.
+  useEffect(() => {
+    if (!ctx) return;
+    setReadings((prev) => {
+      let next = prev;
+      for (const l of ctx.lines) {
+        const g = l.photoGrading;
+        if (!g) continue;
+        for (const p of l.params) {
+          const v = g.readings[p.parameter];
+          if (v == null || typed[l.id]?.[p.parameter] || l.nir?.average[p.parameter] != null) continue;
+          const s = String(v);
+          if (prev[l.id]?.[p.parameter] === s) continue;
+          next = { ...next, [l.id]: { ...next[l.id], [p.parameter]: s } };
+        }
+      }
+      return next;
+    });
+  }, [ctx, typed]);
+
   const set = (lineId: string, param: string, value: string) => {
     setTyped((t) => ({ ...t, [lineId]: { ...t[lineId], [param]: true } }));
     setReadings((r) => ({ ...r, [lineId]: { ...r[lineId], [param]: value } }));
@@ -462,6 +639,12 @@ function QcPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
 
   const numbersFor = (lineId: string) => {
     const out: Record<string, number | null> = {};
+    // A photo figure the spec has no box for is still sent, so the line keeps
+    // it unjudged — the same as an NIR reading for a material with no spec.
+    const line = ctx?.lines.find((l) => l.id === lineId);
+    for (const [k, v] of Object.entries(line?.photoGrading?.readings ?? {})) {
+      if (v != null && !line!.params.some((p) => p.parameter === k)) out[k] = v;
+    }
     for (const [k, v] of Object.entries(readings[lineId] ?? {})) out[k] = v === "" ? null : Number(v);
     return out;
   };
@@ -567,6 +750,7 @@ function QcPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
                 {l.sampleCount ? ` · ${l.sampleCount} samples` : ""}
               </div>
               <NirAsk line={l} request={ctx?.nirRequest ?? null} scans={l.nir?.scans.length ?? 0} />
+              {(isGrain(l) || l.photoGrading) && <PhotoGrade receiptId={receipt.id} line={l} />}
               {l.nir && (
                 <div className="mb-2 rounded-md bg-brand-50 px-2 py-1 text-[11px] text-brand-800">
                   From NIR · {l.nir.scans.length === 1 ? "1 scan" : `${l.nir.scans.length} scans averaged`} ·{" "}
@@ -634,7 +818,11 @@ function QcPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
                               ? typed[l.id]?.[p.parameter]
                                 ? `Typed over the NIR's ${l.nir.average[p.parameter]}`
                                 : "From the NIR"
-                              : undefined
+                              : l.photoGrading?.readings[p.parameter] != null
+                                ? typed[l.id]?.[p.parameter]
+                                  ? `Typed over the photo's ${l.photoGrading.readings[p.parameter]}`
+                                  : "From the photo, by count"
+                                : undefined
                           }
                         />
                         <QcStrip p={p} raw={readings[l.id]?.[p.parameter]} />
