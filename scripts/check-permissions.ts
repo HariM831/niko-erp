@@ -46,7 +46,11 @@ check(
 
 const admin = effectiveActions({ "*": ["*"] }, "office");
 check("admin holds every station verb", admin.length === stationVerbs.length, admin.join(","));
-check("admin on a standard module still gets four", effectiveActions({ "*": ["*"] }, "purchases").length === 4);
+// Counted from the module, as above: purchases gained "extend" on 3 Oct 2026.
+check(
+  "admin on a standard module gets every verb it declares",
+  effectiveActions({ "*": ["*"] }, "purchases").length === actionsFor("purchases").length,
+);
 
 const gate = effectiveActions({ office: ["view", "gate_in"] }, "office");
 check("a gate operator cannot settle", !gate.includes("settle"), gate.join(","));

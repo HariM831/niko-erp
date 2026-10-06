@@ -140,6 +140,7 @@ export const NAV: NavItem[] = [
           ["feed_mill", "view"],
           ["feed_mill", "formulas"],
           ["feed_mill", "produce"],
+          ["feed_mill", "scada"],
         ],
       },
       { label: "Gate In", path: "/office/gate", perm: ["office", "gate_in"] },
@@ -150,6 +151,7 @@ export const NAV: NavItem[] = [
       { label: "Goods Receipts", path: "/office/receipts", perm: ["office", "receipts"] },
       { label: "Formulas", path: "/feed-mill/formulas", perm: ["feed_mill", "formulas"] },
       { label: "Production", path: "/feed-mill/production", perm: ["feed_mill", "produce"] },
+      { label: "SCADA Batches", path: "/feed-mill/scada", perm: ["feed_mill", "scada"] },
     ],
   },
   {
