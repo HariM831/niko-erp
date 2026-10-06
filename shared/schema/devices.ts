@@ -33,7 +33,8 @@ import { users } from "./auth";
 import { locations } from "./locations";
 import { employees, faceModels } from "./payroll";
 
-export const deviceRole = pgEnum("device_role", ["gate", "canteen"]);
+/** scada: the feed mill's SCADA PC helper — sends batches, reads nothing about people. */
+export const deviceRole = pgEnum("device_role", ["gate", "canteen", "scada"]);
 export const pairingStatus = pgEnum("pairing_status", ["unused", "claimed", "pending", "expired", "rejected"]);
 export const requestStatus = pgEnum("device_request_status", ["pending", "approved", "rejected", "expired"]);
 export const meal = pgEnum("meal", ["breakfast", "lunch", "dinner"]);

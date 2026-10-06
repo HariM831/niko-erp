@@ -34,3 +34,7 @@ payroll-export/
 
 # Python bytecode from the forecast scripts.
 __pycache__/
+
+# SCADA helper: its token and log live beside it on the SCADA PC, never in git
+scripts/scada/niko_scada.json
+scripts/scada/niko_scada.log*

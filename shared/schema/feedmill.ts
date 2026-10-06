@@ -19,6 +19,7 @@ import {
   date,
   index,
   integer,
+  jsonb,
   numeric,
   pgEnum,
   pgTable,
@@ -334,6 +335,69 @@ export const feedTransfers = pgTable(
   (t) => [index("ix_feed_transfer_date").on(t.transferDate)],
 );
 
+// ───────────────────────────── The mill SCADA ─────────────────────────────
+
+/**
+ * One batch as the mill's SCADA weighed it.
+ *
+ * Copied from the integrator's `BATCH.dbo.HISTORY` table on the SCADA PC by
+ * the helper there (scripts/scada/niko_scada_agent.py), row for row. A record
+ * and nothing more (the user, 6 Oct 2026): it moves no stock and posts
+ * nothing. Production orders stay what the books are built on; these sit
+ * beside them so the two can be compared.
+ *
+ * Each row names what every bin held at that moment (BNAME1..8), because the
+ * bins are re-assigned — bin 1 was STONE in July and is DORB in October — so
+ * a batch is read by its own names, never by today's.
+ */
+export const scadaBatches = pgTable(
+  "scada_batches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** HISTORY.dateandtime as the PC wrote it, local time with no zone — the row's identity there. */
+    sourceTime: varchar("source_time", { length: 32 }).notNull(),
+    /** The same moment, read as IST. */
+    batchedAt: timestamp("batched_at", { withTimezone: true }).notNull(),
+    /** The SCADA recipe name (RNAME), as typed on the recipe screen. */
+    recipeName: text("recipe_name").notNull(),
+    /** QTY: the batch's number within its run. */
+    batchSeq: integer("batch_seq"),
+    /** [{ bin, name, setKg, actKg }] for bins 1–8, as the row has them. */
+    bins: jsonb("bins").notNull(),
+    setTotalKg: qty("set_total_kg").notNull(),
+    actTotalKg: qty("act_total_kg").notNull(),
+    deviceId: uuid("device_id"),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // A re-sent row is the same batch: the helper may send it again freely.
+    uniqueIndex("uq_scada_batch_source").on(t.sourceTime, t.recipeName, t.batchSeq),
+    index("ix_scada_batch_at").on(t.batchedAt),
+  ],
+);
+
+/**
+ * What a SCADA name means in niko: a bin's material name (STONE, DOGS) is a
+ * material; a recipe name (Layer 1) is a formula. Kept apart from the items'
+ * own aliases, which match vendor bills — "STONE" on a bill is not limestone.
+ */
+export const scadaNames = pgTable(
+  "scada_names",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** bin | recipe */
+    kind: varchar("kind", { length: 10 }).notNull(),
+    /** As the SCADA spells it, trimmed and upper-cased for matching. */
+    name: varchar("name", { length: 80 }).notNull(),
+    itemId: uuid("item_id").references(() => items.id),
+    formulaId: uuid("formula_id").references(() => formulas.id),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("uq_scada_name").on(t.kind, t.name)],
+);
+
+export type ScadaBatch = typeof scadaBatches.$inferSelect;
 export type ItemNutrient = typeof itemNutrients.$inferSelect;
 export type FeedStandard = typeof feedStandards.$inferSelect;
 export type FeedStandardParam = typeof feedStandardParams.$inferSelect;

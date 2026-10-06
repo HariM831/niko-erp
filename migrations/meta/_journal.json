@@ -862,6 +862,13 @@
       "when": 1791600000000,
       "tag": "0118_account_head_source",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1791700000000,
+      "tag": "0119_scada_batches",
+      "breakpoints": true
     }
   ]
 }

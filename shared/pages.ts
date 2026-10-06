@@ -107,6 +107,7 @@ export const APP_PAGES: AppPage[] = [
   { key: "goods-receipts", label: "Goods Receipts", path: "/office/receipts", group: "Feed Mill", module: "office", action: "receipts" },
   { key: "formulas", label: "Formulas", path: "/feed-mill/formulas", group: "Feed Mill", module: "feed_mill", action: "formulas" },
   { key: "production", label: "Production", path: "/feed-mill/production", group: "Feed Mill", module: "feed_mill", action: "produce" },
+  { key: "scada-batches", label: "SCADA Batches", path: "/feed-mill/scada", group: "Feed Mill", module: "feed_mill", action: "scada" },
   {
     key: "weighbridge-indicator",
     label: "Weighbridge indicator",

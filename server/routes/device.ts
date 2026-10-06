@@ -170,7 +170,11 @@ export type TokenCheck =
  * Revoked is told apart from unknown/wrong-role on purpose: the app keys off
  * `code: "device_revoked"` to unpair itself, and keeps retrying anything else.
  */
-export async function checkDeviceToken(conn: Conn, token: string, role?: "gate" | "canteen"): Promise<TokenCheck> {
+/** A role, or the roles allowed — the people endpoints admit only the phones. */
+type RoleGate = DeviceRole | DeviceRole[];
+type DeviceRole = "gate" | "canteen" | "scada";
+
+export async function checkDeviceToken(conn: Conn, token: string, role?: RoleGate): Promise<TokenCheck> {
   if (!token) return { ok: false, status: 401, body: { error: "Missing device token" } };
   const [row] = await conn
     .select({ device: devices, siteCode: locations.code })
@@ -179,11 +183,12 @@ export async function checkDeviceToken(conn: Conn, token: string, role?: "gate" 
     .where(eq(devices.tokenHash, hashToken(token)));
   if (!row) return { ok: false, status: 401, body: { error: "Invalid device token" } };
   if (row.device.revokedAt) return { ok: false, status: 401, body: { error: "Device revoked", code: "device_revoked" } };
-  if (role && row.device.role !== role) return { ok: false, status: 403, body: { error: "Wrong device role", code: "wrong_role" } };
+  const allowed = role == null ? null : Array.isArray(role) ? role : [role];
+  if (allowed && !allowed.includes(row.device.role)) return { ok: false, status: 403, body: { error: "Wrong device role", code: "wrong_role" } };
   return { ok: true, device: { ...row.device, siteCode: row.siteCode } };
 }
 
-export function requireDeviceToken(role?: "gate" | "canteen") {
+export function requireDeviceToken(role?: RoleGate) {
   return async (req: Request, res: Response, next: NextFunction) => {
     const auth = req.headers.authorization || "";
     const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
@@ -882,6 +887,13 @@ const serverError = (res: Response, what: string, err: unknown) => {
 
 /* ── Bearer-token routes ───────────────────────────────────────────────── */
 
+/**
+ * The gate and canteen phones. The SCADA helper pairs through the same
+ * registry but is no phone: it may say who it is (/info) and send batches to
+ * /api/scada, and nothing here that names a person is open to it.
+ */
+const PHONES: DeviceRole[] = ["gate", "canteen"];
+
 deviceRouter.get("/info", requireDeviceToken(), async (req, res) => {
   try {
     const device = deviceOf(req);
@@ -892,7 +904,7 @@ deviceRouter.get("/info", requireDeviceToken(), async (req, res) => {
   }
 });
 
-deviceRouter.get("/config", requireDeviceToken(), async (req, res) => {
+deviceRouter.get("/config", requireDeviceToken(PHONES), async (req, res) => {
   try {
     res.json(await deviceConfig(db, deviceOf(req)));
   } catch (e) {
@@ -900,7 +912,7 @@ deviceRouter.get("/config", requireDeviceToken(), async (req, res) => {
   }
 });
 
-deviceRouter.get("/pull/people", requireDeviceToken(), async (req, res) => {
+deviceRouter.get("/pull/people", requireDeviceToken(PHONES), async (req, res) => {
   try {
     res.json(await pullPeople(db, req.query.since, req.query.limit));
   } catch (e) {
@@ -908,7 +920,7 @@ deviceRouter.get("/pull/people", requireDeviceToken(), async (req, res) => {
   }
 });
 
-deviceRouter.get("/pull/state", requireDeviceToken(), async (req, res) => {
+deviceRouter.get("/pull/state", requireDeviceToken(PHONES), async (req, res) => {
   try {
     res.json(await pullState(db, req.query.since, req.query.date));
   } catch (e) {
@@ -916,7 +928,7 @@ deviceRouter.get("/pull/state", requireDeviceToken(), async (req, res) => {
   }
 });
 
-deviceRouter.get("/photo/:personId", requireDeviceToken(), async (req, res) => {
+deviceRouter.get("/photo/:personId", requireDeviceToken(PHONES), async (req, res) => {
   try {
     const [emp] = await db
       .select({ photoUrl: employees.photoUrl, photoHash: employees.photoHash })
@@ -934,7 +946,7 @@ deviceRouter.get("/photo/:personId", requireDeviceToken(), async (req, res) => {
   }
 });
 
-deviceRouter.post("/events", requireDeviceToken(), async (req, res) => {
+deviceRouter.post("/events", requireDeviceToken(PHONES), async (req, res) => {
   try {
     const events = Array.isArray(req.body?.events) ? req.body.events : [];
     if (events.length > MAX_EVENTS_PER_REQUEST) return res.status(400).json({ error: `Batch too large — max ${MAX_EVENTS_PER_REQUEST} events per request` });
@@ -996,7 +1008,7 @@ deviceRouter.post("/pair/claim", async (req, res) => {
 
 const pairCodeBody = z.object({
   deviceName: z.string().trim().max(80).optional(),
-  role: z.enum(["gate", "canteen"]),
+  role: z.enum(["gate", "canteen", "scada"]),
   locationId: z.string().uuid().optional(),
   siteCode: z.string().trim().max(12).optional(),
   canteenId: z.string().uuid().nullish(),

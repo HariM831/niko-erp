@@ -34,6 +34,7 @@ import { feedStandardsRouter } from "./routes/feed-standards";
 import { feedFormulasRouter } from "./routes/feed-formulas";
 import { feedFormulatorRouter } from "./routes/feed-formulator";
 import { feedProductionRouter } from "./routes/feed-production";
+import { scadaDeviceRouter, scadaRouter } from "./routes/scada";
 import { bankingRouter } from "./routes/banking";
 import { reportsRouter } from "./routes/reports";
 import { ownerBillingRouter } from "./routes/owner-billing";
@@ -173,6 +174,9 @@ app.use("/api/feed/standards", requireAuth, feedStandardsRouter);
 app.use("/api/feed/formulas", requireAuth, feedFormulasRouter);
 app.use("/api/feed/formulator", requireAuth, feedFormulatorRouter);
 app.use("/api/feed/production", requireAuth, feedProductionRouter);
+// The SCADA PC's helper signs in with its device token, not a session.
+app.use("/api/scada/device", scadaDeviceRouter);
+app.use("/api/scada", requireAuth, scadaRouter);
 app.use("/api/banking", requireAuth, bankingRouter);
 app.use("/api/reports", requireAuth, reportsRouter);
 app.use("/api/owner-billing", requireAuth, ownerBillingRouter);

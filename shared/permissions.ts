@@ -140,6 +140,9 @@ export const PERMISSION_MODULES: PermissionModule[] = [
       // the buying book.
       { key: "costs", label: "See formula costs" },
       { key: "produce", label: "Issue and complete production" },
+      // What the SCADA weighed, batch by batch. Its own page right: a record
+      // of the mill floor, readable without the right to issue production.
+      { key: "scada", label: "SCADA batches and ingredient usage" },
       { key: "transfer", label: "Transfer feed to a shed" },
     ],
   },

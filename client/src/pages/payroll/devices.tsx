@@ -20,7 +20,7 @@ import {
 interface DeviceRow {
   id: string;
   name: string;
-  role: "gate" | "canteen";
+  role: "gate" | "canteen" | "scada";
   location: { id: string; code: string; name: string } | null;
   canteen: { id: string; name: string } | string | null;
   installId: string | null;
@@ -32,7 +32,7 @@ interface DeviceRow {
 interface PendingRequest {
   id: string;
   deviceName?: string;
-  role?: "gate" | "canteen";
+  role?: "gate" | "canteen" | "scada";
   deviceModel: string | null;
   osVersion: string | null;
   appVersionCode: number | null;
@@ -219,7 +219,7 @@ function PairDialog({ replace, onClose }: { replace?: DeviceRow; onClose: () => 
   const canteensQ = useQuery({ queryKey: ["canteen", "canteens"], queryFn: () => api<Canteen[]>("/api/canteen/canteens") });
   const [form, setForm] = useState({
     deviceName: replace ? replace.name : "",
-    role: (replace?.role ?? "gate") as "gate" | "canteen",
+    role: (replace?.role ?? "gate") as "gate" | "canteen" | "scada",
     locationId: replace?.location?.id ?? "",
     canteenId: (replace && typeof replace.canteen !== "string" && replace.canteen?.id) || "",
   });
@@ -257,7 +257,7 @@ function PairDialog({ replace, onClose }: { replace?: DeviceRow; onClose: () => 
               </Field>
               <Field label="Role" required>
                 <div className="flex rounded-md bg-gray-100 p-0.5 text-[13px]">
-                  {(["gate", "canteen"] as const).map((r) => (
+                  {(["gate", "canteen", "scada"] as const).map((r) => (
                     <button
                       key={r}
                       type="button"
