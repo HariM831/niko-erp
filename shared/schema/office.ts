@@ -301,6 +301,13 @@ export const officeReceiptLines = pgTable(
      * Null when every figure was typed. See `nirResults`.
      */
     qcNir: jsonb("qc_nir"),
+    /**
+     * The latest photo grading of this line's sample (grain only): what the
+     * model counted, the percentages worked out from it, the model, the cost
+     * and the photo it was graded from. A suggestion the technician confirmed
+     * or typed over — the readings that count are the ones QC committed.
+     */
+    qcPhotoGrading: jsonb("qc_photo_grading"),
 
     // ── Station 4 · unloading, per line ──
     warehouseLocationId: uuid("warehouse_location_id").references(() => locations.id),

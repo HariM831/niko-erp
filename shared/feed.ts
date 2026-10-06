@@ -204,6 +204,16 @@ export const QC_PARAMETERS: QcParameterDef[] = [
   { key: "fat", label: "Fat", unit: "%", direction: "min", hint: "Energy. On a de-oiled cake a high reading means it was not fully extracted" },
   { key: "fiber", label: "Fiber", unit: "%", direction: "max", hint: "Bulk the bird cannot use; high fibre dilutes the ration" },
   { key: "sand_silica", label: "Sand Silica", unit: "%", direction: "max", hint: "Adulteration — weight that is neither feed nor accident" },
+  // Grain grading — what a maize bench sorts a sample into. Separate keys from
+  // `damage`, which is the bag damage recorded at unloading and already read by
+  // deduction rules under that name.
+  { key: "damaged_grain", label: "Damaged Grain", unit: "%", direction: "max", hint: "Insect-bored, germ-damaged or otherwise spoilt kernels" },
+  { key: "discoloured", label: "Discoloured", unit: "%", direction: "max", hint: "Off-colour kernels — often the first sign of heat or storage damage" },
+  { key: "broken", label: "Broken", unit: "%", direction: "max", hint: "Pieces and half kernels; they spoil faster and carry less" },
+  { key: "foreign_matter", label: "Foreign Matter", unit: "%", direction: "max", hint: "Cob, chaff, stalk, stones, threads — anything that is not grain" },
+  { key: "fungus", label: "Fungus", unit: "%", direction: "max", hint: "Visibly mouldy kernels. The mycotoxin risk — the parameter that matters most for layers" },
+  { key: "immature", label: "Immature", unit: "%", direction: "max", hint: "Small, shrivelled kernels, judged by size" },
+  { key: "live_insects", label: "Live Insects", unit: "", direction: "max", hint: "Live storage insects found in the sample — a count, not a percentage" },
 ];
 
 export const QC_PARAMETER_KEYS = QC_PARAMETERS.map((p) => p.key);

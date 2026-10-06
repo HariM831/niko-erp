@@ -56,6 +56,7 @@ import { type LineToMatch, matchPurchaseOrderLines } from "../services/po-match"
 import { resolveVendor } from "../services/vendor-match";
 import { normalisePlate } from "../services/ocr";
 import { computeDeductions, judgeLine, loadDeductionRules, loadSpecs } from "../services/qc";
+import { gradeMaizePhoto } from "../services/grain-grading";
 import {
   NirMatchError,
   activeRequest,
@@ -960,6 +961,8 @@ officeRouter.get(
           })),
           judged: judgeLine(readings, spec),
           nir: nir.byLine[l.id] ?? null,
+          /** The last photo grading of this sample, if one was taken. */
+          photoGrading: l.qcPhotoGrading ?? null,
           /** What the analyser must be set to for this material. */
           nirModels: modelsForItem(modelItems, l.itemId),
         };
@@ -1207,6 +1210,96 @@ officeRouter.patch(
 );
 
 const num = (v: number | null | undefined) => (v == null ? null : String(v));
+
+/**
+ * Station 3, by photograph — grade a maize sample from a picture of the plate.
+ *
+ * Proposes readings; decides nothing. The figures go back to the QC screen to
+ * fill the reading boxes, the technician confirms or types over them, and the
+ * commit above judges them against the spec like any other reading. What the
+ * model saw is kept on the line, with the photo, so a disputed deduction can be
+ * traced back to the plate it came from.
+ *
+ * Only while the truck is waiting at QC: grading a sample after the verdict
+ * would leave a suggestion on the line that nothing was decided by.
+ */
+officeRouter.post(
+  "/receipts/:id/lines/:lineId/photo-grade",
+  requirePermission("office", "quality_control"),
+  photoUpload.single("file"),
+  async (req, res) => {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      return res.status(503).json({ error: "Grading from a photo needs ANTHROPIC_API_KEY — enter the figures by hand" });
+    }
+    const file = (req as unknown as { file?: Express.Multer.File }).file;
+    if (!file) return res.status(400).json({ error: "No photo was uploaded" });
+    if (overOcrLimit(req.session.user!.id)) {
+      return res.status(429).json({ error: "Too many photo gradings — wait a moment and try again" });
+    }
+
+    const receipt = await db.query.officeReceipts.findFirst({
+      where: eq(officeReceipts.id, req.params.id!),
+    });
+    if (!receipt) return res.status(404).json({ error: "Goods receipt not found" });
+    if (!QUEUE_STATUSES.qc!.includes(receipt.status)) {
+      return res.status(409).json({ error: "This truck is not waiting at QC" });
+    }
+    const line = await db.query.officeReceiptLines.findFirst({
+      where: and(eq(officeReceiptLines.id, req.params.lineId!), eq(officeReceiptLines.receiptId, receipt.id)),
+    });
+    if (!line) return res.status(404).json({ error: "That line does not belong to this receipt" });
+
+    let result: Awaited<ReturnType<typeof gradeMaizePhoto>>;
+    try {
+      result = await withOcrRetry(() => gradeMaizePhoto(file.buffer, apiKey));
+    } catch (err) {
+      console.error("[grading] photo-grade failed:", err);
+      return res.status(502).json({ error: "Could not grade the photo — enter the figures by hand" });
+    }
+
+    // The plate it was graded from, kept with the receipt's other photos.
+    const capturedAt = new Date();
+    const encoded = await encodeForCapture(file.buffer, "grain", {
+      place: `QC · ${line.itemName ?? "sample"}`,
+      capturedAt,
+      reference: receipt.number,
+    });
+    const storedName = `${randomBytes(16).toString("hex")}.jpg`;
+    await writeFile(path.join(UPLOAD_DIR, storedName), encoded);
+
+    const record = {
+      ...result.grading,
+      usage: result.usage,
+      gradedAt: capturedAt.toISOString(),
+      gradedBy: req.session.user!.id,
+    };
+
+    const attachmentId = await db.transaction(async (tx) => {
+      const [att] = await tx
+        .insert(attachments)
+        .values({
+          entityType: "office_receipt",
+          entityId: receipt.id,
+          fileName: `qc-grain-${line.lineNo}.jpg`,
+          storedName,
+          mimeType: "image/jpeg",
+          sizeBytes: encoded.length,
+          uploadedBy: req.session.user!.id,
+          kind: "qc_grain",
+          capturedAt,
+        })
+        .returning({ id: attachments.id });
+      await tx
+        .update(officeReceiptLines)
+        .set({ qcPhotoGrading: { ...record, attachmentId: att!.id } })
+        .where(eq(officeReceiptLines.id, line.id));
+      return att!.id;
+    });
+
+    res.json({ ...record, attachmentId });
+  },
+);
 
 /** Station 4 — unloading, one line at a time. The header follows the lines. */
 officeRouter.patch(

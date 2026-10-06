@@ -20,6 +20,7 @@
     "books:reset": "tsx scripts/reset-books.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
     "@google/generative-ai": "^0.24.1",
     "@tanstack/react-query": "^5.101.4",
     "@types/pdfkit": "^0.17.6",

@@ -14,7 +14,7 @@
  */
 import sharp from "sharp";
 
-export type CaptureKind = "bill" | "weighslip" | "vehicle";
+export type CaptureKind = "bill" | "weighslip" | "vehicle" | "grain";
 
 export interface CaptureSpec {
   /** Longest edge, px. Never enlarges a photo that is already smaller. */
@@ -34,6 +34,11 @@ export const CAPTURE: Record<CaptureKind, CaptureSpec> = {
   // gets a smaller edge rather than a lower quality — dropping quality on a
   // photograph smears the plate before it saves meaningful bytes.
   vehicle: { maxEdge: 1100, quality: 62, maxBytes: 100 * 1024 },
+  // A plate of maize kept as the evidence behind a photo grading. Several
+  // hundred kernels, each only a few dozen pixels wide, so it needs far more
+  // edge than a truck does — at 1100 px a bored kernel and a sound one look
+  // the same, and the point of keeping the photo is to look again.
+  grain: { maxEdge: 2000, quality: 72, maxBytes: 450 * 1024 },
 };
 
 export interface Stamp {
