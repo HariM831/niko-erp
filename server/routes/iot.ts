@@ -95,6 +95,11 @@ iotRouter.get("/board", requirePermission("farms", "view"), async (_req, res) =>
  * without a controller are left out — there is nothing to judge them by.
  */
 iotRouter.get("/status", requirePermission("farms", "view"), async (_req, res) => {
+  res.json(await farmStatus());
+});
+
+/** The `/status` answer, shared with the read-token router (routes/readonly.ts). */
+export async function farmStatus() {
   const b = await buildBoard();
   const sheds = b.board.filter((h) => h.device);
   const days = await dayStatus(sheds.map((h) => h.houseId));
@@ -130,7 +135,7 @@ iotRouter.get("/status", requirePermission("farms", "view"), async (_req, res) =
   });
   // Offline outranks nothing: a dark shed is reported, but the farm's word is the worst of the sheds that answered.
   const answered = rows.filter((r) => r.verdict !== "offline").map((r) => order.indexOf(r.verdict));
-  res.json({
+  return {
     at: new Date().toISOString(),
     overall: answered.length ? order[Math.max(...answered)] : "offline",
     counts,
@@ -138,8 +143,8 @@ iotRouter.get("/status", requirePermission("farms", "view"), async (_req, res) =
     weather: b.weather,
     outside: b.outside,
     poll: b.poll,
-  });
-});
+  };
+}
 
 /** The board itself, shared by `/board` and `/status`. */
 async function buildBoard() {

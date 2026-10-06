@@ -27,6 +27,7 @@ import { deductionRulesRouter } from "./routes/deduction-rules";
 import { farmsRouter } from "./routes/farms";
 import { farmsFlockRouter } from "./routes/farms-flocks";
 import { farmsCompatRouter } from "./routes/farms-compat";
+import { readonlyRouter } from "./routes/readonly";
 import { officeSitesRouter } from "./routes/office-sites";
 import { weighTicketsRouter } from "./routes/weigh-tickets";
 import { feedNutrientsRouter } from "./routes/feed-nutrients";
@@ -195,6 +196,9 @@ app.use("/api/canteen", requireAuth, canteenRouter);
 // authenticate with a device bearer token (see routes/device.ts). The admin
 // half of that router carries its own session guard on every route.
 app.use("/api/device", deviceRouter);
+// Read-only house figures by bearer token, off unless NIKO_READ_TOKEN_SHA256
+// is set. Not behind requireAuth for the same reason; see routes/readonly.ts.
+app.use("/api/readonly", readonlyRouter);
 app.use("/api/settings", requireAuth, settingsRouter);
 app.use("/api/attachments", attachmentsRouter);
 app.use("/api/comments", commentsRouter);
