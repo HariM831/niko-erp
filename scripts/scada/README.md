@@ -8,7 +8,7 @@ mill's SCADA to niko in three stages. It was decided with the user on
 |---|---|---|---|
 | 0 | Discovery: where the data lives | no (read-only survey) | **done** 6 Oct 2026 |
 | 1 | Batch data and ingredient usage into niko | no (read-only) | **built on staging**, not yet installed on the PC or deployed to production |
-| 2 | A live mill screen in niko, like the SCADA's | no (read-only) | **built on staging**; waits on WinCC's OPC UA server being switched on |
+| 2 | A live mill screen in niko, like the SCADA's | no (read-only) | **built on staging**; waits on the integrator's live-values script ([spec](INTEGRATOR-live-values.md)) |
 | 3 | Write recipes from niko to the SCADA | **yes** | **waiting on the integrator** (recipe import inside WinCC) |
 
 **The rule across all three:** niko reads the mill through WinCC and never
@@ -136,7 +136,7 @@ helper's first run sends every row since 9 Jul 2026.
 
 ## Stage 2 — live mill screen in niko
 
-**Built on staging (6 Oct 2026). It shows no values until WinCC's OPC UA server is switched on.**
+**Built on staging (6 Oct 2026). It shows no values until the integrator adds the live-values script (route B below).**
 
 **Feed Mill › Live Mill** (permission `feed_mill.scada`) is laid out like WinCC's
 "Batching section" screen:
@@ -163,8 +163,8 @@ helper's first run sends every row since 9 Jul 2026.
   project's tag list (`scada-tags.ps1`, 6 Oct 2026). Meanings guessed from
   names are marked `(?)`, to confirm against the SCADA when values first arrive.
 - **The helper:** niko serves that list at `/api/scada/device/live-tags`. `niko_scada_agent.py run`
-  reads those tags from WinCC's OPC UA server on the same PC
-  (`opc.tcp://localhost:4861`, from the project's `OPCUASERVERWINCCPRO.XML`) every
+  reads those tags from `BATCH.dbo.NIKO_LIVE` (route B below; OPC UA at
+  `opc.tcp://localhost:4861` is the optional alternative) every
   2 s. It is **read only** and writes no tag. It posts to `/api/scada/device/live` when
   something changes, and at least every 10 s.
 - **Storage:** niko keeps only the latest snapshot (`scada_live`, migration 0120).
@@ -184,23 +184,35 @@ helper's first run sends every row since 9 Jul 2026.
 - **Integrator scripts:** `ScriptAct\datalog.bac` (most likely the batch logging into `HISTORY`)
   and `ScriptLib\BATCH.bmo`.
 
+### Where the values come from: SQL (decided 6 Oct 2026)
+
+**WinCC's OPC UA server is not installed** on the SCADA PC. Its configuration
+files exist, but no server program, no licence entry and no event-log trace;
+checked 6 Oct 2026. Installing it would mean a software change, possibly a
+licence, and a new network port through which clients can *write* tags.
+
+So instead (**route B**), the integrator adds one WinCC VB script that writes the
+133 Live Mill tags into **`BATCH.dbo.NIKO_LIVE`** (one row per tag, overwritten
+every 2 s). The helper reads that table with SELECT only, exactly as it reads
+`HISTORY`.
+
+- **What the integrator gets:** **[INTEGRATOR-live-values.md](INTEGRATOR-live-values.md)**, with the table,
+  the tag list (generated from `shared/scada-live.ts`), the trigger and a sample script.
+- **The helper:** reads from SQL by default. Setting `"live_source": "opcua"` in `niko_scada.json`
+  switches to OPC UA, if that server is ever installed.
+- **Staleness:** the Live Mill page is stale when the helper stops posting (15 s) or when
+  WinCC stops writing (`UpdatedAt` more than 75 s old, allowing for the clock).
+
 ### To switch it on
 
-1. **Integrator, or someone with WinCC rights:** add **OPC UA Server** to the
-   WinCC runtime startup list (Computer properties › Startup), then restart
-   runtime. Confirm the licence allows it.
-2. **Security, before it runs:**
-   - **Port 4861 must stay closed to the network.** The project allows anonymous, unencrypted connections, and an
-     OPC UA client can *write* tags. The helper connects from the same PC
-     (`localhost`), so Windows Firewall must not allow port 4861 inbound.
-   - Better still, turn off anonymous access and give the helper a read-only user.
-3. **On the SCADA PC:**
+1. **The integrator** adds the table and the script (see the spec), then compiles and downloads
+   **with the mill stopped**.
+2. **On the SCADA PC:**
    ```
-   py -3 -m pip install asyncua
-   py -3 C:\niko\niko_scada_agent.py live      # should print the tag values
+   py -3 C:\niko\niko_scada_agent.py live      # should list 133 tags with values
    ```
    Then restart the scheduled task, or run `run`.
-4. Compare Live Mill with the SCADA screen side by side, and fix any `(?)` tag in
+3. Compare Live Mill with the SCADA screen side by side, and fix any `(?)` tag in
    `shared/scada-live.ts`.
 
 ---

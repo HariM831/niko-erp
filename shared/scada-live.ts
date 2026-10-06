@@ -4,9 +4,11 @@
  *
  * The tag names are the integrator's, from the WinCC project HMI_5TG9 (read off
  * the SCADA PC on 6 Oct 2026, scripts/scada/scada-tags.ps1). The helper on that
- * PC reads exactly the tags listed here over WinCC's OPC UA server, so this file
- * is both the screen's map and the helper's shopping list: change a tag here and
- * the helper picks it up on its next start.
+ * PC reads exactly the tags listed here, so this file is both the screen's map
+ * and the shopping list: change a tag here and the helper picks it up on its
+ * next start. The values reach the PC's SQL Server through a WinCC script the
+ * integrator adds (scripts/scada/INTEGRATOR-live-values.md); if this list
+ * changes, that script's list must change too.
  *
  * Several meanings are read from the names and the screen, not confirmed by the
  * integrator — those are marked "(?)" and are worth checking against the SCADA

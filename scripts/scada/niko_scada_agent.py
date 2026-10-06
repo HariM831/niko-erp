@@ -16,10 +16,14 @@ outward connection is HTTPS to niko.
     py -3 niko_scada_agent.py live                   # read the live tags once and print them
     py -3 niko_scada_agent.py browse                 # show what WinCC's OPC UA server offers
 
-Live values (Feed Mill > Live Mill) need WinCC's OPC UA server running on this
-PC, and one more package:  py -3 -m pip install asyncua
-Without either, the helper carries on copying batches and says so in its log.
-The OPC UA side is READ ONLY too: it reads tag values and writes none.
+Live values (Feed Mill > Live Mill) come from the table BATCH.dbo.NIKO_LIVE,
+which a WinCC script added by the integrator overwrites every couple of seconds
+(see INTEGRATOR-live-values.md). The helper only SELECTs from it. Until that
+table exists the helper carries on copying batches and says so in its log.
+
+WinCC's OPC UA server is an alternative source ("live_source": "opcua" in
+niko_scada.json, plus  py -3 -m pip install asyncua) - it is not installed on the
+mill PC today, so SQL is the default.
 
 The pairing code comes from niko: Payroll > Devices > Pair a device, role
 "scada", site Dhekiajuli. The token it returns is kept in niko_scada.json
@@ -189,6 +193,66 @@ def one_pass(cfg: dict) -> int:
 
 # ─────────────────────────────── Live values ───────────────────────────────
 
+def _parse(text):
+    """WinCC writes every value as text; give niko numbers and booleans back."""
+    if text is None:
+        return None
+    t = str(text).strip()
+    if t.lower() in ("true", "false"):
+        return t.lower() == "true"
+    try:
+        return int(t)
+    except ValueError:
+        pass
+    try:
+        return float(t.replace(",", "."))
+    except ValueError:
+        return t[:200]
+
+
+class SqlLive:
+    """The integrator's BATCH.dbo.NIKO_LIVE: one row per tag, overwritten by WinCC. SELECT only."""
+
+    QUERY = (
+        "SELECT TagName, TagValue, CONVERT(varchar(23), UpdatedAt, 121) "
+        "FROM dbo.NIKO_LIVE"
+    )
+
+    def __init__(self, tags: list[str]):
+        self.tags = set(tags)
+        self.nodes = {"sql": True}  # truthy: there is something to read
+        self.next_warn = 0.0
+
+    def connect(self) -> bool:
+        return True
+
+    def read(self) -> tuple[dict, str | None]:
+        import pyodbc
+
+        conn = pyodbc.connect(SQL, timeout=10, readonly=True)
+        try:
+            cur = conn.cursor()
+            cur.execute("SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED")
+            cur.execute(self.QUERY)
+            rows = cur.fetchall()
+        finally:
+            conn.close()
+        values, newest = {}, None
+        for name, value, updated in rows:
+            if name in self.tags:
+                values[name] = _parse(value)
+                if updated and (newest is None or updated > newest):
+                    newest = updated
+        # WinCC writes the PC's own clock (IST, no zone).
+        at = f"{newest.replace(' ', 'T')}+05:30" if newest else None
+        return values, at
+
+    def drop(self, why: str) -> None:
+        if time.time() >= self.next_warn:
+            log.warning("live values: %s", why)
+            self.next_warn = time.time() + 600
+
+
 class Live:
     """WinCC's tags over OPC UA, read only. Connects lazily and reconnects on failure."""
 
@@ -259,10 +323,10 @@ class Live:
                 pass
         return found
 
-    def read(self) -> dict:
+    def read(self) -> tuple[dict, str | None]:
         names = list(self.nodes)
         values = self.client.read_values([self.nodes[n] for n in names])
-        return {n: self._plain(v) for n, v in zip(names, values)}
+        return {n: self._plain(v) for n, v in zip(names, values)}, None
 
     def drop(self, why: str) -> None:
         log.warning("OPC UA connection lost (%s) - reconnecting", why)
@@ -285,7 +349,8 @@ def run(forever: bool) -> None:
     if forever:
         try:
             tags = http("GET", f"{base}/api/scada/device/live-tags", token)["tags"]
-            live = Live(tags)
+            live = Live(tags) if cfg.get("live_source") == "opcua" else SqlLive(tags)
+            log.info("live values from %s", "OPC UA" if isinstance(live, Live) else "BATCH.dbo.NIKO_LIVE")
         except Revoked:
             raise
         except Exception as e:
@@ -311,13 +376,13 @@ def run(forever: bool) -> None:
                     raise
         if live is not None and live.connect() and live.nodes:
             try:
-                values = live.read()
+                values, at = live.read()
             except Exception as e:
                 live.drop(str(e))
             else:
-                if values != last_sent or now - last_post >= LIVE_KEEPALIVE_S:
+                if values and (values != last_sent or now - last_post >= LIVE_KEEPALIVE_S):
                     try:
-                        at = datetime.now(timezone.utc).isoformat()
+                        at = at or datetime.now(timezone.utc).isoformat()
                         http("POST", f"{base}/api/scada/device/live", token, {"at": at, "values": values}, timeout=15)
                         last_sent, last_post = values, now
                     except Revoked:
@@ -332,11 +397,16 @@ def live_once() -> None:
     """Read the live tags once and print them - to check the OPC UA side by hand."""
     cfg = load_config()
     tags = http("GET", f"{cfg['base_url']}/api/scada/device/live-tags", cfg["token"])["tags"]
-    live = Live(tags)
+    live = Live(tags) if cfg.get("live_source") == "opcua" else SqlLive(tags)
     if not live.connect():
         raise SystemExit("could not connect - see the log line above")
-    for name, value in sorted(live.read().items()):
+    values, at = live.read()
+    for name, value in sorted(values.items()):
         print(f"{name:45} {value}")
+    missing = sorted(set(tags) - set(values))
+    print(f"\n{len(values)} of {len(tags)} tags read, newest at {at}")
+    if missing:
+        print("not in the source yet: " + ", ".join(missing))
 
 
 def browse() -> None:

@@ -197,7 +197,12 @@ scadaRouter.get("/live", view, async (_req, res) => {
   res.json({
     readAt: row.readAt,
     receivedAt: row.receivedAt,
-    stale: Date.now() - row.receivedAt.getTime() > LIVE_STALE_MS,
+    // Stale when the helper stops posting, or when WinCC stops writing the
+    // values it posts (readAt is WinCC's own time — a minute's allowance for
+    // the SCADA PC's clock not agreeing with ours).
+    stale:
+      Date.now() - row.receivedAt.getTime() > LIVE_STALE_MS ||
+      Date.now() - row.readAt.getTime() > LIVE_STALE_MS + 60_000,
     values,
     /** Tags the helper could not read — usually a name the OPC UA server does not know. */
     missing: Object.entries(LIVE_TAGS).filter(([, tag]) => !(tag in raw)).map(([key]) => key),

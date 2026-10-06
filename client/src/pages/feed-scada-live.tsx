@@ -8,9 +8,13 @@
  *
  * VIEW ONLY. There is not one button here that reaches the mill: starting,
  * stopping, holding and resetting stay at the SCADA, where the operator can
- * see the plant. The values are the helper's latest reading over WinCC's OPC
- * UA server (shared/scada-live.ts maps each one to its tag), and the screen
+ * see the plant. The values are the helper's latest reading (shared/scada-live.ts
+ * maps each one to its tag), and the screen
  * says plainly when they are stale rather than showing old numbers as now.
+ *
+ * Where the values come from: WinCC's OPC UA server is not installed on the
+ * mill PC (checked 6 Oct 2026), so a WinCC script writes the screen's tags to
+ * BATCH.dbo.NIKO_LIVE and the helper reads that table.
  */
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api";
@@ -225,9 +229,9 @@ export function FeedScadaLivePage() {
         <div className="mx-auto max-w-[1400px] space-y-3">
           {!has && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-900">
-              Nothing has arrived from the SCADA PC yet. The values come from WinCC's OPC UA server, which is set up in
-              the project but not switched on — once it runs, the helper on that PC sends a reading every two seconds and
-              this screen fills in. The layout below is the SCADA's batching screen.
+              Nothing has arrived from the SCADA PC yet. The values come from a table WinCC will write every couple of
+              seconds once the integrator adds that script (scripts/scada/INTEGRATOR-live-values.md); the helper on the
+              PC then sends them here. The layout below is the SCADA's batching screen.
             </div>
           )}
           {has && data!.missing.length > 0 && (
