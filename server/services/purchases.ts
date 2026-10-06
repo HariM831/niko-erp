@@ -11,6 +11,7 @@
  */
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import {
+  type AccountSource,
   accounts,
   billLineTags,
   billLines,
@@ -67,10 +68,11 @@ export async function loadVendor(tx: Tx, id: string) {
  */
 export async function resolveLineAccounts<
   T extends { itemId?: string; accountId?: string; name: string },
->(tx: Tx, lines: T[]): Promise<(T & { accountId: string })[]> {
-  const out: (T & { accountId: string })[] = [];
+>(tx: Tx, lines: T[]): Promise<(T & { accountId: string; accountSource?: AccountSource })[]> {
+  const out: (T & { accountId: string; accountSource?: AccountSource })[] = [];
   for (const line of lines) {
     let accountId = line.accountId;
+    const fromItem = !accountId && !!line.itemId;
     if (!accountId && line.itemId) {
       const [item] = await tx
         .select({
@@ -114,7 +116,9 @@ export async function resolveLineAccounts<
     if (!acct?.isActive) {
       throw new PostingError(`Account for line "${line.name}" is missing or inactive`);
     }
-    out.push({ ...line, accountId });
+    // A head the item supplied is recorded as the item's, whatever the form
+    // said, so the source column cannot claim a person chose it.
+    out.push(fromItem ? { ...line, accountId, accountSource: "item" } : { ...line, accountId });
   }
   return out;
 }

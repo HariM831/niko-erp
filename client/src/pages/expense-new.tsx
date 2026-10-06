@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
@@ -61,6 +61,47 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
   const [busy, setBusy] = useState(false);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [customFields, setCustomFields] = useState<CustomFieldValues>({});
+  /**
+   * Where the Expense Account came from (docs/account-head-suggestion-plan.md).
+   * `suggested` is true while the box holds niko's suggestion, which a better
+   * one may replace; a head somebody picked, or one saved, is never replaced.
+   */
+  const [head, setHead] = useState<{
+    source?: "history" | "ai" | "user";
+    suggestedAccountId?: string;
+    suggested: boolean;
+    reason?: string;
+  }>({ suggested: false });
+  const latest = useRef({ form, head });
+  latest.current = { form, head };
+
+  const askHead = async (vendorId: string, notes: string) => {
+    const now = latest.current;
+    if (now.form.expenseAccountId && !now.head.suggested) return;
+    if (!vendorId && !notes.trim()) return;
+    let answer: { accountId: string | null; source: "history" | "ai" | null; reason: string } | undefined;
+    try {
+      [answer] = await api<Array<typeof answer & { key: string }>>("/api/purchases/account-suggestions", {
+        method: "POST",
+        body: { docType: "expense", vendorId: vendorId || undefined, lines: [{ key: "expense", text: notes, amount: form.amount || undefined }] },
+      });
+    } catch {
+      return; // A convenience: without it the box simply stays as it is.
+    }
+    if (!answer) return;
+    // Only fill if nothing changed, and nobody picked a head, while the answer was on its way.
+    const cur = latest.current;
+    if (cur.form.vendorId !== vendorId || cur.form.notes !== notes) return;
+    if (cur.form.expenseAccountId && !cur.head.suggested) return;
+    const { accountId, source, reason } = answer;
+    if (accountId && source) {
+      setForm((f) => ({ ...f, expenseAccountId: accountId }));
+      setHead({ source, suggestedAccountId: accountId, suggested: true, reason });
+    } else {
+      if (cur.head.suggested) setForm((f) => ({ ...f, expenseAccountId: "" }));
+      setHead({ suggested: false, reason });
+    }
+  };
 
   const { data: accounts } = useQuery({
     queryKey: ["accounts-all"],
@@ -104,6 +145,12 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
       notes: str("notes"),
     });
     setUnpaid(!existing.paidThroughId);
+    // A saved head is never re-suggested; its record of origin is kept as it is.
+    setHead({
+      source: (existing.accountSource as "history" | "ai" | "user" | null) ?? undefined,
+      suggestedAccountId: (existing.suggestedAccountId as string | null) ?? undefined,
+      suggested: false,
+    });
     setLineTags(
       Object.fromEntries(
         ((existing.tags ?? []) as Array<{ tagId: string; optionId: string }>).map((t) => [
@@ -143,6 +190,8 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
           taxId: form.taxId || undefined,
           reference: form.reference || undefined,
           notes: form.notes || undefined,
+          accountSource: head.source,
+          suggestedAccountId: head.suggestedAccountId,
           tagOptionIds: Object.values(lineTags).filter(Boolean),
           customFields,
         },
@@ -184,10 +233,14 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
             <label className="label-required">Expense Account *</label>
             <AccountSelect
               value={form.expenseAccountId}
-              onChange={(id) => setForm((f) => ({ ...f, expenseAccountId: id }))}
+              onChange={(id) => {
+                setForm((f) => ({ ...f, expenseAccountId: id }));
+                setHead((h) => ({ ...h, source: id ? "user" : undefined, suggested: false, reason: undefined }));
+              }}
               accounts={accounts}
               include={(a) => a.type === "expense"}
             />
+            {head.reason && <p className="mt-1 text-[11px] text-gray-400">{head.reason}</p>}
           </div>
           <div>
             <label className={unpaid ? label : "label-required"}>
@@ -216,7 +269,11 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
             </label>
             <SearchSelect
               value={form.vendorId || null}
-              onChange={(id) => setForm((f) => ({ ...f, vendorId: id ?? "" }))}
+              onChange={(id) => {
+                setForm((f) => ({ ...f, vendorId: id ?? "" }));
+                latest.current = { ...latest.current, form: { ...latest.current.form, vendorId: id ?? "" } };
+                void askHead(id ?? "", form.notes);
+              }}
               options={(vendors ?? []).map((v) => ({ id: v.id, label: v.displayName }))}
               placeholder="None"
             />
@@ -255,7 +312,13 @@ export function ExpenseNewPage({ editId }: { editId?: string } = {}) {
           ))}
           <div className="col-span-2">
             <label className={label}>Notes</label>
-            <textarea value={form.notes} onChange={set("notes")} rows={2} className={inputCls} />
+            <textarea
+              value={form.notes}
+              onChange={set("notes")}
+              onBlur={() => void askHead(form.vendorId, form.notes)}
+              rows={2}
+              className={inputCls}
+            />
           </div>
           <div className="col-span-2">
             <CustomFieldsBlock

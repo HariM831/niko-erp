@@ -25,6 +25,20 @@ import { bankAccounts } from "./banking";
 const money = (name: string) => numeric(name, { precision: 14, scale: 2 });
 const qty = (name: string) => numeric(name, { precision: 14, scale: 3 });
 
+/**
+ * Where a line's account head came from, and what niko offered for it
+ * (docs/account-head-suggestion-plan.md). `user` beside a different suggested
+ * head means the suggestion was overridden; null on anything keyed before
+ * suggestions existed, or written by a program rather than a person.
+ */
+const headSourceColumns = {
+  accountSource: varchar("account_source", { length: 10 }).$type<AccountSource>(),
+  suggestedAccountId: uuid("suggested_account_id").references(() => accounts.id),
+};
+
+export const ACCOUNT_SOURCES = ["item", "history", "ai", "user"] as const;
+export type AccountSource = (typeof ACCOUNT_SOURCES)[number];
+
 const lineColumns = {
   itemId: uuid("item_id").references(() => items.id),
   /** Expense/COGS/asset account this line posts to (item default or override). */
@@ -47,6 +61,7 @@ const lineColumns = {
   taxAmount: money("tax_amount").notNull().default("0"),
   amount: money("amount").notNull().default("0"),
   lineOrder: integer("line_order").notNull().default(0),
+  ...headSourceColumns,
 };
 
 const totalsColumns = {
@@ -310,6 +325,7 @@ export const expenses = pgTable("expenses", {
   dueDate: date("due_date"),
   reference: text("reference"),
   notes: text("notes"),
+  ...headSourceColumns,
   journalEntryId: uuid("journal_entry_id").references(() => journalEntries.id),
   createdBy: uuid("created_by")
     .notNull()

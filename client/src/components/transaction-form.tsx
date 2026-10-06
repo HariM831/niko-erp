@@ -27,6 +27,9 @@ interface Item {
   costPrice?: string;
   taxId?: string;
   hsnOrSac?: string;
+  purchaseAccountId?: string | null;
+  inventoryAccountId?: string | null;
+  trackInventory?: boolean | null;
 }
 interface Tax {
   id: string;
@@ -35,7 +38,17 @@ interface Tax {
 }
 type Account = AccountNode;
 
+/** What /api/purchases/account-suggestions answers for one line. */
+interface HeadSuggestion {
+  key: string;
+  accountId: string | null;
+  source: "history" | "ai" | null;
+  reason: string;
+}
+
 export interface FormLine {
+  /** This row's own key for the session, so an answer lands on the row it was asked for. */
+  uid: string;
   /**
    * The saved line this row edits; absent on a row added in this form. Sent
    * back on save so the server updates the line in place — a purchase order
@@ -51,6 +64,13 @@ export interface FormLine {
   rate: string;
   discountPercent: string;
   taxId?: string;
+  /** Where the head came from and what niko offered — saved with the line. */
+  accountSource?: "item" | "history" | "ai" | "user";
+  suggestedAccountId?: string;
+  /** True while the head in the box is niko's suggestion, so a better one may replace it. */
+  suggested?: boolean;
+  /** The grey line under the box: why this head. */
+  headReason?: string;
   /** Chosen option per tag. One column per tag keeps "one option per tag" true
       by construction — there is nowhere to put a second vehicle. */
   tags?: Record<string, string>;
@@ -68,7 +88,9 @@ interface ReportingTag {
   options: TagOption[];
 }
 
-const emptyLine = (): FormLine => ({ name: "", quantity: "1", rate: "0", discountPercent: "0", tags: {} });
+let uidSeq = 0;
+const newUid = () => `l${++uidSeq}`;
+const emptyLine = (): FormLine => ({ uid: newUid(), name: "", quantity: "1", rate: "0", discountPercent: "0", tags: {} });
 
 export interface TransactionFormConfig {
   title: string;
@@ -179,9 +201,14 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
     if (existing.lines?.length) {
       setLines(
         existing.lines.map((l) => ({
+          uid: newUid(),
           id: (l.id as string) ?? undefined,
           itemId: (l.itemId as string) ?? undefined,
           accountId: (l.accountId as string) ?? undefined,
+          // Sent back unchanged on save, so editing a bill keeps the record of
+          // where each head came from. A saved head is never re-suggested.
+          accountSource: (l.accountSource as FormLine["accountSource"]) ?? undefined,
+          suggestedAccountId: (l.suggestedAccountId as string) ?? undefined,
           name: l.name as string,
           quantity: String(Number(l.quantity)),
           unit: (l.unit as string) ?? undefined,
@@ -286,6 +313,84 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
   const lineWanted = config.contactType === "customer" ? ["income"] : ["expense", "asset"];
   const lineInclude = (a: AccountNode) => lineWanted.includes(a.type);
 
+  /**
+   * Account heads niko fills in (docs/account-head-suggestion-plan.md).
+   *
+   * Purchase documents only. A line with an item shows the item's head but is
+   * sent blank, so the server's item rule stays the only authority. A typed
+   * line is filled from history, else the model, when its text loses focus —
+   * never over a head somebody chose or a document saved.
+   */
+  const suggestOn = config.contactType === "vendor" && !!config.withAccountColumn;
+  const accountById = useMemo(() => new Map((accounts ?? []).map((a) => [a.id, a])), [accounts]);
+  const itemHead = (l: FormLine): { label: string; missing: boolean } | null => {
+    if (!suggestOn || !l.itemId || l.accountId) return null;
+    const item = items?.find((it) => it.id === l.itemId);
+    if (!item) return null;
+    const id = item.trackInventory ? item.inventoryAccountId : item.purchaseAccountId;
+    const acct = id ? accountById.get(id) : undefined;
+    return acct
+      ? { label: `${acct.code} · ${acct.name}`, missing: false }
+      : { label: "Item has no account — choose one", missing: true };
+  };
+  const canSuggest = (l: FormLine) => !l.itemId && (!l.accountId || !!l.suggested) && !!l.name.trim();
+  const lineNet = (l: FormLine) => {
+    const gross = Number(l.quantity || 0) * Number(l.rate || 0);
+    return gross - (gross * Number(l.discountPercent || 0)) / 100;
+  };
+  const requestHeads = async (targets: FormLine[], vendorId: string) => {
+    if (!suggestOn || !targets.length) return;
+    const sent = new Map(targets.map((l) => [l.uid, l.name]));
+    let answers: HeadSuggestion[];
+    try {
+      answers = await api<HeadSuggestion[]>("/api/purchases/account-suggestions", {
+        method: "POST",
+        body: {
+          docType: config.entityType,
+          vendorId: vendorId || undefined,
+          lines: targets.map((l) => ({ key: l.uid, text: l.name, amount: lineNet(l).toFixed(2) })),
+        },
+      });
+    } catch {
+      return; // A convenience: without it the box simply stays as it is.
+    }
+    const byKey = new Map(answers.map((a) => [a.key, a]));
+    setLines((ls) =>
+      ls.map((l) => {
+        const a = byKey.get(l.uid);
+        // Typed over, picked by hand, or given an item while we waited: leave it.
+        if (!a || sent.get(l.uid) !== l.name || !canSuggest(l)) return l;
+        return a.accountId && a.source
+          ? { ...l, accountId: a.accountId, accountSource: a.source, suggestedAccountId: a.accountId, suggested: true, headReason: a.reason }
+          : { ...l, accountId: undefined, accountSource: undefined, suggestedAccountId: undefined, suggested: false, headReason: a.reason };
+      }),
+    );
+  };
+  // A new vendor changes the vendor rules, so ask again for every line still open to it.
+  useEffect(() => {
+    if (!suggestOn || !contactId) return;
+    void requestHeads(lines.filter(canSuggest), contactId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contactId]);
+  const suggestLine = (i: number) => {
+    const l = lines[i];
+    if (suggestOn && l && canSuggest(l)) void requestHeads([l], contactId);
+  };
+  const chooseHead = (i: number, id: string) =>
+    updateLine(i, {
+      accountId: id || undefined,
+      accountSource: id ? "user" : undefined,
+      suggested: false,
+      headReason: undefined,
+    });
+  const headPlaceholder = (l: FormLine) => itemHead(l)?.label ?? "Item default";
+  const headNote = (l: FormLine) => {
+    const ih = itemHead(l);
+    if (ih?.missing) return <p className="mt-0.5 text-[11px] text-red-600">{ih.label}</p>;
+    if (ih) return <p className="mt-0.5 text-[11px] text-gray-400">From item</p>;
+    return l.headReason ? <p className="mt-0.5 text-[11px] text-gray-400">{l.headReason}</p> : null;
+  };
+
   const taxRate = (id?: string) => Number(taxes?.find((t) => t.id === id)?.rate ?? 0);
 
   /** Client-side preview only — the server recomputes authoritatively. */
@@ -316,7 +421,12 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
   const pickItem = (i: number, itemId: string) => {
     const item = items?.find((it) => it.id === itemId);
     if (!item) return updateLine(i, { itemId: undefined });
+    // A suggested head gives way to the item's; one somebody chose stays.
+    const dropSuggestion = lines[i]?.suggested
+      ? { accountId: undefined, accountSource: undefined, suggested: false, headReason: undefined }
+      : {};
     updateLine(i, {
+      ...dropSuggestion,
       itemId,
       name: item.name,
       unit: item.unit,
@@ -346,6 +456,12 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
             ...(editId && l.id ? { id: l.id } : {}),
             itemId: l.itemId || undefined,
             accountId: l.accountId || undefined,
+            ...(suggestOn
+              ? {
+                  accountSource: l.accountId ? l.accountSource : undefined,
+                  suggestedAccountId: l.suggestedAccountId,
+                }
+              : {}),
             name: l.name,
             quantity: l.quantity,
             unit: l.unit || undefined,
@@ -560,6 +676,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                     <input
                       value={l.name}
                       onChange={(e) => updateLine(i, { name: e.target.value })}
+                      onBlur={() => suggestLine(i)}
                       placeholder="Description"
                       className={inputCls}
                     />
@@ -568,12 +685,13 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                     <td className="border border-[#ece3d5] px-1 py-1">
                       <AccountSelect
                         value={l.accountId ?? ""}
-                        onChange={(id) => updateLine(i, { accountId: id || undefined })}
+                        onChange={(id) => chooseHead(i, id)}
                         accounts={accounts}
                         include={lineInclude}
-                        placeholder="Item default"
+                        placeholder={headPlaceholder(l)}
                         allowClear
                       />
+                      {headNote(l)}
                     </td>
                   )}
                   <td className="border border-[#ece3d5] px-1 py-1">
@@ -669,6 +787,7 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                 <input
                   value={l.name}
                   onChange={(e) => updateLine(i, { name: e.target.value })}
+                  onBlur={() => suggestLine(i)}
                   placeholder="Description"
                   className={`${inputCls} mb-2`}
                 />
@@ -678,13 +797,13 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                     <label className="label">Account</label>
                     <AccountSelect
                       value={l.accountId ?? ""}
-                      onChange={(id) => updateLine(i, { accountId: id || undefined })}
+                      onChange={(id) => chooseHead(i, id)}
                       accounts={accounts}
                       include={lineInclude}
-                      placeholder="Item default"
+                      placeholder={headPlaceholder(l)}
                       allowClear
-                      className="mb-2"
                     />
+                    <div className="mb-2">{headNote(l)}</div>
                   </>
                 )}
 

@@ -32,6 +32,7 @@ import {
   vendorCredits,
   vendorPaymentApplications,
   vendorPayments,
+  ACCOUNT_SOURCES,
 } from "@shared/schema";
 import { db, type Tx } from "../db";
 import { requirePermission } from "../lib/rbac";
@@ -79,6 +80,7 @@ import {
 import { syncPurchaseRates } from "../services/purchases";
 import { istDate } from "../services/day-resolution";
 import { getPreferences } from "../services/preferences";
+import { geminiModel, suggestAccounts } from "../services/account-suggestions";
 import {
   applyCreditPlan,
   applyCredits,
@@ -107,9 +109,16 @@ const money = z.string().regex(/^\d+(\.\d{1,2})?$/);
 const rate = z.string().regex(/^\d+(\.\d{1,6})?$/);
 const dateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
+/** Where a head came from, and what niko offered — see the account-suggestions service. */
+const headSource = {
+  accountSource: z.enum(ACCOUNT_SOURCES).optional(),
+  suggestedAccountId: z.string().uuid().optional(),
+};
+
 const lineSchema = z.object({
   itemId: z.string().uuid().optional(),
   accountId: z.string().uuid().optional(),
+  ...headSource,
   name: z.string().min(1),
   description: z.string().optional(),
   hsnOrSac: z.string().max(10).optional(),
@@ -1684,7 +1693,60 @@ purchasesRouter.post(
   },
 );
 
+// ======================= Account head suggestions =======================
+
+const suggestSchema = z.object({
+  docType: z.enum(["bill", "purchase_order", "vendor_credit", "expense"]),
+  vendorId: z.string().uuid().optional(),
+  lines: z
+    .array(
+      z.object({
+        key: z.string().min(1).max(40),
+        text: z.string().max(500),
+        hsnOrSac: z.string().max(10).optional(),
+        amount: z.string().max(20).optional(),
+      }),
+    )
+    .min(1)
+    .max(50),
+});
+
+/**
+ * The head niko would put on each hand-typed line: history first, then the
+ * model for what history cannot answer. Read-only — the form fills the box and
+ * the person keying sees it before anything posts.
+ */
+purchasesRouter.post(
+  "/account-suggestions",
+  requirePermission("purchases", "view"),
+  validateBody(suggestSchema),
+  async (req, res) => {
+    const body = req.body as z.infer<typeof suggestSchema>;
+    const apiKey = process.env.GEMINI_API_KEY;
+    res.json(await suggestAccounts(db, body, apiKey ? geminiModel(apiKey) : null));
+  },
+);
+
 // ============================ Expenses ============================
+
+/** An expense is spending: it never lands in a stock account (6 Oct 2026). */
+async function assertNotStock(tx: Tx, accountId: string) {
+  const [acct] = await tx
+    .select({ subtype: accounts.subtype, name: accounts.name })
+    .from(accounts)
+    .where(eq(accounts.id, accountId))
+    .limit(1);
+  const isItemStock = await tx
+    .select({ id: items.id })
+    .from(items)
+    .where(eq(items.inventoryAccountId, accountId))
+    .limit(1);
+  if (acct?.subtype === "stock" || isItemStock.length) {
+    throw new PostingError(
+      `"${acct?.name ?? "This account"}" is a stock account — an expense is spending and cannot go into stock. Raise a bill against the item instead.`,
+    );
+  }
+}
 
 const expenseSchema = z.object({
   /** Draw the document number from this series; omitted means the default. */
@@ -1705,6 +1767,7 @@ const expenseSchema = z.object({
   taxId: z.string().uuid().optional(),
   reference: z.string().optional(),
   notes: z.string().optional(),
+  ...headSource,
   /** Reporting tags for the cost — one option per tag. */
   tagOptionIds: z.array(z.string().uuid()).max(10).optional(),
   /** Custom field values, keyed by field id. */
@@ -1953,6 +2016,7 @@ purchasesRouter.patch(
 
         const expenseDate = body.expenseDate ?? expense.expenseDate;
         const expenseAccountId = body.expenseAccountId ?? expense.expenseAccountId;
+        if (body.expenseAccountId) await assertNotStock(tx, body.expenseAccountId);
         const taxId = body.taxId ?? expense.taxId ?? undefined;
         const taxP = await expenseTaxPaise(tx, amount, taxId);
 
@@ -2006,6 +2070,8 @@ purchasesRouter.patch(
                 }),
             reference: body.reference ?? expense.reference,
             notes: body.notes ?? expense.notes,
+            accountSource: body.accountSource ?? expense.accountSource,
+            suggestedAccountId: body.suggestedAccountId ?? expense.suggestedAccountId,
             journalEntryId: jeId,
           })
           .where(eq(expenses.id, expense.id))
@@ -2044,6 +2110,7 @@ purchasesRouter.post(
         if (amountP <= 0) throw new PostingError("Expense amount must be positive");
 
         const taxP = await expenseTaxPaise(tx, body.amount, body.taxId);
+        await assertNotStock(tx, body.expenseAccountId);
 
         const number = await nextDocumentNumber(tx, "expense", body.seriesId);
         const [expense] = await tx
@@ -2067,6 +2134,8 @@ purchasesRouter.post(
                 }),
             reference: body.reference,
             notes: body.notes,
+            accountSource: body.accountSource,
+            suggestedAccountId: body.suggestedAccountId,
             createdBy: req.session.user!.id,
           })
           .returning();
