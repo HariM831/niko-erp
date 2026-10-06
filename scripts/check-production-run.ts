@@ -253,9 +253,7 @@ try {
       Math.abs(Number(billedOrder?.inputValue ?? 0) - 23188.5) < 0.01,
       `₹${Number(billedOrder?.inputValue ?? 0).toLocaleString("en-IN")} of ₹23,188.50`,
     );
-    console.log("
-  MOVING A RUN TO THE DAY IT WAS MILLED
-");
+    console.log("\n  MOVING A RUN TO THE DAY IT WAS MILLED\n");
     const run = made[0]!;
     const moved = await redateProduction(tx, { orderId: run.id, to: "2026-08-18", reason: "entered the morning after", who: "check" });
     check("the order takes the new date", moved.orderDate === "2026-08-18");

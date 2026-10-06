@@ -1651,6 +1651,27 @@ payrollRouter.post(
 );
 
 /** Who is here right now — the dashboard's people card. */
+/**
+ * Gate attendance by day: the people who punched at least once, for the last
+ * `days` days ending today (IST). One count a day, whoever they are — the
+ * Overview's bar chart.
+ */
+payrollRouter.get("/attendance/daily", view, async (req, res) => {
+  const days = Math.min(31, Math.max(1, Number(req.query.days) || 7));
+  const to = istDate();
+  const from = addDays(to, -(days - 1));
+  const rows = (
+    await db.execute(sql`
+      SELECT punch_date::text AS day, count(DISTINCT employee_id)::int AS present
+        FROM punches
+       WHERE employee_id IS NOT NULL AND punch_date BETWEEN ${from}::date AND ${to}::date
+       GROUP BY 1
+    `)
+  ).rows as Array<{ day: string; present: number }>;
+  const of = new Map(rows.map((r) => [r.day, r.present]));
+  res.json(Array.from({ length: days }, (_, i) => { const day = addDays(from, i); return { day, present: of.get(day) ?? 0 }; }));
+});
+
 payrollRouter.get("/attendance/today", view, async (_req, res) => {
   const today = istDate();
   const staff = await db
