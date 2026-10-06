@@ -23,7 +23,7 @@
  * remainder, and raw materials stay periodic — office moves no stock.
  */
 import { Router } from "express";
-import { and, asc, desc, eq, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lt, lte, ne, or, sql } from "drizzle-orm";
 import { type DocumentSearch, advancedSearch, matches } from "../services/document-search";
 import { amountRange, dayRange } from "../services/yard-search";
 import { z } from "zod";
@@ -33,7 +33,9 @@ import {
   formulaLines,
   formulas,
   houses,
+  inventoryTransactions,
   items,
+  journalEntries,
   locations,
   productionOrderLines,
   productionOrders,
@@ -247,6 +249,11 @@ feedProductionRouter.post(
     };
     try {
       const out = await db.transaction(async (tx) => {
+        // Backdated production is allowed — a run is often entered the morning
+        // after — but never a day that has not happened yet.
+        if (body.orderDate > istDate()) {
+          throw new PostingError("Production cannot be dated in the future");
+        }
         await assertPeriodOpen(tx, body.orderDate, "inventory_adjustment");
         // The same formula twice in one run is a slip, not an instruction: each
         // would read the ledger as though the other had not happened.
@@ -597,6 +604,116 @@ feedProductionRouter.post(
     }
   },
 );
+
+/**
+ * Move a run to the day it was really milled.
+ *
+ * Entered on the wrong day is a dating slip, not a different production, so
+ * nothing is re-costed or re-posted: the order, its stock movements and its
+ * journal entry all take the new date together, and the order says who moved
+ * it, from when, and why. Voiding and re-entering would not do — re-entry
+ * produces today's live formula version, which may not be the recipe milled.
+ *
+ * Refused where the books cannot follow:
+ *   - a closed period on either side, or a day not yet come;
+ *   - earlier, where the ledger did not yet hold the materials the run ate
+ *     (a load received after the new date cannot have gone into it);
+ *   - later, where some of this run's feed went to a shed before the new date.
+ */
+feedProductionRouter.post(
+  "/orders/:id/date",
+  requirePermission("feed_mill", "produce"),
+  validateBody(z.object({ orderDate: dateStr, reason: z.string().min(3).max(500) })),
+  async (req, res) => {
+    const body = req.body as { orderDate: string; reason: string };
+    try {
+      const who = req.session.user!.name ?? req.session.user!.username ?? "someone";
+      const out = await db.transaction((tx) =>
+        redateProduction(tx, { orderId: req.params.id!, to: body.orderDate, reason: body.reason, who }),
+      );
+      res.json(out);
+    } catch (err) {
+      if (!fail(err, res)) throw err;
+    }
+  },
+);
+
+/** The re-dating itself — exported so the production check drives the real thing. */
+export async function redateProduction(
+  tx: Tx,
+  args: { orderId: string; to: string; reason: string; who: string },
+) {
+  const order = await tx.query.productionOrders.findFirst({
+    where: eq(productionOrders.id, args.orderId),
+  });
+  if (!order) throw new PostingError("Production not found");
+  if (order.status !== "completed") throw new PostingError(`${order.number} is ${order.status} — only a completed run can be moved`);
+  const from = order.orderDate;
+  const to = args.to;
+  if (to === from) return order;
+  if (to > istDate()) throw new PostingError("Production cannot be dated in the future");
+  await assertPeriodOpen(tx, from, "inventory_adjustment");
+  await assertPeriodOpen(tx, to, "inventory_adjustment");
+
+  const mine = and(eq(inventoryTransactions.sourceType, "feed_mill"), eq(inventoryTransactions.sourceId, order.id));
+  const notMine = or(ne(inventoryTransactions.sourceType, "feed_mill"), ne(inventoryTransactions.sourceId, order.id));
+  const moves = await tx
+    .select({ itemId: inventoryTransactions.itemId, quantity: inventoryTransactions.quantity, name: items.name })
+    .from(inventoryTransactions)
+    .innerJoin(items, eq(items.id, inventoryTransactions.itemId))
+    .where(mine);
+
+  if (to < from) {
+    // Each material it consumed must have been on hand by the new date.
+    for (const m of moves.filter((x) => Number(x.quantity) < 0)) {
+      const [bal] = await tx
+        .select({ q: sql<string>`coalesce(sum(${inventoryTransactions.quantity}), 0)` })
+        .from(inventoryTransactions)
+        .where(and(eq(inventoryTransactions.itemId, m.itemId), lte(inventoryTransactions.transactionDate, to), notMine));
+      if (Number(bal?.q ?? 0) + Number(m.quantity) < -0.0005) {
+        throw new PostingError(
+          `${m.name}: only ${Number(bal?.q ?? 0).toLocaleString("en-IN")} on hand by ${to}, and this run used ${(-Number(m.quantity)).toLocaleString("en-IN")} — the stock it ate arrived later`,
+        );
+      }
+    }
+  } else {
+    // None of its feed may have left for a shed between the two dates.
+    for (const m of moves.filter((x) => Number(x.quantity) > 0)) {
+      const [early] = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(inventoryTransactions)
+        .where(
+          and(
+            eq(inventoryTransactions.itemId, m.itemId),
+            gte(inventoryTransactions.transactionDate, from),
+            lt(inventoryTransactions.transactionDate, to),
+            sql`${inventoryTransactions.quantity} < 0`,
+            notMine,
+          ),
+        );
+      if ((early?.n ?? 0) > 0) {
+        throw new PostingError(
+          `${m.name} from this run may already have gone to a shed before ${to} — move it no later than the first transfer`,
+        );
+      }
+    }
+  }
+
+  await tx.update(inventoryTransactions).set({ transactionDate: to }).where(mine);
+  if (order.journalEntryId) {
+    await tx.update(journalEntries).set({ entryDate: to }).where(eq(journalEntries.id, order.journalEntryId));
+  }
+  const [updated] = await tx
+    .update(productionOrders)
+    .set({
+      orderDate: to,
+      notes: [order.notes, `Moved from ${from} to ${to} by ${args.who}: ${args.reason}`].filter(Boolean).join("\n"),
+      updatedAt: new Date(),
+    })
+    .where(eq(productionOrders.id, order.id))
+    .returning();
+  return updated!;
+}
 
 // ─────────────────────────── Feed transfers ───────────────────────────
 

@@ -17,6 +17,7 @@ import { StatusBadge } from "../components/status-badge";
 import { useLocalSearch } from "../components/search-context";
 import { SearchSelect } from "../components/search-select";
 import { localYmd } from "../lib/utils";
+import { DateInput } from "../components/date-input";
 import { type SearchField, useAdvancedSearch } from "../components/advanced-search";
 import { FORMULATION_CATEGORIES } from "@shared/item-categories";
 
@@ -79,6 +80,15 @@ export function FeedProductionPage() {
   const [done, setDone] = useState<string | null>(null);
   const [voiding, setVoiding] = useState<string | null>(null);
   const [voidReason, setVoidReason] = useState("");
+  /**
+   * The day the run was milled. Defaults to today, but a run is often entered
+   * the morning after — so it can be any day up to today, never a later one.
+   */
+  const [orderDate, setOrderDate] = useState(localYmd());
+  /** A run being moved to the day it was really milled. */
+  const [redating, setRedating] = useState<string | null>(null);
+  const [redateTo, setRedateTo] = useState("");
+  const [redateReason, setRedateReason] = useState("");
 
   /* The picker, not the full list: issuing a batch means choosing a formula by
      name, and the recipe behind that name is a separate right. */
@@ -118,7 +128,7 @@ export function FeedProductionPage() {
               formulaId: r.formulaId,
               batchCount: Number(r.batchCount),
             })),
-            orderDate: localYmd(),
+            orderDate,
           },
         },
       ),
@@ -145,6 +155,18 @@ export function FeedProductionPage() {
       refresh();
     },
     onError: (e) => setError(e instanceof ApiError ? e.message : "Could not void"),
+  });
+
+  const redate = useMutation({
+    mutationFn: (v: { id: string; orderDate: string; reason: string }) =>
+      api(`/api/feed/production/orders/${v.id}/date`, { method: "POST", body: { orderDate: v.orderDate, reason: v.reason } }),
+    onSuccess: (_r, v) => {
+      setDone(`Production moved to ${formatDate(v.orderDate)} — stock and journal moved with it`);
+      setRedating(null);
+      setRedateReason("");
+      refresh();
+    },
+    onError: (e) => setError(e instanceof ApiError ? e.message : "Could not change the date"),
   });
 
   const live = groups?.filter((g) => g.active) ?? [];
@@ -205,7 +227,16 @@ export function FeedProductionPage() {
             <div className="mb-3 flex items-center gap-2">
               <Factory size={16} className="text-brand-500" />
               <span className="text-[15px] font-semibold">Produce</span>
+              <div className="ml-auto flex items-center gap-2 text-[13px]">
+                <span className="text-gray-500">Milled on</span>
+                <DateInput value={orderDate} onChange={(e) => setOrderDate(e.target.value || localYmd())} max={localYmd()} className="w-36" />
+              </div>
             </div>
+            {orderDate !== localYmd() && (
+              <p className="-mt-1 mb-2 text-[12px] text-amber-700">
+                Backdated to {formatDate(orderDate)} — stock and the books will show this run on that day.
+              </p>
+            )}
             {runs.map((r, i) => (
               <div key={i} className="mb-2 flex flex-wrap items-end gap-3">
                 <div className="min-w-56 flex-1">
@@ -321,8 +352,22 @@ export function FeedProductionPage() {
                     {r.status === "completed" && (
                       <button
                         onClick={() => {
+                          setRedating(redating === r.id ? null : r.id);
+                          setRedateTo(r.orderDate);
+                          setRedateReason("");
+                          setVoiding(null);
+                        }}
+                        className="text-[11px] text-gray-400 hover:text-brand-700"
+                      >
+                        Change date
+                      </button>
+                    )}
+                    {r.status === "completed" && (
+                      <button
+                        onClick={() => {
                           setVoiding(voiding === r.id ? null : r.id);
                           setVoidReason("");
+                          setRedating(null);
                         }}
                         className="text-[11px] text-gray-400 hover:text-red-600"
                       >
@@ -333,6 +378,25 @@ export function FeedProductionPage() {
                 </div>
                 {r.status === "void" && r.voidReason && (
                   <div className="text-[11px] text-gray-400">{r.voidReason}</div>
+                )}
+                {redating === r.id && (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    <span className="text-[12px] text-gray-500">Milled on</span>
+                    <DateInput value={redateTo} onChange={(e) => setRedateTo(e.target.value)} max={localYmd()} className="w-36" />
+                    <input
+                      value={redateReason}
+                      onChange={(e) => setRedateReason(e.target.value)}
+                      placeholder="Why? e.g. entered the morning after"
+                      className="input h-8 min-w-48 flex-1 text-[12px]"
+                    />
+                    <button
+                      onClick={() => redate.mutate({ id: r.id, orderDate: redateTo, reason: redateReason })}
+                      disabled={!redateTo || redateTo === r.orderDate || redateReason.trim().length < 3 || redate.isPending}
+                      className="btn-secondary h-8 text-[12px]"
+                    >
+                      Move it
+                    </button>
+                  </div>
                 )}
                 {voiding === r.id && (
                   <div className="mt-1.5 flex gap-2">

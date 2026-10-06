@@ -16,9 +16,10 @@
  * Run: npx tsx scripts/check-production-run.ts
  */
 import { eq, sql } from "drizzle-orm";
-import { contacts, formulaLines, formulas, items, productionOrders } from "@shared/schema";
+import { contacts, formulaLines, formulas, inventoryTransactions, items, journalEntries, productionOrders } from "@shared/schema";
 import { db } from "../server/db";
-import { produceOne } from "../server/routes/feed-production";
+import { produceOne, redateProduction } from "../server/routes/feed-production";
+import { moveStock } from "../server/services/inventory";
 import { createBill, loadVendor } from "../server/services/purchases";
 import { getPreferences } from "../server/services/preferences";
 
@@ -252,6 +253,50 @@ try {
       Math.abs(Number(billedOrder?.inputValue ?? 0) - 23188.5) < 0.01,
       `₹${Number(billedOrder?.inputValue ?? 0).toLocaleString("en-IN")} of ₹23,188.50`,
     );
+    console.log("
+  MOVING A RUN TO THE DAY IT WAS MILLED
+");
+    const run = made[0]!;
+    const moved = await redateProduction(tx, { orderId: run.id, to: "2026-08-18", reason: "entered the morning after", who: "check" });
+    check("the order takes the new date", moved.orderDate === "2026-08-18");
+    const runMoves = await tx
+      .select({ d: inventoryTransactions.transactionDate })
+      .from(inventoryTransactions)
+      .where(eq(inventoryTransactions.sourceId, run.id));
+    check("its stock movements move with it", runMoves.length > 0 && runMoves.every((m) => m.d === "2026-08-18"),
+      runMoves.map((m) => m.d).join(","));
+    const [je] = await tx.select({ d: journalEntries.entryDate }).from(journalEntries).where(eq(journalEntries.id, run.journalEntryId!));
+    check("so does its journal entry", je?.d === "2026-08-18", String(je?.d));
+    check("and the order says who moved it and why", (moved.notes ?? "").includes("Moved from 2026-08-19 to 2026-08-18 by check: entered the morning after"));
+    let future = "";
+    try {
+      await redateProduction(tx, { orderId: run.id, to: "2999-01-01", reason: "typo", who: "check" });
+    } catch (e) {
+      future = (e as Error).message;
+    }
+    check("a day not yet come is refused", future.includes("future"), future);
+
+    // A material that arrived on the 19th cannot have gone into a run on the 18th.
+    const [tracked] = await tx
+      .insert(items)
+      .values({ name: "TEST RUN TRACKED MAIZE", unit: "kg", isSold: false, purchaseAccountId: acct!.id, category: "feed",
+        isFeedIngredient: true, trackInventory: true, inventoryAccountId: stockAcct!.id, costPrice: "21.50" })
+      .returning();
+    await moveStock(tx, {
+      movements: [{ itemId: tracked!.id, quantity: "5000.000", value: "107500.00" }],
+      transactionDate: "2026-08-19",
+      sourceType: "check",
+    });
+    const fromTracked = await formula("TEST RUN TRACKED", (await output("TEST RUN TRACKED FEED")).id, [[tracked!.id, "1000"]]);
+    const trackedRun = await produceOne(tx, { formulaId: fromTracked.id, batchCount: 1 }, opts, user!.id);
+    let early = "";
+    try {
+      await redateProduction(tx, { orderId: trackedRun.id, to: "2026-08-18", reason: "too early", who: "check" });
+    } catch (e) {
+      early = (e as Error).message;
+    }
+    check("not before the material it ate was on hand", early.includes("arrived later"), early);
+
     throw new Rollback();
   });
 } catch (e) {
