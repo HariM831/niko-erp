@@ -142,8 +142,10 @@ async function main() {
       await createBill(tx, { vendor, billDate: today, lines: [line("Qwrbl genset service", fuel)], postedBy: actor.id });
 
       let asked = 0;
+      let lastPrompt = "";
       const stub: AskModel = async (prompt) => {
         asked++;
+        lastPrompt = prompt;
         const label = prompt.split("\n").find((l) => l.includes("| ZT9002 |"))?.split(" | ")[0];
         return JSON.stringify({
           answers: [
@@ -170,6 +172,8 @@ async function main() {
       check("history answers first", by.get("hist")?.accountId === repairs && by.get("hist")?.source === "history", by.get("hist")?.reason);
       check("the split is shown", by.get("hist")?.reason === "History · 3 of 4 times for this vendor", by.get("hist")?.reason);
       check("one model call covers the misses", asked === 1, String(asked));
+      check("the model is shown this business's own examples", lastPrompt.includes('"qwrbl genset service" → A'));
+      check("ref-and-name filler is not part of the text", words("diesel genset ref rohan sir").join(" ") === "diesel genset rohan");
       check("the model fills a miss", by.get("new")?.accountId === fuel && by.get("new")?.source === "ai", by.get("new")?.reason);
       check("an id the model invented is dropped", by.get("bogus")?.accountId === null, by.get("bogus")?.reason);
       check("an empty line gets nothing", by.get("empty")?.accountId === null);

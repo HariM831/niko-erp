@@ -1,6 +1,21 @@
 # Account head suggestion — plan
 
-Status: **plan, nothing built** (6 Oct 2026).
+Status: **built and on staging** (6 Oct 2026). Checks:
+`scripts/check-account-suggestions.ts`.
+
+## Results on staging's books (6 Oct 2026)
+
+Every hand-typed line and expense posted from 1 Jul 2026 (611 of them), each
+guessed from only what was posted before it:
+
+- History named a head for 233 and was right on 210 (90%). Same vendor, same
+  text: 98 of 98. Similar text: 78 of 86. Vendor's usual head: 23 of 35. A
+  stricter usual-head bar only lost right answers, so it stays at 3 lines / 80%.
+- The model, on a spread of 30 lines history could not answer, was right on
+  16. Three of the 30 had gone to heads a bill line may not take (director pay,
+  PF), so 16 of 27. Before it was shown examples it managed 4 of 15.
+- Petty-cash notes end "ref <name> sir"; those words are dropped before
+  matching.
 
 When a bill, purchase order, vendor credit or expense is keyed, niko fills the
 account box itself. The person keying sees the head and the reason for it, and
@@ -69,8 +84,11 @@ Inside a match, the most-used head wins. A tie goes to the most recent.
 Only for lines history could not answer. One Gemini call per request covers all
 of them (the same `GEMINI_API_KEY` and flash-lite model the bill reader uses).
 
-Sent: vendor name, line text, HSN/SAC, amount, and the allowed accounts as
-code + name. Nothing else.
+Sent: vendor name, line text, HSN/SAC, amount, the allowed accounts as
+code + name, and up to 80 past lines from history as worked examples (text →
+account), with lines that share words with the request first and then this
+vendor's. Without the examples the model chose textbook heads ("Repair &
+Maintenance") where the books keep one head per site; see Results below.
 
 Allowed accounts:
 

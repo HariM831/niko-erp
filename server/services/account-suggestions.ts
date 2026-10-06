@@ -61,6 +61,10 @@ const NOISE = new Set([
   "january", "february", "march", "april", "june", "july", "august", "september", "october",
   "november", "december", "the", "of", "for", "and", "to", "in", "at", "on", "by", "with",
   "from", "charges", "charge", "bill", "amount", "month", "paid", "payment",
+  // Who asked for it — every petty-cash note ends "ref <name> sir", which says
+  // nothing about what was bought and made unrelated notes look alike.
+  "ref", "sir", "bhaiya", "bhai", "da", "dada", "ji", "madam", "our", "due", "near",
+  "yesterday", "today", "come", "came", "new", "old", "being", "per", "as",
 ]);
 
 export function words(text: string | null | undefined): string[] {
@@ -214,6 +218,9 @@ function topHead(rows: HistoryRow[]): { accountId: string; n: number; of: number
   return { accountId: best![0], n: best![1].n, of: rows.length };
 }
 
+/** H4's bar: how many past lines, and what share on one head, make a vendor's usual head. */
+export const USUAL_HEAD = { min: 3, share: 0.8 };
+
 const times = (n: number) => (n === 1 ? "once" : `${n} times`);
 
 /**
@@ -226,6 +233,7 @@ export function fromHistory(
   allowed: Set<string>,
   vendorId: string | null | undefined,
   text: string,
+  usual = USUAL_HEAD,
 ): { accountId: string; reason: string } | null {
   const rows = history.filter((r) => allowed.has(r.accountId));
   const w = words(text);
@@ -259,7 +267,7 @@ export function fromHistory(
   }
   // H4 — the vendor's usual head.
   const h4 = topHead(vendorRows);
-  if (h4 && h4.of >= 3 && h4.n / h4.of >= 0.8) {
+  if (h4 && h4.of >= usual.min && h4.n / h4.of >= usual.share) {
     return { accountId: h4.accountId, reason: "History · this vendor's usual head" };
   }
   return null;
@@ -285,8 +293,14 @@ export function buildPrompt(
   vendorName: string | null,
   lines: SuggestLine[],
   allowed: AllowedAccount[],
+  examples: Array<{ text: string; accountId: string }> = [],
 ): string {
   const chart = allowed.map((a, i) => `A${i + 1} | ${a.code} | ${a.name}`).join("\n");
+  const labelOf = new Map(allowed.map((a, i) => [a.id, `A${i + 1}`]));
+  const shown = examples
+    .filter((e) => labelOf.has(e.accountId))
+    .map((e) => `${JSON.stringify(e.text)} → ${labelOf.get(e.accountId)}`)
+    .join("\n");
   const doc = docType === "expense" ? "an expense" : "a purchase bill line";
   const asked = lines
     .map((l) =>
@@ -297,11 +311,15 @@ export function buildPrompt(
     "You choose the ledger account for spending at an egg-laying poultry farm and feed mill in Assam, India.",
     `Each item below is ${doc}${vendorName ? ` from the vendor "${vendorName}"` : ""}.`,
     "Choose exactly one account label from this list for each item. Never invent a label.",
-    "If nothing in the list fits, answer null for that item.",
+    "Many heads exist once per site, with the site in brackets, e.g. (Nabil) for the layer farm and",
+    "(Dhekiajuli) for the feed mill. Pick the site's own head when the text points to a site or to",
+    "work only that site does. The examples show how this business has headed similar spending;",
+    "follow them over general accounting habit. Answer null only if nothing in the list is related.",
     "",
     "Accounts (label | code | name):",
     chart,
     "",
+    ...(shown ? ["Examples from this business's books (text → label):", shown, ""] : []),
     "Items:",
     asked,
     "",
@@ -333,6 +351,32 @@ export function parseAnswers(
     out.set(a.key, { accountId: acct.id, reason: why ? `AI · ${why}` : "AI suggestion" });
   }
   return out;
+}
+
+const MAX_EXAMPLES = 80;
+
+/**
+ * Past lines to show the model, one per distinct text: those sharing a word
+ * with what is being asked first, then this vendor's, then the most recent.
+ * Without them the model headed spending the way a textbook would — "Repair &
+ * Maintenance" — where this business keeps one such head per site.
+ */
+export function pickExamples(
+  history: HistoryRow[],
+  allowed: Set<string>,
+  vendorId: string | null | undefined,
+  lines: SuggestLine[],
+): Array<{ text: string; accountId: string }> {
+  const asked = new Set(lines.flatMap((l) => words(l.text)));
+  const score = (r: HistoryRow) =>
+    (r.words.some((w) => asked.has(w)) ? 2 : 0) + (vendorId && r.vendorId === vendorId ? 1 : 0);
+  const seen = new Set<string>();
+  return history
+    .filter((r) => r.key && allowed.has(r.accountId))
+    .sort((a, b) => score(b) - score(a) || b.date.localeCompare(a.date))
+    .filter((r) => (seen.has(r.key) ? false : (seen.add(r.key), true)))
+    .slice(0, MAX_EXAMPLES)
+    .map((r) => ({ text: r.key, accountId: r.accountId }));
 }
 
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -371,8 +415,9 @@ export async function suggestAccounts(
           .limit(1)
       : [];
     try {
+      const examples = pickExamples(history, allowedIds, input.vendorId, misses);
       const answer = await withTimeout(
-        ask(buildPrompt(input.docType, vendor?.name ?? null, misses, allowed)),
+        ask(buildPrompt(input.docType, vendor?.name ?? null, misses, allowed, examples)),
         AI_TIMEOUT_MS,
       );
       const picked = parseAnswers(answer, allowed, new Set(misses.map((m) => m.key)));
