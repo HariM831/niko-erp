@@ -957,20 +957,21 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
   }
 
   // Invoiced in boxes, like the items and the stock and every Zoho invoice
-  // before it — so a report can sum the lines. The per-egg rate is named.
+  // before it — so a report can sum the lines. The line carries the size
+  // alone; the rate column already says what a box costs.
   const docLines: DocLineInput[] = EGG_SIZES.filter((s) => qty(s) > 0).map((s) => {
     const direct = boxRate[s];
     return direct != null
       ? {
           itemId: map.get(s),
-          name: `Eggs — ${SIZE_LABEL[s]} (${eggsInBox(s, prefs)}/box @ ₹${direct.toFixed(2)}/box)`,
+          name: `Eggs — ${SIZE_LABEL[s]}`,
           quantity: String(qty(s)),
           unit: "boxes",
           rate: direct.toFixed(4),
         }
       : {
           itemId: map.get(s),
-          name: `Eggs — ${SIZE_LABEL[s]} (${eggsInBox(s, prefs)}/box @ ₹${perEgg(s).toFixed(2)}/egg)`,
+          name: `Eggs — ${SIZE_LABEL[s]}`,
           quantity: String(qty(s)),
           unit: "boxes",
           rate: (perEgg(s) * eggsInBox(s, prefs)).toFixed(4),
@@ -994,14 +995,6 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
   }
 
   const number = await nextDocumentNumber(tx, "invoice");
-  const benchNote = !bm
-    ? "Priced by the box"
-    : bm.effectiveFrom === input.dispatchDate
-      ? `Benchmark ₹${Number(bm.ratePerEgg).toFixed(2)}/egg`
-      : `Benchmark ₹${Number(bm.ratePerEgg).toFixed(2)}/egg (set ${bm.effectiveFrom} — no fresher rate)`;
-  const directNote = DIRECT_RATE_SIZES.filter((s) => boxRate[s] != null)
-    .map((s) => `${SIZE_LABEL[s]} ₹${boxRate[s]!.toFixed(2)}/box`)
-    .join(", ");
   const [inv] = await tx
     .insert(invoices)
     .values({
@@ -1020,9 +1013,6 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
       roundOff: totals.roundOff,
       total: totals.total,
       balanceDue: totals.total,
-      customerNotes:
-        `${benchNote}${spread && bm ? `, spread ₹${spread.toFixed(2)}/egg` : ""}${directNote ? `, ${directNote}` : ""}. ` +
-        `Driver ${input.driverName.trim()}, vehicle ${input.vehicleNumber.trim()}.`,
       createdBy: userId,
     })
     .returning();

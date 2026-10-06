@@ -481,6 +481,17 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
   const pdfFields = allCustomFields.filter((f) => f.showInPdf);
   const screenOnlyFields = allCustomFields.filter((f) => !f.showInPdf);
   const supply = placeOfSupply(contact?.placeOfSupplyState);
+  /**
+   * An egg invoice is a truck. Its driver and vehicle print beside the place
+   * of supply; the line names carry the size alone and the sheet has no notes.
+   * Invoices raised before 6 Oct 2026 stored "(210/box @ ₹5.90/egg)" on each
+   * line and the pricing in the notes — trimmed here so they print the same.
+   */
+  const dispatch = (kind === "invoice" ? doc.dispatch : null) as
+    | { driverName: string; vehicleNumber: string }
+    | null
+    | undefined;
+  const lineName = (name: string) => (dispatch ? name.replace(/^(Eggs — .+?) \(\d+\/box @ .*\)$/, "$1") : name);
   const terms = termsLabel(doc[config.dateField] as string | undefined, doc.dueDate as string | undefined);
 
   /**
@@ -721,6 +732,18 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
                     <span className="font-semibold">: {supply}</span>
                   </div>
                 )}
+                {dispatch && (
+                  <>
+                    <div className="mt-1.5 flex text-[12px]">
+                      <span className="w-28 shrink-0 text-[#333]">Driver</span>
+                      <span className="font-bold">: {dispatch.driverName}</span>
+                    </div>
+                    <div className="flex text-[12px]">
+                      <span className="w-28 shrink-0 text-[#333]">Vehicle No.</span>
+                      <span className="font-bold">: {dispatch.vehicleNumber}</span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
@@ -793,7 +816,7 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
                   <tr key={l.id} className="border-b border-[#9e9e9e]">
                     <td className="px-1.5 py-1.5 text-center align-top">{i + 1}</td>
                     <td className="px-2 py-1.5 align-top">
-                      <div>{l.name}</div>
+                      <div>{lineName(l.name)}</div>
                       {l.description && (
                         <div className="whitespace-pre-wrap text-[10px] text-[#727272]">{l.description}</div>
                       )}
@@ -830,7 +853,7 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
                   <div className="pb-0.5 pr-2.5">Total In Words</div>
                   <span className="font-bold italic">{amountInWords(doc.total)}</span>
                 </div>
-                {(doc.customerNotes ?? doc.notes) ? (
+                {!dispatch && (doc.customerNotes ?? doc.notes) ? (
                   <div className="pt-2.5">
                     <div className="text-[#333]">Notes</div>
                     <p className="whitespace-pre-wrap">{(doc.customerNotes ?? doc.notes) as string}</p>

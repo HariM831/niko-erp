@@ -273,7 +273,7 @@ salesRouter.get("/invoices/summary", requirePermission("sales", "view"), async (
 salesRouter.get("/invoices/:id", requirePermission("sales", "view"), async (req, res) => {
   const inv = await db.query.invoices.findFirst({ where: eq(invoices.id, req.params.id!) });
   if (!inv) return res.status(404).json({ error: "Invoice not found" });
-  const [lines, applications] = await Promise.all([
+  const [lines, applications, [dispatch]] = await Promise.all([
     db
       .select()
       .from(invoiceLines)
@@ -289,8 +289,14 @@ salesRouter.get("/invoices/:id", requirePermission("sales", "view"), async (req,
       .from(paymentApplications)
       .innerJoin(customerPayments, eq(customerPayments.id, paymentApplications.paymentId))
       .where(eq(paymentApplications.invoiceId, inv.id)),
+    // An egg invoice is a truck: its driver and vehicle print in the header.
+    db
+      .select({ driverName: eggDispatches.driverName, vehicleNumber: eggDispatches.vehicleNumber })
+      .from(eggDispatches)
+      .where(and(eq(eggDispatches.invoiceId, inv.id), ne(eggDispatches.status, "void")))
+      .limit(1),
   ]);
-  res.json({ ...inv, lines, payments: applications });
+  res.json({ ...inv, lines, payments: applications, dispatch: dispatch ?? null });
 });
 
 salesRouter.post(
