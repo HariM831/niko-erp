@@ -99,6 +99,7 @@ export const APP_PAGES: AppPage[] = [
       ["feed_mill", "view"],
       ["feed_mill", "formulas"],
       ["feed_mill", "produce"],
+      ["feed_mill", "scada"],
     ],
   },
   { key: "gate-in", label: "Gate In", path: "/office/gate", group: "Feed Mill", module: "office", action: "gate_in" },
