@@ -100,6 +100,9 @@ app.use((req, res, next) => {
   // there is nothing for a cross-site request to ride on; they send no
   // Origin either. The device router enforces its own token.
   if (req.path.startsWith("/api/device/")) return next();
+  // The SCADA PC's helper is the same: a scada device token, no cookie, no
+  // browser. Only its own token-guarded router is exempt, not /api/scada.
+  if (req.path.startsWith("/api/scada/device/")) return next();
   if (["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) {
     const origin = req.headers.origin ?? req.headers.referer;
     if (!origin) return res.status(403).json({ error: "Missing Origin header" });
