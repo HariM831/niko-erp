@@ -19,7 +19,7 @@ import { eq, sql } from "drizzle-orm";
 import { contacts, formulaLines, formulas, inventoryTransactions, items, journalEntries, productionOrders } from "@shared/schema";
 import { db } from "../server/db";
 import { produceOne, redateProduction } from "../server/routes/feed-production";
-import { moveStock } from "../server/services/inventory";
+import { mainStore, moveStock } from "../server/services/inventory";
 import { createBill, loadVendor } from "../server/services/purchases";
 import { getPreferences } from "../server/services/preferences";
 
@@ -284,6 +284,7 @@ try {
       movements: [{ itemId: tracked!.id, quantity: "5000.000", value: "107500.00" }],
       transactionDate: "2026-08-19",
       sourceType: "check",
+      stockLocationId: await mainStore(tx, loc!.id),
     });
     const fromTracked = await formula("TEST RUN TRACKED", (await output("TEST RUN TRACKED FEED")).id, [[tracked!.id, "1000"]]);
     const trackedRun = await produceOne(tx, { formulaId: fromTracked.id, batchCount: 1 }, opts, user!.id);
