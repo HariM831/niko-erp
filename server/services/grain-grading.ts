@@ -107,6 +107,24 @@ const round2 = (v: number) => Math.round(v * 100) / 100;
 const whole = (v: unknown) => (Number.isFinite(Number(v)) ? Math.max(0, Math.round(Number(v))) : 0);
 
 /**
+ * An array field as the model sent it. Now and then a list arrives as its JSON
+ * text rather than the list itself; read as-is, a string is walked character by
+ * character and the whole plate counts as nothing.
+ */
+function list<T>(v: unknown): T[] {
+  if (Array.isArray(v)) return v as T[];
+  if (typeof v === "string") {
+    try {
+      const parsed: unknown = JSON.parse(v);
+      if (Array.isArray(parsed)) return parsed as T[];
+    } catch {
+      /* not JSON — treated as empty below */
+    }
+  }
+  return [];
+}
+
+/**
  * Everything decided about what the model saw, with the model out of the loop.
  * Checked without an API call by scripts/check-grain-grading.ts.
  */
@@ -117,7 +135,7 @@ export function reconcileGrading(raw: RawGrading, model: string): Grading {
   let grainCount = 0;
   let liveInsects = 0;
 
-  for (const t of raw.tiles ?? []) {
+  for (const t of list<RawTile>(raw.tiles)) {
     const kernels = whole(t.kernels);
     grainCount += kernels;
     let defects = 0;
@@ -137,7 +155,7 @@ export function reconcileGrading(raw: RawGrading, model: string): Grading {
         `Tile ${t.tile}: ${defects} defects among ${kernels} kernels — a kernel was put in two categories`,
       );
     }
-    for (const f of t.foreign_matter ?? []) {
+    for (const f of list<RawTile["foreign_matter"][number]>(t.foreign_matter)) {
       const size = f?.size === "large" || f?.size === "small" ? f.size : "medium";
       foreignMatter.push({ what: String(f?.what ?? "unidentified").slice(0, 80), size });
     }
@@ -172,7 +190,7 @@ export function reconcileGrading(raw: RawGrading, model: string): Grading {
   if (raw.photo_quality === "poor") {
     warnings.unshift("Poor photo — treat these figures as rough and retake if you can");
   }
-  for (const issue of raw.photo_issues ?? []) warnings.push(`Photo: ${issue}`);
+  for (const issue of list<string>(raw.photo_issues)) warnings.push(`Photo: ${issue}`);
 
   return {
     grainCount,
@@ -180,11 +198,11 @@ export function reconcileGrading(raw: RawGrading, model: string): Grading {
     foreignMatter,
     liveInsects,
     readings,
-    observations: (raw.observations ?? []).map((o) => String(o).slice(0, 300)).slice(0, 12),
+    observations: list<string>(raw.observations).map((o) => String(o).slice(0, 300)).slice(0, 12),
     photoQuality: raw.photo_quality ?? "usable",
     warnings,
     model,
-    tiles: (raw.tiles ?? []).length,
+    tiles: list(raw.tiles).length,
   };
 }
 
@@ -384,7 +402,7 @@ Also report:
   Fusarium, a black kernel, insect holes. Say where on the plate (e.g. "tile 3, near
   the rim"). Do not repeat the counts.
 
-Record your answer with the record_grading tool.`;
+Record your answer by calling the record_grading tool exactly once. Do not answer in text.`;
 
 const TOOL: Anthropic.Tool = {
   name: "record_grading",
@@ -454,14 +472,19 @@ export async function gradeMaizePhoto(
   content.push({ type: "text", text: PROMPT });
 
   const client = new Anthropic({ apiKey });
+  // Opus 5.5 refuses a forced tool_choice and always thinks, so the prompt names
+  // the tool, the choice is left to the model, and the budget covers the thinking.
+  // Effort high: counting carefully is the whole job, and its default is medium.
   const msg = await client.messages.create({
     model,
-    max_tokens: 4000,
+    max_tokens: 16000,
+    output_config: { effort: "high" },
     tools: [TOOL],
-    tool_choice: { type: "tool", name: TOOL.name },
+    tool_choice: { type: "auto" },
     messages: [{ role: "user", content }],
   });
 
+  if (msg.stop_reason === "refusal") throw new Error("The model declined to grade this photo");
   const call = msg.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
   if (!call) throw new Error("The model did not return a grading");
 

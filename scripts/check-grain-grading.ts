@@ -84,6 +84,19 @@ function offline() {
   check(capped.warnings.some((w) => w.includes("capped")), "and the cap is warned about");
   check(capped.warnings.some((w) => w.includes("two categories")), "a kernel in two categories is warned about");
 
+  // Opus 5.5 now and then sends a list as its JSON text (seen on fixture d, 6 Oct 2026).
+  const stringy = reconcileGrading(
+    {
+      is_maize_sample: true, photo_quality: "good",
+      photo_issues: JSON.stringify(["glare"]) as unknown as string[],
+      observations: [],
+      tiles: JSON.stringify([tile({ kernels: 150, broken: 3 }), tile({ tile: 2, kernels: 150 })]) as unknown as RawGrading["tiles"],
+    },
+    "test",
+  );
+  check(stringy.grainCount === 300, `a tile list sent as JSON text is still counted (${stringy.grainCount})`);
+  check(stringy.warnings.includes("Photo: glare"), "and so are photo issues sent as JSON text");
+
   const soya = reconcileGrading(
     { is_maize_sample: false, photo_quality: "good", photo_issues: [], observations: [], tiles: [tile({ kernels: 300, fungus: 3 })] },
     "test",
