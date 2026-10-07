@@ -221,22 +221,27 @@ built yet. What Folderit itself does, read from its help centre on 7 Oct
    deputies, automatic by folder, move once approved), My tasks,
    acknowledgements, in-app e-signature, tamper check, verification page,
    share links, watermark.
-5. **External**: DSC signing, Aadhaar eSign, email-in.
+5. **External**: email-in (docs@aminofarms.com). DSC signing and Aadhaar
+   eSign are off until revisited.
 
-## Decisions needed
+## Decisions
 
-1. **File storage and backup.** Uploads live on the droplet's disk only, with
-   no copy elsewhere. Before company papers go in: move files to
-   DigitalOcean Spaces (about $5/month for 250 GB) with a nightly copy, or
-   keep them on disk with a nightly off-site backup?
+1. ~~File storage~~ — **decided 7 Oct 2026:** files stay on the droplet's
+   disk, where niko reads them as today, with a **nightly off-site copy**
+   used only to restore. **Still open: where the copy goes** (Spaces in
+   another region, Google Drive, or Backblaze B2).
 2. ~~Upload size~~ — **decided 7 Oct 2026:** 25 MB per file for documents
    (other attachments stay at 10 MB).
-3. **Vehicles and assets** have no register in niko. A small vehicle/asset
-   list for their papers, or file them under a folder with tags only?
-4. **Aadhaar eSign provider**, and whether outside parties will sign at all.
-5. **DSC:** who holds Class 3 tokens and which make (ePass, ProxKey,
-   HYP2003…)?
-6. **Email-in mailbox:** which mail service hosts @aminofarms.com?
+3. ~~Vehicles and assets~~ — **decided 7 Oct 2026:** a small vehicle/asset
+   register that documents link to, so each shows its papers held, missing
+   and expiring (the §5 checklist).
+4. ~~Aadhaar eSign~~ — **decided 7 Oct 2026:** not now. Outsiders sign on
+   paper and the scan is filed. Phase 5 loses Aadhaar eSign until revisited.
+5. ~~DSC~~ — **decided 7 Oct 2026:** skipped for now; no DSC signing inside
+   niko. A PDF signed elsewhere is simply filed.
+6. ~~Email-in~~ — **decided 7 Oct 2026:** @aminofarms.com is on Zoho Mail
+   (MX mx.zoho.in). A **docs@aminofarms.com** mailbox there, read by niko
+   every few minutes over IMAP; needs a Zoho Mail plan that allows IMAP.
 7. ~~Reminders~~ — **decided 7 Oct 2026:** in-app (the bell / My tasks)
    plus a WhatsApp link — a click-to-send message with the text filled in,
    which a person sends; nothing goes out on its own. No email.
@@ -244,4 +249,5 @@ built yet. What Folderit itself does, read from its help centre on 7 Oct
    at the start only Correspondence › Inward (**IN/2026-27/0001**) and
    Correspondence › Outward (**OUT/2026-27/0001**) carry a series. Every
    other folder starts unnumbered; a series can be added to any folder later.
-9. **Who manages documents** — which roles get which folders at the start?
+9. ~~Starting access~~ — **decided 7 Oct 2026:** admins only; everyone else
+   is given folders one by one as needed.
