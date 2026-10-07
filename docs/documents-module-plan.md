@@ -16,8 +16,12 @@ built yet. What Folderit itself does, read from its help centre on 7 Oct
 - **No versions.** A document's files can be added to (annexures). Replacing
   one sends the old file to the recycle bin; it is not kept as a version. A
   signed document's files are frozen — it can only be voided and re-issued.
-- **Numbers like every niko number.** Taken from `document_series` inside the
-  transaction, financial year in the prefix, counters back to 1 in April.
+- **Numbers per folder** (decided 7 Oct 2026, as Folderit does it). Each
+  folder can carry its own numbering scheme, optionally passed down to its
+  subfolders, so Contracts and Licences keep separate series. Taken inside
+  the transaction like every niko number, financial year in the prefix,
+  counters back to 1 in April. A folder with no scheme of its own (and none
+  inherited) gives no number.
 - **Nothing is ever hard-deleted** by a user: the recycle bin is admin-only
   and a purge is an explicit admin act.
 
@@ -25,25 +29,37 @@ built yet. What Folderit itself does, read from its help centre on 7 Oct
 
 **Records**
 - `document_folders`: a tree (parent, name, sort order), with a *confidential*
-  flag. Seeded with: Legal, Licences & Registrations, Contracts &
+  flag, a header note (Markdown: instructions shown at the top of the
+  folder), the list columns it shows (optionally passed to subfolders), and
+  its automatic approval route (§4). Seeded with: Legal, Licences & Registrations, Contracts &
   Agreements, Land & Lease, HR, Insurance, Vehicles, Correspondence,
   Policies & Circulars, Bank & Finance, Miscellaneous.
 - `document_types`: Licence, Agreement, Letter, Certificate, Policy,
   Notice, Invoice copy, ID proof, Other. Each type says which fields it
   carries (issue date, expiry, reference no., amount, party) and whether
   expiry is required.
-- `documents`: a number (DOC-2026-27/00001), title, folder, type, status
+- `document_number_schemes`: per folder — pattern (text, financial year,
+  counter), next number, whether subfolders use it, reset each April.
+  Settings lists every scheme and the documents under each, as a registry.
+- `documents`: a number from its folder's scheme (e.g. AGR/2026-27/0001),
+  title, folder, type, status
   (Draft → Under review → Approved → Signed → Expired → Archived, or Void),
   party (contact), employee, issue date, expiry date, reference no., amount,
   tags, the type's own fields, physical location (box / shelf / file), a
   retention-until date, the deleted-at/by of the recycle bin, and who/when.
 - `document_links`: the document ↔ any niko record (vendor, customer,
-  employee, house, location, bill, PO, invoice, receipt, vehicle/asset).
+  employee, house, location, bill, PO, invoice, receipt, vehicle/asset), and
+  document ↔ document, shown on both.
+- `document_reminders`: any number per document — date and time, a person or
+  a role, a message, one-off or repeating (monthly, yearly…).
+- `document_watches`: a person watching a document or a folder (this folder
+  only / and everything below), for added, changed, moved, deleted, restored.
 
 **Screens**
 - The library: a folder tree on the left and a list on the right, as Zoho
   Books' Documents screen lays it out — the real Zoho screens are read before
-  this is built.
+  this is built. Each folder shows its header note and its chosen columns
+  (any field, the number, expiry, status).
 - Document page: a preview (PDF, image; Office files as a download with
   details), details, links, the activity on it, and its signatures, approvals
   and acknowledgements.
@@ -65,11 +81,17 @@ built yet. What Folderit itself does, read from its help centre on 7 Oct
 - One search box across title, number, tags, fields and the text inside the
   files, with filters (folder, type, party, date, tag, uploader, status) and
   the matching words highlighted.
+- Results **export to Excel**.
+- **Duplicates:** the SHA-256 of every upload is kept; a file already on
+  file is flagged at upload ("already filed as …") and listed in a report.
 
 ## 3. Correspondence register
 
 - `correspondence`: direction (in / out), the number — **IN/2026-27/0001**,
-  **OUT/2026-27/0001** — the date, the mode (post, courier, hand, email,
+  **OUT/2026-27/0001** (the schemes of the Inward and Outward folders) — and
+  a **reply takes the number of the letter it answers plus a suffix**:
+  IN/2026-27/0001-1, -2; a reply to that reply IN/2026-27/0001-1-1. The two
+  are linked both ways automatically. The date, the mode (post, courier, hand, email,
   WhatsApp), the party (a contact, or a free name and address), the subject,
   their reference, in-reply-to (making threads), assigned-to, a reply-by
   date, status (Open, Replied, Closed, No reply needed), and for outward the
@@ -98,7 +120,8 @@ built yet. What Folderit itself does, read from its help centre on 7 Oct
 - **Aadhaar eSign** for outside parties — vendors, landlords, workers —
   through a licensed eSign provider (eMudhra, Leegality, Digio, SignDesk…):
   niko sends the PDF and gets back a signed one. Per-signature cost, an
-  account with the provider. Phase 5.
+  account with the provider. Phase 5. Outsiders sign **only** this way (or
+  on paper): no emailed-link simple signing — decided 7 Oct 2026.
 - **Signature requests:** one or more signers in order, each by in-app,
   DSC or Aadhaar, with reminders; the document shows who has signed.
 - **Tamper check:** the stored hash is re-checked on every view; a changed
@@ -106,7 +129,17 @@ built yet. What Folderit itself does, read from its help centre on 7 Oct
   public verification page (number, title, issuer, signers, hash OK / not).
 - **Approval workflows:** reusable routes (e.g. Accountant → Director), steps
   in order or in parallel, approve / reject with a comment, status moving
-  with them.
+  with them. A one-line question for the approvers ("Shall we pay this?"),
+  editable until the first decision.
+  - **Request clarification:** the approver asks someone else a question;
+    the task stays open until they decide.
+  - **Delegate** one task to another person, or name a **deputy** for a
+    leave period who receives all tasks meanwhile; the record shows both
+    names.
+  - **Automatic by folder:** a folder can carry a route, so anything added
+    to it goes for approval on its own, and can be **moved to another folder
+    once approved** (e.g. Bills to approve → Bills approved).
+  - Anyone who hasn't acted is reminded after 1 day and again after 6.
 - **Read & acknowledge:** a policy or circular sent to people or roles; each
   confirms they have read it; the document shows who has and hasn't.
 
@@ -114,6 +147,11 @@ built yet. What Folderit itself does, read from its help centre on 7 Oct
 
 - Expiry dates on any document; reminders 90, 30 and 7 days before; an
   **Expiring soon** list on the documents home and on the Home page.
+- **Reminders** set by hand on any document (`document_reminders`), on top
+  of the expiry ones.
+- **Watch** a document or folder (`document_watches`): a notice when
+  something in it is added, changed, moved, deleted or restored, optionally
+  grouped into one daily summary.
 - **Renewals:** the new licence is linked to the one it replaces, which
   becomes Expired/Archived.
 - **Checklists:** the document types each kind of record must hold —
@@ -130,9 +168,14 @@ built yet. What Folderit itself does, read from its help centre on 7 Oct
 
 - A new **Documents** permission module, split by page (library,
   correspondence, signatures, settings), as the Feed Mill's is.
-- Folder permissions on top of roles: none / view / upload-only / download /
-  edit / manage, for a role or a named user; confidential folders are visible
-  only to those named.
+- Folder permissions on top of roles, at Folderit's levels: **Previewer**
+  (look only — no download or print), **Viewer** (also download and print),
+  **Upload-only** (adds files, sees only their own), **Editor** (changes,
+  moves, deletes) and **Manager** (also grants access), for a role or a named
+  user; confidential folders are visible only to those named.
+- **Every grant can expire** on a date and time, and is removed then.
+- **Access overview** (admin): everyone with access to anything, and every
+  live share link; remove item by item or all of a person's at once.
 - **Watermark** on preview and download: the viewer's name, the date and time.
 - **Share links** for an auditor, bank or lawyer: an expiry, an optional
   password, a view limit, revocable, every open logged.
@@ -150,24 +193,32 @@ built yet. What Folderit itself does, read from its help centre on 7 Oct
 
 ## 8. Home and reports
 
-- Documents home: recent, assigned to me, waiting for my signature or
-  approval, to acknowledge, expiring soon, correspondence awaiting reply.
+- **My tasks**, behind a bell with a count in the header: waiting for my
+  signature, approval or acknowledgement, and my clarification questions;
+  what I have sent others that is still pending; the history of my decisions
+  and of my requests.
+- Documents home: recent, my tasks, expiring soon, correspondence awaiting
+  reply.
 - Reports (on the Reports page, in a Documents card): the correspondence
   register, pending replies, the licence & expiry register, compliance gaps,
-  the signature log, storage used.
+  the signature log, pending approvals, duplicates, storage used.
 
 ## Phases
 
-1. **Library**: folders, types, documents, links, upload and phone scan,
-   permissions, the events log, recycle bin, physical location; text
-   extraction and search (with the backfill of existing attachments); AI
-   suggestions.
-2. **Correspondence**: registers and numbering, threads, assignment and
-   reminders, letter templates with QR, the printed register.
-3. **Expiry and compliance**: reminders, renewals, checklists, the
-   expiring-soon lists, retention flags.
-4. **Approvals and in-app signing**: workflows, acknowledgements, in-app
-   e-signature, tamper check, verification page, share links, watermark.
+1. **Library**: folders (header note, columns), per-folder numbering,
+   types, documents, links, upload and phone scan, permissions with expiry,
+   access overview, the events log, recycle bin, physical location; text
+   extraction and search with Excel export (with the backfill of existing
+   attachments); duplicate check; AI suggestions.
+2. **Correspondence**: registers and numbering, replies numbered from the
+   letter they answer, threads, assignment and reminders, letter templates
+   with QR, the printed register.
+3. **Expiry and compliance**: expiry reminders, hand-set reminders,
+   watches, renewals, checklists, the expiring-soon lists, retention flags.
+4. **Approvals and in-app signing**: workflows (clarification, delegation,
+   deputies, automatic by folder, move once approved), My tasks,
+   acknowledgements, in-app e-signature, tamper check, verification page,
+   share links, watermark.
 5. **External**: DSC signing, Aadhaar eSign, email-in.
 
 ## Decisions needed
@@ -184,6 +235,8 @@ built yet. What Folderit itself does, read from its help centre on 7 Oct
    HYP2003…)?
 6. **Email-in mailbox:** which mail service hosts @aminofarms.com?
 7. **Reminders:** in-app only, or also WhatsApp links / email?
-8. **Number formats:** DOC-2026-27/00001, IN/2026-27/0001, OUT/2026-27/0001
-   — or the farm's existing register style?
+8. **Number formats:** numbering is per folder (decided 7 Oct 2026). Which
+   folders get a series at the start, and in what format — IN/2026-27/0001,
+   OUT/2026-27/0001, AGR/2026-27/0001… — or the farm's existing register
+   style?
 9. **Who manages documents** — which roles get which folders at the start?
