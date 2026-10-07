@@ -39,7 +39,7 @@ import {
   placementDays,
   users,
 } from "@shared/schema";
-import { DIRECT_RATE_SIZES, EGG_SIZES, EGG_SIZE_LABEL, EGG_UNIT, type EggSize } from "@shared/egg-sizes";
+import { DIRECT_RATE_SIZES, EGG_SIZES, EGG_SIZE_LABEL, type EggSize } from "@shared/egg-sizes";
 import type { db as Db } from "../db";
 import { PostingError, postJournal } from "./posting";
 import { applyDefaultSalesAccounts, computeDocumentTotals, fromPaise, toPaise, type DocLineInput } from "./documents";
@@ -69,13 +69,34 @@ export { EGG_SIZES, type EggSize };
  */
 export function eggsInBox(
   size: (typeof EGG_SIZES)[number],
-  prefs: { eggsPerBox: number; jumboEggsPerBox: number; nikoEggsPerBox: number; dirtyEggsPerBox: number },
+  prefs: { eggsPerBox: number; jumboEggsPerBox: number; nikoEggsPerBox: number },
 ): number {
   if (size === "jumbo") return prefs.jumboEggsPerBox;
   if (size === "niko") return prefs.nikoEggsPerBox;
-  // A dirty "box" is a tray of 30 — the unit the packing room counts it in.
-  if (size === "dirty") return prefs.dirtyEggsPerBox;
   return prefs.eggsPerBox;
+}
+
+type UnitPrefs = { eggsPerBox: number; jumboEggsPerBox: number; nikoEggsPerBox: number; dirtyEggsPerTray: number };
+
+/**
+ * Stock units in one box sold. Dirty is counted in trays of 30 and sold in
+ * boxes of 210 (7 Oct 2026), so a Dirty box takes 7 trays; every other grade
+ * is counted in the box it is sold in.
+ */
+export function unitsPerBox(size: EggSize, prefs: UnitPrefs): number {
+  return size === "dirty" ? prefs.eggsPerBox / prefs.dirtyEggsPerTray : 1;
+}
+
+/** Eggs in one unit of stock — a tray of 30 for Dirty, the box for the rest. */
+export function eggsPerStockUnit(size: EggSize, prefs: UnitPrefs): number {
+  return size === "dirty" ? prefs.dirtyEggsPerTray : eggsInBox(size, prefs);
+}
+
+/** Stock as whole boxes that can be sold — Dirty's trays in sevens. */
+export function sellableBoxes(held: Record<EggSize, number>, prefs: UnitPrefs): Record<EggSize, number> {
+  return Object.fromEntries(
+    EGG_SIZES.map((s) => [s, Math.floor(held[s] / unitsPerBox(s, prefs))]),
+  ) as Record<EggSize, number>;
 }
 const SIZE_LABEL = EGG_SIZE_LABEL;
 
@@ -456,7 +477,9 @@ export async function supplyCascade(tx: Conn, from: string, to: string): Promise
   const graded = await gradedBoxesByDay(tx, from, to);
   const expected = await expectedGradedBoxesPerDay(tx);
   const held = await stockBySize(tx);
-  const stockNow = EGG_SIZES.reduce((a, s) => a + held[s], 0);
+  const unitPrefs = await eggPrefs(tx);
+  // In boxes: Dirty's trays count a seventh of a box each.
+  const stockNow = EGG_SIZES.reduce((a, s) => a + held[s] / unitsPerBox(s, unitPrefs), 0);
   const moves = await netMovesByDay(tx, from);
   const openingFromLedger = (on: string) => {
     let since = 0;
@@ -564,7 +587,7 @@ export async function gradedEggsOn(tx: Conn, houseId: string, day: string): Prom
   if (!g) return null;
   const prefs = await eggPrefs(tx);
   const row = g as unknown as Record<string, unknown>;
-  return EGG_SIZES.reduce((n, size) => n + Number(row[size] ?? 0) * eggsInBox(size, prefs), 0);
+  return EGG_SIZES.reduce((n, size) => n + Number(row[size] ?? 0) * eggsPerStockUnit(size, prefs), 0);
 }
 
 /**
@@ -665,7 +688,8 @@ export async function saveGrading(tx: Tx, input: GradingInput, userId: string) {
   const movements = EGG_SIZES.filter((s) => qty(s) > 0).map((s) => ({
     itemId: map.get(s)!,
     quantity: qty(s).toFixed(3),
-    value: ((qty(s) * rateP) / 100).toFixed(2),
+    // A tray is a seventh of a box, so it carries a seventh of the box rate.
+    value: ((qty(s) * rateP) / unitsPerBox(s, prefs) / 100).toFixed(2),
   }));
   if (movements.length) {
     await moveStock(tx, {
@@ -719,15 +743,21 @@ export async function netMovesByDay(tx: Conn, from: string): Promise<Map<string,
   const map = await sizeItems(tx);
   const ids = [...map.values()];
   if (!ids.length) return new Map();
+  const prefs = await eggPrefs(tx);
+  const perBox = new Map([...map].map(([size, itemId]) => [itemId, unitsPerBox(size, prefs)]));
   const rows = await tx
     .select({
       day: inventoryTransactions.transactionDate,
+      itemId: inventoryTransactions.itemId,
       q: sql<string>`sum(${inventoryTransactions.quantity})`,
     })
     .from(inventoryTransactions)
     .where(and(inArray(inventoryTransactions.itemId, ids), gte(inventoryTransactions.transactionDate, from)))
-    .groupBy(inventoryTransactions.transactionDate);
-  return new Map(rows.map((r) => [r.day, Number(r.q)]));
+    .groupBy(inventoryTransactions.transactionDate, inventoryTransactions.itemId);
+  // In boxes, as the supply view counts: Dirty's trays a seventh each.
+  const out = new Map<string, number>();
+  for (const r of rows) out.set(r.day, (out.get(r.day) ?? 0) + Number(r.q) / (perBox.get(r.itemId) ?? 1));
+  return out;
 }
 
 /**
@@ -803,7 +833,8 @@ export async function settleCountAgainstLedger(
   // count correction moves value with quantity instead of leaving the two
   // telling different stories.
   const countRateP = await eggStockRatePerBoxP(tx, on);
-  const varianceValue = (s: EggSize) => ((variance[s] * countRateP) / 100).toFixed(2);
+  const unitPrefs = await eggPrefs(tx);
+  const varianceValue = (s: EggSize) => ((variance[s] * countRateP) / unitsPerBox(s, unitPrefs) / 100).toFixed(2);
   await tx.insert(inventoryAdjustmentLines).values(
     lines.map((s, i) => ({
       adjustmentId: adj!.id,
@@ -980,15 +1011,19 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
    */
   const held = await stockBySize(tx);
   for (const s of EGG_SIZES) {
-    if (qty(s) > held[s]) {
+    if (qty(s) * unitsPerBox(s, prefs) > held[s]) {
+      const k = unitsPerBox(s, prefs);
       throw new PostingError(
-        `Only ${held[s].toLocaleString("en-IN")} ${SIZE_LABEL[s]} box(es) in store — cannot load ${qty(s)}`,
+        k === 1
+          ? `Only ${held[s].toLocaleString("en-IN")} ${SIZE_LABEL[s]} box(es) in store — cannot load ${qty(s)}`
+          : `Only ${held[s].toLocaleString("en-IN")} ${SIZE_LABEL[s]} trays in store (${Math.floor(held[s] / k)} boxes of ${k}) — cannot load ${qty(s)} boxes`,
       );
     }
   }
 
   // Invoiced in boxes, like the items and the stock and every Zoho invoice
-  // before it — Dirty in trays of 30 — so a report can sum the lines. The line carries the size
+  // before it — so a report can sum the lines. Dirty too: sold in boxes of
+  // 210, though counted in stock in trays. The line carries the size
   // alone; the rate column already says what a box costs.
   const docLines: DocLineInput[] = EGG_SIZES.filter((s) => qty(s) > 0).map((s) => {
     const direct = boxRate[s];
@@ -997,14 +1032,14 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
           itemId: map.get(s),
           name: `Eggs — ${SIZE_LABEL[s]}`,
           quantity: String(qty(s)),
-          unit: EGG_UNIT[s].many,
+          unit: "boxes",
           rate: direct.toFixed(4),
         }
       : {
           itemId: map.get(s),
           name: `Eggs — ${SIZE_LABEL[s]}`,
           quantity: String(qty(s)),
-          unit: EGG_UNIT[s].many,
+          unit: "boxes",
           rate: (perEgg(s) * eggsInBox(s, prefs)).toFixed(4),
         };
   });
@@ -1097,7 +1132,8 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
     await moveStock(tx, {
       movements: EGG_SIZES.filter((s) => qty(s) > 0).map((s) => ({
         itemId: map.get(s)!,
-        quantity: `-${qty(s).toFixed(3)}`,
+        // In stock units: a Dirty box leaves as 7 trays.
+        quantity: `-${(qty(s) * unitsPerBox(s, prefs)).toFixed(3)}`,
         value: `-${((qty(s) * stockRateP) / 100).toFixed(2)}`,
         notes: `Invoice ${number}`,
       })),
@@ -1337,6 +1373,7 @@ export async function retakeInvoiceStock(
   if (live.length) {
     const store = live[0]!.stockLocationId;
     const rateP = await eggStockRatePerBoxP(tx, dispatch.dispatchDate);
+    const unitPrefs = await eggPrefs(tx);
     await moveStock(tx, {
       movements: [
         ...live.map((m) => ({
@@ -1349,7 +1386,7 @@ export async function retakeInvoiceStock(
         ...EGG_SIZES.filter((s) => boxes[s] > 0).map((s) => ({
           itemId: map.get(s)!,
           stockLocationId: store,
-          quantity: `-${boxes[s].toFixed(3)}`,
+          quantity: `-${(boxes[s] * unitsPerBox(s, unitPrefs)).toFixed(3)}`,
           value: `-${((boxes[s] * rateP) / 100).toFixed(2)}`,
           notes: `Edit of invoice ${number}`,
         })),

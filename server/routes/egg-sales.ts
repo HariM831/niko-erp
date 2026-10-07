@@ -41,6 +41,7 @@ import {
   assertDayOpen,
   dayLock,
   saveGrading,
+  sellableBoxes,
   sizeItems,
   stockBySize,
   supplyCascade,
@@ -556,7 +557,8 @@ eggSalesRouter.get("/day/:date", view, async (req, res) => {
   for (const size of DIRECT_RATE_SIZES) boxRates[size] = (await boxRateOn(db, size, on))?.ratePerBox ?? null;
 
   res.json({
-    stockBySize: held,
+    // Whole boxes the bay can load — Dirty's trays in sevens.
+    stockBySize: sellableBoxes(held, prefs),
     stockBoxes: EGG_SIZES.reduce((a, s) => a + held[s], 0),
     capacity,
     ledger,

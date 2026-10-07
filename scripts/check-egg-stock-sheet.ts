@@ -10,7 +10,15 @@ import { eq } from "drizzle-orm";
 import { eggStockDays, users } from "@shared/schema";
 import { STOCK_SHEET_SIZES } from "@shared/egg-sizes";
 import { db } from "../server/db";
-import { assertDayOpen, dayLock, loadAndInvoice } from "../server/services/egg-sales";
+import {
+  assertDayOpen,
+  dayLock,
+  eggsInBox,
+  eggsPerStockUnit,
+  loadAndInvoice,
+  sellableBoxes,
+  unitsPerBox,
+} from "../server/services/egg-sales";
 
 let failed = 0;
 const check = (name: string, pass: boolean, actual = "") => {
@@ -38,6 +46,16 @@ async function main() {
     "the statement's column order",
     STOCK_SHEET_SIZES.join(",") === "small,medium,large,niko,brown,jumbo,dirty",
     STOCK_SHEET_SIZES.join(","),
+  );
+
+  const prefs = { eggsPerBox: 210, jumboEggsPerBox: 180, nikoEggsPerBox: 360, dirtyEggsPerTray: 30 };
+  check("dirty is sold in boxes of 210", eggsInBox("dirty", prefs) === 210);
+  check("a dirty box sold takes 7 trays", unitsPerBox("dirty", prefs) === 7);
+  check("a dirty tray is 30 eggs laid", eggsPerStockUnit("dirty", prefs) === 30);
+  check("every other grade is counted in its box", unitsPerBox("large", prefs) === 1 && eggsPerStockUnit("niko", prefs) === 360);
+  check(
+    "15 dirty trays are 2 whole boxes to load",
+    sellableBoxes({ small: 0, medium: 0, large: 5, xl: 0, jumbo: 0, brown: 0, niko: 0, dirty: 15 }, prefs).dirty === 2,
   );
 
   try {

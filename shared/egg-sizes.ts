@@ -47,9 +47,10 @@ export const HIDDEN_EGG_SIZES: readonly EggSize[] = ["xl"];
 export const VISIBLE_EGG_SIZES = EGG_SIZES.filter((s) => !HIDDEN_EGG_SIZES.includes(s));
 
 /**
- * What one unit of a size is. Every grade is counted in boxes except Dirty,
- * which the packing room counts in trays of 30 (7 Oct 2026). Stock, loading
- * and the invoice all count the same unit; eggsInBox says how many eggs it is.
+ * The unit a size is COUNTED in on the Egg stock page — grading, the count and
+ * the stock itself. Every grade is in boxes except Dirty, which the packing
+ * room counts in trays of 30 (7 Oct 2026). Sales are always in boxes of 210:
+ * a Dirty box sold takes 7 trays out of stock (unitsPerBox on the server).
  */
 export const EGG_UNIT: Record<EggSize, { one: string; many: string }> = {
   small: { one: "box", many: "boxes" },

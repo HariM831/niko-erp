@@ -205,8 +205,11 @@ export const eggSalesPreferences = pgTable("egg_sales_preferences", {
   jumboEggsPerBox: integer("jumbo_eggs_per_box").notNull().default(180),
   /** The Niko pack holds 360 — the sheet prints it beside the column. */
   nikoEggsPerBox: integer("niko_eggs_per_box").notNull().default(360),
-  /** Dirty is counted and sold in trays, not boxes: 30 eggs (7 Oct 2026). */
-  dirtyEggsPerBox: integer("dirty_eggs_per_box").notNull().default(30),
+  /**
+   * Dirty is counted in stock in trays of 30, and sold in boxes of 210 like
+   * the rest (7 Oct 2026) — so a Dirty box sold takes eggsPerBox / this trays.
+   */
+  dirtyEggsPerTray: integer("dirty_eggs_per_tray").notNull().default(30),
   /** Retired placeholder (the ungraded item). Kept nullable for history. */
   eggItemId: uuid("egg_item_id").references(() => items.id),
   /** Grading on/after this date writes egg stock; before it is history. */
