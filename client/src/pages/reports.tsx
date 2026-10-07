@@ -20,8 +20,11 @@ interface ReportDef {
   key: string;
   label: string;
   category: string;
-  /** Period reports take from/to; position reports take a single as-of date. */
-  period: "range" | "asOf";
+  /**
+   * Period reports take from/to; position reports take a single as-of date;
+   * "now" reports are always today's position and bring their own settings.
+   */
+  period: "range" | "asOf" | "now";
 }
 
 /**
@@ -87,6 +90,8 @@ const REPORTS: ReportDef[] = [
     category: "Purchases and Expenses",
     period: "range",
   },
+  // What the feed mill must buy for the coming month — see ReorderReport below.
+  { key: "reorder", label: "Reorder Report", category: "Purchases and Expenses", period: "now" },
   {
     key: "expense-by-category",
     label: "Expenses by Category",
@@ -118,7 +123,7 @@ const monthStart = () => `${today().slice(0, 8)}01`;
 /** Zoho prints report periods as dd/MM/yyyy, not the ISO the inputs use. */
 const dmy = (iso: string) => iso.split("-").reverse().join("/");
 const periodLabel = (def: ReportDef, r: { from: string; to: string }) =>
-  def.period === "asOf" ? `As on ${dmy(r.to)}` : `From ${dmy(r.from)} To ${dmy(r.to)}`;
+  def.period === "now" ? `As on ${dmy(today())}` : def.period === "asOf" ? `As on ${dmy(r.to)}` : `From ${dmy(r.from)} To ${dmy(r.to)}`;
 
 /** Report amounts are bare numbers — the currency is stated once, on the page. */
 const num = (v: string | number | null | undefined) =>
@@ -328,12 +333,14 @@ export function ReportViewPage({ reportKey }: { reportKey: string }) {
     queryFn: () => api<{ name: string } | null>("/api/settings/org"),
   });
 
-  const query = new URLSearchParams(
-    def?.period === "asOf" ? { asOf: applied.to } : { from: applied.from, to: applied.to },
-  );
+  // A "now" report takes no period; its own settings ride in the URL and pass straight through.
+  const query =
+    def?.period === "now"
+      ? new URLSearchParams([...params].filter(([k]) => !["range", "from", "to"].includes(k)))
+      : new URLSearchParams(def?.period === "asOf" ? { asOf: applied.to } : { from: applied.from, to: applied.to });
   if (accountId) query.set("accountId", accountId);
   const { data, isLoading, error } = useQuery({
-    queryKey: ["report", reportKey, applied.from, applied.to, accountId ?? ""],
+    queryKey: ["report", reportKey, applied.from, applied.to, accountId ?? "", def?.period === "now" ? query.toString() : ""],
     queryFn: () => api<Record<string, unknown>>(`/api/reports/${reportKey}?${query}`),
     enabled: !!def,
   });
@@ -379,21 +386,23 @@ export function ReportViewPage({ reportKey }: { reportKey: string }) {
       </header>
 
       <div className="flex flex-wrap items-center gap-2 border-t bg-white px-6 py-2.5">
-        <span className="mr-1 text-[13px] text-gray-500">Filters :</span>
+        {def.period !== "now" && <span className="mr-1 text-[13px] text-gray-500">Filters :</span>}
         {/* A div, not a label: a label forwards clicks to the picker's first
             button and can snap its list shut again. */}
-        <div className="flex h-8 items-center gap-2 rounded-md border px-3 text-[13px]">
-          <span className="text-gray-500">Date Range :</span>
-          <SearchSelect
-            value={preset}
-            onChange={(id) => id && id !== preset && apply({ range: id })}
-            options={Object.keys(PRESETS).map((p) => ({ id: p, label: p }))}
-            allowClear={false}
-            keepOrder
-            className="w-36"
-            buttonClassName="bg-transparent outline-none text-[13px]"
-          />
-        </div>
+        {def.period !== "now" && (
+          <div className="flex h-8 items-center gap-2 rounded-md border px-3 text-[13px]">
+            <span className="text-gray-500">Date Range :</span>
+            <SearchSelect
+              value={preset}
+              onChange={(id) => id && id !== preset && apply({ range: id })}
+              options={Object.keys(PRESETS).map((p) => ({ id: p, label: p }))}
+              allowClear={false}
+              keepOrder
+              className="w-36"
+              buttonClassName="bg-transparent outline-none text-[13px]"
+            />
+          </div>
+        )}
 
         {/* niko posts on accrual only, so the basis is stated rather than
             offered as a one-option dropdown. */}
@@ -419,7 +428,7 @@ export function ReportViewPage({ reportKey }: { reportKey: string }) {
           </span>
         )}
 
-        {preset === "Custom" && (
+        {preset === "Custom" && def.period !== "now" && (
           <>
             <DateInput
               value={draft.from}
@@ -434,9 +443,11 @@ export function ReportViewPage({ reportKey }: { reportKey: string }) {
           </>
         )}
 
-        <button onClick={() => apply({ range: "Custom", ...draft })} className="btn-primary">
-          Run Report
-        </button>
+        {def.period !== "now" && (
+          <button onClick={() => apply({ range: "Custom", ...draft })} className="btn-primary">
+            Run Report
+          </button>
+        )}
         <Link href="/reports" className="ml-auto text-[13px] text-[#e06d05] hover:underline">
           All reports
         </Link>
@@ -763,6 +774,8 @@ function ReportBody({
       return <PurchasesByVendor data={data} />;
     case "purchase-orders":
       return <PurchaseOrdersReport data={data as unknown as PoReportData} />;
+    case "reorder":
+      return <ReorderReport data={data as unknown as ReorderData} />;
 
     case "expense-by-category":
       return <ExpenseByCategory data={data} />;
@@ -1006,6 +1019,171 @@ function SalesByCustomer({ data }: { data: Record<string, unknown> }) {
  * spends is claimed rather than billed, so a bills-only version of this report
  * would be missing the larger half of it.
  */
+interface ReorderRow {
+  itemId: string;
+  name: string;
+  unit: string | null;
+  onHand: number;
+  usePerDay: number;
+  coverDays: number | null;
+  runsOutOn: string | null;
+  onOrder: number;
+  purchaseOrders: string;
+  coverWithOrdersDays: number | null;
+  need: number;
+  toOrder: number;
+}
+interface ReorderData {
+  asOf: string;
+  basis: {
+    horizonDays: number;
+    safetyDays: number;
+    lookbackDays: number;
+    from: string;
+    to: string;
+    producedKg: number;
+    ratePerDay: number;
+    mix: Array<{ stage: string; share: number; formula: { name: string; version: number } | null }>;
+  };
+  rows: ReorderRow[];
+}
+
+/**
+ * Reorder Report: every ingredient of the live formulas, how long it lasts at
+ * the mill's recent pace, what is still to come on open orders, and what to
+ * order to cover the coming month plus a safety margin. The settings ride in
+ * the URL, so a link carries them.
+ */
+function ReorderReport({ data }: { data: ReorderData }) {
+  const [location, navigate] = useLocation();
+  const search = useSearch();
+  const b = data.basis;
+  const set = (key: "horizon" | "safety" | "lookback", v: number) => {
+    const p = new URLSearchParams(search);
+    p.set(key, String(v));
+    navigate(`${location}?${p}`);
+  };
+  const qty = (n: number, unit: string | null) => {
+    const u = unit ?? "kg";
+    const digits = n < 10 && n > 0 ? 1 : 0;
+    return `${n.toLocaleString("en-IN", { maximumFractionDigits: digits, minimumFractionDigits: digits })} ${u}`;
+  };
+  const days = (d: number | null) => (d === null ? "—" : d >= 365 ? "365+" : d.toFixed(1));
+  const toOrder = data.rows.filter((r) => r.toOrder > 0);
+  const short = data.rows.filter((r) => r.coverDays !== null && r.coverDays < b.safetyDays);
+  const tone = (d: number | null) =>
+    d === null ? "text-gray-400" : d < b.safetyDays ? "font-semibold text-red-600" : d < b.horizonDays ? "text-amber-700" : "text-gray-700";
+
+  const setting = (label: string, key: "horizon" | "safety" | "lookback", value: number, options: number[]) => (
+    <label className="flex h-8 items-center gap-2 rounded-md border px-3 text-[13px]">
+      <span className="text-gray-500">{label} :</span>
+      <select
+        id={`reorder-${key}`}
+        value={value}
+        onChange={(e) => set(key, Number(e.target.value))}
+        className="bg-transparent text-[13px] outline-none"
+      >
+        {options.map((o) => (
+          <option key={o} value={o}>
+            {o} days
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+
+  const card = (label: string, big: string, small: string, toneCls = "text-gray-500") => (
+    <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
+      <div className="text-[11px] font-semibold uppercase tracking-wide text-[#757383]">{label}</div>
+      <div className="mt-1 text-[22px] font-semibold tabular-nums text-[#212529]">{big}</div>
+      <div className={`text-[12px] tabular-nums ${toneCls}`}>{small}</div>
+    </div>
+  );
+
+  return (
+    <div className="w-full">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        {setting("Cover for", "horizon", b.horizonDays, [7, 14, 21, 30, 45, 60, 90])}
+        {setting("Safety stock", "safety", b.safetyDays, [0, 3, 5, 7, 10, 14, 21])}
+        {setting("Usage from the last", "lookback", b.lookbackDays, [7, 14, 21, 30, 60])}
+      </div>
+
+      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {card("To order", String(toOrder.length), `of ${data.rows.length} ingredients`)}
+        {card(
+          "Under safety stock",
+          String(short.length),
+          short.length ? short.map((r) => r.name).slice(0, 3).join(", ") + (short.length > 3 ? "…" : "") : "none",
+          short.length ? "text-red-600" : "text-gray-500",
+        )}
+        {card("Mill output", `${(b.ratePerDay / 1000).toLocaleString("en-IN", { maximumFractionDigits: 1 })} t/day`, `${dmy(b.from)} – ${dmy(b.to)}`)}
+        {card(
+          "Planned for",
+          `${b.horizonDays + b.safetyDays} days`,
+          `${b.horizonDays} days + ${b.safetyDays} days safety`,
+        )}
+      </div>
+
+      <div className="mb-3 text-[12px] text-gray-500">
+        Use per day is the live formulas at this mix:{" "}
+        {b.mix.map((m, i) => (
+          <span key={m.stage}>
+            {i > 0 && " · "}
+            <span className="text-gray-800">{m.formula ? `${m.formula.name} v${m.formula.version}` : m.stage}</span>{" "}
+            {Math.round(m.share * 100)}%
+          </span>
+        ))}
+        . On order counts open purchase orders under 95% delivered.
+      </div>
+
+      <div className="overflow-x-auto rounded-md border border-gray-200">
+        <table className="w-full min-w-[900px] text-[13px]">
+          <thead>
+            <tr className="bg-[#f9f9fb] text-[11px] font-semibold uppercase tracking-wide text-[#615d82]">
+              <th className="px-3 py-2 text-left">Ingredient</th>
+              <th className="px-3 py-2 text-right">On hand</th>
+              <th className="px-3 py-2 text-right">Use / day</th>
+              <th className="px-3 py-2 text-right">Days of cover</th>
+              <th className="px-3 py-2 text-left">Runs out</th>
+              <th className="px-3 py-2 text-right">On order</th>
+              <th className="px-3 py-2 text-right">Cover with orders</th>
+              <th className="px-3 py-2 text-right">Need ({b.horizonDays + b.safetyDays} d)</th>
+              <th className="px-3 py-2 text-right">To order</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.rows.map((r) => (
+              <tr key={r.itemId} className="border-t border-gray-100 align-top">
+                <td className="px-3 py-2 text-[#212529]">
+                  <Link href={`/items/${r.itemId}`} className="hover:text-[#e06d05] hover:underline">{r.name}</Link>
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums">{qty(r.onHand, r.unit)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{qty(r.usePerDay, r.unit)}</td>
+                <td className={`px-3 py-2 text-right tabular-nums ${tone(r.coverDays)}`}>{days(r.coverDays)}</td>
+                <td className="px-3 py-2 tabular-nums text-gray-600">{r.runsOutOn && r.coverDays !== null && r.coverDays < 365 ? dmy(r.runsOutOn) : "—"}</td>
+                <td className="px-3 py-2 text-right tabular-nums">
+                  {r.onOrder > 0 ? qty(r.onOrder, r.unit) : "—"}
+                  {r.purchaseOrders && <div className="text-[11px] text-gray-400">{r.purchaseOrders}</div>}
+                </td>
+                <td className={`px-3 py-2 text-right tabular-nums ${tone(r.coverWithOrdersDays)}`}>{days(r.coverWithOrdersDays)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{qty(r.need, r.unit)}</td>
+                <td className={`px-3 py-2 text-right tabular-nums ${r.toOrder > 0 ? "font-semibold text-[#212529]" : "text-gray-400"}`}>
+                  {r.toOrder > 0 ? qty(Math.ceil(r.toOrder), r.unit) : "—"}
+                </td>
+              </tr>
+            ))}
+            {!data.rows.length && (
+              <tr>
+                <td colSpan={9} className="px-3 py-8 text-center text-gray-500">No live formula has been milled in the last {b.lookbackDays} days.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 type PoStatus = "open" | "closed" | "cancelled";
 interface PoReportData {
   rows: Array<{

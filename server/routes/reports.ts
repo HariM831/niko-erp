@@ -31,6 +31,7 @@ import { requirePermission } from "../lib/rbac";
 import { weeklySummary } from "../services/rollup";
 import { istDate } from "../services/day-resolution";
 import { costAnalysis } from "../services/cost-analysis";
+import { reorderReport } from "../services/reorder";
 
 export const reportsRouter = Router();
 
@@ -999,6 +1000,18 @@ reportsRouter.get("/purchase-orders", requirePermission("reports", "view"), asyn
     overdueCount: rows.filter((r) => r.overdue).length,
     asOf: today,
   });
+});
+
+/** Reorder Report: ingredients of the live formulas, cover, and what to order. */
+reportsRouter.get("/reorder", requirePermission("reports", "view"), async (req, res) => {
+  const int = (v: unknown, d: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Math.round(Number(v)) || d));
+  res.json(
+    await reorderReport(db, {
+      horizonDays: int(req.query.horizon, 30, 1, 120),
+      safetyDays: int(req.query.safety, 7, 0, 60),
+      lookbackDays: int(req.query.lookback, 14, 3, 90),
+    }),
+  );
 });
 
 reportsRouter.get("/purchases-by-vendor", requirePermission("reports", "view"), async (req, res) => {
