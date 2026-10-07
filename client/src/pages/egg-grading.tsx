@@ -471,7 +471,7 @@ export function EggGradingPage() {
 
           <div className="mt-3 flex items-center justify-between gap-3">
             <p className="text-[11px] text-muted-foreground">
-              Boxes of 210; a jumbo box holds 180, a niko box 360. Small under {Number(sheet.bands.smallMaxKg)} kg
+              Boxes of 210; a jumbo box holds 180, a niko box 360. Dirty is counted in trays of 30. Small under {Number(sheet.bands.smallMaxKg)} kg
               · Medium to {Number(sheet.bands.mediumMaxKg)} kg · Large above · Jumbo picked, not weighed · Brown
               sorted by colour.
             </p>

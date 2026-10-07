@@ -39,7 +39,7 @@ import {
   placementDays,
   users,
 } from "@shared/schema";
-import { DIRECT_RATE_SIZES, EGG_SIZES, EGG_SIZE_LABEL, type EggSize } from "@shared/egg-sizes";
+import { DIRECT_RATE_SIZES, EGG_SIZES, EGG_SIZE_LABEL, EGG_UNIT, type EggSize } from "@shared/egg-sizes";
 import type { db as Db } from "../db";
 import { PostingError, postJournal } from "./posting";
 import { applyDefaultSalesAccounts, computeDocumentTotals, fromPaise, toPaise, type DocLineInput } from "./documents";
@@ -69,10 +69,12 @@ export { EGG_SIZES, type EggSize };
  */
 export function eggsInBox(
   size: (typeof EGG_SIZES)[number],
-  prefs: { eggsPerBox: number; jumboEggsPerBox: number; nikoEggsPerBox: number },
+  prefs: { eggsPerBox: number; jumboEggsPerBox: number; nikoEggsPerBox: number; dirtyEggsPerBox: number },
 ): number {
   if (size === "jumbo") return prefs.jumboEggsPerBox;
   if (size === "niko") return prefs.nikoEggsPerBox;
+  // A dirty "box" is a tray of 30 — the unit the packing room counts it in.
+  if (size === "dirty") return prefs.dirtyEggsPerBox;
   return prefs.eggsPerBox;
 }
 const SIZE_LABEL = EGG_SIZE_LABEL;
@@ -986,7 +988,7 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
   }
 
   // Invoiced in boxes, like the items and the stock and every Zoho invoice
-  // before it — so a report can sum the lines. The line carries the size
+  // before it — Dirty in trays of 30 — so a report can sum the lines. The line carries the size
   // alone; the rate column already says what a box costs.
   const docLines: DocLineInput[] = EGG_SIZES.filter((s) => qty(s) > 0).map((s) => {
     const direct = boxRate[s];
@@ -995,14 +997,14 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
           itemId: map.get(s),
           name: `Eggs — ${SIZE_LABEL[s]}`,
           quantity: String(qty(s)),
-          unit: "boxes",
+          unit: EGG_UNIT[s].many,
           rate: direct.toFixed(4),
         }
       : {
           itemId: map.get(s),
           name: `Eggs — ${SIZE_LABEL[s]}`,
           quantity: String(qty(s)),
-          unit: "boxes",
+          unit: EGG_UNIT[s].many,
           rate: (perEgg(s) * eggsInBox(s, prefs)).toFixed(4),
         };
   });

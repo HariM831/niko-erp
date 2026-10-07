@@ -47,6 +47,22 @@ export const HIDDEN_EGG_SIZES: readonly EggSize[] = ["xl"];
 export const VISIBLE_EGG_SIZES = EGG_SIZES.filter((s) => !HIDDEN_EGG_SIZES.includes(s));
 
 /**
+ * What one unit of a size is. Every grade is counted in boxes except Dirty,
+ * which the packing room counts in trays of 30 (7 Oct 2026). Stock, loading
+ * and the invoice all count the same unit; eggsInBox says how many eggs it is.
+ */
+export const EGG_UNIT: Record<EggSize, { one: string; many: string }> = {
+  small: { one: "box", many: "boxes" },
+  medium: { one: "box", many: "boxes" },
+  large: { one: "box", many: "boxes" },
+  xl: { one: "box", many: "boxes" },
+  jumbo: { one: "box", many: "boxes" },
+  brown: { one: "box", many: "boxes" },
+  niko: { one: "box", many: "boxes" },
+  dirty: { one: "tray", many: "trays" },
+};
+
+/**
  * The Daily Production & Stock Statement's own column order (7 Oct 2026):
  * Small, Medium, Large, NIKO, Brown, Jumbo, Dirty. The Egg stock page and its
  * PDF only — the Benchmark day sheets keep Jumbo last, as asked for there.

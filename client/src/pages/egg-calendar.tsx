@@ -15,6 +15,7 @@ import { ChevronLeft, ChevronRight, Loader2, MessageCircle, Pencil, Plus, Trash2
 import { api } from "../api";
 import { SearchSelect } from "../components/search-select";
 import { EggOrdersTable, EGG_SIZES as SIZES, EGG_SIZE_LABEL as SIZE_LABEL, isStruck, type EggSize as Size, type OrderLine } from "../components/egg-orders-table";
+import { EGG_UNIT } from "@shared/egg-sizes";
 import { localYmd } from "../lib/utils";
 
 interface CalDay {
@@ -432,7 +433,9 @@ function DayDrawer({
                   <div className="mb-2 grid grid-cols-3 gap-2">
                     {SIZES.map((s) => (
                       <div key={s}>
-                        <label className="mb-0.5 block text-[10px] text-muted-foreground">{SIZE_LABEL[s]} (boxes)</label>
+                        <label className="mb-0.5 block text-[10px] text-muted-foreground">
+                          {SIZE_LABEL[s]} ({EGG_UNIT[s].many})
+                        </label>
                         <input
                           type="number"
                           min="0"

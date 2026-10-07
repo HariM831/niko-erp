@@ -14,7 +14,7 @@ import { AlertTriangle, Loader2, Truck, X } from "lucide-react";
 import { api, formatMoney } from "../api";
 import { SearchSelect } from "../components/search-select";
 import { EggOrdersTable, isStruck, type OrderLine } from "../components/egg-orders-table";
-import { EGG_SIZES, EGG_SIZE_LABEL, VISIBLE_EGG_SIZES, isDirectRate, type EggSize } from "@shared/egg-sizes";
+import { EGG_SIZES, EGG_SIZE_LABEL, EGG_UNIT, VISIBLE_EGG_SIZES, isDirectRate, type EggSize } from "@shared/egg-sizes";
 import { FractionBar } from "../components/ui/fraction-bar";
 import { localYmd } from "../lib/utils";
 import { DateInput } from "../components/date-input";
@@ -493,11 +493,13 @@ function LoadDialog({
           </p>
         )}
 
-        <label className="mb-1 block text-xs font-medium text-muted-foreground">Boxes loaded, by size</label>
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">Loaded, by size</label>
         <div className="mb-3 grid grid-cols-3 gap-2">
           {SIZES.map((s) => (
             <div key={s}>
-              <label className="mb-0.5 block text-[10px] text-muted-foreground">{SIZE_LABEL[s]}</label>
+              <label className="mb-0.5 block text-[10px] text-muted-foreground">
+                {SIZE_LABEL[s]} ({EGG_UNIT[s as EggSize].many})
+              </label>
               <input
                 type="number"
                 min="0"
