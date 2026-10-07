@@ -1007,7 +1007,7 @@ reportsRouter.get("/reorder", requirePermission("reports", "view"), async (req, 
   const int = (v: unknown, d: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Math.round(Number(v)) || d));
   res.json(
     await reorderReport(db, {
-      horizonDays: int(req.query.horizon, 30, 1, 120),
+      horizonDays: int(req.query.horizon, 28, 1, 120),
       safetyDays: int(req.query.safety, 7, 0, 60),
       lookbackDays: int(req.query.lookback, 14, 3, 90),
     }),

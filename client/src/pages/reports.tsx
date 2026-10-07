@@ -1222,7 +1222,7 @@ function ReorderReport({ data }: { data: ReorderData }) {
   return (
     <div className="w-full">
       <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-gray-200 bg-[#fafafc] px-4 py-3">
-        <Segmented label="Cover for" k="horizon" value={b.horizonDays} options={[14, 21, 30, 45, 60]} />
+        <Segmented label="Cover for" k="horizon" value={b.horizonDays} options={[7, 14, 28]} />
         <Segmented label="Safety stock" k="safety" value={b.safetyDays} options={[0, 3, 7, 10, 14]} />
         <Segmented label="Usage from the last" k="lookback" value={b.lookbackDays} options={[7, 14, 30]} />
       </div>
