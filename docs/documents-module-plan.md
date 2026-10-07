@@ -228,8 +228,8 @@ built yet. What Folderit itself does, read from its help centre on 7 Oct
 
 1. ~~File storage~~ — **decided 7 Oct 2026:** files stay on the droplet's
    disk, where niko reads them as today, with a **nightly off-site copy**
-   used only to restore. **Still open: where the copy goes** (Spaces in
-   another region, Google Drive, or Backblaze B2).
+   used only to restore. The copy goes to **Google Drive** (a folder in the
+   user's Drive, within its storage quota).
 2. ~~Upload size~~ — **decided 7 Oct 2026:** 25 MB per file for documents
    (other attachments stay at 10 MB).
 3. ~~Vehicles and assets~~ — **decided 7 Oct 2026:** a small vehicle/asset
