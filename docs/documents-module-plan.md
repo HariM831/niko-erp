@@ -32,8 +32,9 @@ built yet. What Folderit itself does, read from its help centre on 7 Oct
   flag, a header note (Markdown: instructions shown at the top of the
   folder), the list columns it shows (optionally passed to subfolders), and
   its automatic approval route (§4). Seeded with: Legal, Licences & Registrations, Contracts &
-  Agreements, Land & Lease, HR, Insurance, Vehicles, Correspondence,
-  Policies & Circulars, Bank & Finance, Miscellaneous.
+  Agreements, Land & Lease, HR, Insurance, Vehicles, Correspondence (with
+  Inward and Outward under it), Policies & Circulars, Bank & Finance,
+  Miscellaneous.
 - `document_types`: Licence, Agreement, Letter, Certificate, Policy,
   Notice, Invoice copy, ID proof, Other. Each type says which fields it
   carries (issue date, expiry, reference no., amount, party) and whether
@@ -41,7 +42,8 @@ built yet. What Folderit itself does, read from its help centre on 7 Oct
 - `document_number_schemes`: per folder — pattern (text, financial year,
   counter), next number, whether subfolders use it, reset each April.
   Settings lists every scheme and the documents under each, as a registry.
-- `documents`: a number from its folder's scheme (e.g. AGR/2026-27/0001),
+- `documents`: a number from its folder's scheme, if it has one (e.g.
+  IN/2026-27/0001),
   title, folder, type, status
   (Draft → Under review → Approved → Signed → Expired → Archived, or Void),
   party (contact), employee, issue date, expiry date, reference no., amount,
@@ -235,8 +237,8 @@ built yet. What Folderit itself does, read from its help centre on 7 Oct
    HYP2003…)?
 6. **Email-in mailbox:** which mail service hosts @aminofarms.com?
 7. **Reminders:** in-app only, or also WhatsApp links / email?
-8. **Number formats:** numbering is per folder (decided 7 Oct 2026). Which
-   folders get a series at the start, and in what format — IN/2026-27/0001,
-   OUT/2026-27/0001, AGR/2026-27/0001… — or the farm's existing register
-   style?
+8. ~~Number formats~~ — **decided 7 Oct 2026:** numbering is per folder;
+   at the start only Correspondence › Inward (**IN/2026-27/0001**) and
+   Correspondence › Outward (**OUT/2026-27/0001**) carry a series. Every
+   other folder starts unnumbered; a series can be added to any folder later.
 9. **Who manages documents** — which roles get which folders at the start?
