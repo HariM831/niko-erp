@@ -1053,132 +1053,220 @@ interface ReorderData {
  * the mill's recent pace, what is still to come on open orders, and what to
  * order to cover the coming month plus a safety margin. The settings ride in
  * the URL, so a link carries them.
+ *
+ * Read in two blocks — what to order, then what is covered — and each row
+ * carries a cover bar: stock in hand solid, stock on order hatched, against
+ * the safety line and the end of the planning window, so the urgent rows show
+ * before a single number is read.
  */
 function ReorderReport({ data }: { data: ReorderData }) {
   const [location, navigate] = useLocation();
   const search = useSearch();
   const b = data.basis;
+  const window = b.horizonDays + b.safetyDays;
   const set = (key: "horizon" | "safety" | "lookback", v: number) => {
     const p = new URLSearchParams(search);
     p.set(key, String(v));
     navigate(`${location}?${p}`);
   };
-  const qty = (n: number, unit: string | null) => {
-    const u = unit ?? "kg";
-    const digits = n < 10 && n > 0 ? 1 : 0;
-    return `${n.toLocaleString("en-IN", { maximumFractionDigits: digits, minimumFractionDigits: digits })} ${u}`;
-  };
-  const days = (d: number | null) => (d === null ? "—" : d >= 365 ? "365+" : d.toFixed(1));
-  const toOrder = data.rows.filter((r) => r.toOrder > 0);
-  const short = data.rows.filter((r) => r.coverDays !== null && r.coverDays < b.safetyDays);
-  const tone = (d: number | null) =>
-    d === null ? "text-gray-400" : d < b.safetyDays ? "font-semibold text-red-600" : d < b.horizonDays ? "text-amber-700" : "text-gray-700";
 
-  const setting = (label: string, key: "horizon" | "safety" | "lookback", value: number, options: number[]) => (
-    <label className="flex h-8 items-center gap-2 rounded-md border px-3 text-[13px]">
-      <span className="text-gray-500">{label} :</span>
-      <select
-        id={`reorder-${key}`}
-        value={value}
-        onChange={(e) => set(key, Number(e.target.value))}
-        className="bg-transparent text-[13px] outline-none"
-      >
+  /** kg read as tonnes once they are tonnes; packs as packs. */
+  const amount = (n: number, unit: string | null) => {
+    const u = (unit ?? "kg").toLowerCase();
+    if (u === "kg" && n >= 1000) return { v: (n / 1000).toLocaleString("en-IN", { maximumFractionDigits: n >= 100_000 ? 0 : 1 }), u: "t" };
+    if (u === "kg") return { v: n.toLocaleString("en-IN", { maximumFractionDigits: n < 10 ? 1 : 0 }), u: "kg" };
+    if (u === "pcs") return { v: Math.round(n).toLocaleString("en-IN"), u: "packs" };
+    return { v: n.toLocaleString("en-IN", { maximumFractionDigits: 1 }), u: unit ?? "" };
+  };
+  const Qty = ({ n, unit, strong }: { n: number; unit: string | null; strong?: boolean }) => {
+    const a = amount(n, unit);
+    return (
+      <span className="whitespace-nowrap tabular-nums">
+        <span className={strong ? "font-semibold text-[#212529]" : ""}>{a.v}</span>
+        <span className="ml-1 text-[11px] text-gray-400">{a.u}</span>
+      </span>
+    );
+  };
+
+  type Urgency = "now" | "soon" | "covered";
+  const urgency = (r: ReorderRow): Urgency =>
+    r.coverDays !== null && r.coverDays < b.safetyDays ? "now" : r.toOrder > 0 ? "soon" : "covered";
+  const URGENCY: Record<Urgency, { label: string; chip: string; bar: string }> = {
+    now: { label: "Order now", chip: "bg-red-50 text-red-700 ring-red-200", bar: "bg-red-500" },
+    soon: { label: "Order", chip: "bg-amber-50 text-amber-800 ring-amber-200", bar: "bg-amber-500" },
+    covered: { label: "Covered", chip: "bg-emerald-50 text-emerald-700 ring-emerald-200", bar: "bg-emerald-500" },
+  };
+
+  const toOrder = data.rows.filter((r) => r.toOrder > 0);
+  const covered = data.rows.filter((r) => r.toOrder <= 0);
+  const urgent = data.rows.filter((r) => urgency(r) === "now");
+  const tonnesToOrder = toOrder.filter((r) => (r.unit ?? "kg").toLowerCase() === "kg").reduce((n, r) => n + r.toOrder, 0) / 1000;
+
+  /** Days of cover as a bar: in hand solid, on order hatched, markers at safety and at the window's end. */
+  const scaleMax = window * 1.25;
+  const CoverBar = ({ r }: { r: ReorderRow }) => {
+    const inHand = Math.min(r.coverDays ?? 0, scaleMax);
+    const withOrders = Math.min(r.coverWithOrdersDays ?? 0, scaleMax);
+    const pct = (d: number) => `${(d / scaleMax) * 100}%`;
+    const tone = URGENCY[urgency(r)].bar;
+    return (
+      <div className="relative h-2.5 w-full min-w-[140px] rounded-full bg-gray-100" aria-hidden="true">
+        {withOrders > inHand && (
+          <div
+            className={`absolute inset-y-0 rounded-r-full opacity-40 ${tone}`}
+            style={{ left: pct(inHand), width: pct(withOrders - inHand), backgroundImage: "repeating-linear-gradient(135deg, rgba(255,255,255,.7) 0 3px, transparent 3px 6px)" }}
+          />
+        )}
+        <div className={`absolute inset-y-0 left-0 rounded-full ${tone}`} style={{ width: pct(inHand) }} />
+        <div className="absolute -inset-y-1 w-px bg-gray-500" style={{ left: pct(b.safetyDays) }} title={`Safety stock, ${b.safetyDays} days`} />
+        <div className="absolute -inset-y-1 w-px bg-gray-800" style={{ left: pct(window) }} title={`End of plan, ${window} days`} />
+      </div>
+    );
+  };
+
+  const Segmented = ({ label, k, value, options }: { label: string; k: "horizon" | "safety" | "lookback"; value: number; options: number[] }) => (
+    <div className="flex items-center gap-2">
+      <span className="text-[12px] text-gray-500">{label}</span>
+      <div className="flex overflow-hidden rounded-md border border-gray-200" role="group" aria-label={label}>
         {options.map((o) => (
-          <option key={o} value={o}>
-            {o} days
-          </option>
+          <button
+            key={o}
+            type="button"
+            onClick={() => set(k, o)}
+            aria-pressed={o === value}
+            className={`px-2.5 py-1 text-[12px] tabular-nums transition-colors ${
+              o === value ? "bg-[#615d82] text-white" : "bg-white text-gray-600 hover:bg-gray-50"
+            } border-l border-gray-200 first:border-l-0`}
+          >
+            {o}d
+          </button>
         ))}
-      </select>
-    </label>
+      </div>
+    </div>
   );
 
-  const card = (label: string, big: string, small: string, toneCls = "text-gray-500") => (
+  const Head = () => (
+    <thead>
+      <tr className="text-[11px] font-semibold uppercase tracking-wide text-[#615d82]">
+        <th className="px-3 py-2 text-left">Ingredient</th>
+        <th className="px-3 py-2 text-left">Days of cover</th>
+        <th className="px-3 py-2 text-right">On hand</th>
+        <th className="px-3 py-2 text-right">Use / day</th>
+        <th className="px-3 py-2 text-right">On order</th>
+        <th className="px-3 py-2 text-right">Need, {window} days</th>
+        <th className="px-3 py-2 text-right">To order</th>
+      </tr>
+    </thead>
+  );
+
+  const Row = ({ r }: { r: ReorderRow }) => {
+    const u = URGENCY[urgency(r)];
+    const lasts = r.coverDays === null ? "—" : r.coverDays >= 365 ? "365+ days" : `${r.coverDays.toFixed(1)} days`;
+    return (
+      <tr className="border-t border-gray-100 hover:bg-[#fafafc]">
+        <td className="px-3 py-2.5">
+          <Link href={`/items/${r.itemId}`} className="font-medium text-[#212529] hover:text-[#e06d05] hover:underline">{r.name}</Link>
+          <div className="mt-0.5">
+            <span className={`inline-block rounded-full px-2 py-px text-[10.5px] font-medium ring-1 ring-inset ${u.chip}`}>{u.label}</span>
+          </div>
+        </td>
+        <td className="px-3 py-2.5">
+          <CoverBar r={r} />
+          <div className="mt-1 flex justify-between gap-3 text-[11.5px] tabular-nums text-gray-500">
+            <span className={urgency(r) === "now" ? "font-semibold text-red-700" : ""}>{lasts}</span>
+            <span>{r.runsOutOn && r.coverDays !== null && r.coverDays < 365 ? `out ${dmy(r.runsOutOn)}` : ""}</span>
+          </div>
+        </td>
+        <td className="px-3 py-2.5 text-right"><Qty n={r.onHand} unit={r.unit} /></td>
+        <td className="px-3 py-2.5 text-right"><Qty n={r.usePerDay} unit={r.unit} /></td>
+        <td className="px-3 py-2.5 text-right">
+          {r.onOrder > 0 ? <Qty n={r.onOrder} unit={r.unit} /> : <span className="text-gray-300">—</span>}
+          {r.purchaseOrders && <div className="text-[11px] text-gray-400">{r.purchaseOrders}</div>}
+        </td>
+        <td className="px-3 py-2.5 text-right text-gray-600"><Qty n={r.need} unit={r.unit} /></td>
+        <td className="px-3 py-2.5 text-right">
+          {r.toOrder > 0 ? (
+            <span className="inline-block rounded-md bg-[#fff4e8] px-2 py-1 text-[#9a4a00]"><Qty n={Math.ceil(r.toOrder)} unit={r.unit} strong /></span>
+          ) : (
+            <span className="text-gray-300">—</span>
+          )}
+        </td>
+      </tr>
+    );
+  };
+
+  const Block = ({ title, note, rows }: { title: string; note: string; rows: ReorderRow[] }) =>
+    rows.length ? (
+      <section className="mb-6">
+        <div className="mb-2 flex items-baseline gap-2">
+          <h3 className="text-[14px] font-semibold text-[#212529]">{title}</h3>
+          <span className="text-[12px] text-gray-500">{note}</span>
+        </div>
+        <div className="overflow-x-auto rounded-lg border border-gray-200">
+          <table className="w-full min-w-[920px] text-[13px]">
+            <Head />
+            <tbody>{rows.map((r) => <Row key={r.itemId} r={r} />)}</tbody>
+          </table>
+        </div>
+      </section>
+    ) : null;
+
+  const stat = (label: string, big: React.ReactNode, small: React.ReactNode, accent = "") => (
     <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
       <div className="text-[11px] font-semibold uppercase tracking-wide text-[#757383]">{label}</div>
-      <div className="mt-1 text-[22px] font-semibold tabular-nums text-[#212529]">{big}</div>
-      <div className={`text-[12px] tabular-nums ${toneCls}`}>{small}</div>
+      <div className={`mt-1 text-[22px] font-semibold tabular-nums ${accent || "text-[#212529]"}`}>{big}</div>
+      <div className="text-[12px] text-gray-500">{small}</div>
     </div>
   );
 
   return (
     <div className="w-full">
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        {setting("Cover for", "horizon", b.horizonDays, [7, 14, 21, 30, 45, 60, 90])}
-        {setting("Safety stock", "safety", b.safetyDays, [0, 3, 5, 7, 10, 14, 21])}
-        {setting("Usage from the last", "lookback", b.lookbackDays, [7, 14, 21, 30, 60])}
+      <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-gray-200 bg-[#fafafc] px-4 py-3">
+        <Segmented label="Cover for" k="horizon" value={b.horizonDays} options={[14, 21, 30, 45, 60]} />
+        <Segmented label="Safety stock" k="safety" value={b.safetyDays} options={[0, 3, 7, 10, 14]} />
+        <Segmented label="Usage from the last" k="lookback" value={b.lookbackDays} options={[7, 14, 30]} />
       </div>
 
-      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {card("To order", String(toOrder.length), `of ${data.rows.length} ingredients`)}
-        {card(
-          "Under safety stock",
-          String(short.length),
-          short.length ? short.map((r) => r.name).slice(0, 3).join(", ") + (short.length > 3 ? "…" : "") : "none",
-          short.length ? "text-red-600" : "text-gray-500",
+      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {stat("To order", toOrder.length, `of ${data.rows.length} ingredients`)}
+        {stat(
+          "Order now",
+          urgent.length,
+          urgent.length ? urgent.map((r) => r.name).join(", ") : `nothing under ${b.safetyDays} days`,
+          urgent.length ? "text-red-600" : "text-emerald-600",
         )}
-        {card("Mill output", `${(b.ratePerDay / 1000).toLocaleString("en-IN", { maximumFractionDigits: 1 })} t/day`, `${dmy(b.from)} – ${dmy(b.to)}`)}
-        {card(
-          "Planned for",
-          `${b.horizonDays + b.safetyDays} days`,
-          `${b.horizonDays} days + ${b.safetyDays} days safety`,
-        )}
-      </div>
-
-      <div className="mb-3 text-[12px] text-gray-500">
-        Use per day is the live formulas at this mix:{" "}
-        {b.mix.map((m, i) => (
-          <span key={m.stage}>
-            {i > 0 && " · "}
-            <span className="text-gray-800">{m.formula ? `${m.formula.name} v${m.formula.version}` : m.stage}</span>{" "}
-            {Math.round(m.share * 100)}%
-          </span>
-        ))}
-        . On order counts open purchase orders under 95% delivered.
-      </div>
-
-      <div className="overflow-x-auto rounded-md border border-gray-200">
-        <table className="w-full min-w-[900px] text-[13px]">
-          <thead>
-            <tr className="bg-[#f9f9fb] text-[11px] font-semibold uppercase tracking-wide text-[#615d82]">
-              <th className="px-3 py-2 text-left">Ingredient</th>
-              <th className="px-3 py-2 text-right">On hand</th>
-              <th className="px-3 py-2 text-right">Use / day</th>
-              <th className="px-3 py-2 text-right">Days of cover</th>
-              <th className="px-3 py-2 text-left">Runs out</th>
-              <th className="px-3 py-2 text-right">On order</th>
-              <th className="px-3 py-2 text-right">Cover with orders</th>
-              <th className="px-3 py-2 text-right">Need ({b.horizonDays + b.safetyDays} d)</th>
-              <th className="px-3 py-2 text-right">To order</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.rows.map((r) => (
-              <tr key={r.itemId} className="border-t border-gray-100 align-top">
-                <td className="px-3 py-2 text-[#212529]">
-                  <Link href={`/items/${r.itemId}`} className="hover:text-[#e06d05] hover:underline">{r.name}</Link>
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums">{qty(r.onHand, r.unit)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{qty(r.usePerDay, r.unit)}</td>
-                <td className={`px-3 py-2 text-right tabular-nums ${tone(r.coverDays)}`}>{days(r.coverDays)}</td>
-                <td className="px-3 py-2 tabular-nums text-gray-600">{r.runsOutOn && r.coverDays !== null && r.coverDays < 365 ? dmy(r.runsOutOn) : "—"}</td>
-                <td className="px-3 py-2 text-right tabular-nums">
-                  {r.onOrder > 0 ? qty(r.onOrder, r.unit) : "—"}
-                  {r.purchaseOrders && <div className="text-[11px] text-gray-400">{r.purchaseOrders}</div>}
-                </td>
-                <td className={`px-3 py-2 text-right tabular-nums ${tone(r.coverWithOrdersDays)}`}>{days(r.coverWithOrdersDays)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{qty(r.need, r.unit)}</td>
-                <td className={`px-3 py-2 text-right tabular-nums ${r.toOrder > 0 ? "font-semibold text-[#212529]" : "text-gray-400"}`}>
-                  {r.toOrder > 0 ? qty(Math.ceil(r.toOrder), r.unit) : "—"}
-                </td>
-              </tr>
+        {stat("Bulk to buy", `${tonnesToOrder.toLocaleString("en-IN", { maximumFractionDigits: 1 })} t`, "maize, meals, minerals")}
+        {stat(
+          "Mill output",
+          `${(b.ratePerDay / 1000).toLocaleString("en-IN", { maximumFractionDigits: 1 })} t/day`,
+          <>
+            {b.mix.map((m, i) => (
+              <span key={m.stage}>
+                {i > 0 && " · "}
+                {m.formula ? `${m.formula.name} v${m.formula.version}` : m.stage} {Math.round(m.share * 100)}%
+              </span>
             ))}
-            {!data.rows.length && (
-              <tr>
-                <td colSpan={9} className="px-3 py-8 text-center text-gray-500">No live formula has been milled in the last {b.lookbackDays} days.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+          </>,
+        )}
+      </div>
+
+      <Block title="To order" note={`to cover ${b.horizonDays} days plus ${b.safetyDays} days of safety stock, after stock in hand and open orders`} rows={toOrder} />
+      <Block title="Covered" note="stock in hand and open orders last the whole plan" rows={covered} />
+
+      {!data.rows.length && (
+        <div className="rounded-lg border border-dashed border-gray-300 px-4 py-10 text-center text-[13px] text-gray-500">
+          No live formula has been milled in the last {b.lookbackDays} days, so there is no usage to plan from.
+        </div>
+      )}
+
+      <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-[11.5px] text-gray-500">
+        <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-5 rounded-full bg-gray-400" /> in hand</span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-2 w-5 rounded-full bg-gray-400 opacity-40" style={{ backgroundImage: "repeating-linear-gradient(135deg, rgba(255,255,255,.7) 0 3px, transparent 3px 6px)" }} /> on order
+        </span>
+        <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-px bg-gray-500" /> safety stock ({b.safetyDays} d)</span>
+        <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-px bg-gray-800" /> end of plan ({window} d)</span>
+        <span>Usage from {dmy(b.from)} to {dmy(b.to)}, on each feed's current formula. On order counts open purchase orders under 95% delivered.</span>
       </div>
     </div>
   );
