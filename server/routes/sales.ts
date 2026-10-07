@@ -21,7 +21,7 @@ import { gstStateCode, validateBody } from "../lib/validate";
 import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, assertPeriodOpen, postJournal, reverseJournal } from "../services/posting";
 import { moveStock } from "../services/inventory";
-import { retakeInvoiceStock, unapplyInvoicePayments, voidDispatchForInvoice } from "../services/egg-sales";
+import { assertDayOpen, retakeInvoiceStock, unapplyInvoicePayments, voidDispatchForInvoice } from "../services/egg-sales";
 import { advancedSearch, listLimit, quickSearch } from "../services/document-search";
 import { customerPaymentSearch, invoiceSearch } from "../services/search-specs";
 import { getPreferences } from "../services/preferences";
@@ -717,6 +717,8 @@ salesRouter.post(
           )
           .groupBy(inventoryTransactions.itemId, inventoryTransactions.stockLocationId);
         if (moved.length) {
+          // The boxes come back on the void date, so that day's egg sheet must still be open.
+          await assertDayOpen(tx, req.body.voidDate, "voiding an egg invoice into it");
           await moveStock(tx, {
             movements: moved.map((m) => ({
               itemId: m.itemId,

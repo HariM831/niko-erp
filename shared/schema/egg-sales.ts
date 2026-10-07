@@ -258,9 +258,9 @@ export const eggGrading = pgTable(
  * The evening count — the one figure the ledger cannot derive. One total per
  * size for the day, as the packing room counts its shelves (29 Sep 2026: "closing
  * is one total per size"); eggs are not counted by the shed they came from once
- * they are boxed. Recorded as a count, never written into stock by itself; a
- * difference against the ledger is posted as an adjustment, where a difference
- * belongs.
+ * they are boxed. A check on the calculated closing, never written into stock
+ * (7 Oct 2026): the sheet carries yesterday's closing forward unchanged, so a
+ * difference is shown for somebody to explain, not posted away.
  */
 export const eggStockCount = pgTable(
   "egg_stock_count",
@@ -285,6 +285,22 @@ export const eggStockCount = pgTable(
   },
   (t) => [uniqueIndex("uq_egg_stock_count_day").on(t.countedOn)],
 );
+
+/**
+ * A day's statement as the supervisor submitted it — the sheet's signature.
+ *
+ * Submitted, the day is locked: its grading, its count and any truck dated to
+ * it are refused, so the closing that becomes tomorrow's opening cannot move
+ * after it was signed. An Admin or a Director can reopen it; the reopen is
+ * kept beside the submission, and submitting again re-signs it.
+ */
+export const eggStockDays = pgTable("egg_stock_days", {
+  day: date("day").primaryKey(),
+  submittedBy: uuid("submitted_by").references(() => users.id),
+  submittedAt: timestamp("submitted_at", { withTimezone: true }),
+  reopenedBy: uuid("reopened_by").references(() => users.id),
+  reopenedAt: timestamp("reopened_at", { withTimezone: true }),
+});
 
 /**
  * A rate per box for the grades sold that way — Niko, today. Nothing to do

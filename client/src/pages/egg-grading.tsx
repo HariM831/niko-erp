@@ -1,23 +1,26 @@
 /**
- * Egg stock — the day sheet, as the packing room fills it.
+ * Egg stock — the Daily Production & Stock Statement, as the farm's sheet
+ * lays it out (7 Oct 2026).
  *
- * The top half is what gets entered: graded boxes per shed per size. The
- * bottom half — opening, production, sales, closing per size — is derived
- * from the stock ledger and never keyed, so it cannot disagree with the bay.
- * A correction to a shed's row corrects its stock movement in place.
+ * Production Report: graded boxes per shed per size, keyed. Stock Summary:
+ * opening (yesterday's closing, unchanged), + production (the report's
+ * total), − sales (trucks loaded in the bay, nothing else), = closing —
+ * calculated, never keyed. The physical count checks the closing and never
+ * changes it; a difference shows in red. The supervisor submits the day,
+ * which locks it until an Admin or a Director reopens it.
  */
 import { useEffect, useRef, useState } from "react";
-import { Camera, Egg, Loader2 } from "lucide-react";
+import { Camera, Egg, FileDown, Loader2, Lock, LockOpen } from "lucide-react";
 import { api } from "../api";
 import { asDataUrl, shrink } from "../lib/image";
-import { EGG_SIZE_LABEL, EGG_SIZE_SHORT, VISIBLE_EGG_SIZES, type EggSize } from "@shared/egg-sizes";
+import { EGG_SIZE_LABEL, EGG_SIZE_SHORT, STOCK_SHEET_SIZES, type EggSize } from "@shared/egg-sizes";
 import { localYmd } from "../lib/utils";
 import { DateInput } from "../components/date-input";
 
-/** The grades this screen shows — the shared list less the hidden ones. */
-const SIZES = VISIBLE_EGG_SIZES;
+/** The grades this screen shows, in the statement's own order. */
+const SIZES = STOCK_SHEET_SIZES;
 type Size = EggSize;
-const LABEL = EGG_SIZE_LABEL;
+const LABEL: Record<Size, string> = { ...EGG_SIZE_LABEL, niko: "NIKO" };
 const SHORT = EGG_SIZE_SHORT;
 
 /** What the photo reader sends back — suggestions and its own checks, nothing saved. */
@@ -96,11 +99,17 @@ interface Sheet {
   summary: Record<Size, Summary>;
   /** The evening count, one total per size; null until counted. */
   count: Record<Size, number> | null;
-  /** Counted minus the ledger's closing, per size. */
+  /** Counted minus the calculated closing, per size. */
   variance: Record<Size, number> | null;
   bands: { smallMaxKg: string; mediumMaxKg: string; largeMaxKg: string };
   stockFrom: string;
+  submission: { submittedBy: string | null; submittedAt: string; reopenedBy: string | null; reopenedAt: string | null } | null;
+  locked: boolean;
+  canReopen: boolean;
 }
+
+const when = (t: string) =>
+  new Date(t).toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 
 const num = (n: number) => n.toLocaleString("en-IN");
 const inputCls =
@@ -225,14 +234,14 @@ export function EggGradingPage() {
     setSavingClosing(true);
     setError(null);
     try {
-      const r = await api<{ adjustmentNumber: string | null }>("/api/sales/eggs/closing", {
+      await api("/api/sales/eggs/closing", {
         method: "POST",
         body: {
           countedOn: date,
           boxes: Object.fromEntries(SIZES.map((z) => [z, Number(closingDraft[z]) || 0])),
         },
       });
-      setClosingSaved(r.adjustmentNumber ? `saved · ledger adjusted by ${r.adjustmentNumber}` : "saved · ledger already agreed");
+      setClosingSaved("saved");
       load();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save count");
@@ -241,9 +250,24 @@ export function EggGradingPage() {
     }
   };
 
+  const [signing, setSigning] = useState(false);
+  /** Submit signs the day; reopen is an Admin's or a Director's. */
+  const sign = async (action: "submit" | "reopen") => {
+    if (action === "reopen" && !window.confirm(`Reopen ${date}? Its grading, count and trucks become editable again.`)) return;
+    setSigning(true);
+    setError(null);
+    try {
+      await api(`/api/sales/eggs/grading/${date}/${action}`, { method: "POST" });
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : `Failed to ${action}`);
+    } finally {
+      setSigning(false);
+    }
+  };
+
   const colTotal = (size: Size) =>
     Object.values(draft).reduce((a, r) => a + (Number(r[size]) || 0), 0);
-  const rowTotal = (houseId: string) => SIZES.reduce((a, z) => a + (Number(draft[houseId]?.[z]) || 0), 0);
 
   const save = async () => {
     setSaving(true);
@@ -303,6 +327,15 @@ export function EggGradingPage() {
             {reading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
             Read a photo
           </button>
+          <a
+            href={`/api/sales/eggs/grading/${date}/sheet.pdf`}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-sm font-medium hover:bg-soil-50"
+          >
+            <FileDown className="h-4 w-4" />
+            PDF
+          </a>
           <DateInput
             value={date}
             onChange={(e) => setDate(e.target.value)}
@@ -353,8 +386,8 @@ export function EggGradingPage() {
                   {SIZES.filter((z) => read.stock![z]?.closing != null)
                     .map((z) => {
                       const paper = read.stock![z]!.closing!;
-                      const ledger = sheet.summary[z]?.closing ?? 0;
-                      return `${LABEL[z]} ${num(paper)}${paper === ledger ? "" : ` (ledger ${num(ledger)})`}`;
+                      const calc = sheet.summary[z]?.closing ?? 0;
+                      return `${LABEL[z]} ${num(paper)}${paper === calc ? "" : ` (calculated ${num(calc)})`}`;
                     })
                     .join(" · ")}
                 </div>
@@ -369,6 +402,27 @@ export function EggGradingPage() {
             </div>
           )}
 
+          {sheet.submission && (
+            <div
+              className={`mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md px-3 py-2 text-xs ${
+                sheet.locked ? "bg-soil-100 text-soil-700" : "bg-warning/10 text-warning"
+              }`}
+            >
+              <span className="inline-flex items-center gap-1.5">
+                {sheet.locked ? <Lock className="h-3.5 w-3.5" /> : <LockOpen className="h-3.5 w-3.5" />}
+                Submitted by {sheet.submission.submittedBy ?? "—"} · {when(sheet.submission.submittedAt)}
+                {!sheet.locked && sheet.submission.reopenedAt
+                  ? ` · reopened by ${sheet.submission.reopenedBy ?? "—"} · ${when(sheet.submission.reopenedAt)}`
+                  : " · locked"}
+              </span>
+              {sheet.locked && sheet.canReopen && (
+                <button onClick={() => sign("reopen")} disabled={signing} className="font-medium underline">
+                  Reopen
+                </button>
+              )}
+            </div>
+          )}
+
           <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-soil-400">
             Production report
           </div>
@@ -376,13 +430,12 @@ export function EggGradingPage() {
             <table className="data-table cols-auto w-full text-sm">
               <thead className="bg-soil-50 text-left text-[11px] font-semibold uppercase text-soil-400">
                 <tr className="border-b border-soil-100">
-                  <th className="whitespace-nowrap px-3 py-2 text-left">Shed</th>
+                  <th className="whitespace-nowrap px-3 py-2 text-left">Particulars</th>
                   {SIZES.map((z) => (
                     <th key={z} className="whitespace-nowrap px-3 py-2 text-right">
                       <span className="lg:hidden">{SHORT[z]}</span><span className="hidden lg:inline">{LABEL[z]}</span>
                     </th>
                   ))}
-                  <th className="whitespace-nowrap px-3 py-2 text-right"><span className="lg:hidden">Tot</span><span className="hidden lg:inline">Total</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -396,14 +449,12 @@ export function EggGradingPage() {
                           min="0"
                           value={draft[r.houseId]?.[z] ?? ""}
                           onChange={(e) => set(r.houseId, z, e.target.value)}
-                          className={`${inputCls} ${fromPhoto.has(`${r.houseId}:${z}`) ? "border-yolk-400 bg-yolk-50" : ""}`}
+                          disabled={sheet.locked}
+                          className={`${inputCls} ${fromPhoto.has(`${r.houseId}:${z}`) ? "border-yolk-400 bg-yolk-50" : ""} disabled:bg-soil-50 disabled:text-soil-700`}
                           placeholder="—"
                         />
                       </td>
                     ))}
-                    <td className="px-3 py-1.5 text-right font-medium tabular-nums">
-                      {rowTotal(r.houseId) ? num(rowTotal(r.houseId)) : "—"}
-                    </td>
                   </tr>
                 ))}
                 <tr className="border-t border-soil-100 bg-soil-50 font-semibold">
@@ -413,149 +464,62 @@ export function EggGradingPage() {
                       {colTotal(z) ? num(colTotal(z)) : "—"}
                     </td>
                   ))}
-                  <td className="px-3 py-2 text-right tabular-nums">
-                    {num(SIZES.reduce((a, z) => a + colTotal(z), 0))}
-                  </td>
                 </tr>
               </tbody>
             </table>
           </div>
 
-          <div className="mt-3 flex items-center justify-between">
+          <div className="mt-3 flex items-center justify-between gap-3">
             <p className="text-[11px] text-muted-foreground">
               Boxes of 210; a jumbo box holds 180, a niko box 360. Small under {Number(sheet.bands.smallMaxKg)} kg
-              · Medium to {Number(sheet.bands.mediumMaxKg)} kg · Large to {Number(sheet.bands.largeMaxKg)} kg · XL
-              above · Jumbo picked, not weighed · Brown sorted by colour.
+              · Medium to {Number(sheet.bands.mediumMaxKg)} kg · Large above · Jumbo picked, not weighed · Brown
+              sorted by colour.
             </p>
-            <div className="flex items-center gap-3">
-              {saved && <span className="text-xs text-success">saved</span>}
-              {error && <span className="text-xs text-destructive">{error}</span>}
-              <button
-                onClick={save}
-                disabled={saving}
-                className="inline-flex items-center gap-1.5 rounded-md bg-yolk-500 px-3 py-2 text-sm font-medium text-white hover:bg-yolk-600 disabled:opacity-50"
-              >
-                {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-                Save sheet
-              </button>
-            </div>
+            {!sheet.locked && (
+              <div className="flex items-center gap-3">
+                {saved && <span className="text-xs text-success">saved</span>}
+                <button
+                  onClick={save}
+                  disabled={saving}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-yolk-500 px-3 py-2 text-sm font-medium text-white hover:bg-yolk-600 disabled:opacity-50"
+                >
+                  {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Save production
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="mb-1 mt-6 flex items-baseline justify-between">
-            <div className="text-xs font-semibold uppercase tracking-wide text-soil-400">
-              Closing count
-            </div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-soil-400">Stock summary</div>
             <div className="text-[11px] text-muted-foreground">
-              The evening count on the packing room's shelves, one total per size.
+              Calculated, never keyed: sales are the trucks loaded in the Loading Bay.
             </div>
           </div>
           <div className="overflow-x-auto rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
             <table className="data-table cols-auto w-full text-sm">
               <thead className="bg-soil-50 text-left text-[11px] font-semibold uppercase text-soil-400">
                 <tr className="border-b border-soil-100">
-                  <th className="col-fill whitespace-nowrap px-3 py-2 text-left" />
+                  <th className="col-fill whitespace-nowrap px-3 py-2 text-left">Particulars</th>
                   {SIZES.map((z) => (
                     <th key={z} className="whitespace-nowrap px-3 py-2 text-right">
                       <span className="lg:hidden">{SHORT[z]}</span><span className="hidden lg:inline">{LABEL[z]}</span>
                     </th>
                   ))}
-                  <th className="whitespace-nowrap px-3 py-2 text-right"><span className="lg:hidden">Tot</span><span className="hidden lg:inline">Total</span></th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="border-b border-soil-100/70">
-                  <td className="px-3 py-1.5 font-medium">Counted</td>
-                  {SIZES.map((z) => (
-                    <td key={z} className="px-2 py-1.5">
-                      <input
-                        type="number"
-                        min="0"
-                        value={closingDraft[z] ?? ""}
-                        onChange={(e) => setClosing(z, e.target.value)}
-                        className={`${inputCls} ${countFromPhoto.has(z) ? "border-yolk-400 bg-yolk-50/60" : ""}`}
-                        placeholder="—"
-                        title={countFromPhoto.has(z) ? "From the photo's closing line" : undefined}
-                      />
-                    </td>
-                  ))}
-                  <td className="px-3 py-1.5 text-right font-medium tabular-nums">
-                    {num(SIZES.reduce((a, z) => a + (Number(closingDraft[z]) || 0), 0))}
-                  </td>
-                </tr>
-                <tr className="border-b border-soil-100/70 text-xs text-muted-foreground">
-                  <td className="px-3 py-1.5">Ledger closing</td>
-                  {SIZES.map((z) => (
-                    <td key={z} className="px-3 py-1.5 text-right tabular-nums">
-                      {num(sheet.summary[z]?.closing ?? 0)}
-                    </td>
-                  ))}
-                  <td className="px-3 py-1.5 text-right tabular-nums">
-                    {num(SIZES.reduce((a, z) => a + (sheet.summary[z]?.closing ?? 0), 0))}
-                  </td>
-                </tr>
-                {sheet.variance && (
-                  <tr className="border-t border-soil-200 text-xs">
-                    <td className="px-3 py-1.5 text-muted-foreground">Counted vs ledger</td>
-                    {SIZES.map((z) => {
-                      const v = sheet.variance![z] ?? 0;
-                      return (
-                        <td key={z} className={`px-3 py-1.5 text-right tabular-nums ${v === 0 ? "text-muted-foreground" : v < 0 ? "text-destructive" : "text-warning"}`}>
-                          {v === 0 ? "·" : `${v > 0 ? "+" : ""}${num(v)}`}
-                        </td>
-                      );
-                    })}
-                    <td className="px-3 py-1.5 text-right tabular-nums">
-                      {(() => {
-                        const v = SIZES.reduce((a, z) => a + (sheet.variance![z] ?? 0), 0);
-                        return <span className={v === 0 ? "text-success" : v < 0 ? "text-destructive" : "text-warning"}>{v === 0 ? "agrees" : `${v > 0 ? "+" : ""}${num(v)}`}</span>;
-                      })()}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          <div className="mt-3 flex items-center justify-end">
-            <div className="flex items-center gap-3">
-              {closingSaved && <span className="text-xs text-success">{closingSaved}</span>}
-              <button
-                onClick={saveClosing}
-                disabled={savingClosing}
-                className="btn-yolk"
-              >
-                {savingClosing && <Loader2 className="h-4 w-4 animate-spin" />}
-                Save count
-              </button>
-            </div>
-          </div>
-          <div className="mb-1 mt-6 text-xs font-semibold uppercase tracking-wide text-soil-400">
-            Stock summary
-          </div>
-          <div className="overflow-x-auto rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
-            <table className="data-table cols-auto w-full text-sm">
-              <thead className="bg-soil-50 text-left text-[11px] font-semibold uppercase text-soil-400">
-                <tr className="border-b border-soil-100">
-                  <th className="col-fill whitespace-nowrap px-3 py-2 text-left" />
-                  {SIZES.map((z) => (
-                    <th key={z} className="whitespace-nowrap px-3 py-2 text-right">
-                      <span className="lg:hidden">{SHORT[z]}</span><span className="hidden lg:inline">{LABEL[z]}</span>
-                    </th>
-                  ))}
-                  <th className="whitespace-nowrap px-3 py-2 text-right"><span className="lg:hidden">Tot</span><span className="hidden lg:inline">Total</span></th>
                 </tr>
               </thead>
               <tbody>
                 {(
                   [
                     ["Opening stock", "opening"],
-                    ["Production", "production"],
-                    ["Sales", "sales"],
-                    ["Adjustments", "other"],
+                    ["(+) Production", "production"],
+                    ["(−) Sales", "sales"],
+                    ["(±) Adjustment", "other"],
                     ["Closing stock", "closing"],
                   ] as const
                 ).map(([label, key]) => {
-                  const total = SIZES.reduce((a, z) => a + (sheet.summary[z]?.[key] ?? 0), 0);
-                  if (key === "other" && total === 0) return null;
+                  // Only a hand-made stock adjustment lands in "other"; the count never does.
+                  if (key === "other" && SIZES.every((z) => !(sheet.summary[z]?.other ?? 0))) return null;
                   const strong = key === "closing";
                   return (
                     <tr
@@ -568,20 +532,101 @@ export function EggGradingPage() {
                         return (
                           <td
                             key={z}
-                            className={`px-3 py-1.5 text-right tabular-nums ${
-                              key === "sales" && v ? "text-destructive" : ""
-                            } ${!v && !strong ? "text-muted-foreground" : ""}`}
+                            className={`px-3 py-1.5 text-right tabular-nums ${!v && !strong ? "text-muted-foreground" : ""}`}
                           >
                             {v ? num(v) : "—"}
                           </td>
                         );
                       })}
-                      <td className="px-3 py-1.5 text-right tabular-nums">{total ? num(total) : "—"}</td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+          </div>
+
+          <div className="mb-1 mt-6 flex items-baseline justify-between">
+            <div className="text-xs font-semibold uppercase tracking-wide text-soil-400">Physical count</div>
+            <div className="text-[11px] text-muted-foreground">
+              The shelves, one total per size. Checks the closing; never changes it.
+            </div>
+          </div>
+          <div className="overflow-x-auto rounded-2xl bg-white shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
+            <table className="data-table cols-auto w-full text-sm">
+              <thead className="bg-soil-50 text-left text-[11px] font-semibold uppercase text-soil-400">
+                <tr className="border-b border-soil-100">
+                  <th className="col-fill whitespace-nowrap px-3 py-2 text-left" />
+                  {SIZES.map((z) => (
+                    <th key={z} className="whitespace-nowrap px-3 py-2 text-right">
+                      <span className="lg:hidden">{SHORT[z]}</span><span className="hidden lg:inline">{LABEL[z]}</span>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-soil-100/70">
+                  <td className="px-3 py-1.5 font-medium">Counted</td>
+                  {SIZES.map((z) => (
+                    <td key={z} className="px-2 py-1.5">
+                      <input
+                        type="number"
+                        min="0"
+                        value={closingDraft[z] ?? ""}
+                        onChange={(e) => setClosing(z, e.target.value)}
+                        disabled={sheet.locked}
+                        className={`${inputCls} ${countFromPhoto.has(z) ? "border-yolk-400 bg-yolk-50/60" : ""} disabled:bg-soil-50 disabled:text-soil-700`}
+                        placeholder="—"
+                        title={countFromPhoto.has(z) ? "From the photo's closing line" : undefined}
+                      />
+                    </td>
+                  ))}
+                </tr>
+                {sheet.variance && (
+                  <tr className="border-t border-soil-200">
+                    <td className="px-3 py-1.5">Difference</td>
+                    {SIZES.map((z) => {
+                      const v = sheet.variance![z] ?? 0;
+                      return (
+                        <td
+                          key={z}
+                          className={`px-3 py-1.5 text-right tabular-nums ${v === 0 ? "text-muted-foreground" : "font-semibold text-destructive"}`}
+                        >
+                          {v === 0 ? "·" : `${v > 0 ? "+" : ""}${num(v)}`}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          {sheet.variance && SIZES.some((z) => sheet.variance![z]) && (
+            <p className="mt-2 text-[11px] text-destructive">
+              The shelves and the calculated closing disagree. Find the missing dispatch slip or the breakage before
+              submitting; the closing carried into tomorrow stays the calculated one.
+            </p>
+          )}
+
+          <div className="mt-3 flex flex-wrap items-center justify-end gap-3">
+            {error && <span className="text-xs text-destructive">{error}</span>}
+            {closingSaved && <span className="text-xs text-success">{closingSaved}</span>}
+            {!sheet.locked && (
+              <>
+                <button onClick={saveClosing} disabled={savingClosing} className="btn-yolk">
+                  {savingClosing && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Save count
+                </button>
+                <button
+                  onClick={() => sign("submit")}
+                  disabled={signing || !sheet.count}
+                  title={sheet.count ? undefined : "Save the physical count first"}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-soil-800 px-3 py-2 text-sm font-medium text-white hover:bg-soil-900 disabled:opacity-40"
+                >
+                  {signing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
+                  Submit day
+                </button>
+              </>
+            )}
           </div>
         </>
       )}

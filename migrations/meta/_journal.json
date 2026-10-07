@@ -883,6 +883,13 @@
       "when": 1791900000000,
       "tag": "0121_qc_photo_grading",
       "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1792000000000,
+      "tag": "0122_egg_stock_days",
+      "breakpoints": true
     }
   ]
 }

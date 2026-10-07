@@ -47,6 +47,13 @@ export const HIDDEN_EGG_SIZES: readonly EggSize[] = ["xl"];
 export const VISIBLE_EGG_SIZES = EGG_SIZES.filter((s) => !HIDDEN_EGG_SIZES.includes(s));
 
 /**
+ * The Daily Production & Stock Statement's own column order (7 Oct 2026):
+ * Small, Medium, Large, NIKO, Brown, Jumbo, Dirty. The Egg stock page and its
+ * PDF only — the Benchmark day sheets keep Jumbo last, as asked for there.
+ */
+export const STOCK_SHEET_SIZES: readonly EggSize[] = ["small", "medium", "large", "niko", "brown", "jumbo", "dirty"];
+
+/**
  * Sold at a rate per box set on the Benchmark page, with nothing to do with
  * the benchmark, the size differentials or the customer's spread. Everything
  * else is priced per egg as benchmark + differential + spread.

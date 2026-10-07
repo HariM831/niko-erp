@@ -10,7 +10,9 @@ import {
   eggAgreementExceptions,
   eggGrading,
   eggStockCount,
+  eggStockDays,
   houses,
+  users,
   inventoryTransactions,
   eggAgreements,
   eggBenchmarkPrices,
@@ -25,6 +27,7 @@ import {
 } from "@shared/schema";
 import { db } from "../db";
 import { eggDaySpec, renderEggDay } from "../services/egg-day-pdf";
+import { renderStockSheet } from "../services/egg-stock-pdf";
 import { latestForecast, nudgePriceForecast } from "../services/egg-price-forecast";
 import { istDate } from "../services/day-resolution";
 import { requireAnyPermission, requirePermission } from "../lib/rbac";
@@ -35,8 +38,9 @@ import { ALLOWED_MIME, MAX_IMAGE_BYTES, extractEggSheet, withOcrRetry } from "..
 import {
   EGG_SIZES,
   ledgerAvailable,
+  assertDayOpen,
+  dayLock,
   saveGrading,
-  settleCountAgainstLedger,
   sizeItems,
   stockBySize,
   supplyCascade,
@@ -670,10 +674,16 @@ async function stockSummaryOn(on: string) {
   return out;
 }
 
-/** The sheet for one day: every laying house, what was graded, the evening count, and the stock summary. */
-eggSalesRouter.get("/grading/:date", eggStockRead, async (req, res) => {
-  const on = req.params.date!;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(on)) return res.status(400).json({ error: "Bad date" });
+/** Who may reopen a submitted day: an Admin or a Director (7 Oct 2026). */
+const canReopen = (user: { roleName: string; permissions: Record<string, string[]> } | undefined) =>
+  !!user && (user.permissions["*"]?.includes("*") || ["Admin", "Director"].includes(user.roleName));
+
+/**
+ * The Daily Production & Stock Statement for one day: every laying house's
+ * graded boxes, the stock summary (opening, production, sales, closing), the
+ * physical count against the calculated closing, and whether it was signed.
+ */
+async function stockSheetOn(on: string) {
   const prefs = await eggPrefs(db);
   const houseRows = await db
     .select({ id: houses.id, code: houses.code, purpose: houses.purpose })
@@ -712,7 +722,11 @@ eggSalesRouter.get("/grading/:date", eggStockRead, async (req, res) => {
     ? (Object.fromEntries(EGG_SIZES.map((s) => [s, count[s] - (summary[s]?.closing ?? 0)])) as Record<string, number>)
     : null;
 
-  res.json({
+  const { row: signed, locked } = await dayLock(db, on);
+  const nameOf = async (id: string | null | undefined) =>
+    id ? ((await db.select({ name: users.name }).from(users).where(eq(users.id, id)))[0]?.name ?? null) : null;
+
+  return {
     date: on,
     rows,
     summary,
@@ -724,7 +738,65 @@ eggSalesRouter.get("/grading/:date", eggStockRead, async (req, res) => {
       largeMaxKg: prefs.bandLargeMaxKg,
     },
     stockFrom: prefs.stockFrom,
-  });
+    submission: signed?.submittedAt
+      ? {
+          submittedBy: await nameOf(signed.submittedBy),
+          submittedAt: signed.submittedAt,
+          reopenedBy: await nameOf(signed.reopenedBy),
+          reopenedAt: signed.reopenedAt,
+        }
+      : null,
+    locked,
+  };
+}
+
+eggSalesRouter.get("/grading/:date", eggStockRead, async (req, res) => {
+  const on = req.params.date!;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(on)) return res.status(400).json({ error: "Bad date" });
+  res.json({ ...(await stockSheetOn(on)), canReopen: canReopen(req.session.user) });
+});
+
+/** The statement as the printed sheet: niko logo, both tables, the four rules, the signature. */
+eggSalesRouter.get("/grading/:date/sheet.pdf", eggStockRead, async (req, res) => {
+  const on = req.params.date!;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(on)) return res.status(400).json({ error: "Bad date" });
+  const pdf = await renderStockSheet(await stockSheetOn(on));
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `inline; filename="Production-and-Stock-${on}.pdf"`);
+  res.send(pdf);
+});
+
+/**
+ * The supervisor signs the day. The count must be in first — the sheet's
+ * fourth rule is to verify the shelves against the calculated closing before
+ * submitting. A difference does not stop the submission; it stays on the
+ * sheet, in red, for somebody to explain.
+ */
+eggSalesRouter.post("/grading/:date/submit", eggStockWrite, async (req, res) => {
+  const on = req.params.date!;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(on)) return res.status(400).json({ error: "Bad date" });
+  const [counted] = await db.select({ id: eggStockCount.id }).from(eggStockCount).where(eq(eggStockCount.countedOn, on));
+  if (!counted) return res.status(400).json({ error: "Save the physical count before submitting the day." });
+  if ((await dayLock(db, on)).locked) return res.status(400).json({ error: "This day is already submitted." });
+  const now = new Date();
+  await db
+    .insert(eggStockDays)
+    .values({ day: on, submittedBy: req.session.user!.id, submittedAt: now })
+    .onConflictDoUpdate({ target: eggStockDays.day, set: { submittedBy: req.session.user!.id, submittedAt: now } });
+  res.json({ ok: true });
+});
+
+/** An Admin or a Director reopens a signed day; the reopen is kept beside the signature. */
+eggSalesRouter.post("/grading/:date/reopen", eggStockRead, async (req, res) => {
+  const on = req.params.date!;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(on)) return res.status(400).json({ error: "Bad date" });
+  if (!canReopen(req.session.user)) return res.status(403).json({ error: "Only an Admin or a Director can reopen a submitted day." });
+  if (!(await dayLock(db, on)).locked) return res.status(400).json({ error: "This day is not submitted." });
+  await db
+    .update(eggStockDays)
+    .set({ reopenedBy: req.session.user!.id, reopenedAt: new Date() })
+    .where(eq(eggStockDays.day, on));
+  res.json({ ok: true });
 });
 
 const closingBody = z.object({
@@ -738,14 +810,16 @@ const closingBody = z.object({
 });
 
 /**
- * The evening count, saved in place — and then the ledger is brought to it.
- * The count is what is on the shelves; the adjustment it posts is the record
- * of the ledger having been wrong by that much.
+ * The evening count, saved in place. It checks the calculated closing and
+ * never changes it (7 Oct 2026): the difference shows on the sheet for
+ * somebody to explain — a missing dispatch slip, breakage — and stock keeps
+ * opening + production − sales.
  */
 eggSalesRouter.post("/closing", eggStockWrite, validateBody(closingBody), async (req, res) => {
   const b = req.body as z.infer<typeof closingBody>;
   try {
     const out = await db.transaction(async (tx) => {
+      await assertDayOpen(tx, b.countedOn, "its count");
       await tx
         .insert(eggStockCount)
         .values({ countedOn: b.countedOn, ...b.boxes, recordedBy: req.session.user!.id })
@@ -753,7 +827,7 @@ eggSalesRouter.post("/closing", eggStockWrite, validateBody(closingBody), async 
           target: [eggStockCount.countedOn],
           set: { ...b.boxes, recordedBy: req.session.user!.id, updatedAt: new Date() },
         });
-      return settleCountAgainstLedger(tx, b.countedOn, req.session.user!.id);
+      return { ok: true };
     });
     res.status(201).json(out);
   } catch (err) {
@@ -784,6 +858,7 @@ eggSalesRouter.post("/grading", eggStockWrite, validateBody(gradingBody), async 
   const b = req.body as z.infer<typeof gradingBody>;
   try {
     await db.transaction(async (tx) => {
+      await assertDayOpen(tx, b.gradedOn, "its grading");
       for (const r of b.rows) {
         await saveGrading(tx, { houseId: r.houseId, gradedOn: b.gradedOn, boxes: r.boxes }, req.session.user!.id);
       }

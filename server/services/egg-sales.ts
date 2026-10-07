@@ -24,6 +24,7 @@ import {
   eggDispatches,
   eggGrading,
   eggStockCount,
+  eggStockDays,
   eggSalesPreferences,
   eggSizeItems,
   eggSizeOffsets,
@@ -587,6 +588,27 @@ export async function syncGradedEggsToDay(tx: Tx, houseId: string, day: string):
   return eggs;
 }
 
+/* ── The submitted day ───────────────────────────────────────────────────── */
+
+/**
+ * Whether a day's statement is signed. Submitted and not reopened since, it is
+ * locked: tomorrow's opening is this day's closing, carried forward unchanged,
+ * so nothing that moves it may change after the supervisor has signed.
+ */
+export async function dayLock(tx: Conn, day: string) {
+  const [row] = await tx.select().from(eggStockDays).where(eq(eggStockDays.day, day));
+  const locked = !!row?.submittedAt && !(row.reopenedAt && row.reopenedAt > row.submittedAt);
+  return { row: row ?? null, locked };
+}
+
+export async function assertDayOpen(tx: Conn, day: string, what: string) {
+  if ((await dayLock(tx, day)).locked) {
+    throw new PostingError(
+      `The egg stock statement for ${day} has been submitted, so ${what} is locked. An Admin or a Director can reopen the day.`,
+    );
+  }
+}
+
 export async function saveGrading(tx: Tx, input: GradingInput, userId: string) {
   const prefs = await eggPrefs(tx);
   const qty = (s: EggSize) => Math.max(0, Math.trunc(input.boxes[s] ?? 0));
@@ -707,7 +729,12 @@ export async function netMovesByDay(tx: Conn, from: string): Promise<Map<string,
 }
 
 /**
- * The evening count settles the ledger.
+ * Bring the ledger to a day's count — used once, by scripts/egg-stock-restart.ts.
+ *
+ * Saving a count no longer calls this (7 Oct 2026): the count checks the
+ * calculated closing and never changes it. What remains is the restart: the
+ * count of the day before stock begins again becomes the opening, posted as
+ * one adjustment.
  *
  * Counted minus the ledger's closing, per size, posted as one inventory
  * adjustment dated to the count. Each save posts only the REMAINING
@@ -723,6 +750,7 @@ export async function settleCountAgainstLedger(
   tx: Tx,
   on: string,
   userId: string,
+  reason = `Egg count ${on}`,
 ): Promise<{ adjustmentNumber: string | null; variance: Record<EggSize, number> }> {
   const map = await sizeItems(tx);
   const held = await stockBySize(tx);
@@ -761,7 +789,7 @@ export async function settleCountAgainstLedger(
       number,
       adjustmentDate: on,
       mode: "quantity",
-      reason: `Egg count ${on}`,
+      reason,
       description: `Evening count in the packing room against the ledger: ${lines
         .map((s) => `${SIZE_LABEL[s]} ${variance[s] > 0 ? "+" : ""}${variance[s]}`)
         .join(", ")}`,
@@ -820,6 +848,7 @@ export interface LoadInput {
  * a day with no benchmark refuses to load rather than guessing.
  */
 export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
+  await assertDayOpen(tx, input.dispatchDate, "loading a truck on that day");
   const prefs = await eggPrefs(tx);
   const qty = (s: EggSize) => Math.max(0, Math.trunc(input.loaded[s] ?? 0));
 
@@ -1273,6 +1302,7 @@ export async function retakeInvoiceStock(
     .from(eggDispatches)
     .where(and(eq(eggDispatches.invoiceId, invoiceId), ne(eggDispatches.status, "void")));
   if (!dispatch) return;
+  await assertDayOpen(tx, dispatch.dispatchDate, "changing that truck's boxes");
 
   const map = await sizeItems(tx);
   const sizeOf = new Map([...map].map(([size, itemId]) => [itemId, size]));
