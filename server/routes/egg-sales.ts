@@ -702,13 +702,17 @@ async function stockSheetOn(on: string) {
   const sized = (row: Record<string, unknown> | undefined) =>
     Object.fromEntries(EGG_SIZES.map((s) => [s, Number(row?.[s] ?? 0)])) as Record<(typeof EGG_SIZES)[number], number>;
 
-  const rows = houseRows.map((h) => ({
-    houseId: h.id,
-    code: h.code,
-    purpose: h.purpose,
-    boxes: sized(byHouse.get(h.id)),
-    entered: byHouse.has(h.id),
-  }));
+  // Sheds always in the sheet's order, L2, L3, L4, L5 (7 Oct 2026) — by code,
+  // numbers compared as numbers, whatever the houses' display order says.
+  const rows = houseRows
+    .map((h) => ({
+      houseId: h.id,
+      code: h.code,
+      purpose: h.purpose,
+      boxes: sized(byHouse.get(h.id)),
+      entered: byHouse.has(h.id),
+    }))
+    .sort((a, b) => a.code.localeCompare(b.code, "en", { numeric: true }));
 
   const summary = await stockSummaryOn(on);
 
