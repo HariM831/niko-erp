@@ -237,7 +237,9 @@ built yet. What Folderit itself does, read from its help centre on 7 Oct
 5. **DSC:** who holds Class 3 tokens and which make (ePass, ProxKey,
    HYP2003…)?
 6. **Email-in mailbox:** which mail service hosts @aminofarms.com?
-7. **Reminders:** in-app only, or also WhatsApp links / email?
+7. ~~Reminders~~ — **decided 7 Oct 2026:** in-app (the bell / My tasks)
+   plus a WhatsApp link — a click-to-send message with the text filled in,
+   which a person sends; nothing goes out on its own. No email.
 8. ~~Number formats~~ — **decided 7 Oct 2026:** numbering is per folder;
    at the start only Correspondence › Inward (**IN/2026-27/0001**) and
    Correspondence › Outward (**OUT/2026-27/0001**) carry a series. Every
