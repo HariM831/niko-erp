@@ -4,7 +4,8 @@ Asked for on 1 Oct 2026, after studying Folderit: every document properly
 stored and findable, correspondence registered with sequence numbers, and
 signatures — plus what niko's own data makes possible. The feature list was
 agreed with **version history and check-out/lock dropped**. Nothing here is
-built yet.
+built yet. What Folderit itself does, read from its help centre on 7 Oct
+2026, is in [folderit-notes.md](folderit-notes.md).
 
 ## Principles
 
