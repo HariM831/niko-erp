@@ -229,7 +229,8 @@ built yet. What Folderit itself does, read from its help centre on 7 Oct
    no copy elsewhere. Before company papers go in: move files to
    DigitalOcean Spaces (about $5/month for 250 GB) with a nightly copy, or
    keep them on disk with a nightly off-site backup?
-2. **Upload size:** 10 MB today; 25 MB for documents?
+2. ~~Upload size~~ — **decided 7 Oct 2026:** 25 MB per file for documents
+   (other attachments stay at 10 MB).
 3. **Vehicles and assets** have no register in niko. A small vehicle/asset
    list for their papers, or file them under a folder with tags only?
 4. **Aadhaar eSign provider**, and whether outside parties will sign at all.
