@@ -17,6 +17,8 @@ const STATUS_TEXT: Record<string, string> = {
   billed: "text-green-600",
   invoiced: "text-green-600",
   posted: "text-green-600",
+  // An expense with no paid-through account: still owed to the vendor.
+  unpaid: "text-amber-600",
   partially_paid: "text-amber-600",
   partially_billed: "text-amber-600",
   declined: "text-red-600",

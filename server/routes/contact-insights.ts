@@ -1,10 +1,12 @@
 import { Router } from "express";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import {
+  accounts,
   bills,
   contacts,
   creditNotes,
   customerPayments,
+  expenses,
   invoices,
   vendorCredits,
   vendorPayments,
@@ -114,13 +116,32 @@ contactInsightsRouter.get(
       return res.json({ invoices: inv, payments: pay, creditNotes: cn });
     }
 
-    const [billRows, pay, vc] = await Promise.all([
+    const [billRows, pay, vc, exp] = await Promise.all([
       db.select().from(bills).where(eq(bills.vendorId, contact.id)).orderBy(desc(bills.billDate)).limit(100),
       db.select().from(vendorPayments).where(eq(vendorPayments.vendorId, contact.id)).orderBy(desc(vendorPayments.paymentDate)).limit(100),
       db.select().from(vendorCredits).where(eq(vendorCredits.vendorId, contact.id)).orderBy(desc(vendorCredits.creditDate)).limit(100),
+      // Expenses booked against this vendor without a bill — unloading
+      // charges and the like. Without them here nobody can see from the
+      // vendor whether a charge was already entered, and it gets entered twice.
+      db
+        .select({
+          id: expenses.id,
+          number: expenses.number,
+          expenseDate: expenses.expenseDate,
+          amount: expenses.amount,
+          paidThroughId: expenses.paidThroughId,
+          expenseAccountName: accounts.name,
+        })
+        .from(expenses)
+        .leftJoin(accounts, eq(accounts.id, expenses.expenseAccountId))
+        .where(eq(expenses.vendorId, contact.id))
+        .orderBy(desc(expenses.expenseDate))
+        .limit(100),
     ]);
+    // An expense has no status column: no paid-through account means still owed.
+    const expRows = exp.map((e) => ({ ...e, status: e.paidThroughId ? "paid" : "unpaid" }));
     if (!wantsSales) {
-      return res.json({ bills: billRows, payments: pay, vendorCredits: vc });
+      return res.json({ bills: billRows, payments: pay, vendorCredits: vc, expenses: expRows });
     }
 
     // Trades both ways: the sales side as well, under its own keys so the two
@@ -137,6 +158,7 @@ contactInsightsRouter.get(
       bills: billRows,
       vendorPayments: pay,
       vendorCredits: vc,
+      expenses: expRows,
       // Kept so a caller reading `payments` on a vendor still finds them.
       payments: pay,
     });

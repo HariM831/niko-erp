@@ -765,6 +765,8 @@ const TXN_SECTIONS: Record<
      * the bill again — which is exactly what happened to SWIFT.
      */
     unusedKey?: string;
+    /** A column of its own after the number — an expense names the account it hit. */
+    extra?: { key: string; header: string };
   }>
 > = {
   customer: [
@@ -776,6 +778,7 @@ const TXN_SECTIONS: Record<
     { key: "bills", label: "Bills", dateKey: "billDate", basePath: "/purchases/bills", balanceKey: "balanceDue", isBill: true },
     { key: "payments", label: "Payments Made", dateKey: "paymentDate", basePath: "/purchases/payments", amountKey: "amount", unusedKey: "unappliedAmount" },
     { key: "vendorCredits", label: "Vendor Credits", dateKey: "creditDate", basePath: "/purchases/vendor-credits", balanceKey: "balance" },
+    { key: "expenses", label: "Expenses", dateKey: "expenseDate", basePath: "/purchases/expenses", amountKey: "amount", extra: { key: "expenseAccountName", header: "Expense Account" } },
   ],
   /**
    * A contact that trades both ways — a shed owner buys feed and sells eggs —
@@ -789,6 +792,7 @@ const TXN_SECTIONS: Record<
     { key: "bills", label: "Bills", dateKey: "billDate", basePath: "/purchases/bills", balanceKey: "balanceDue", isBill: true },
     { key: "vendorPayments", label: "Payments Made", dateKey: "paymentDate", basePath: "/purchases/payments", amountKey: "amount", unusedKey: "unappliedAmount" },
     { key: "vendorCredits", label: "Vendor Credits", dateKey: "creditDate", basePath: "/purchases/vendor-credits", balanceKey: "balance" },
+    { key: "expenses", label: "Expenses", dateKey: "expenseDate", basePath: "/purchases/expenses", amountKey: "amount", extra: { key: "expenseAccountName", header: "Expense Account" } },
   ],
 };
 
@@ -838,6 +842,7 @@ export function TransactionsTab({
                     <th className="border-b border-[#ece3d5] px-3 py-2">Date</th>
                     <th className="border-b border-[#ece3d5] px-3 py-2">{s.isBill ? "Bill#" : "Number"}</th>
                     {s.isBill && <th className="border-b border-[#ece3d5] px-3 py-2">Reference Number</th>}
+                    {s.extra && <th className="border-b border-[#ece3d5] px-3 py-2">{s.extra.header}</th>}
                     <th className="border-b border-[#ece3d5] px-3 py-2">Status</th>
                     <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Amount</th>
                     {s.balanceKey && <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Balance</th>}
@@ -854,6 +859,7 @@ export function TransactionsTab({
                       <td className="px-3 py-2">{formatDate(r[s.dateKey] as string)}</td>
                       <td className="px-3 py-2 font-medium text-brand-600">{s.isBill ? billNo(r) : r.number}</td>
                       {s.isBill && <td className="px-3 py-2 text-gray-600">{(r.reference as string) || "—"}</td>}
+                      {s.extra && <td className="px-3 py-2 text-gray-600">{(r[s.extra.key] as string) || "—"}</td>}
                       <td className="px-3 py-2">
                         {r.status ? <StatusBadge status={r.status} /> : "—"}
                       </td>
