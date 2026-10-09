@@ -17,7 +17,7 @@
  *   npx tsx scripts/rewrite-water-from-controller.ts --apply   # and rewrite
  *   … --from 2026-09-01 --to 2026-10-08                        # the default range ends yesterday
  */
-import { and, asc, eq, gte, lt, lte } from "drizzle-orm";
+import { and, asc, eq, gte, lt, lte, sql } from "drizzle-orm";
 import { flockPlacements, houses, iotHouseSample, placementDays } from "@shared/schema";
 import type { DaySources } from "@shared/schema";
 import { db } from "../server/db";
@@ -42,7 +42,8 @@ async function main() {
       placementId: placementDays.placementId,
       day: placementDays.day,
       waterKl: placementDays.waterKl,
-      sources: placementDays.sources,
+      // A report runs before the column's migration has reached a database.
+      sources: APPLY ? placementDays.sources : sql<DaySources | null>`NULL`,
       houseId: houses.id,
       code: houses.code,
     })
