@@ -40,7 +40,7 @@ import { db } from "../db";
 import { addDays, istDate } from "./day-resolution";
 import { gradedEggsOn } from "./egg-sales";
 import { countersOf } from "./iot/store";
-import { type SiloMove, dayCoverage, siloFed, siloMoves, siloTankers } from "./iot/silo-events";
+import { type SiloMove, dayCoverage, siloMoves, siloTankers } from "./iot/silo-events";
 import { PostingError } from "./posting";
 
 /** A tanker and its transfer agree within this share of the transfer. */
@@ -204,8 +204,10 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
     ? dayCoverage(rows.map((r) => ({ at: r.at, waterL: r.waterL })), dayStart, dayEnd)
     : { complete: false, reason: "The day isn't over — its figures fill in after midnight." };
 
-  // A week of tankers before the day, to prove the silo's weights.
-  const week = await tankersFor(houseId, addDays(day, -6), day);
+  // A week of tankers before the day, to prove the silo's weights — and the
+  // day after, so a transfer whose first load came this evening finds the
+  // rest of it.
+  const week = await tankersFor(houseId, addDays(day, -6), addDays(day, 1));
   const today = week.tankers.filter((t) => t.move.start >= dayStart && t.move.start < dayEnd);
   // A transfer whose arrival window has not closed yet is pending, not unseen.
   const now = new Date();
@@ -222,7 +224,18 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
 
   const silo = rows.filter((r) => r.siloKg != null && r.siloKg >= 0).map((r) => ({ at: r.at, kg: r.siloKg! }));
   const moves = siloMoves(silo, dayStart, dayEnd);
-  const fed = siloFed(moves);
+  /*
+   * What was eaten is a balance, not a sum of the falls: the silo at midnight,
+   * plus what arrived, less the silo at the next midnight. Adding up the falls
+   * also adds up the settling while a lorry unloads — L2 on 8 Oct read 10,777
+   * that way against the register's 10,422; the balance, taking each tanker at
+   * the mill's weight, reads 10,510. A tanker with no transfer counts at the
+   * silo's weight.
+   */
+  const s0 = silo.filter((x) => x.at < dayStart).at(-1)?.kg ?? null;
+  const s1 = silo.filter((x) => x.at < dayEnd).at(-1)?.kg ?? null;
+  const arrivedAll = today.reduce((sum, t) => sum + (t.transfer ? t.bookedKg : t.move.kg), 0);
+  const fed = s0 != null && s1 != null ? Math.round(s0 - s1 + arrivedAll) : 0;
   const counters = over ? await countersOf(houseId, day) : null;
   const counter = counters?.feedKg ?? null;
 
@@ -283,7 +296,7 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
       status: "filled",
       value: fed,
       from: "silo",
-      note: `From the silo: ${runs} feeding run${runs === 1 ? "" : "s"}, its tankers matched the mill this week.${
+      note: `From the silo: ${runs} feeding run${runs === 1 ? "" : "s"}, tankers at the mill's weight; its tankers matched the mill this week.${
         counter != null ? ` Counter ${fmt(counter)}.` : ""
       }`,
     };
