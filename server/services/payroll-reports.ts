@@ -139,3 +139,43 @@ export function payrollReportFile(
     body: buildXlsx({ name: t.title, columnWidths: t.headers.map((h) => Math.max(12, h.length + 2)), rows }),
   };
 }
+
+/**
+ * The daily-wage report as a file — Payroll › Wages, Month view (8 Oct 2026).
+ * Wage workers are paid outside the run, so this sheet is what the person
+ * paying them works from: per worker, days, the rate of the role they mostly
+ * worked, and the amount priced day by day at the role each day was worked in.
+ */
+export function wagesReportFile(
+  format: "csv" | "xlsx",
+  from: string,
+  to: string,
+  workers: Array<{ empCode: string; name: string; role: string | null; dailyRate: number; presentDays: number; halfDays: number; amount: number }>,
+): { filename: string; contentType: string; body: Buffer | string } {
+  const headers = ["Emp Code", "Name", "Role", "Daily Rate", "Present Days", "Half Days", "Paid Days", "Amount"];
+  const kinds: ("text" | "number" | "money")[] = ["text", "text", "text", "money", "number", "number", "number", "money"];
+  const sorted = [...workers].sort((a, b) => a.empCode.localeCompare(b.empCode, undefined, { numeric: true }));
+  const body: (string | number)[][] = sorted.map((w) => [
+    w.empCode, w.name, w.role ?? "", n(w.dailyRate), w.presentDays, w.halfDays, w.presentDays + 0.5 * w.halfDays, n(w.amount),
+  ]);
+  const sum = (i: number) => n(body.reduce((a, r) => a + Number(r[i]), 0));
+  const total: (string | number)[] = ["", "Total", "", "", sum(4), sum(5), sum(6), sum(7)];
+  const stem = `Daily_Wages_${from}_to_${to}`;
+  if (format === "csv") {
+    const esc = (v: string | number) => {
+      const s = String(v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    return { filename: `${stem}.csv`, contentType: "text/csv", body: [headers, ...body, total].map((r) => r.map(esc).join(",")).join("\n") };
+  }
+  const rows: Cell[][] = [
+    headers.map((h) => ({ value: h, style: "header" as const })),
+    ...body.map((r) => r.map((v, i) => ({ value: v, style: kinds[i] }))),
+    total.map((v, i) => ({ value: v, style: i < 4 ? ("header" as const) : kinds[i] })),
+  ];
+  return {
+    filename: `${stem}.xlsx`,
+    contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    body: buildXlsx({ name: "Daily Wages", columnWidths: headers.map((h, i) => (i === 1 ? 28 : Math.max(12, h.length + 2))), rows }),
+  };
+}

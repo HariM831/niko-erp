@@ -2,7 +2,8 @@
  * Wages — two views of the same yard.
  *
  * Month: the daily-wage report — per worker, days present and half, amount
- * priced day by day at the role each day was worked in; totals by role.
+ * priced day by day at the role each day was worked in; totals by role. It
+ * downloads as CSV or Excel, since wages are paid outside the run (8 Oct 2026).
  *
  * Day roles: one day at a time, every wage worker with an editable role
  * dropdown — because people change jobs day to day, egg picking today and
@@ -11,6 +12,7 @@
  */
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Download } from "lucide-react";
 import { api, formatMoney } from "../../api";
 import { useAuth } from "../../auth";
 import { SearchSelect } from "../../components/search-select";
@@ -163,6 +165,16 @@ export function PayrollWagesPage() {
               placeholder="All roles"
               options={(rolesQ.data ?? []).map((r) => ({ id: r.id, label: r.name }))}
             />
+            {(["csv", "xlsx"] as const).map((f) => (
+              <a
+                key={f}
+                className={`btn-secondary ${from > to ? "pointer-events-none opacity-50" : ""}`}
+                href={`/api/payroll/reports/wages/export?from=${from}&to=${to}${role ? `&role=${encodeURIComponent(role)}` : ""}&format=${f}`}
+                download
+              >
+                <Download size={14} /> {f === "csv" ? "CSV" : "Excel"}
+              </a>
+            ))}
           </>
         ) : (
           <DateInput className="input w-auto" value={day} onChange={(e) => setDay(e.target.value)} />

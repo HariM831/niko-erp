@@ -8,18 +8,21 @@
  *
  * Downloads, as Amino's Payroll Reports had them: the salary register, NEFT,
  * PF and ESI challans and cost by department as CSV or Excel, and every
- * payslip on one printable sheet.
+ * payslip on one printable sheet. Each slip also goes to its own person, as
+ * Amino's did: a WhatsApp message with the figures, and the slip as a PDF
+ * file to attach to it (8 Oct 2026).
  */
 import { useMemo, useState, type ReactElement } from "react";
 import { Bar, CartesianGrid, Cell, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from "recharts";
 import { ProportionBar, type ProportionSegment } from "@/components/ui/proportion-bar";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Download, Printer } from "lucide-react";
+import { AlertTriangle, Download, FileDown, MessageCircle, Printer, Share2 } from "lucide-react";
 import { useLocalSearch } from "../../components/search-context";
 import { filterRows, useAdvancedSearch, type SearchField } from "../../components/advanced-search";
 import { matchesTerm } from "../../lib/utils";
 import { SearchSelect } from "../../components/search-select";
 import { printSheet } from "../../lib/print-sheet";
+import { whatsappNumber } from "@shared/whatsapp";
 import { api, formatMoney } from "../../api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -81,6 +84,7 @@ interface Slip {
   bankName: string | null;
   bankAccountNumber: string | null;
   bankIfsc: string | null;
+  contactNumber?: string | null;
 }
 interface RunDetail {
   run: Run;
@@ -313,6 +317,7 @@ export function PayrollRunPage() {
                     <Th right className="col-portrait-hide">PF</Th><Th right className="col-portrait-hide">ESI</Th><Th right className="col-portrait-hide">PT</Th>
                     <Th right className="col-portrait-hide">Advance</Th><Th right className="col-portrait-hide">Other</Th>
                     <Th right>Net pay</Th>
+                    <Th className="w-0"><span className="sr-only">Send</span></Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -332,9 +337,12 @@ export function PayrollRunPage() {
                       <Td right className="col-portrait-hide">{formatMoney(s.advanceRecovery)}</Td>
                       <Td right className="col-portrait-hide">{formatMoney(s.otherDeductions)}</Td>
                       <Td right className="font-semibold">{formatMoney(s.netPay)}</Td>
+                      <Td className="w-0">
+                        <span onClick={(e) => e.stopPropagation()}><SlipSend slip={s} run={run} compact /></span>
+                      </Td>
                     </tr>
                   ))}
-                  {!paged.page.length && <tr><Td colSpan={11}><Empty>{(term.trim() || adv.active) && slips.length ? "No slips match." : "No slips."}</Empty></Td></tr>}
+                  {!paged.page.length && <tr><Td colSpan={12}><Empty>{(term.trim() || adv.active) && slips.length ? "No slips match." : "No slips."}</Empty></Td></tr>}
                 </tbody>
               </table>
             )}
@@ -546,12 +554,111 @@ function PayslipDialog({ slip: s, run, onClose }: { slip: Slip; run: Run; onClos
             Employer contributions (not deducted): PF {formatMoney(s.pfEmployer)} · ESI {formatMoney(s.esiEmployer)}
           </div>
         </div>
-        <div className="mt-4 flex justify-end gap-2 print:hidden">
-          <button className="btn-secondary" onClick={() => window.print()}><Printer size={14} /> Print</button>
+        <div className="mt-4 flex flex-wrap justify-end gap-2 print:hidden">
+          <SlipSend slip={s} run={run} />
           <button className="btn-primary" onClick={onClose}>Close</button>
         </div>
+        {!whatsappNumber(s.contactNumber) && (
+          <p className="text-right text-[11px] text-amber-700 print:hidden">
+            No contact number on file — add one in Employees to send on WhatsApp.
+          </p>
+        )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** The figures, as Amino's payslip message gave them; the PDF follows as a file. */
+function slipMessage(s: Slip, run: Run): string {
+  const inr = (v: number | string) => `₹${Math.round(Number(v)).toLocaleString("en-IN")}`;
+  const gross = Number(s.earnedGross) + Number(s.bonus) + Number(s.overtime) + Number(s.reimbursement) + Number(s.arrears);
+  return [
+    `*Payslip — ${MONTHS_LONG[run.month - 1]} ${run.year}*`,
+    ``,
+    `Employee: ${s.name ?? ""} (${s.empCode ?? ""})`,
+    `Paid days: ${num(s.paidDays, 1)}/${s.totalDays}${Number(s.lopDays) > 0 ? ` (${num(s.lopDays, 1)} LOP)` : ""}`,
+    `Gross earnings: ${inr(gross)}`,
+    `Deductions: ${inr(s.totalDeductions)}`,
+    `*Net pay: ${inr(s.netPay)}*`,
+    ``,
+    `Your payslip PDF follows.`,
+  ].join("\n");
+}
+
+const slipPdfUrl = (s: Slip) => `/api/payroll/slips/${s.id}/pdf`;
+
+/**
+ * Sending one slip to its person. WhatsApp's click-to-chat link carries text
+ * only, so the message opens the chat with the figures typed in and the PDF
+ * is attached by hand — or, where the browser can hand a file to the system's
+ * share sheet (phones, Chrome on Windows), Share sends the PDF itself and
+ * WhatsApp is picked there. Either way a person presses send.
+ */
+function SlipSend({ slip: s, run, compact }: { slip: Slip; run: Run; compact?: boolean }) {
+  const phone = whatsappNumber(s.contactNumber);
+  const [busy, setBusy] = useState(false);
+  const fileName = `Payslip_${(s.empCode ?? "").replace(/[^\w-]/g, "")}_${MONTHS_LONG[run.month - 1]!.slice(0, 3)}_${run.year}.pdf`;
+  const canShareFiles =
+    typeof navigator !== "undefined" &&
+    !!navigator.canShare &&
+    navigator.canShare({ files: [new File([""], "x.pdf", { type: "application/pdf" })] });
+
+  const share = async () => {
+    setBusy(true);
+    try {
+      const blob = await fetch(slipPdfUrl(s), { credentials: "include" }).then((r) => {
+        if (!r.ok) throw new Error(`Could not make the PDF (${r.status})`);
+        return r.blob();
+      });
+      const file = new File([blob], fileName, { type: "application/pdf" });
+      await navigator.share({ files: [file], text: slipMessage(s, run) });
+    } catch (e) {
+      // Closing the share sheet is not an error worth saying anything about.
+      if ((e as Error).name !== "AbortError") alert((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const wa = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(slipMessage(s, run))}` : null;
+  if (compact) {
+    return (
+      <span className="flex items-center gap-1">
+        <a
+          className={`rounded p-1 ${wa ? "text-green-700 hover:bg-green-50" : "pointer-events-none text-gray-300"}`}
+          href={wa ?? undefined}
+          target="_blank"
+          rel="noreferrer"
+          title={wa ? `WhatsApp ${s.name ?? ""}` : "No contact number on file"}
+        >
+          <MessageCircle size={15} />
+        </a>
+        <a className="rounded p-1 text-gray-500 hover:bg-gray-100" href={`${slipPdfUrl(s)}?download=1`} download={fileName} title="Download payslip PDF">
+          <FileDown size={15} />
+        </a>
+      </span>
+    );
+  }
+  return (
+    <>
+      <a className="btn-secondary" href={`${slipPdfUrl(s)}?download=1`} download={fileName}>
+        <FileDown size={14} /> PDF
+      </a>
+      {canShareFiles && (
+        <button className="btn-secondary" disabled={busy} onClick={share}>
+          <Share2 size={14} /> {busy ? "Preparing…" : "Share PDF"}
+        </button>
+      )}
+      {wa ? (
+        <a className="btn-secondary text-green-700" href={wa} target="_blank" rel="noreferrer">
+          <MessageCircle size={14} /> WhatsApp
+        </a>
+      ) : (
+        <button className="btn-secondary" disabled title="No contact number on file">
+          <MessageCircle size={14} /> WhatsApp
+        </button>
+      )}
+    </>
   );
 }
 

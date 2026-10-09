@@ -480,6 +480,7 @@ export async function runSlips(tx: Conn, runId: string) {
       designation: designations.name,
       uanNumber: employees.uanNumber,
       esiNumber: employees.esiNumber,
+      contactNumber: employees.contactNumber,
     })
     .from(salarySlips)
     .innerJoin(employees, eq(employees.id, salarySlips.employeeId))
@@ -495,6 +496,7 @@ export async function runSlips(tx: Conn, runId: string) {
     designation: r.designation,
     uanNumber: r.uanNumber,
     esiNumber: r.esiNumber,
+    contactNumber: r.contactNumber,
   }));
 }
 

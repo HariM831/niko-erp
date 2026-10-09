@@ -20,6 +20,7 @@ import {
   holidays,
   leaveApplications,
   locations,
+  orgProfile,
   payInputs,
   payrollRuns,
   payrollSettings,
@@ -60,7 +61,8 @@ import {
   onRollsDuring,
   withinService,
 } from "../services/day-resolution";
-import { PAYROLL_REPORTS, payrollReportFile, type PayrollReport } from "../services/payroll-reports";
+import { PAYROLL_REPORTS, payrollReportFile, wagesReportFile, type PayrollReport } from "../services/payroll-reports";
+import { payslipFilename, renderPayslip } from "../services/payslip-pdf";
 import { siteForPoint, siteLegend } from "../services/punch-sites";
 import { applyLeave, approveLeave, deleteLeave, leaveBalance, leavesInRange, rejectLeave } from "../services/leave";
 import {
@@ -2367,13 +2369,33 @@ payrollRouter.get("/slips/:id", view, async (req, res) => {
   res.json(row);
 });
 
+/** One person's payslip as a PDF file, to attach to their WhatsApp chat. */
+payrollRouter.get("/slips/:id/pdf", view, async (req, res) => {
+  const [row] = await db
+    .select({ slip: salarySlips, run: payrollRuns, name: employees.name, empCode: employees.empCode, department: departments.name, designation: designations.name })
+    .from(salarySlips)
+    .innerJoin(payrollRuns, eq(payrollRuns.id, salarySlips.payrollRunId))
+    .innerJoin(employees, eq(employees.id, salarySlips.employeeId))
+    .leftJoin(departments, eq(departments.id, employees.departmentId))
+    .leftJoin(designations, eq(designations.id, employees.designationId))
+    .where(eq(salarySlips.id, req.params.id!));
+  if (!row) return res.status(404).json({ error: "No such slip" });
+  const [org] = await db.select({ name: orgProfile.name }).from(orgProfile).limit(1);
+  const pdf = await renderPayslip({
+    company: org?.name || "Amino Farms",
+    month: row.run.month,
+    year: row.run.year,
+    slip: { ...row.slip, name: row.name, empCode: row.empCode, department: row.department, designation: row.designation },
+  });
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", `${req.query.download ? "attachment" : "inline"}; filename="${payslipFilename(row.empCode, row.run.month, row.run.year)}"`);
+  res.send(pdf);
+});
+
 /* ══ Reports ═════════════════════════════════════════════════════════════ */
 
 /** Daily-wage cost over a range: rate × (P + 0.5·H) per person, totalled by role. */
-payrollRouter.get("/reports/wages", wagesPerm, async (req, res) => {
-  const from = dateStr.safeParse(req.query.from);
-  const to = dateStr.safeParse(req.query.to);
-  if (!from.success || !to.success) return res.status(400).json({ error: "from and to are required" });
+async function wagesReport(from: string, to: string, roleFilter: string | null) {
   const conds = [eq(employees.payType, "daily_wage" as const)];
   const staff = await db
     .select({ id: employees.id, empCode: employees.empCode, name: employees.name, defaultRoleId: employees.wageRoleId })
@@ -2385,8 +2407,7 @@ payrollRouter.get("/reports/wages", wagesPerm, async (req, res) => {
 
   // Each day is paid at the rate of the role it was WORKED in. The empty
   // bucket is days with no per-day role, priced at the worker's usual role.
-  const totals = await wageDayTotals(db, from.data, to.data, staff.map((s) => s.id));
-  const roleFilter = req.query.role ? String(req.query.role) : null;
+  const totals = await wageDayTotals(db, from, to, staff.map((s) => s.id));
   const byRole = new Map<string, { role: string; heads: number; presentDays: number; halfDays: number; amount: number }>();
   const rows: Array<{
     id: string; empCode: string; name: string; role: string | null;
@@ -2441,7 +2462,26 @@ payrollRouter.get("/reports/wages", wagesPerm, async (req, res) => {
       amount,
     });
   }
-  res.json({ rows, byRole: [...byRole.values()], total: rows.reduce((n, r) => n + r.amount, 0) });
+  return { rows, byRole: [...byRole.values()], total: rows.reduce((n, r) => n + r.amount, 0) };
+}
+
+payrollRouter.get("/reports/wages", wagesPerm, async (req, res) => {
+  const from = dateStr.safeParse(req.query.from);
+  const to = dateStr.safeParse(req.query.to);
+  if (!from.success || !to.success) return res.status(400).json({ error: "from and to are required" });
+  res.json(await wagesReport(from.data, to.data, req.query.role ? String(req.query.role) : null));
+});
+
+/** The same report as a file, for whoever pays the wages outside niko. */
+payrollRouter.get("/reports/wages/export", wagesPerm, async (req, res) => {
+  const from = dateStr.safeParse(req.query.from);
+  const to = dateStr.safeParse(req.query.to);
+  if (!from.success || !to.success || from.data > to.data) return res.status(400).json({ error: "from and to are required" });
+  const report = await wagesReport(from.data, to.data, req.query.role ? String(req.query.role) : null);
+  const file = wagesReportFile(req.query.format === "xlsx" ? "xlsx" : "csv", from.data, to.data, report.rows);
+  res.setHeader("Content-Type", file.contentType);
+  res.setHeader("Content-Disposition", `attachment; filename="${file.filename}"`);
+  res.send(file.body);
 });
 
 /**
