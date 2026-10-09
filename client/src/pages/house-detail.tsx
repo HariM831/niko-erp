@@ -21,6 +21,12 @@ import { getAgeRefStock, isBatchActive } from "@/lib/bird-batches";
 import { BhHouseCard, type LiveShed } from "@/components/iot-widgets";
 import { api } from "@/api";
 import { DateInput } from "../components/date-input";
+import { type DayAutofill, type Figure, judgeStock, sameFigure } from "@shared/house-day";
+
+/** The three boxes the shed's instruments can fill, by the form's own names. */
+type SensorField = 'feedIntakeKg' | 'feedStockKg' | 'waterKl';
+/** …and by the server's. */
+const SERVER_FIELD = { feedIntakeKg: 'feedConsumedKg', feedStockKg: 'feedClosingKg', waterKl: 'waterKl' } as const;
 
 /** Whole calendar days between two dates. India keeps no daylight saving, so
  *  UTC arithmetic and local arithmetic agree. */
@@ -210,8 +216,14 @@ export function HouseDetailPage() {
   });
   const [allSheds, setAllSheds] = useState<Shed[]>([]);
 
+  /**
+   * A day is entered the morning after. The shed's figures run midnight to
+   * midnight (decided 9 Oct 2026), so the form opens on yesterday, when they
+   * are whole.
+   */
+  const yesterdayYmd = () => format(new Date(Date.now() - 86_400_000), 'yyyy-MM-dd');
   const [recordForm, setRecordForm] = useState({
-    date: format(new Date(), 'yyyy-MM-dd'),
+    date: yesterdayYmd(),
     mortality: '',
     maleBirds: '',
     waterKl: '',
@@ -221,25 +233,21 @@ export function HouseDetailPage() {
   });
 
   /**
-   * What the shed's instruments say, and which boxes still hold their word.
+   * What the shed's instruments say, judged, and which boxes still hold it.
    *
    * A field leaves `fromSensor` the moment a person types in it: the number
-   * becomes theirs, the tint goes, and nothing puts it back. That is the whole
-   * contract of an editable suggestion, and it is why the marks are worth
-   * showing at all.
+   * becomes theirs and the tint goes. A figure the instruments proved, typed
+   * over, needs a reason; so does one the checks stopped — see
+   * shared/house-day.ts, which the save judges by too.
    */
-  const [sensor, setSensor] = useState<{
-    available: boolean; reason?: string; partial?: boolean; at?: string | null;
-    feedConsumedKg?: number | null; feedClosingKg?: number | null;
-    waterKl?: number | null; mortality?: number | null; eggsProduced?: number | null;
-    deliveredImpliedKg?: number | null; millRecordedKg?: number | null;
-    deliveryCheck?: 'agrees' | 'differs' | 'missing' | 'unknown';
-    rejected?: string[];
-  } | null>(null);
+  const [sensor, setSensor] = useState<DayAutofill | null>(null);
   const [fromSensor, setFromSensor] = useState<Set<string>>(new Set());
+  const [reasons, setReasons] = useState<Record<SensorField, string>>({ feedIntakeKg: '', feedStockKg: '', waterKl: '' });
   const [fetching, setFetching] = useState(false);
   /** Bumped by Fetch now, so the suggestion effect runs again. */
   const [sensorNonce, setSensorNonce] = useState(0);
+  /** What the day held when it was opened for editing. */
+  const [savedFigures, setSavedFigures] = useState<Partial<Record<SensorField, number>> | null>(null);
 
   /** Typing in a box takes it off the sensor for good. */
   const setFromHand = (field: string, value: string) => {
@@ -269,6 +277,86 @@ export function HouseDetailPage() {
       />
     ) : null;
 
+  /** Stock follows whatever is in the consumed box. */
+  const stockFigure: Figure | null = sensor
+    ? judgeStock(sensor.stock, recordForm.feedIntakeKg === '' ? null : Number(recordForm.feedIntakeKg))
+    : null;
+  const figureOf = (field: SensorField): Figure | null =>
+    !sensor ? null : field === 'feedIntakeKg' ? sensor.feedConsumedKg : field === 'waterKl' ? sensor.waterKl : stockFigure;
+  /** Whether what is in the box needs the entry person's reason. */
+  const needsReason = (field: SensorField): boolean => {
+    const f = figureOf(field);
+    const raw = recordForm[field];
+    if (!f || raw === '') return false;
+    // A saved day's figure, left as it was, keeps its reason.
+    const kept = savedFigures?.[field];
+    if (editingRecordId && kept != null && sameFigure(SERVER_FIELD[field], kept, Number(raw))) return false;
+    if (f.status === 'filled') return f.value != null && !sameFigure(SERVER_FIELD[field], f.value, Number(raw));
+    return f.status === 'check';
+  };
+  const missingReason = (['feedIntakeKg', 'feedStockKg', 'waterKl'] as const).some(
+    (f) => needsReason(f) && !reasons[f].trim(),
+  );
+
+  /**
+   * Under a box: what the shed says about it, the readings to pick from when
+   * it stopped, and the reason box when one is owed.
+   */
+  const figureNote = (field: SensorField) => {
+    const f = figureOf(field);
+    if (!f) return null;
+    const tone =
+      f.status === 'check' ? 'text-amber-800' : f.status === 'filled' ? 'text-gray-500' : 'text-gray-400';
+    const label = { feedIntakeKg: 'Consumed', feedStockKg: 'Stock', waterKl: 'Water' }[field];
+    return (
+      <div className="space-y-1 text-[11px]">
+        {f.note && (
+          <p className={tone}>
+            {field !== 'waterKl' && <span className="font-medium">{label}: </span>}
+            {f.note}
+          </p>
+        )}
+        {f.also && f.also.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {f.also.map((a) => (
+              <button
+                key={a.label}
+                type="button"
+                onClick={() => setFromHand(field, String(a.value))}
+                className="rounded border border-gray-200 px-1.5 py-0.5 text-gray-600 hover:bg-gray-50"
+                title="Use this figure"
+              >
+                {a.label} {a.value.toLocaleString('en-IN')}
+              </button>
+            ))}
+          </div>
+        )}
+        {needsReason(field) && (
+          <Input
+            value={reasons[field]}
+            onChange={(e) => setReasons((prev) => ({ ...prev, [field]: e.target.value }))}
+            placeholder={`Why ${label.toLowerCase()} is ${Number(recordForm[field]).toLocaleString('en-IN')} — e.g. "register: counter missed the 8am run"`}
+            className={`min-h-[36px] text-[12px] ${reasons[field].trim() ? '' : 'border-amber-400'}`}
+          />
+        )}
+      </div>
+    );
+  };
+
+  /* While stock is still the shed's, it follows the consumed box. */
+  useEffect(() => {
+    if (!fromSensor.has('feedStockKg') && recordForm.feedStockKg !== '') return;
+    const v = stockFigure?.status === 'filled' ? String(stockFigure.value) : '';
+    if (v === recordForm.feedStockKg) return;
+    setRecordForm((prev) => ({ ...prev, feedStockKg: v }));
+    setFromSensor((held) => {
+      const next = new Set(held);
+      if (v) next.add('feedStockKg');
+      else next.delete('feedStockKg');
+      return next;
+    });
+  }, [stockFigure?.status, stockFigure?.value]);
+
   useEffect(() => {
     if (!showRecordDialog || !shedId || !recordForm.date) return;
     let dropped = false;
@@ -284,6 +372,7 @@ export function HouseDetailPage() {
         return next;
       });
     }
+    setSensor(null);
     (async () => {
       try {
         const r = await fetch(
@@ -291,33 +380,24 @@ export function HouseDetailPage() {
           { credentials: 'same-origin' },
         );
         if (!r.ok || dropped) return;
-        const data = await r.json();
+        const data = (await r.json()) as DayAutofill;
         if (dropped) return;
         setSensor(data);
-        // A silent controller still leaves the packing room's egg count.
-        if (!data.available && data.eggsProduced == null) return;
         /*
          * Only ever fills a box that is empty. Editing a saved day must keep
          * what the person wrote, and a suggestion that overwrites an entry is
-         * not a suggestion.
+         * not a suggestion. Only proven figures fill; stock follows consumed.
          */
         const marks = new Set<string>();
         setRecordForm((prev) => {
           const next = { ...prev };
-          const put = (
-            field: 'feedIntakeKg' | 'feedStockKg' | 'waterKl' | 'mortality' | 'eggsProduced',
-            v: number | null | undefined,
-          ) => {
+          const put = (field: 'feedIntakeKg' | 'waterKl' | 'eggsProduced', v: number | null | undefined) => {
             if (v == null || next[field] !== '') return;
             next[field] = String(v);
             marks.add(field);
           };
-          if (data.available) {
-            put('feedIntakeKg', data.feedConsumedKg);
-            put('feedStockKg', data.feedClosingKg);
-            put('waterKl', data.waterKl);
-            put('mortality', data.mortality);
-          }
+          if (data.feedConsumedKg.status === 'filled') put('feedIntakeKg', data.feedConsumedKg.value);
+          if (data.waterKl.status === 'filled') put('waterKl', data.waterKl.value);
           put('eggsProduced', data.eggsProduced);
           return next;
         });
@@ -752,6 +832,12 @@ export function HouseDetailPage() {
     });
     // What the person saved is theirs; no box here belongs to the shed.
     setFromSensor(new Set());
+    setSavedFigures({
+      feedIntakeKg: record.feedIntakeKg == null ? undefined : Number(record.feedIntakeKg),
+      feedStockKg: record.feedStockKg == null ? undefined : Number(record.feedStockKg),
+      waterKl: record.waterKl == null ? undefined : Number(record.waterKl),
+    });
+    setReasons({ feedIntakeKg: '', feedStockKg: '', waterKl: '' });
     setEditingRecordId(record.id);
     setShowRecordDialog(true);
   };
@@ -822,12 +908,19 @@ export function HouseDetailPage() {
         feedIntakeKg: parseFloat(recordForm.feedIntakeKg) || 0,
         feedStockKg: parseFloat(recordForm.feedStockKg) || 0,
         eggsProduced: parseInt(recordForm.eggsProduced) || 0,
+        reasons: {
+          feedConsumedKg: needsReason('feedIntakeKg') ? reasons.feedIntakeKg.trim() : null,
+          feedClosingKg: needsReason('feedStockKg') ? reasons.feedStockKg.trim() : null,
+          waterKl: needsReason('waterKl') ? reasons.waterKl.trim() : null,
+        },
         recordedBy: state.currentUser?.name || 'Unknown'
       });
+      setReasons({ feedIntakeKg: '', feedStockKg: '', waterKl: '' });
+      setSavedFigures(null);
       setShowRecordDialog(false);
       setEditingRecordId(null);
       setRecordForm({
-        date: format(new Date(), 'yyyy-MM-dd'),
+        date: yesterdayYmd(),
         mortality: '',
         maleBirds: '',
         waterKl: '',
@@ -1374,7 +1467,7 @@ export function HouseDetailPage() {
                           </DialogContent>
                         </Dialog>
                       )}
-                    <Dialog open={showRecordDialog} onOpenChange={(open) => { setShowRecordDialog(open); if (!open) { setEditingRecordId(null); setFromSensor(new Set()); } }}>
+                    <Dialog open={showRecordDialog} onOpenChange={(open) => { setShowRecordDialog(open); if (!open) { setEditingRecordId(null); setFromSensor(new Set()); setSavedFigures(null); setReasons({ feedIntakeKg: '', feedStockKg: '', waterKl: '' }); } }}>
                       <DialogTrigger asChild>
                         <Button size="sm" className="min-h-[44px] bg-yolk-500 hover:bg-yolk-600" data-testid="button-add-record">
                           <Plus className="w-4 h-4 mr-2" />
@@ -1385,38 +1478,30 @@ export function HouseDetailPage() {
                         <DialogHeader>
                           <DialogTitle>{editingRecordId ? 'Edit Daily Record' : 'Add Daily Record'}</DialogTitle>
                           </DialogHeader>
-                          {sensor && !sensor.available && (
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                setFetching(true);
-                                try {
-                                  await fetch('/api/farms/iot/fetch-now', {
-                                    method: 'POST',
-                                    credentials: 'same-origin',
-                                  });
-                                  setSensorNonce((n) => n + 1);
-                                } finally {
-                                  setFetching(false);
-                                }
-                              }}
-                              disabled={fetching}
-                              className="rounded-md border px-2 py-1 text-[12px] text-gray-600 hover:bg-gray-50 disabled:opacity-50"
-                            >
-                              {fetching ? 'Fetching…' : 'Fetch now'}
-                            </button>
-                          )}
                           {sensor && (
-                            <div className={`rounded-lg px-3 py-2 text-[12px] ${sensor.available ? 'bg-yolk-50 text-yolk-800' : 'bg-gray-50 text-gray-500'}`}>
-                              {!sensor.available
-                                ? sensor.reason
-                                : sensor.partial
-                                  ? "Today's sensor totals are still climbing, so they are the day so far and not the whole day."
-                                  : 'Filled from the shed. Type over anything that is wrong.'}
-                              {sensor.available && sensor.rejected && sensor.rejected.length > 0 && (
-                                <div className="mt-1 text-gray-500">
-                                  Left blank, the instrument cannot be right: {sensor.rejected.join(', ')}.
-                                </div>
+                            <div className={`flex items-start justify-between gap-2 rounded-lg px-3 py-2 text-[12px] ${sensor.complete ? 'bg-yolk-50 text-yolk-800' : 'bg-gray-50 text-gray-500'}`}>
+                              <span>
+                                {sensor.complete
+                                  ? 'Filled from the shed where its instruments agree. Typing over a filled figure needs a reason.'
+                                  : sensor.reason}
+                              </span>
+                              {!sensor.complete && (
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    setFetching(true);
+                                    try {
+                                      await fetch('/api/farms/iot/fetch-now', { method: 'POST', credentials: 'same-origin' });
+                                      setSensorNonce((n) => n + 1);
+                                    } finally {
+                                      setFetching(false);
+                                    }
+                                  }}
+                                  disabled={fetching}
+                                  className="shrink-0 rounded-md border px-2 py-0.5 text-[12px] text-gray-600 hover:bg-gray-50 disabled:opacity-50"
+                                >
+                                  {fetching ? 'Fetching…' : 'Fetch now'}
+                                </button>
                               )}
                             </div>
                           )}
@@ -1429,11 +1514,10 @@ export function HouseDetailPage() {
                               className="input min-h-[44px]"
                               data-testid="input-record-date"
                               max={isAdmin ? undefined : format(new Date(), 'yyyy-MM-dd')}
-                              min={isAdmin ? undefined : format(new Date(), 'yyyy-MM-dd')}
-                              disabled={!isAdmin}
+                              min={isAdmin ? undefined : yesterdayYmd()}
                             />
                             {!isAdmin && (
-                              <p className="text-xs text-gray-500 mt-1">Only admins can add records for past dates</p>
+                              <p className="text-xs text-gray-500 mt-1">Enter yesterday each morning — its feed and water are whole after midnight. Only admins can go further back.</p>
                             )}
                             {!editingRecordId && recordForm.date && records.some(r => format(new Date(r.date), 'yyyy-MM-dd') === recordForm.date) && (
                               <p className="text-xs text-destructive mt-1 font-medium">A record already exists for this date. Please edit the existing record instead.</p>
@@ -1450,14 +1534,13 @@ export function HouseDetailPage() {
                                 <Label className="text-xs flex items-center gap-1">
                                   <AlertTriangle className="w-3 h-3 text-destructive" />
                                   Mortality
-                                  {sensorTag('mortality')}
                                 </Label>
                                 <Input
                                   type="number"
                                   placeholder="0"
                                   value={recordForm.mortality}
-                                  onChange={(e) => setFromHand('mortality', e.target.value)}
-                                  className={`min-h-[44px] ${sensorClass('mortality')}`}
+                                  onChange={(e) => setRecordForm((prev) => ({ ...prev, mortality: e.target.value }))}
+                                  className="min-h-[44px]"
                                   data-testid="input-mortality"
                                 />
                               </div>
@@ -1487,6 +1570,7 @@ export function HouseDetailPage() {
                                 className={`min-h-[44px] ${sensorClass("waterKl")}`}
                                 data-testid="input-water"
                               />
+                              {figureNote('waterKl')}
                             </div>
                             <div className="text-sm bg-soil-100 p-2 rounded-lg flex justify-between">
                               <span>Total: <strong>{totalWater.toFixed(2)} kL</strong></span>
@@ -1499,30 +1583,7 @@ export function HouseDetailPage() {
                               <Wheat className="w-4 h-4" />
                               Feed
                             </h4>
-                            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                              <div>
-                                <Label className="text-xs flex items-center gap-1.5">
-                                  Delivered (kg)
-                                  <span
-                                    title="Worked out from the silo: today's level, less yesterday's, plus what the birds ate. The mill owns the actual transfer."
-                                    className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-soil-300"
-                                  />
-                                </Label>
-                                <div
-                                  data-testid="input-feed-delivered"
-                                  className={`flex min-h-[44px] items-center rounded-md border px-3 text-sm tabular-nums ${
-                                    sensor?.deliveryCheck === 'differs' || sensor?.deliveryCheck === 'missing'
-                                      ? 'border-amber-400 bg-amber-50 font-semibold text-amber-900'
-                                      : sensor?.deliveryCheck === 'agrees'
-                                        ? 'border-emerald-300 bg-emerald-50 text-emerald-900'
-                                        : 'border-gray-200 bg-gray-50 text-gray-400'
-                                  }`}
-                                >
-                                  {sensor?.deliveredImpliedKg != null
-                                    ? sensor.deliveredImpliedKg.toLocaleString('en-IN')
-                                    : '—'}
-                                </div>
-                              </div>
+                            <div className="grid grid-cols-2 gap-3">
                               <div>
                                 <Label className="text-xs flex items-center gap-1.5">
                                     Consumed (kg)
@@ -1540,7 +1601,7 @@ export function HouseDetailPage() {
                               </div>
                               <div>
                                 <Label className="text-xs flex items-center gap-1.5">
-                                    Stock (kg)
+                                    Stock at midnight (kg)
                                     {sensorTag('feedStockKg')}
                                   </Label>
                                 <Input
@@ -1554,18 +1615,31 @@ export function HouseDetailPage() {
                                 />
                               </div>
                             </div>
-                            {(sensor?.deliveryCheck === 'differs' || sensor?.deliveryCheck === 'missing') && (
-                              <div className="rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
-                                The silo says about{' '}
-                                <strong>{(sensor.deliveredImpliedKg ?? 0).toLocaleString('en-IN')} kg</strong>{' '}
-                                arrived; Feed Mill has{' '}
-                                <strong>{(sensor.millRecordedKg ?? 0).toLocaleString('en-IN')} kg</strong>{' '}
-                                recorded for today. Check the transfer.
-                              </div>
-                            )}
-                            {sensor?.deliveryCheck === 'agrees' && (sensor.millRecordedKg ?? 0) > 0 && (
-                              <div className="rounded-lg bg-emerald-50 px-3 py-2 text-[12px] text-emerald-900">
-                                Silo and Feed Mill agree on today's delivery.
+                            {figureNote('feedIntakeKg')}
+                            {figureNote('feedStockKg')}
+                            {sensor && (sensor.tankers.length > 0 || sensor.unseenTransfers.length > 0) && (
+                              <div className="space-y-1 rounded-lg border border-gray-100 px-3 py-2 text-[12px]">
+                                <div className="font-medium text-gray-600">Tankers at the silo</div>
+                                {sensor.tankers.map((t) => (
+                                  <div key={t.at} className={`flex justify-between gap-2 ${t.transfer ? 'text-gray-600' : 'font-medium text-amber-800'}`}>
+                                    <span>
+                                      {new Date(t.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}
+                                      {' · '}
+                                      {t.kg.toLocaleString('en-IN')} kg
+                                    </span>
+                                    <span>
+                                      {t.transfer
+                                        ? `${t.transfer.number} · ${t.transfer.quantityKg.toLocaleString('en-IN')} kg${t.transfer.transferDate !== recordForm.date ? ` (dated ${format(t.transfer.transferDate, 'dd MMM')})` : ''}`
+                                        : 'No mill transfer — tell the mill'}
+                                    </span>
+                                  </div>
+                                ))}
+                                {sensor.unseenTransfers.map((t) => (
+                                  <div key={t.number} className="flex justify-between gap-2 font-medium text-amber-800">
+                                    <span>{t.number} · {t.quantityKg.toLocaleString('en-IN')} kg</span>
+                                    <span>No tanker seen at the silo</span>
+                                  </div>
+                                ))}
                               </div>
                             )}
                             <div className="text-sm bg-yolk-50 p-2 rounded-lg">
@@ -1602,10 +1676,10 @@ export function HouseDetailPage() {
                           <Button 
                             className="w-full min-h-[44px] bg-yolk-500 hover:bg-yolk-600" 
                             onClick={handleSaveRecord}
-                            disabled={Boolean(isSaving || formClosingBirds < 0 || (!editingRecordId && recordForm.date && records.some(r => format(new Date(r.date), 'yyyy-MM-dd') === recordForm.date)))}
+                            disabled={Boolean(isSaving || missingReason || formClosingBirds < 0 || (!editingRecordId && recordForm.date && records.some(r => format(new Date(r.date), 'yyyy-MM-dd') === recordForm.date)))}
                             data-testid="button-save-record"
                           >
-                            {isSaving ? 'Saving...' : formClosingBirds < 0 ? 'Invalid: Closing birds cannot be negative' : (!editingRecordId && recordForm.date && records.some(r => format(new Date(r.date), 'yyyy-MM-dd') === recordForm.date)) ? 'Record exists for this date' : (editingRecordId ? 'Update Record' : 'Save Record')}
+                            {isSaving ? 'Saving...' : missingReason ? 'Give the reasons above' : formClosingBirds < 0 ? 'Invalid: Closing birds cannot be negative' : (!editingRecordId && recordForm.date && records.some(r => format(new Date(r.date), 'yyyy-MM-dd') === recordForm.date)) ? 'Record exists for this date' : (editingRecordId ? 'Update Record' : 'Save Record')}
                           </Button>
                         </div>
                       </DialogContent>

@@ -23,11 +23,13 @@ import {
   placementDays,
   vaccinationEvents,
 } from "@shared/schema";
+import type { DaySources } from "@shared/schema";
 import { db } from "../db";
 import type { db as Db } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { PostingError } from "../services/posting";
 import { DAILY_KINDS, saveDay } from "../services/daily";
+import { autofillDay, provenance } from "../services/house-day-autofill";
 import { gradedEggsOn } from "../services/egg-sales";
 import { createFlock } from "../services/flocks";
 import { refreshFromPlacement } from "../services/rollup";
@@ -100,6 +102,15 @@ const dailyBody = z.object({
   feedIntakeKg: z.number().default(0),
   feedStockKg: z.number().default(0),
   eggsProduced: z.number().default(0),
+  /** Why a figure overrides or settles what the shed's instruments offered. */
+  reasons: z
+    .object({
+      feedConsumedKg: z.string().max(300).nullish(),
+      feedClosingKg: z.string().max(300).nullish(),
+      waterKl: z.string().max(300).nullish(),
+    })
+    .partial()
+    .optional(),
 });
 
 /**
@@ -117,7 +128,72 @@ const dailyBody = z.object({
  *  - feed delivered — that is the mill's transfer into the house, which already
  *    exists as a stock movement with a cost on it.
  */
-async function writeDaily(tx: Tx, body: z.infer<typeof dailyBody>, userId: string, placementId: string) {
+/**
+ * How a day's feed and water figures are judged on the way in.
+ *
+ *  - "form": against what the shed's instruments offer for the day — a figure
+ *    that overrides a proven one, or settles one the checks stopped, needs a
+ *    reason. See services/house-day-autofill.ts.
+ *  - "import": a bulk upload of the register; recorded as imported, unjudged.
+ */
+async function sourcesFor(
+  tx: Tx,
+  body: z.infer<typeof dailyBody>,
+  placementId: string,
+  mode: "form" | "import",
+): Promise<DaySources> {
+  const values = {
+    feedConsumedKg: body.feedIntakeKg || null,
+    feedClosingKg: body.feedStockKg || null,
+    waterKl: body.waterKl || null,
+  };
+  if (mode === "import") {
+    const out: DaySources = {};
+    for (const f of ["feedConsumedKg", "feedClosingKg", "waterKl"] as const) {
+      if (values[f] != null) out[f] = { from: "import" };
+    }
+    return out;
+  }
+  const d = day(body.date);
+  const [placement] = await tx
+    .select({ houseId: flockPlacements.houseId })
+    .from(flockPlacements)
+    .where(eq(flockPlacements.id, placementId));
+  const [saved] = await tx
+    .select({
+      feedConsumedKg: placementDays.feedConsumedKg,
+      feedClosingKg: placementDays.feedClosingKg,
+      waterKl: placementDays.waterKl,
+      sources: placementDays.sources,
+    })
+    .from(placementDays)
+    .where(and(eq(placementDays.placementId, placementId), eq(placementDays.day, d)));
+  const auto = await autofillDay(placement!.houseId, d);
+  const n = (v: string | null) => (v == null ? null : Number(v));
+  return provenance(
+    auto,
+    values,
+    saved
+      ? {
+          values: {
+            feedConsumedKg: n(saved.feedConsumedKg),
+            feedClosingKg: n(saved.feedClosingKg),
+            waterKl: n(saved.waterKl),
+          },
+          sources: saved.sources ?? null,
+        }
+      : null,
+    body.reasons ?? {},
+  );
+}
+
+async function writeDaily(
+  tx: Tx,
+  body: z.infer<typeof dailyBody>,
+  userId: string,
+  placementId: string,
+  mode: "form" | "import" = "form",
+) {
   if (body.birdsTransferredIn || body.birdsTransferredOut) {
     throw new PostingError(
       "Birds move on the flock's Transfer tab, where both ends of the move are recorded together. Leave transferred in/out at zero here.",
@@ -150,6 +226,7 @@ async function writeDaily(tx: Tx, body: z.infer<typeof dailyBody>, userId: strin
       // empty takes the shed's graded count for the day.
       eggsTotal: body.eggsProduced || (body.shedId ? await gradedEggsOn(tx, body.shedId, day(body.date)) : null) || null,
       losses,
+      sources: await sourcesFor(tx, body, placementId, mode),
     },
     userId,
   );
@@ -446,7 +523,7 @@ farmsCompatRouter.post("/sheds/:id/bulk-daily-records", manage, async (req, res)
       let n = 0;
       for (const r of rows) {
         const placementId = await resolvePlacement(tx, req.params.id!, r.batchNumber, day(r.date));
-        await writeDaily(tx, r, req.session.user!.id, placementId);
+        await writeDaily(tx, r, req.session.user!.id, placementId, "import");
         n++;
       }
       return n;

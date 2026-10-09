@@ -28,6 +28,7 @@ import {
   movementDelta,
   placementDays,
 } from "@shared/schema";
+import type { DaySources } from "@shared/schema";
 import type { db as Db } from "../db";
 import { PostingError } from "./posting";
 import { ageOn, placementCounts } from "./flocks";
@@ -65,6 +66,8 @@ export interface DayInput {
   eggsDirty?: number | null;
   note?: string | null;
   losses: LossLine[];
+  /** Where the feed and water figures came from; left as saved when absent. */
+  sources?: DaySources | null;
 }
 
 /**
@@ -306,6 +309,7 @@ export async function saveDay(tx: Tx, input: DayInput, userId: string) {
       eggsCracked: input.eggsCracked ?? null,
       eggsDirty: input.eggsDirty ?? null,
       note: input.note?.trim() || null,
+      sources: input.sources ?? null,
       recordedBy: userId,
     })
     .onConflictDoUpdate({
@@ -318,6 +322,7 @@ export async function saveDay(tx: Tx, input: DayInput, userId: string) {
         eggsCracked: input.eggsCracked ?? null,
         eggsDirty: input.eggsDirty ?? null,
         note: input.note?.trim() || null,
+        ...(input.sources !== undefined ? { sources: input.sources } : {}),
         recordedBy: userId,
         updatedAt: new Date(),
       },

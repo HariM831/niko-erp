@@ -24,11 +24,11 @@ import {
   standardSets,
 } from "@shared/schema";
 import { db } from "../db";
-import { gradedEggsOn } from "../services/egg-sales";
+import { autofillDay } from "../services/house-day-autofill";
 import { requirePermission } from "../lib/rbac";
 import { nonBlank, validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
-import { compareDelivery, dayBoard, saveDay } from "../services/daily";
+import { dayBoard, saveDay } from "../services/daily";
 import { housesBoard } from "../services/houses-board";
 import { houseDetail } from "../services/house-detail";
 import {
@@ -710,205 +710,19 @@ farmsFlockRouter.get("/daily", view, async (req, res) => {
 });
 
 /**
- * What the shed's own instruments say about a day, for the entry form to open
- * with. Suggestions only — nothing here is saved until a person saves it.
+ * What the shed's instruments say about a day, judged, for the entry form to
+ * open with. Suggestions only — nothing is saved until a person saves it, and
+ * the save judges it again. See services/house-day-autofill.ts.
  *
- * Four numbers, and each one is refused rather than guessed when the
- * controller cannot support it:
- *
- *  - feed and water are the controller's own daily totals. They reset at
- *    midnight and climb, so asking about TODAY gets the running figure so far,
- *    not the day's. `partial` says which, and the form says so on screen.
- *  - silo is the current weight in the bins, which is what "stock" means.
- *  - mortality is NOT the controller's mortality tag: that reads zero on every
- *    house on every day ever polled, because nobody types deaths into the
- *    panel. It is the fall in the panel's own BIRD COUNT since yesterday,
- *    which staff do maintain. That fall also contains any culls and transfers
- *    out, so it is offered as a number to check rather than a fact.
- *
- * A controller repeating one frozen snapshot (P1 and P2 have done since they
- * were wired) offers nothing at all. A stuck number presented confidently is
- * worse than an empty box, because the empty box gets filled in.
+ * Mortality is not offered. The controller's bird count is whatever somebody
+ * last typed into the panel; deaths are counted in the house.
  */
 farmsFlockRouter.get("/daily/sensor", view, async (req, res) => {
   const day = String(req.query.date ?? "").slice(0, 10);
   const houseId = String(req.query.houseId ?? "");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return res.status(422).json({ error: "Use a YYYY-MM-DD date" });
   if (!houseId) return res.status(422).json({ error: "Which house?" });
-
-  const rows = await db.execute(sql`
-    WITH today AS (
-      SELECT feed_kg, water_l, silo_kg, bird_count, updated_at
-        FROM iot_house_day WHERE house_id = ${houseId}::uuid AND day = ${day}
-    ),
-    yesterday AS (
-      SELECT bird_count, silo_kg FROM iot_house_day
-       WHERE house_id = ${houseId}::uuid AND day = (${day}::date - 1)
-    ),
-    /* What the mill says it sent this house today, voided lines excluded. */
-    mill AS (
-      SELECT coalesce(sum(quantity_kg), 0) AS mill_kg
-        FROM feed_transfers
-       WHERE to_house_id = ${houseId}::uuid AND transfer_date = ${day}
-         AND status IS DISTINCT FROM 'void'
-    ),
-    /*
-     * Is the controller reporting, or repeating one snapshot?
-     *
-     * Movement across a window that spans real TIME.
-     *
-     * Three wrong answers came before this one. A 24-hour window assumed a
-     * five-minute timer and called every house on staging frozen. Twelve
-     * readings regardless of age spanned the gap between imported history and
-     * today's fetch, and the gap alone looked like life. Two consecutive
-     * readings looked tightest — until two manual fetches landed 38 seconds
-     * apart and L2 and L5 read as frozen, because nothing changes in 38
-     * seconds.
-     *
-     * So: readings from the last six hours, which excludes an import gap, and
-     * the span between oldest and newest must be at least ten minutes, which
-     * is long enough that a live house has moved SOMETHING — the water
-     * counter ticks about a hundred litres every five minutes. Too short a
-     * span is not evidence of a frozen controller, and says so instead.
-     */
-    recent AS (
-      SELECT temp_c, feed_kg, water_l, silo_kg, at
-        FROM iot_house_sample
-       WHERE house_id = ${houseId}::uuid AND at > now() - interval '6 hours'
-       ORDER BY at DESC LIMIT 24
-    ),
-    liveness AS (
-      SELECT count(*) AS seen,
-             GREATEST(count(DISTINCT temp_c), count(DISTINCT feed_kg),
-                      count(DISTINCT water_l), count(DISTINCT silo_kg)) AS temps,
-             EXTRACT(EPOCH FROM (max(at) - min(at))) AS span_s,
-             max(at) AS newest
-        FROM recent
-    )
-    SELECT t.feed_kg, t.water_l, t.silo_kg, t.bird_count, t.updated_at,
-           y.bird_count AS prev_birds, y.silo_kg AS prev_silo, m.mill_kg,
-           l.temps, l.seen, l.span_s, l.newest
-      FROM liveness l LEFT JOIN today t ON true LEFT JOIN yesterday y ON true
-      LEFT JOIN mill m ON true
-  `);
-
-  const r = rows.rows[0] as
-    | {
-        feed_kg: string | null; water_l: string | null; silo_kg: string | null;
-        bird_count: number | null; updated_at: string | null;
-        prev_birds: number | null; prev_silo: string | null; mill_kg: string | null;
-        temps: string | number; seen: string | number;
-        span_s: string | number | null; newest: string | null;
-      }
-    | undefined;
-
-  const num = (v: string | null | undefined) => (v == null ? null : Number(v));
-  // Nothing moving across a window that spans real time is a frozen controller.
-  const seen = Number(r?.seen ?? 0);
-  const spanS = Number(r?.span_s ?? 0);
-  const moved = r != null && Number(r.temps) > 1;
-  const longEnough = spanS >= 600;
-  // The eggs are the packing room's, not the controller's: a shed's graded
-  // count is offered whatever state its controller is in.
-  const eggsProduced = await gradedEggsOn(db, houseId, day);
-  if (!moved) {
-    return res.json({
-      available: false,
-      eggsProduced,
-      reason:
-        seen === 0
-          ? "No readings from this house's controller."
-          : !longEnough
-            ? "The readings so far are minutes apart — too close together to tell a live controller from a frozen one. Fetch again shortly."
-            : "This house's controller is repeating one frozen reading — nothing to suggest.",
-    });
-  }
-
-  const fall =
-    r!.bird_count != null && r!.prev_birds != null ? r!.prev_birds - r!.bird_count : null;
-
-  /**
-   * A live controller can still have a dead instrument.
-   *
-   * L4 reported 63 kg of feed for 109,968 birds and L5 reported minus one,
-   * on a day both were plainly reporting temperature. That is a broken feed
-   * line, not a fasting house, and 63 kg prefilled into a form is a number
-   * somebody signs off. Each figure is checked against the birds it claims to
-   * have fed and dropped on its own if it cannot be true — a blank box asks to
-   * be filled, which is exactly the right outcome.
-   *
-   * The bands are deliberately wide: a layer eats about 110 g and drinks about
-   * 250 ml a day, and these bounds only exclude the impossible.
-   */
-  const birds = r!.bird_count ?? 0;
-  const perBird = (total: number | null, factor: number) =>
-    total == null || birds <= 0 ? null : (total * factor) / birds;
-
-  const feedKg = num(r!.feed_kg);
-  const feedG = perBird(feedKg, 1000);
-  const feedOk = feedG != null && feedG >= 20 && feedG <= 250;
-
-  const waterL = num(r!.water_l);
-  const waterMl = perBird(waterL, 1000);
-  const waterOk = waterMl != null && waterMl >= 50 && waterMl <= 600;
-
-  const siloKg = num(r!.silo_kg);
-  const siloOk = siloKg != null && siloKg >= 0;
-
-  /**
-   * Eggs produced, from the grading sheet this house filled for the day.
-   *
-   * Boxes, converted at the size's own capacity: a jumbo box holds 180 and a
-   * Niko box 360 where the rest hold 210.
-   */
-  // (eggsProduced is read above, before the controller is judged.)
-
-  /**
-   * What the silo says arrived, against what the mill says it sent.
-   *
-   *   delivered = silo now - silo yesterday + what the birds ate
-   *
-   * A cross-check, never a claim. The silo is a level read at one moment and
-   * the feed counter can under-record, so the identity comes out negative when
-   * one of them is wrong — L2 on 30 Aug lost 10,199 kg from the silo while the
-   * counter recorded 6,838 eaten, which is not a delivery of minus 3,361 kg.
-   * A negative answer is reported as unusable rather than shown as a number.
-   *
-   * The tolerance for "agrees" lives with compareDelivery, which the saved
-   * records use too, so the form and the record never disagree about
-   * disagreeing.
-   */
-  const siloPrev = num(r!.prev_silo);
-  const impliedRaw =
-    siloOk && siloPrev != null && feedOk ? siloKg! - siloPrev + feedKg! : null;
-  const deliveredImpliedKg = impliedRaw == null || impliedRaw < 0 ? null : Math.round(impliedRaw);
-  const millRecordedKg = r!.mill_kg == null ? null : Math.round(Number(r!.mill_kg));
-
-  const deliveryCheck = compareDelivery(deliveredImpliedKg, millRecordedKg);
-
-  const rejected: string[] = [];
-  if (!feedOk && feedKg != null) rejected.push(`feed (${Math.round(feedG ?? 0)} g/bird)`);
-  if (!waterOk && waterL != null) rejected.push(`water (${Math.round(waterMl ?? 0)} ml/bird)`);
-  if (!siloOk && siloKg != null) rejected.push("silo");
-
-  res.json({
-    available: true,
-    // Today's totals are still climbing; yesterday's are final.
-    partial: day >= istDate(),
-    at: r!.updated_at,
-    feedConsumedKg: feedOk ? feedKg : null,
-    feedClosingKg: siloOk ? siloKg : null,
-    waterKl: waterOk ? Math.round(waterL! / 100) / 10 : null,
-    // Negative means the panel count went UP — a transfer in, not a resurrection.
-    mortality: fall != null && fall > 0 ? fall : null,
-    birdCount: r!.bird_count,
-    eggsProduced,
-    deliveredImpliedKg,
-    millRecordedKg,
-    deliveryCheck,
-    /** Instruments that answered with something that cannot be true. */
-    rejected,
-  });
+  res.json(await autofillDay(houseId, day));
 });
 
 const dailySchema = z.object({

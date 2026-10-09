@@ -49,7 +49,8 @@ import { mainStore, moveStock, postInventoryMovement, stockOnHand, stockUnitsPer
 import { getPreferences } from "../services/preferences";
 import { materialPrices } from "../services/feed-prices";
 import { refreshHouse } from "../services/rollup";
-import { istDate } from "../services/day-resolution";
+import { istDate, istDaysAgo } from "../services/day-resolution";
+import { tankersFor } from "../services/house-day-autofill";
 
 export const feedProductionRouter = Router();
 
@@ -1007,5 +1008,114 @@ feedProductionRouter.post(
     } catch (err) {
       if (!fail(err, res)) throw err;
     }
+  },
+);
+
+/**
+ * Move a transfer to the day its tanker reached the shed.
+ *
+ * The house's day runs midnight to midnight (9 Oct 2026), and its stock is
+ * booked by when the tanker ARRIVED — a tanker in at 22:00 belongs to that
+ * day, not the morning the mill got round to entering it. A dating slip, as
+ * with production: the transfer, its stock movement and its journal take the
+ * new date together, nothing is re-costed, and the transfer says who moved it
+ * and why.
+ *
+ * Refused where the books cannot follow: a closed period either side, a day
+ * not yet come, or an earlier day by which the mill did not yet hold the feed.
+ */
+feedProductionRouter.post(
+  "/transfers/:id/date",
+  requirePermission("feed_mill", "transfer"),
+  validateBody(z.object({ transferDate: dateStr, reason: z.string().min(3).max(500) })),
+  async (req, res) => {
+    const body = req.body as { transferDate: string; reason: string };
+    try {
+      const who = req.session.user!.name ?? req.session.user!.username ?? "someone";
+      const out = await db.transaction((tx) =>
+        redateTransfer(tx, { transferId: req.params.id!, to: body.transferDate, reason: body.reason, who }),
+      );
+      res.json(out);
+    } catch (err) {
+      if (!fail(err, res)) throw err;
+    }
+  },
+);
+
+/** The re-dating itself — exported so a check script can drive the real thing. */
+export async function redateTransfer(
+  tx: Tx,
+  args: { transferId: string; to: string; reason: string; who: string },
+) {
+  const transfer = await tx.query.feedTransfers.findFirst({ where: eq(feedTransfers.id, args.transferId) });
+  if (!transfer) throw new PostingError("Transfer not found");
+  if (transfer.status === "void") throw new PostingError(`${transfer.number} is void`);
+  const from = transfer.transferDate;
+  const to = args.to;
+  if (to === from) return transfer;
+  if (to > istDate()) throw new PostingError("A transfer cannot be dated in the future");
+  await assertPeriodOpen(tx, from, "inventory_adjustment");
+  await assertPeriodOpen(tx, to, "inventory_adjustment");
+
+  const mine = and(eq(inventoryTransactions.sourceType, "feed_transfer"), eq(inventoryTransactions.sourceId, transfer.id));
+  if (to < from) {
+    // The mill must have held the feed by the new date.
+    const notMine = or(
+      ne(inventoryTransactions.sourceType, "feed_transfer"),
+      ne(inventoryTransactions.sourceId, transfer.id),
+    );
+    const [bal] = await tx
+      .select({ q: sql<string>`coalesce(sum(${inventoryTransactions.quantity}), 0)` })
+      .from(inventoryTransactions)
+      .where(and(eq(inventoryTransactions.itemId, transfer.itemId), lte(inventoryTransactions.transactionDate, to), notMine));
+    const held = Number(bal?.q ?? 0);
+    if (held - Number(transfer.quantityKg) < -0.0005) {
+      throw new PostingError(
+        `Only ${held.toLocaleString("en-IN")} kg of that feed was at the mill by ${to} — ${transfer.number} sent ${Number(transfer.quantityKg).toLocaleString("en-IN")} kg. Record the production that made it first.`,
+      );
+    }
+  }
+
+  await tx.update(inventoryTransactions).set({ transactionDate: to }).where(mine);
+  if (transfer.journalEntryId) {
+    await tx.update(journalEntries).set({ entryDate: to }).where(eq(journalEntries.id, transfer.journalEntryId));
+  }
+  const [updated] = await tx
+    .update(feedTransfers)
+    .set({
+      transferDate: to,
+      notes: [transfer.notes, `Moved from ${from} to ${to} by ${args.who}: ${args.reason}`].filter(Boolean).join("\n"),
+    })
+    .where(eq(feedTransfers.id, transfer.id))
+    .returning();
+  if (transfer.toHouseId) await refreshHouse(tx, transfer.toHouseId);
+  return updated!;
+}
+
+/**
+ * Tankers the sheds' silos saw arrive in the last three days with no mill
+ * transfer behind them — the mill's record is missing. On 8 Oct 2026 L4 took
+ * 21,769 kg and L5 14,282 kg this way and nothing showed until the registers
+ * were photographed. See services/house-day-autofill.ts.
+ */
+feedProductionRouter.get(
+  "/transfers/unbooked",
+  requirePermission("feed_mill", "view"),
+  async (_req, res) => {
+    const houseRows = await db
+      .select({ id: houses.id, code: houses.code, farmName: locations.name })
+      .from(houses)
+      .innerJoin(locations, eq(locations.id, houses.locationId))
+      .where(and(eq(houses.isActive, true), sql`EXISTS (SELECT 1 FROM iot_house_sample s WHERE s.house_id = ${houses.id} AND s.at > now() - interval '3 days')`))
+      .orderBy(asc(houses.displayOrder), asc(houses.code));
+    const out: Array<{ houseId: string; houseCode: string; farmName: string; at: string; kg: number }> = [];
+    for (const h of houseRows) {
+      const { tankers } = await tankersFor(h.id, istDaysAgo(2), istDate());
+      for (const t of tankers) {
+        if (t.transfer || t.move.kg < 1_000) continue;
+        out.push({ houseId: h.id, houseCode: h.code, farmName: h.farmName, at: t.move.start.toISOString(), kg: Math.round(t.move.kg) });
+      }
+    }
+    res.json(out);
   },
 );

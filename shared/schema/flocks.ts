@@ -12,6 +12,7 @@ import {
   date,
   index,
   integer,
+  jsonb,
   numeric,
   pgTable,
   primaryKey,
@@ -230,6 +231,23 @@ export const MOVEMENT_KIND_LABELS: Record<MovementKind, string> = {
  * being split across two tables that can disagree. Saving a day writes both, in
  * one transaction.
  */
+/** One figure's provenance on a saved house-day. */
+export interface FigureSource {
+  /** Where the saved number came from. */
+  from: "silo" | "controller" | "book" | "typed" | "import";
+  /** What the instruments offered, when they offered something. */
+  offered?: number | null;
+  /** Why a person typed over an offer, or settled a figure the checks stopped. */
+  reason?: string | null;
+  /** The number before a correction script replaced it. */
+  was?: number | null;
+}
+export interface DaySources {
+  feedConsumedKg?: FigureSource;
+  feedClosingKg?: FigureSource;
+  waterKl?: FigureSource;
+}
+
 export const placementDays = pgTable(
   "placement_days",
   {
@@ -264,6 +282,13 @@ export const placementDays = pgTable(
     note: text("note"),
     /** "manual" | "iot" | "import" */
     source: text("source").notNull().default("manual"),
+    /**
+     * Where each figure came from — the silo, the controller, the mill's book
+     * or a person — and the reason a person gave for overriding or settling
+     * one. See server/services/house-day-autofill.ts. Null on days saved
+     * before 9 Oct 2026.
+     */
+    sources: jsonb("sources").$type<DaySources>(),
     recordedBy: uuid("recorded_by").references(() => users.id),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),

@@ -15,6 +15,7 @@ import { StatusBadge } from "../components/status-badge";
 import { PlatformWeight } from "./platform-weight";
 import { SearchSelect } from "./search-select";
 import { localYmd } from "../lib/utils";
+import { DateInput } from "./date-input";
 import type { Criteria } from "./advanced-search";
 
 interface Context {
@@ -54,6 +55,14 @@ export function FeedTransferForm({ term = "", criteria = {} }: { term?: string; 
   const [fromId, setFromId] = useState("");
   const [toId, setToId] = useState("");
   const [quantity, setQuantity] = useState("");
+  /**
+   * The day the tanker reached the shed. A house's day runs midnight to
+   * midnight and books feed by arrival, so a tanker in at 22:00 is entered
+   * the next morning against the day before.
+   */
+  const [transferDate, setTransferDate] = useState(localYmd());
+  /** A transfer being moved to another day: its id, the new date, and why. */
+  const [moving, setMoving] = useState<{ id: string; number: string; date: string; reason: string } | null>(null);
   /*
    * A tanker is weighed twice and the feed is the difference.
    *
@@ -73,6 +82,13 @@ export function FeedTransferForm({ term = "", criteria = {} }: { term?: string; 
   useEffect(() => {
     if (weighedNet != null && weighedNet > 0) setQuantity(String(weighedNet));
   }, [weighedNet]);
+
+  /** Tankers the silos saw arrive that no transfer accounts for. */
+  const { data: unbooked } = useQuery<Array<{ houseId: string; houseCode: string; farmName: string; at: string; kg: number }>>({
+    queryKey: ["feed-transfers-unbooked"],
+    queryFn: () => api("/api/feed/production/transfers/unbooked"),
+    refetchInterval: 5 * 60_000,
+  });
 
   const { data: ctx } = useQuery<Context>({
     queryKey: ["feed-transfer-context"],
@@ -111,7 +127,7 @@ export function FeedTransferForm({ term = "", criteria = {} }: { term?: string; 
           quantityKg: quantity.trim(),
           fromLocationId: fromId,
           toHouseId: toId,
-          transferDate: localYmd(),
+          transferDate,
         },
       }),
     onSuccess: (r) => {
@@ -120,8 +136,25 @@ export function FeedTransferForm({ term = "", criteria = {} }: { term?: string; 
       setQuantity("");
       void qc.invalidateQueries({ queryKey: ["feed-transfers"] });
       void qc.invalidateQueries({ queryKey: ["feed-transfer-context"] });
+      void qc.invalidateQueries({ queryKey: ["feed-transfers-unbooked"] });
     },
     onError: (e) => setError(e instanceof ApiError ? e.message : "Could not transfer"),
+  });
+
+  const redate = useMutation({
+    mutationFn: (m: { id: string; date: string; reason: string }) =>
+      api<{ number: string }>(`/api/feed/production/transfers/${m.id}/date`, {
+        method: "POST",
+        body: { transferDate: m.date, reason: m.reason.trim() },
+      }),
+    onSuccess: (r) => {
+      setDone(`${r.number} moved`);
+      setError(null);
+      setMoving(null);
+      void qc.invalidateQueries({ queryKey: ["feed-transfers"] });
+      void qc.invalidateQueries({ queryKey: ["feed-transfers-unbooked"] });
+    },
+    onError: (e) => setError(e instanceof ApiError ? e.message : "Could not move it"),
   });
 
   const over = held != null && qty > held.quantity;
@@ -157,6 +190,36 @@ export function FeedTransferForm({ term = "", criteria = {} }: { term?: string; 
           {error && (
             <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">
               {error}
+            </div>
+          )}
+
+          {unbooked && unbooked.length > 0 && (
+            <div className="card mb-4 border-amber-300 bg-amber-50 p-4 text-[13px]">
+              <div className="mb-1 font-semibold text-amber-900">Tankers at the sheds with no transfer</div>
+              <p className="mb-2 text-[12px] text-amber-800">
+                The silo weighed these in, but nothing here accounts for them. Enter each one with the weighbridge's net, dated the day it arrived.
+              </p>
+              {unbooked.map((u) => {
+                const day = localYmd(new Date(u.at));
+                return (
+                  <div key={`${u.houseId}-${u.at}`} className="flex items-center justify-between gap-2 border-t border-amber-200 py-1.5">
+                    <span className="text-amber-900">
+                      {u.farmName} · {u.houseCode} — {formatDate(day)}{" "}
+                      {new Date(u.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })} · about{" "}
+                      <span className="font-medium tabular-nums">{u.kg.toLocaleString("en-IN")} kg</span>
+                    </span>
+                    <button
+                      className="shrink-0 rounded border border-amber-400 px-2 py-0.5 text-[12px] text-amber-900 hover:bg-amber-100"
+                      onClick={() => {
+                        setToId(u.houseId);
+                        setTransferDate(day);
+                      }}
+                    >
+                      Enter it
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -234,6 +297,15 @@ export function FeedTransferForm({ term = "", criteria = {} }: { term?: string; 
                 />
               </div>
               <div>
+                <label className="label-required">Arrived on *</label>
+                <DateInput
+                  value={transferDate}
+                  onChange={(e) => setTransferDate(e.target.value)}
+                  max={localYmd()}
+                  className="input"
+                />
+              </div>
+              <div>
                 <label className="label-required">Quantity (kg) *</label>
                 <input
                   value={quantity}
@@ -268,7 +340,7 @@ export function FeedTransferForm({ term = "", criteria = {} }: { term?: string; 
                 </div>
                 <button
                   onClick={() => send.mutate()}
-                  disabled={!itemId || !toId || !(qty > 0) || over || send.isPending}
+                  disabled={!itemId || !toId || !transferDate || !(qty > 0) || over || send.isPending}
                   className="btn-primary flex items-center gap-1.5"
                 >
                   <Send size={14} /> Transfer
@@ -300,6 +372,40 @@ export function FeedTransferForm({ term = "", criteria = {} }: { term?: string; 
                     {r.itemName} · {kg(r.quantityKg)} → {r.toLocationName}
                   </span>
                   {r.status === "void" && <StatusBadge status="void" />}
+                  {r.status !== "void" && (
+                    <button
+                      className="ml-2 text-[12px] text-gray-400 hover:text-gray-700"
+                      onClick={() => setMoving({ id: r.id, number: r.number, date: r.transferDate, reason: "" })}
+                    >
+                      Change date
+                    </button>
+                  )}
+                  {moving?.id === r.id && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <DateInput
+                        value={moving.date}
+                        onChange={(e) => setMoving({ ...moving, date: e.target.value })}
+                        max={localYmd()}
+                        className="input w-40"
+                      />
+                      <input
+                        value={moving.reason}
+                        onChange={(e) => setMoving({ ...moving, reason: e.target.value })}
+                        placeholder="Why — e.g. tanker arrived 22:00 the day before"
+                        className="input min-w-[16rem] flex-1"
+                      />
+                      <button
+                        className="btn-primary"
+                        disabled={moving.reason.trim().length < 3 || moving.date === r.transferDate || redate.isPending}
+                        onClick={() => redate.mutate(moving)}
+                      >
+                        Move
+                      </button>
+                      <button className="text-[12px] text-gray-500" onClick={() => setMoving(null)}>
+                        Cancel
+                      </button>
+                    </div>
+                  )}
                 </div>
                 {costs && (
                   <span className="shrink-0 pl-3 text-[12px] tabular-nums text-gray-500">
