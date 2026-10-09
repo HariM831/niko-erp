@@ -905,7 +905,7 @@ export async function transferOne(tx: Tx, body: TransferBody, userId: string) {
     const held = Number(level.quantity);
     if (qty > held) {
       throw new PostingError(
-        `Only ${held.toLocaleString("en-IN")} kg of ${level.name} in stock — cannot send ${qty.toLocaleString("en-IN")} kg`,
+        `Stock short by ${(qty - held).toLocaleString("en-IN", { maximumFractionDigits: 3 })} kg — only ${held.toLocaleString("en-IN")} kg of ${level.name} in stock, cannot send ${qty.toLocaleString("en-IN")} kg`,
       );
     }
     const rate = held > 0 ? Number(level.value) / held : 0;

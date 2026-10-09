@@ -247,8 +247,9 @@ export function FeedTransferForm({ term = "", criteria = {} }: { term?: string; 
                   className="input text-right"
                 />
                 {over && (
-                  <p className="mt-0.5 text-[11px] text-red-600">
-                    Only {kg(held!.quantity)} in stock.
+                  <p className="mt-1 rounded bg-red-50 px-2 py-1 text-[12px] font-medium text-red-700">
+                    Stock short by {kg(qty - held!.quantity)} — only {kg(held!.quantity)} of {held!.formulaName} in
+                    stock. Record the missing production first.
                   </p>
                 )}
                 {weighedNet != null && weighedNet <= 0 && (
