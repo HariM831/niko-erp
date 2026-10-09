@@ -28,7 +28,7 @@ export interface OrderLine {
   dispatch: { invoiceNumber: string; loadedBoxes: number } | null;
 }
 
-const fmt = (n: number) => n.toLocaleString("en-IN");
+const fmt = (n: number) => Math.round(n).toLocaleString("en-IN");
 const numCls = "px-2 py-2.5 text-right tabular-nums";
 
 export function isStruck(l: OrderLine) {

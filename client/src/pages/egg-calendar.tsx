@@ -81,6 +81,9 @@ const shiftMonth = (ym: string, by: number) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 };
 
+/** Boxes are always whole: the forecast average and Dirty trays ÷ 7 come back fractional. */
+const fmtBoxes = (n: number) => Math.round(n).toLocaleString("en-IN");
+
 export function EggCalendarPage() {
   const [, setLocation] = useLocation();
   const today = localYmd();
@@ -183,30 +186,30 @@ export function EggCalendarPage() {
                       className="mt-0.5 text-[11px] leading-tight"
                       title={
                         supply != null
-                          ? `${d.opening ?? 0} on the shelf + ${d.production ?? 0} ${d.graded ? "graded" : "expected"} = ${supply}; ${d.closing ?? 0} left after orders`
+                          ? `${fmtBoxes(d.opening ?? 0)} on the shelf + ${fmtBoxes(d.production ?? 0)} ${d.graded ? "graded" : "expected"} = ${fmtBoxes(supply)}; ${fmtBoxes(d.closing ?? 0)} left after orders`
                           : undefined
                       }
                     >
                       {/* Orders / what is left to sell after them — the projected closing (the user, 1 Oct 2026). */}
-                      <span className="font-medium tabular-nums">{d.committed}</span>
+                      <span className="font-medium tabular-nums">{fmtBoxes(d.committed)}</span>
                       <span className={`font-medium tabular-nums ${cover}`}>
-                        {" "}/ {d.closing ?? "?"}
+                        {" "}/ {d.closing != null ? fmtBoxes(d.closing) : "?"}
                       </span>
                     </div>
                   )}
                   {d.committed === 0 && !past && d.closing != null && (
-                    <div className="mt-0.5 text-[10px] text-muted-foreground">{d.closing} on shelf</div>
+                    <div className="mt-0.5 text-[10px] text-muted-foreground">{fmtBoxes(d.closing)} on shelf</div>
                   )}
                   {d.dispatched > 0 && (
-                    <div className="text-[10px] text-success">↑ {d.dispatched} loaded</div>
+                    <div className="text-[10px] text-success">↑ {fmtBoxes(d.dispatched)} loaded</div>
                   )}
                   {/* Booked but never loaded in niko: still on the stock ledger. */}
                   {past && d.committed > d.dispatched && (
-                    <div className="text-[10px] font-medium text-destructive">{d.committed - d.dispatched} not loaded</div>
+                    <div className="text-[10px] font-medium text-destructive">{fmtBoxes(d.committed - d.dispatched)} not loaded</div>
                   )}
-                  {d.skipped > 0 && <div className="text-[10px] text-muted-foreground">{d.skipped} skipped</div>}
+                  {d.skipped > 0 && <div className="text-[10px] text-muted-foreground">{fmtBoxes(d.skipped)} skipped</div>}
                   {past && d.production != null && d.committed === 0 && (
-                    <div className="text-[10px] text-muted-foreground">{d.production} produced</div>
+                    <div className="text-[10px] text-muted-foreground">{fmtBoxes(d.production)} produced</div>
                   )}
                 </button>
               );
@@ -221,7 +224,6 @@ export function EggCalendarPage() {
 }
 
 const inputCls = "h-9 w-full rounded-md border border-border bg-background px-2 text-sm";
-const fmtBoxes = (n: number) => n.toLocaleString("en-IN");
 
 interface Capacity {
   opening: number | null;
