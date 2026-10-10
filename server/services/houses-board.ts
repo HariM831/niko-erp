@@ -139,7 +139,10 @@ export async function housesBoard(tx: Tx) {
       -- water_kl since 0085; the pair is history, summed for rows older than it
       coalesce(pd.water_kl, coalesce(pd.water_upper_kl, 0) + coalesce(pd.water_lower_kl, 0))::float8 AS "waterKl",
       coalesce(pd.eggs_total, 0)::int                  AS "eggsProduced",
-      coalesce(u.name, CASE WHEN pd.source = 'iot' THEN 'niko — mortality not entered' ELSE '' END) AS "recordedBy",
+      coalesce(u.name, CASE WHEN pd.source = 'iot' AND (pd.sources->'mortality'->>'offered') IS NOT NULL THEN 'niko'
+                            WHEN pd.source = 'iot' THEN 'niko — mortality not entered' ELSE '' END) AS "recordedBy",
+      -- Why niko held the panel's mortality back, when it did.
+      CASE WHEN pd.source = 'iot' THEN pd.sources->'mortality'->>'note' END AS "mortalityNote",
       -- Saved by niko at midnight; waiting for a person's mortality and Save.
       coalesce(pd.source = 'iot', false)               AS "awaitingPerson",
       coalesce((
@@ -184,7 +187,8 @@ export async function housesBoard(tx: Tx) {
     LEFT JOIN flock_movements m ON m.placement_id = d.placement_id AND m.event_date = d.day
     GROUP BY d.placement_id, p.house_id, f.code, d.day,
              pd.feed_consumed_kg, pd.feed_closing_kg, pd.water_kl,
-             pd.water_upper_kl, pd.water_lower_kl, pd.eggs_total, pd.source, u.name
+             pd.water_upper_kl, pd.water_lower_kl, pd.eggs_total, pd.source, u.name,
+             (pd.sources->'mortality'->>'offered'), (pd.sources->'mortality'->>'note')
     ORDER BY d.day DESC`);
 
   const records: Record<string, unknown[]> = {};

@@ -26,7 +26,7 @@
  *
  *  - Water is the controller's climb from midnight to midnight.
  */
-import { and, asc, eq, gte, lt, lte, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lt, lte, ne, sql } from "drizzle-orm";
 import { feedTransfers, flockPlacements, iotHouseSample, placementDays } from "@shared/schema";
 import type { DaySources, FigureSource } from "@shared/schema";
 import {
@@ -43,6 +43,8 @@ import { countersOf } from "./iot/store";
 import { type SiloMove, dayCoverage, siloMoves, siloTankers } from "./iot/silo-events";
 import { PostingError } from "./posting";
 import { refreshFromPlacement } from "./rollup";
+import { UNSTATED_CAUSE } from "./daily";
+import { flockMovements } from "@shared/schema";
 
 /** A tanker and its transfer agree within this share of the transfer. */
 const TANKER_TOLERANCE = 0.03;
@@ -423,6 +425,67 @@ export function provenance(
  * shows it as waiting for mortality. Run hourly from the poller, so a day the
  * controller was blind for at 00:30 still fills once the gap is recovered.
  */
+/**
+ * From this day, the midnight save also takes mortality from the controller:
+ * the fall in the panel's bird count, which the farm now keeps up daily
+ * (decided 10 Oct 2026). Before it the panel was updated in lumps — L3's
+ * count fell 141 on 6 Oct for three days' deaths — so it is not read back.
+ */
+export const MORTALITY_FROM = "2026-10-11";
+
+/**
+ * The day's deaths from the panel, or why not.
+ *
+ * Held back, for a person, when the fall cannot be one day's deaths: the count
+ * went up; it did not move in a house that loses several birds a day (the
+ * panel was not updated); or it fell by more than three times the house's
+ * usual and 30 besides (several days in one, as L2's 104 on 5 Oct was 51 + 53).
+ * Also held back when culls or moves were recorded that day, since the count
+ * falls for those too.
+ */
+export async function panelMortality(
+  placementId: string,
+  houseId: string,
+  day: string,
+): Promise<{ qty: number } | { held: string }> {
+  const count = async (before: Date) => {
+    const [r] = await db
+      .select({ n: iotHouseSample.birdCount })
+      .from(iotHouseSample)
+      .where(and(eq(iotHouseSample.houseId, houseId), lt(iotHouseSample.at, before), sql`${iotHouseSample.birdCount} IS NOT NULL`))
+      .orderBy(desc(iotHouseSample.at))
+      .limit(1);
+    return r?.n ?? null;
+  };
+  const start = await count(startOf(day));
+  const end = await count(startOf(addDays(day, 1)));
+  if (start == null || end == null) return { held: "The panel's bird count wasn't reported." };
+  const fall = Math.round(start - end);
+  if (fall < 0) return { held: `The panel's bird count went up by ${-fall}.` };
+
+  const recent = await db
+    .select({ day: flockMovements.eventDate, qty: sql<number>`sum(${flockMovements.qty})::int` })
+    .from(flockMovements)
+    .where(
+      and(
+        eq(flockMovements.placementId, placementId),
+        eq(flockMovements.kind, "mortality"),
+        gte(flockMovements.eventDate, addDays(day, -7)),
+        lt(flockMovements.eventDate, day),
+      ),
+    )
+    .groupBy(flockMovements.eventDate);
+  const sorted = recent.map((r) => Number(r.qty)).sort((a, b) => a - b);
+  const usual = sorted.length ? sorted[Math.floor(sorted.length / 2)]! : null;
+  if (fall === 0 && usual != null && usual >= 3) {
+    return { held: `The panel's bird count didn't move; this house usually loses about ${usual} a day — was the panel updated?` };
+  }
+  if (usual != null && fall > Math.max(3 * usual, usual + 30)) {
+    return { held: `The panel's count fell ${fall}, against about ${usual} a day — several days at once?` };
+  }
+  return { qty: fall };
+}
+
 export async function autoSaveDay(day: string): Promise<string[]> {
   const notes: string[] = [];
   const open = await db
@@ -481,7 +544,29 @@ export async function autoSaveDay(day: string): Promise<string[]> {
       sources.waterKl = { from: "controller", offered: auto.waterKl.value };
     }
     if (row?.eggsTotal == null && auto.eggsProduced != null) set.eggsTotal = auto.eggsProduced;
-    if (!Object.keys(set).length) continue;
+
+    // Mortality, once the farm keeps the panel daily — never over a person's.
+    let deaths: number | null = null;
+    const judged = !sources.mortality;
+    if (day >= MORTALITY_FROM && auto.complete && row?.source !== "manual" && !sources.mortality) {
+      const [moved] = await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(flockMovements)
+        .where(and(eq(flockMovements.placementId, p.placementId), eq(flockMovements.eventDate, day)));
+      if (Number(moved?.n ?? 0) > 0) {
+        sources.mortality = { from: "controller", note: "Culls, moves or deaths were already recorded that day." };
+      } else {
+        const m = await panelMortality(p.placementId, p.houseId, day);
+        if ("qty" in m) {
+          deaths = m.qty;
+          sources.mortality = { from: "controller", offered: m.qty };
+        } else {
+          sources.mortality = { from: "controller", offered: null, note: m.held };
+        }
+      }
+    }
+    const mortalityNew = judged && !!sources.mortality;
+    if (!Object.keys(set).length && !mortalityNew) continue;
     await db.transaction(async (tx) => {
       if (row) {
         await tx
@@ -491,9 +576,21 @@ export async function autoSaveDay(day: string): Promise<string[]> {
       } else {
         await tx.insert(placementDays).values({ placementId: p.placementId, day, ...set, sources, source: "iot" });
       }
+      if (deaths) {
+        await tx.insert(flockMovements).values({
+          placementId: p.placementId,
+          eventDate: day,
+          kind: "mortality",
+          qty: deaths,
+          causeCode: UNSTATED_CAUSE,
+          note: "From the controller panel's bird count",
+        });
+      }
       await refreshFromPlacement(tx, p.placementId);
     });
-    notes.push(`${p.houseId}: ${Object.keys(set).join(", ")}`);
+    notes.push(
+      `${p.houseId}: ${[...Object.keys(set), ...(sources.mortality ? [deaths != null ? `mortality ${deaths}` : `mortality held — ${sources.mortality.note}`] : [])].join(", ")}`,
+    );
   }
   return notes;
 }

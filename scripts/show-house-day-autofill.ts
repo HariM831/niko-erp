@@ -11,7 +11,8 @@ import { houses } from "@shared/schema";
 import { judgeStock } from "@shared/house-day";
 import { db } from "../server/db";
 import { addDays } from "../server/services/day-resolution";
-import { autofillDay } from "../server/services/house-day-autofill";
+import { sql } from "drizzle-orm";
+import { autofillDay, panelMortality } from "../server/services/house-day-autofill";
 
 async function main() {
   const [from, to, ...codes] = process.argv.slice(2);
@@ -32,6 +33,14 @@ async function main() {
       console.log(`${d}  ${show("fed", fc)}  ${show("stock", st)}  ${show("water", w)}`);
       if (fc.status !== "filled") console.log(`      fed: ${fc.note}`);
       if (st.status === "check") console.log(`      stock: ${st.note}`);
+      const pl = await db.execute<{ id: string }>(sql`
+        SELECT p.id FROM flock_placements p
+         WHERE p.house_id = ${h.id} AND p.from_date <= ${d} AND (p.to_date IS NULL OR p.to_date >= ${d})
+         ORDER BY (SELECT count(*) FROM placement_days x WHERE x.placement_id = p.id) DESC LIMIT 1`);
+      if (pl.rows[0]) {
+        const m = await panelMortality(pl.rows[0].id, h.id, d);
+        console.log(`      mortality: ${"qty" in m ? m.qty : `held — ${m.held}`}`);
+      }
       for (const t of a.tankers) {
         console.log(
           `      tanker ${new Date(t.at).toLocaleTimeString("en-GB", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" })} +${t.kg} ${t.transfer ? `${t.transfer.number} (${t.transfer.transferDate})` : "NO TRANSFER"}`,

@@ -235,6 +235,8 @@ export const MOVEMENT_KIND_LABELS: Record<MovementKind, string> = {
 export interface FigureSource {
   /** Where the saved number came from. */
   from: "silo" | "controller" | "book" | "typed" | "import";
+  /** For a figure niko held back: why. */
+  note?: string | null;
   /** What the instruments offered, when they offered something. */
   offered?: number | null;
   /** Why a person typed over an offer, or settled a figure the checks stopped. */
@@ -246,6 +248,8 @@ export interface DaySources {
   feedConsumedKg?: FigureSource;
   feedClosingKg?: FigureSource;
   waterKl?: FigureSource;
+  /** Mortality from the panel's bird count, saved by niko from 11 Oct 2026. */
+  mortality?: FigureSource;
 }
 
 export const placementDays = pgTable(

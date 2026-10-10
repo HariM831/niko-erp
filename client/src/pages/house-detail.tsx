@@ -93,6 +93,8 @@ interface DailyRecord {
   recordedBy: string;
   /** Saved by niko at midnight, waiting for a person's mortality and Save. */
   awaitingPerson?: boolean;
+  /** Why niko held the panel's mortality back, when it did. */
+  mortalityNote?: string | null;
 }
 
 interface WeeklyWeight {
@@ -375,6 +377,20 @@ export function HouseDetailPage() {
       });
     }
     setSensor(null);
+    /*
+     * A day niko saved at midnight: its mortality came off the panel's bird
+     * count and must ride along, or saving the form would wipe it.
+     */
+    const nikos = records.find(
+      (r) => r.awaitingPerson && format(new Date(r.date), 'yyyy-MM-dd') === recordForm.date,
+    );
+    if (nikos && !editingRecordId) {
+      setRecordForm((prev) => ({
+        ...prev,
+        mortality: prev.mortality === '' && nikos.mortality ? String(nikos.mortality) : prev.mortality,
+        maleBirds: prev.maleBirds === '' && nikos.maleBirds ? String(nikos.maleBirds) : prev.maleBirds,
+      }));
+    }
     (async () => {
       try {
         const r = await fetch(
@@ -1545,6 +1561,17 @@ export function HouseDetailPage() {
                                   className="min-h-[44px]"
                                   data-testid="input-mortality"
                                 />
+                                {(() => {
+                                  const nikos = records.find(
+                                    (r) => r.awaitingPerson && format(new Date(r.date), 'yyyy-MM-dd') === recordForm.date,
+                                  );
+                                  if (!nikos) return null;
+                                  return (
+                                    <p className={`mt-1 text-[11px] ${nikos.mortalityNote ? 'text-amber-800' : 'text-gray-500'}`}>
+                                      {nikos.mortalityNote ?? (nikos.mortality ? "From the panel's bird count — correct it if the house count differs." : '')}
+                                    </p>
+                                  );
+                                })()}
                               </div>
                             </div>
                             <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 rounded bg-soil-50 p-2 text-sm">

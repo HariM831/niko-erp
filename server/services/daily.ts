@@ -53,7 +53,7 @@ export interface LossLine {
 }
 
 /** What a row without a stated cause is recorded as. */
-const UNSTATED_CAUSE = "unknown";
+export const UNSTATED_CAUSE = "unknown";
 
 export interface DayInput {
   placementId: string;
