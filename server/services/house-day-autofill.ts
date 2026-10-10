@@ -436,7 +436,27 @@ export async function autoSaveDay(day: string): Promise<string[]> {
                      AND s.at >= ${startOf(day)} AND s.at < ${startOf(addDays(day, 1))})`,
       ),
     );
+  /*
+   * One placement per house. A house can hold two flocks at once — L3 carries
+   * a 1,835-bird flock beside its 120,616 — but its silo and water meter are
+   * the house's, and its days have always been recorded against the main
+   * flock. Writing them to both counted L3's water twice on 9 Oct 2026.
+   */
+  const birds = new Map<string, number>();
   for (const p of open) {
+    const [b] = await db.execute<{ n: number }>(sql`
+      SELECT coalesce(sum(CASE WHEN kind IN ('place','transfer_in') THEN qty
+                               WHEN kind = 'adjustment' THEN qty * coalesce(adjustment_sign, 0)
+                               ELSE -qty END), 0)::int AS n
+        FROM flock_movements WHERE placement_id = ${p.placementId} AND event_date <= ${day}`).then((r) => r.rows);
+    birds.set(p.placementId, Number(b?.n ?? 0));
+  }
+  const main = new Map<string, (typeof open)[number]>();
+  for (const p of open) {
+    const held = main.get(p.houseId);
+    if (!held || birds.get(p.placementId)! > birds.get(held.placementId)!) main.set(p.houseId, p);
+  }
+  for (const p of main.values()) {
     const auto = await autofillDay(p.houseId, day);
     const [row] = await db
       .select()
