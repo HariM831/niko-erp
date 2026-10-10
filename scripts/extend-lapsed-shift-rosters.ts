@@ -14,12 +14,20 @@
  * the people who actually move. The old rows are left as they are; the roster
  * that was is still the roster that was.
  *
- * Every shift rests on Sunday, as an unassigned person does, so for most a
- * past day reads the same either way. Not for someone carrying a personal
- * weekly off: since the roster lapsed niko has been resting them on Sunday
- * and marking their own day absent. Their days are recomputed, from the lapse
- * or the first of this month, whichever is later — an earlier month may have
- * a confirmed run standing on it — and every day that changes is printed.
+ * Two things are NOT carried unless asked for (the user, 10 Oct 2026):
+ *
+ * - A personal weekly off that differs from the shift's. The production dry
+ *   run showed September's off days no longer hold: of 35 people resting on a
+ *   day other than Sunday, 16 had worked that day in October and stayed away
+ *   on Sunday. Carrying the old day would have marked their Sunday absent. So
+ *   they go on the shift's own off day — what niko gives them unassigned
+ *   anyway — until HR's October list is loaded. `--keep-own-off` carries them,
+ *   and then recomputes those people's days from the lapse or the first of
+ *   this month, whichever is later, printing every day that changes.
+ * - An overnight shift. A week of nights that ended in September is not
+ *   evidence of nights now, and being on nights changes how the gate reads
+ *   every punch and grants a breakfast. Listed, left alone; `--with-nights`.
+ *
  * The dry run does all of it in a transaction and rolls it back, so what it
  * prints is what --apply will do.
  *
@@ -28,14 +36,17 @@
  *
  *   npx tsx scripts/extend-lapsed-shift-rosters.ts            (dry run)
  *   npx tsx scripts/extend-lapsed-shift-rosters.ts --apply
+ *   npx tsx scripts/extend-lapsed-shift-rosters.ts --keep-own-off --with-nights
  */
 import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
 import { attendanceDays, employees, shiftAssignments, shifts } from "@shared/schema";
 import { db, pool } from "../server/db";
-import { addDays, istDate, recomputeRange } from "../server/services/day-resolution";
+import { addDays, isOvernightShift, istDate, recomputeRange } from "../server/services/day-resolution";
 import { syncNightShiftBreakfast } from "../server/services/canteen";
 
 const APPLY = process.argv.includes("--apply");
+const KEEP_OWN_OFF = process.argv.includes("--keep-own-off");
+const WITH_NIGHTS = process.argv.includes("--with-nights");
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 async function main() {
@@ -50,8 +61,10 @@ async function main() {
   const byEmp = new Map<string, typeof all>();
   for (const a of all) byEmp.set(a.employeeId, [...(byEmp.get(a.employeeId) ?? []), a]);
 
-  const plan: Array<{ p: (typeof people)[number]; last: (typeof all)[number]; from: string }> = [];
+  const plan: Array<{ p: (typeof people)[number]; last: (typeof all)[number]; from: string; off: number[] | null; dropped: boolean }> = [];
+  const nights: Array<{ p: (typeof people)[number]; last: (typeof all)[number] }> = [];
   const never: typeof people = [];
+  const same = (a: number[], b: number[]) => a.length === b.length && [...a].sort().join() === [...b].sort().join();
   let covered = 0;
   let upcoming = 0;
   for (const p of people) {
@@ -72,21 +85,32 @@ async function main() {
     }
     // The one that ended last; of two ending together, the one that began later.
     const last = [...mine].sort((a, b) => (b.effectiveTo! < a.effectiveTo! ? -1 : b.effectiveTo! > a.effectiveTo! ? 1 : b.effectiveFrom < a.effectiveFrom ? -1 : 1))[0]!;
-    plan.push({ p, last, from: addDays(last.effectiveTo!, 1) });
+    const sh = shiftById.get(last.shiftId);
+    if (!WITH_NIGHTS && isOvernightShift(sh)) {
+      nights.push({ p, last });
+      continue;
+    }
+    const differs = !!last.weeklyOffDays && !same(last.weeklyOffDays, sh?.weeklyOffDays ?? []);
+    const dropped = differs && !KEEP_OWN_OFF;
+    plan.push({ p, last, from: addDays(last.effectiveTo!, 1), off: dropped ? null : last.weeklyOffDays, dropped });
   }
 
   console.log(`${APPLY ? "APPLY" : "DRY RUN"} — as of ${today}`);
   console.log(`  ${covered} already on a shift today, ${upcoming} rostered to start later, ${plan.length} to carry on, ${never.length} never rostered\n`);
   const byShift = new Map<string, number>();
-  for (const { p, last, from } of plan) {
+  for (const { p, last, from, dropped } of plan) {
     const sh = shiftById.get(last.shiftId);
     const name = sh ? `${sh.name} ${sh.startTime}-${sh.endTime}` : "(shift missing)";
     byShift.set(name, (byShift.get(name) ?? 0) + 1);
-    const off = last.weeklyOffDays ? `  own weekly off: ${last.weeklyOffDays.map((d) => DAYS[d]).join(", ") || "none"}` : "";
+    const off = last.weeklyOffDays ? `  own weekly off: ${last.weeklyOffDays.map((d) => DAYS[d]).join(", ") || "none"}${dropped ? " (NOT carried)" : ""}` : "";
     console.log(`  ${p.empCode.padEnd(14)} ${p.name.padEnd(28)} ${name.padEnd(26)} ended ${last.effectiveTo} -> open from ${from}${off}`);
   }
   console.log("\n  By shift:");
   for (const [name, n] of [...byShift].sort((a, b) => b[1] - a[1])) console.log(`    ${String(n).padStart(3)}  ${name}`);
+  console.log(`
+  Own weekly off not carried: ${plan.filter((x) => x.dropped).length}`);
+  console.log(`  Last on an overnight shift (left alone): ${nights.length}`);
+  for (const { p, last } of nights) console.log(`    ${p.empCode.padEnd(14)} ${p.name.padEnd(28)} ${shiftById.get(last.shiftId)?.name ?? ""} ended ${last.effectiveTo}`);
   const neverBy = new Map<string, number>();
   for (const p of never) neverBy.set(p.payType, (neverBy.get(p.payType) ?? 0) + 1);
   console.log(`\n  Never rostered (left alone): ${[...neverBy].map(([k, n]) => `${n} ${k}`).join(", ") || "none"}`);
@@ -94,17 +118,20 @@ async function main() {
 
   class DryRun extends Error {}
   const monthStart = `${today.slice(0, 7)}-01`;
-  const ownOff = plan.filter((x) => x.last.weeklyOffDays);
+  // Only a carried off day that is not the shift's own can move a past day.
+  const ownOff = plan.filter((x) => x.off && !same(x.off, shiftById.get(x.last.shiftId)?.weeklyOffDays ?? []));
   try {
     await db.transaction(async (tx) => {
-      for (const { p, last, from } of plan) {
+      for (const { p, last, from, off, dropped } of plan) {
         await tx.insert(shiftAssignments).values({
           employeeId: p.id,
           shiftId: last.shiftId,
           effectiveFrom: from,
           effectiveTo: null,
-          weeklyOffDays: last.weeklyOffDays,
-          notes: `Carried on from the roster that ended ${last.effectiveTo}`,
+          weeklyOffDays: off,
+          notes:
+            `Carried on from the roster that ended ${last.effectiveTo}` +
+            (dropped ? `; own weekly off (${last.weeklyOffDays!.map((d) => DAYS[d]).join(", ") || "none"}) not carried, October list awaited` : ""),
         });
       }
 
