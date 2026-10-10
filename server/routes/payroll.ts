@@ -1241,9 +1241,18 @@ payrollRouter.get("/punches/carried", gateOrView, async (_req, res) => {
     .from(employees)
     .where(inArray(employees.id, carried.map((c) => c.employeeId)));
   const byId = new Map(people.map((p) => [p.id, p]));
+  // Where the entry was made, so the gate does not mark a located punch as
+  // "no location" just because it is listed from yesterday.
+  const places = await db
+    .select({ id: punches.id, latitude: punches.latitude, longitude: punches.longitude })
+    .from(punches)
+    .where(inArray(punches.id, carried.map((c) => c.inPunch.id)));
+  const placeOf = new Map(places.map((p) => [p.id, p]));
   res.json(
     carried.map((c) => ({
       id: c.inPunch.id,
+      latitude: placeOf.get(c.inPunch.id)?.latitude ?? null,
+      longitude: placeOf.get(c.inPunch.id)?.longitude ?? null,
       employeeId: c.employeeId,
       name: byId.get(c.employeeId)?.name ?? "—",
       empCode: byId.get(c.employeeId)?.empCode ?? "",
