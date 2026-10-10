@@ -42,6 +42,7 @@ import { gradedEggsOn } from "./egg-sales";
 import { countersOf } from "./iot/store";
 import { type SiloMove, dayCoverage, siloMoves, siloTankers } from "./iot/silo-events";
 import { PostingError } from "./posting";
+import { refreshFromPlacement } from "./rollup";
 
 /** A tanker and its transfer agree within this share of the transfer. */
 const TANKER_TOLERANCE = 0.03;
@@ -410,4 +411,69 @@ export function provenance(
     out[field] = src;
   }
   return out;
+}
+
+/**
+ * Save yesterday's proven figures for every occupied house, without waiting
+ * for a person (decided 10 Oct 2026).
+ *
+ * Only figures that passed their checks are written, and only into boxes that
+ * are empty — a figure a person saved is never overwritten. A day niko starts
+ * is marked source "iot" until a person saves it, which is how the house page
+ * shows it as waiting for mortality. Run hourly from the poller, so a day the
+ * controller was blind for at 00:30 still fills once the gap is recovered.
+ */
+export async function autoSaveDay(day: string): Promise<string[]> {
+  const notes: string[] = [];
+  const open = await db
+    .select({ placementId: flockPlacements.id, houseId: flockPlacements.houseId })
+    .from(flockPlacements)
+    .where(
+      and(
+        lte(flockPlacements.fromDate, day),
+        sql`(${flockPlacements.toDate} IS NULL OR ${flockPlacements.toDate} >= ${day})`,
+        sql`EXISTS (SELECT 1 FROM iot_house_sample s WHERE s.house_id = ${flockPlacements.houseId}
+                     AND s.at >= ${startOf(day)} AND s.at < ${startOf(addDays(day, 1))})`,
+      ),
+    );
+  for (const p of open) {
+    const auto = await autofillDay(p.houseId, day);
+    const [row] = await db
+      .select()
+      .from(placementDays)
+      .where(and(eq(placementDays.placementId, p.placementId), eq(placementDays.day, day)));
+    const n = (v: string | null | undefined) => (v == null ? null : Number(v));
+    const consumed =
+      n(row?.feedConsumedKg) ?? (auto.feedConsumedKg.status === "filled" ? auto.feedConsumedKg.value : null);
+    const stock = judgeStock(auto.stock, consumed);
+    const set: Partial<typeof placementDays.$inferInsert> = {};
+    const sources: DaySources = { ...(row?.sources ?? {}) };
+    if (row?.feedConsumedKg == null && auto.feedConsumedKg.status === "filled") {
+      set.feedConsumedKg = auto.feedConsumedKg.value!.toFixed(2);
+      sources.feedConsumedKg = { from: "silo", offered: auto.feedConsumedKg.value };
+    }
+    if (row?.feedClosingKg == null && stock.status === "filled") {
+      set.feedClosingKg = stock.value!.toFixed(2);
+      sources.feedClosingKg = { from: "book", offered: stock.value };
+    }
+    if (row?.waterKl == null && auto.waterKl.status === "filled") {
+      set.waterKl = auto.waterKl.value!.toFixed(2);
+      sources.waterKl = { from: "controller", offered: auto.waterKl.value };
+    }
+    if (row?.eggsTotal == null && auto.eggsProduced != null) set.eggsTotal = auto.eggsProduced;
+    if (!Object.keys(set).length) continue;
+    await db.transaction(async (tx) => {
+      if (row) {
+        await tx
+          .update(placementDays)
+          .set({ ...set, sources, updatedAt: new Date() })
+          .where(and(eq(placementDays.placementId, p.placementId), eq(placementDays.day, day)));
+      } else {
+        await tx.insert(placementDays).values({ placementId: p.placementId, day, ...set, sources, source: "iot" });
+      }
+      await refreshFromPlacement(tx, p.placementId);
+    });
+    notes.push(`${p.houseId}: ${Object.keys(set).join(", ")}`);
+  }
+  return notes;
 }

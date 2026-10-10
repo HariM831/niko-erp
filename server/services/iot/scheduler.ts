@@ -19,6 +19,8 @@ import { nightFloorTick } from "./night-floor";
 import { db } from "../../db";
 import { controllerSnapshots } from "@shared/schema";
 import { desc } from "drizzle-orm";
+import { autoSaveDay } from "../house-day-autofill";
+import { addDays, istDate } from "../day-resolution";
 
 const INTERVAL = () => Number(process.env.BH_POLL_MS ?? 300_000);
 /** Long enough after boot that the first poll and the migrations are done with. */
@@ -126,6 +128,33 @@ async function loopsTick(): Promise<void> {
   }
 }
 
+/**
+ * Yesterday's house-days, saved by niko from 00:30 (decided 10 Oct 2026).
+ *
+ * Hourly rather than once: a day the controller was blind for at 00:30 can
+ * still fill once the gap filler recovers its readings, and a boxes-only-if-
+ * empty write is harmless to repeat. See services/house-day-autofill.ts.
+ */
+let saving = false;
+let lastSave = { day: "", at: 0 };
+async function autoSaveTick(): Promise<void> {
+  if (saving) return;
+  const ist = new Date(Date.now() + 5.5 * 3_600_000);
+  if (ist.getUTCHours() === 0 && ist.getUTCMinutes() < 30) return;
+  const day = addDays(istDate(), -1);
+  if (lastSave.day === day && Date.now() - lastSave.at < 3_600_000) return;
+  saving = true;
+  try {
+    const saved = await autoSaveDay(day);
+    for (const n of saved) console.log(`[house-day] ${day} saved ${n}`);
+    lastSave = { day, at: Date.now() };
+  } catch (e) {
+    console.error(`[house-day] auto-save crashed: ${e instanceof Error ? e.message : e}`);
+  } finally {
+    saving = false;
+  }
+}
+
 async function tick(): Promise<void> {
   if (running) return; // the previous poll is still going — skip, not stack
   running = true;
@@ -146,7 +175,10 @@ async function tick(): Promise<void> {
   } finally {
     running = false;
   }
-  if (polled) void loopsTick();
+  if (polled) {
+    void loopsTick();
+    void autoSaveTick();
+  }
 }
 
 export function startIotPolling(): void {

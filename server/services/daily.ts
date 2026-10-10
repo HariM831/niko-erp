@@ -323,6 +323,8 @@ export async function saveDay(tx: Tx, input: DayInput, userId: string) {
         eggsDirty: input.eggsDirty ?? null,
         note: input.note?.trim() || null,
         ...(input.sources !== undefined ? { sources: input.sources } : {}),
+        // A person saving the day takes it over from niko's midnight save.
+        source: "manual",
         recordedBy: userId,
         updatedAt: new Date(),
       },

@@ -91,6 +91,8 @@ interface DailyRecord {
   feedStockKg: number;
   eggsProduced: number;
   recordedBy: string;
+  /** Saved by niko at midnight, waiting for a person's mortality and Save. */
+  awaitingPerson?: boolean;
 }
 
 interface WeeklyWeight {
@@ -1519,7 +1521,7 @@ export function HouseDetailPage() {
                             {!isAdmin && (
                               <p className="text-xs text-gray-500 mt-1">Enter yesterday each morning — its feed and water are whole after midnight. Only admins can go further back.</p>
                             )}
-                            {!editingRecordId && recordForm.date && records.some(r => format(new Date(r.date), 'yyyy-MM-dd') === recordForm.date) && (
+                            {!editingRecordId && recordForm.date && records.some(r => !r.awaitingPerson && format(new Date(r.date), 'yyyy-MM-dd') === recordForm.date) && (
                               <p className="text-xs text-destructive mt-1 font-medium">A record already exists for this date. Please edit the existing record instead.</p>
                             )}
                           </div>
@@ -1676,10 +1678,10 @@ export function HouseDetailPage() {
                           <Button 
                             className="w-full min-h-[44px] bg-yolk-500 hover:bg-yolk-600" 
                             onClick={handleSaveRecord}
-                            disabled={Boolean(isSaving || missingReason || formClosingBirds < 0 || (!editingRecordId && recordForm.date && records.some(r => format(new Date(r.date), 'yyyy-MM-dd') === recordForm.date)))}
+                            disabled={Boolean(isSaving || missingReason || formClosingBirds < 0 || (!editingRecordId && recordForm.date && records.some(r => !r.awaitingPerson && format(new Date(r.date), 'yyyy-MM-dd') === recordForm.date)))}
                             data-testid="button-save-record"
                           >
-                            {isSaving ? 'Saving...' : missingReason ? 'Give the reasons above' : formClosingBirds < 0 ? 'Invalid: Closing birds cannot be negative' : (!editingRecordId && recordForm.date && records.some(r => format(new Date(r.date), 'yyyy-MM-dd') === recordForm.date)) ? 'Record exists for this date' : (editingRecordId ? 'Update Record' : 'Save Record')}
+                            {isSaving ? 'Saving...' : missingReason ? 'Give the reasons above' : formClosingBirds < 0 ? 'Invalid: Closing birds cannot be negative' : (!editingRecordId && recordForm.date && records.some(r => !r.awaitingPerson && format(new Date(r.date), 'yyyy-MM-dd') === recordForm.date)) ? 'Record exists for this date' : (editingRecordId ? 'Update Record' : 'Save Record')}
                           </Button>
                         </div>
                       </DialogContent>
