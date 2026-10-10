@@ -28,6 +28,7 @@ import { db, type Db, type Tx } from "../db";
 import { requireAnyPermission, requirePermission } from "../lib/rbac";
 import { DuplicatePlate, mealWindowsFor, presentForCanteen, recordBrowserServing } from "../services/canteen";
 import { PostingError } from "../services/posting";
+import { LOCATION_REQUIRED, isRealPoint } from "../services/punch-sites";
 import { canteenCapturesByEmployee, taughtCapturesByEmployee, roundEmbedding } from "../services/face-gallery";
 import { istTimeHHMM, mealForTime, MEAL_LABEL } from "@shared/canteen";
 import { timeOfDay, validateBody } from "../lib/validate";
@@ -643,6 +644,8 @@ const gateServing = z.object({
 });
 
 canteenRouter.post("/gate/servings", serve, validateBody(gateServing), async (req, res) => {
+  const at = req.body as z.infer<typeof gateServing>;
+  if (!isRealPoint(at.latitude, at.longitude)) return res.status(422).json({ error: LOCATION_REQUIRED, locationRequired: true });
   try {
     const { serving, replay } = await db.transaction((tx) => recordBrowserServing(tx, req.session.user!.id, req.body as z.infer<typeof gateServing>));
     // The face and the frame stay on the server: the counter has no use for them back.

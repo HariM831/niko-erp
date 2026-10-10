@@ -11,6 +11,7 @@ import { loadRoster, saveRoster } from "../../lib/roster-cache";
 import { buildMatchIndex, findBestMatchIndexed } from "@shared/face-match";
 import { centredOf, useCentredIndex } from "../../lib/face-model";
 import { useAppOutdated } from "../../lib/app-version";
+import { LOCATION_REQUIRED, getPosition, type Position } from "../../lib/use-position";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -51,7 +52,6 @@ interface PunchRow {
   /** Yesterday's entry on a night shift still in progress. */
   carryover?: boolean;
 }
-interface Position { latitude: number; longitude: number; accuracy: number }
 /** Everybody active, faces or not — what the name list draws on. */
 interface NameRow { id: string; empCode: string; name: string; payType: string; hasFace: boolean }
 type ManualReason = "no_match" | "engine_failed" | "camera_blocked" | "not_enrolled";
@@ -89,23 +89,6 @@ function cameraErrorMessage(err: any): string {
   return `Camera failed to start${err?.message ? `: ${err.message}` : ""}.`;
 }
 
-function getPositionOnce(options: PositionOptions): Promise<Position | null> {
-  return new Promise((resolve) => {
-    if (!navigator.geolocation) return resolve(null);
-    navigator.geolocation.getCurrentPosition(
-      (p) => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude, accuracy: p.coords.accuracy }),
-      () => resolve(null),
-      options,
-    );
-  });
-}
-// GPS cold-start routinely outlives a short timeout; give the precise fix
-// real time to lock, then fall back to a fast network-based one.
-async function getPosition(): Promise<Position | null> {
-  const precise = await getPositionOnce({ enableHighAccuracy: true, timeout: 20000, maximumAge: 60000 });
-  if (precise) return precise;
-  return getPositionOnce({ enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 });
-}
 
 export function PayrollGatePage() {
   const qc = useQueryClient();
@@ -125,6 +108,13 @@ export function PayrollGatePage() {
   const [facingMode, setFacingMode] = useState<"user" | "environment">("environment");
   const [stage, setStage] = useState<Stage>({ kind: "idle" });
   const [position, setPosition] = useState<Position | null>(null);
+  const [askingPosition, setAskingPosition] = useState(false);
+  const retryPosition = async () => {
+    setAskingPosition(true);
+    const p = await getPosition();
+    if (p) { setPosition(p); setErr(null); }
+    setAskingPosition(false);
+  };
   const [manualOpen, setManualOpen] = useState(false);
   /** A punch the other way minutes after the last one, waiting for the guard's yes. */
   const [quickFlip, setQuickFlip] = useState<{ args: Parameters<typeof submitPunch>; message: string; next: "in" | "out"; last: "in" | "out" } | null>(null);
@@ -307,6 +297,8 @@ export function PayrollGatePage() {
     const video = videoRef.current;
     if (!video || video.videoWidth === 0) { setErr("Camera not ready."); return; }
     if (enrolled.length === 0) { setErr("No enrolled faces — enrol employees on the Face enrolment page first."); return; }
+    // No location, no punch: say so before the worker has stood for the scan.
+    if (!position) { setErr(LOCATION_REQUIRED); void retryPosition(); return; }
     setErr(null);
     setStage({ kind: "matching" });
     getPosition().then((p) => p && setPosition(p));
@@ -376,6 +368,12 @@ export function PayrollGatePage() {
     try {
       const pos = position ?? (await getPosition());
       if (pos) setPosition(pos);
+      // The server refuses a punch without one; stop here with words the guard can act on.
+      if (!pos) {
+        setStage({ kind: "idle" });
+        setErr(LOCATION_REQUIRED);
+        return;
+      }
       await api("/api/payroll/punches", {
         method: "POST",
         body: {
@@ -383,9 +381,9 @@ export function PayrollGatePage() {
           type: punchType,
           method,
           matchScore: score,
-          latitude: pos?.latitude ?? null,
-          longitude: pos?.longitude ?? null,
-          accuracyM: pos?.accuracy ?? null,
+          latitude: pos.latitude,
+          longitude: pos.longitude,
+          accuracyM: pos.accuracy,
           photoUrl: photo,
           faceEmbedding: embedding,
           manualReason: method === "manual" ? reason : null,
@@ -515,10 +513,19 @@ export function PayrollGatePage() {
       <PageHeader title="Gate" sub="Point the camera at the worker and tap Scan.">
         {position
           ? <Badge tone="green"><MapPin size={11} className="mr-1" /> Location on</Badge>
-          : <Badge tone="amber"><MapPinOff size={11} className="mr-1" /> No location</Badge>}
+          : <Badge tone="red"><MapPinOff size={11} className="mr-1" /> No location</Badge>}
         <Badge tone="gray">{enrolled.length}/{gallery.length} enrolled</Badge>
       </PageHeader>
       <ErrorBanner message={err} onClose={() => setErr(null)} />
+      {!position && (
+        <div className="card mb-3 flex flex-wrap items-center gap-3 border-red-300 bg-red-50 p-3 text-[13px] text-red-800">
+          <MapPinOff size={16} className="shrink-0" />
+          <span className="min-w-0 flex-1">{LOCATION_REQUIRED}</span>
+          <button className="btn-secondary" disabled={askingPosition} onClick={() => void retryPosition()}>
+            {askingPosition ? "Looking…" : "Retry"}
+          </button>
+        </div>
+      )}
       {notice && (
         <div className="mb-3 rounded-md bg-yolk-50 px-3 py-2 text-[13px] text-soil-700">{notice}</div>
       )}

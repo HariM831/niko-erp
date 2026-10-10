@@ -104,3 +104,19 @@ export async function siteForPoint(lat: number | null, lng: number | null): Prom
 export async function siteLegend(): Promise<Array<{ code: string; name: string }>> {
   return (await sites()).map((s) => ({ code: s.code, name: s.name }));
 }
+
+/** Said when a gate punch or a canteen plate arrives with no location. */
+export const LOCATION_REQUIRED =
+  "Location is required — nothing was recorded. Turn on location for this device, allow it for this site, and scan again.";
+
+/**
+ * A real point on the map: both numbers, in range, and not the 0,0 a broken
+ * fix reports. Every punch at the gate and every plate at the canteen must
+ * carry one (the user, 10 Oct 2026); HR's own entries on the Time page are a
+ * person's ruling about a day, not somebody standing at a gate, and do not.
+ */
+export function isRealPoint(lat: number | null | undefined, lng: number | null | undefined): boolean {
+  if (typeof lat !== "number" || typeof lng !== "number" || !Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return false;
+  return !(lat === 0 && lng === 0);
+}

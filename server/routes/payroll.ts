@@ -14,6 +14,7 @@ import {
   advanceRepayments,
   advances,
   attendanceDays,
+  comments,
   departments,
   designations,
   employees,
@@ -28,6 +29,7 @@ import {
   salarySlips,
   shiftAssignments,
   shifts,
+  users,
   wageRoles,
 } from "@shared/schema";
 import { db, type Tx } from "../db";
@@ -63,7 +65,7 @@ import {
 } from "../services/day-resolution";
 import { PAYROLL_REPORTS, payrollReportFile, wagesReportFile, type PayrollReport } from "../services/payroll-reports";
 import { payslipFilename, renderPayslip } from "../services/payslip-pdf";
-import { siteForPoint, siteLegend } from "../services/punch-sites";
+import { LOCATION_REQUIRED, isRealPoint, siteForPoint, siteLegend } from "../services/punch-sites";
 import { applyLeave, approveLeave, deleteLeave, leaveBalance, leavesInRange, rejectLeave } from "../services/leave";
 import {
   advanceOutstanding,
@@ -1091,6 +1093,9 @@ const punchBody = z.object({
 
 payrollRouter.post("/punches", gatePerm, validateBody(punchBody), async (req, res) => {
   const b = req.body as z.infer<typeof punchBody>;
+  // Refused here rather than in the schema, so the guard reads a sentence and
+  // not a validation error.
+  if (!isRealPoint(b.latitude, b.longitude)) return res.status(422).json({ error: LOCATION_REQUIRED, locationRequired: true });
   try {
     const out = await db.transaction((tx) => recordGatePunch(tx, b, req.session.user!.id));
     res.status(201).json(out);
@@ -1538,7 +1543,58 @@ payrollRouter.get("/attendance/employee/:id", view, async (req, res) => {
 
   const shift = shiftForDate(to, assignments, ctx.shiftById) ?? null;
   const leaves = await leavesInRange(db, employeeId, from, to);
-  res.json({ days, totals, shift, leaves, siteLegend: await siteLegend() });
+  res.json({ days, totals, shift, leaves, siteLegend: await siteLegend(), dayComments: await dayComments(employeeId, from, to) });
+});
+
+/* ── Comments on a day ─────────────────────────────────────────────────── */
+
+/** The comments table's name for "one day of one employee". */
+const ATTENDANCE_DAY = "attendance_day";
+
+/**
+ * What people have said about each day of an employee's month, keyed by day
+ * of month. Kept in the one comments table, beside the employee and the date,
+ * because the day's attendance row is rewritten by every recompute and a
+ * comment hung on it would go with it.
+ */
+async function dayComments(employeeId: string, from: string, to: string) {
+  const rows = await db
+    .select({ id: comments.id, day: comments.entityDay, body: comments.body, createdAt: comments.createdAt, createdBy: comments.createdBy, authorName: users.name })
+    .from(comments)
+    .innerJoin(users, eq(users.id, comments.createdBy))
+    .where(and(eq(comments.entityType, ATTENDANCE_DAY), eq(comments.entityId, employeeId), gte(comments.entityDay, from), lte(comments.entityDay, to)))
+    .orderBy(asc(comments.createdAt));
+  const out: Record<number, Array<Omit<(typeof rows)[number], "day">>> = {};
+  for (const { day, ...c } of rows) (out[Number(day!.slice(8))] ??= []).push(c);
+  return out;
+}
+
+payrollRouter.post(
+  "/attendance/comments",
+  attendancePerm,
+  validateBody(z.object({ employeeId: z.string().uuid(), day: dateStr, body: z.string().trim().min(1).max(2000) })),
+  async (req, res) => {
+    const b = req.body as { employeeId: string; day: string; body: string };
+    const [emp] = await db.select({ id: employees.id }).from(employees).where(eq(employees.id, b.employeeId));
+    if (!emp) return res.status(404).json({ error: "No such employee" });
+    const [row] = await db
+      .insert(comments)
+      .values({ entityType: ATTENDANCE_DAY, entityId: b.employeeId, entityDay: b.day, body: b.body, createdBy: req.session.user!.id })
+      .returning();
+    res.status(201).json(row);
+  },
+);
+
+/** Your own comment, or any if you are an admin; the day's status is untouched. */
+payrollRouter.delete("/attendance/comments/:id", attendancePerm, async (req, res) => {
+  const [row] = await db.select().from(comments).where(and(eq(comments.id, req.params.id!), eq(comments.entityType, ATTENDANCE_DAY)));
+  if (!row) return res.status(404).json({ error: "Comment not found" });
+  const user = req.session.user!;
+  if (row.createdBy !== user.id && !user.permissions["*"]?.includes("*")) {
+    return res.status(403).json({ error: "You can only delete your own comments" });
+  }
+  await db.delete(comments).where(eq(comments.id, row.id));
+  res.json({ ok: true });
 });
 
 const overrideBody = z.object({

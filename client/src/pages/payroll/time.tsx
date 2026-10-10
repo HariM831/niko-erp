@@ -13,11 +13,12 @@
  */
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw } from "lucide-react";
+import { MessageSquare, RefreshCw } from "lucide-react";
 import { useLocalSearch } from "../../components/search-context";
 import { filterRows, useAdvancedSearch, type Criteria, type SearchField } from "../../components/advanced-search";
 import { matchesTerm } from "../../lib/utils";
 import { api } from "../../api";
+import { useAuth } from "../../auth";
 import { SearchSelect } from "../../components/search-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -44,7 +45,10 @@ interface EmployeeMonth {
   leaves: { id: string; leaveType: string; fromDate: string; toDate: string; status: string }[];
   /** Every site that can show a letter, for the legend under the calendar. */
   siteLegend: Array<{ code: string; name: string }>;
+  /** What has been said about each day, keyed by day of month. */
+  dayComments?: Record<string, DayComment[]>;
 }
+interface DayComment { id: string; body: string; createdAt: string; createdBy: string; authorName: string }
 interface MonthGrid {
   days: number[];
   employees: { id: string; empCode: string; name: string; department: string | null; days: Record<string, DayCell>; totals: Totals }[];
@@ -286,6 +290,11 @@ function CalendarTab() {
                     )}
                     {cell && cell.hours > 0 && <div className="text-[10px] tabular-nums text-gray-400">{num(cell.hours, 1)} h</div>}
                     {cell?.source === "manual" && <div className="text-[9px] font-medium uppercase text-amber-600">manual</div>}
+                    {(calQ.data?.dayComments?.[String(d)]?.length ?? 0) > 0 && (
+                      <div className="mt-0.5 flex items-center gap-0.5 text-[10px] text-brand-700" title={calQ.data!.dayComments![String(d)]!.map((c) => c.body).join("\n")}>
+                        <MessageSquare size={10} /> {calQ.data!.dayComments![String(d)]!.length}
+                      </div>
+                    )}
                   </button>
                 );
               })}
@@ -310,6 +319,7 @@ function CalendarTab() {
           employeeName={emp?.name ?? ""}
           day={ymd(year, month, dayOpen)}
           cell={calQ.data?.days[String(dayOpen)] ?? null}
+          comments={calQ.data?.dayComments?.[String(dayOpen)] ?? []}
           onClose={() => setDayOpen(null)}
           onLeave={() => {
             setLeaveFor({ employeeId: eff, day: ymd(year, month, dayOpen) });
@@ -336,11 +346,13 @@ function CalendarTab() {
   );
 }
 
-function DayDialog({ employeeId, employeeName, day, cell, onClose, onChanged, onLeave }: {
+function DayDialog({ employeeId, employeeName, day, cell, comments, onClose, onChanged, onLeave }: {
   employeeId: string;
   employeeName: string;
   day: string;
   cell: (DayCell & { punches: Punch[] }) | null;
+  /** What has been said about this day. Saying something changes nothing else about it. */
+  comments: DayComment[];
   onClose: () => void;
   onChanged: () => void;
   /** Hand this day to the leave form, filled in. */
@@ -349,6 +361,19 @@ function DayDialog({ employeeId, employeeName, day, cell, onClose, onChanged, on
   const { err, setErr, fail } = useErr();
   const [status, setStatus] = useState<AttStatus>(cell?.status ?? "P");
   const [note, setNote] = useState("");
+  const [comment, setComment] = useState("");
+  const { user } = useAuth();
+  const isAdmin = !!user?.permissions["*"]?.includes("*");
+  const addComment = useMutation({
+    mutationFn: () => api("/api/payroll/attendance/comments", { method: "POST", body: { employeeId, day, body: comment.trim() } }),
+    onSuccess: () => { setComment(""); onChanged(); },
+    onError: fail,
+  });
+  const removeComment = useMutation({
+    mutationFn: (id: string) => api(`/api/payroll/attendance/comments/${id}`, { method: "DELETE" }),
+    onSuccess: onChanged,
+    onError: fail,
+  });
 
   const override = useMutation({
     mutationFn: () => api("/api/payroll/attendance/override", { method: "POST", body: { employeeId, day, status, note } }),
@@ -404,6 +429,39 @@ function DayDialog({ employeeId, employeeName, day, cell, onClose, onChanged, on
             ))}
           </div>
         )}
+        {/* A comment is a remark on the day and nothing more: it does not
+            override the status, and a recompute leaves it where it is. */}
+        <div className="mb-3 rounded-md border border-gray-200 p-2">
+          <div className="mb-1 flex items-center gap-1.5 text-[12px] font-medium text-gray-600">
+            <MessageSquare size={13} /> Comments{comments.length ? ` (${comments.length})` : ""}
+          </div>
+          {comments.map((c) => (
+            <div key={c.id} className="group mb-1.5 text-[12.5px]">
+              <div className="whitespace-pre-wrap text-gray-800">{c.body}</div>
+              <div className="flex items-center gap-2 text-[11px] text-gray-400">
+                {c.authorName} · {fmtDateTime(c.createdAt)}
+                {(c.createdBy === user?.id || isAdmin) && (
+                  <button className="text-red-500 hover:underline" disabled={removeComment.isPending} onClick={() => removeComment.mutate(c.id)}>
+                    Delete
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+          <div className="flex gap-2">
+            <input
+              className="input flex-1"
+              value={comment}
+              maxLength={2000}
+              onChange={(e) => setComment(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && comment.trim() && !addComment.isPending) addComment.mutate(); }}
+              placeholder="Add a comment on this day"
+            />
+            <button className="btn-secondary" disabled={!comment.trim() || addComment.isPending} onClick={() => addComment.mutate()}>
+              {addComment.isPending ? "Adding…" : "Add"}
+            </button>
+          </div>
+        </div>
         <Field label="Set day to (manual override)">
           <div className="flex gap-1">
             {ALL_STATUSES.map((s) => (
