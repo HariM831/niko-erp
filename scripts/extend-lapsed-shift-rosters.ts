@@ -14,10 +14,14 @@
  * the people who actually move. The old rows are left as they are; the roster
  * that was is still the roster that was.
  *
- * Attendance is not recomputed. Every shift rests on Sunday, as an unassigned
- * person does, so a past day reads the same either way — except for someone
- * carrying a personal weekly off, who is listed so their days since the lapse
- * can be looked at.
+ * Every shift rests on Sunday, as an unassigned person does, so for most a
+ * past day reads the same either way. Not for someone carrying a personal
+ * weekly off: since the roster lapsed niko has been resting them on Sunday
+ * and marking their own day absent. Their days are recomputed, from the lapse
+ * or the first of this month, whichever is later — an earlier month may have
+ * a confirmed run standing on it — and every day that changes is printed.
+ * The dry run does all of it in a transaction and rolls it back, so what it
+ * prints is what --apply will do.
  *
  * People who never had an assignment (every daily-wage worker) are listed and
  * left alone: there is no roster of theirs to continue.
@@ -25,10 +29,10 @@
  *   npx tsx scripts/extend-lapsed-shift-rosters.ts            (dry run)
  *   npx tsx scripts/extend-lapsed-shift-rosters.ts --apply
  */
-import { asc, eq } from "drizzle-orm";
-import { employees, shiftAssignments, shifts } from "@shared/schema";
+import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
+import { attendanceDays, employees, shiftAssignments, shifts } from "@shared/schema";
 import { db, pool } from "../server/db";
-import { addDays, istDate } from "../server/services/day-resolution";
+import { addDays, istDate, recomputeRange } from "../server/services/day-resolution";
 import { syncNightShiftBreakfast } from "../server/services/canteen";
 
 const APPLY = process.argv.includes("--apply");
@@ -88,25 +92,62 @@ async function main() {
   console.log(`\n  Never rostered (left alone): ${[...neverBy].map(([k, n]) => `${n} ${k}`).join(", ") || "none"}`);
   for (const p of never.filter((x) => x.payType === "salaried")) console.log(`    ${p.empCode.padEnd(14)} ${p.name}`);
 
-  if (!APPLY) {
-    console.log("\nNothing written. Re-run with --apply.");
-    return;
+  class DryRun extends Error {}
+  const monthStart = `${today.slice(0, 7)}-01`;
+  const ownOff = plan.filter((x) => x.last.weeklyOffDays);
+  try {
+    await db.transaction(async (tx) => {
+      for (const { p, last, from } of plan) {
+        await tx.insert(shiftAssignments).values({
+          employeeId: p.id,
+          shiftId: last.shiftId,
+          effectiveFrom: from,
+          effectiveTo: null,
+          weeklyOffDays: last.weeklyOffDays,
+          notes: `Carried on from the roster that ended ${last.effectiveTo}`,
+        });
+      }
+
+      // The days a personal weekly off was lost for.
+      if (ownOff.length) {
+        const ids = ownOff.map((x) => x.p.id);
+        const read = async () =>
+          new Map(
+            (
+              await tx
+                .select({ employeeId: attendanceDays.employeeId, day: attendanceDays.day, status: attendanceDays.status })
+                .from(attendanceDays)
+                .where(and(inArray(attendanceDays.employeeId, ids), gte(attendanceDays.day, monthStart), lte(attendanceDays.day, today)))
+            ).map((r) => [`${r.employeeId}|${r.day}`, r.status]),
+          );
+        const before = await read();
+        for (const x of ownOff) {
+          const start = x.from > monthStart ? x.from : monthStart;
+          if (start <= today) await recomputeRange(tx, start, today, [x.p.id]);
+        }
+        const after = await read();
+        const nameOf = new Map(ownOff.map((x) => [x.p.id, `${x.p.empCode} ${x.p.name}`]));
+        const changes = [...new Set([...before.keys(), ...after.keys()])].filter((k) => before.get(k) !== after.get(k)).sort();
+        console.log(`\n  Attendance days that change (${monthStart} to ${today}): ${changes.length}`);
+        const tally = new Map<string, number>();
+        for (const k of changes) {
+          const [id, day] = k.split("|") as [string, string];
+          const move = `${before.get(k) ?? "-"} -> ${after.get(k) ?? "-"}`;
+          tally.set(move, (tally.get(move) ?? 0) + 1);
+          console.log(`    ${(nameOf.get(id) ?? id).padEnd(44)} ${day} ${DAYS[new Date(`${day}T00:00:00Z`).getUTCDay()]}  ${move}`);
+        }
+        for (const [move, n] of tally) console.log(`    ${String(n).padStart(3)} x ${move}`);
+      }
+
+      if (!APPLY) throw new DryRun();
+      // On nights again means breakfast again.
+      await syncNightShiftBreakfast(tx, plan.map((x) => x.p.id));
+    });
+    console.log(`\nWrote ${plan.length} open assignments.`);
+  } catch (e) {
+    if (!(e instanceof DryRun)) throw e;
+    console.log("\nNothing written (rolled back). Re-run with --apply.");
   }
-  await db.transaction(async (tx) => {
-    for (const { p, last, from } of plan) {
-      await tx.insert(shiftAssignments).values({
-        employeeId: p.id,
-        shiftId: last.shiftId,
-        effectiveFrom: from,
-        effectiveTo: null,
-        weeklyOffDays: last.weeklyOffDays,
-        notes: `Carried on from the roster that ended ${last.effectiveTo}`,
-      });
-    }
-    // On nights again means breakfast again.
-    await syncNightShiftBreakfast(tx, plan.map((x) => x.p.id));
-  });
-  console.log(`\nWrote ${plan.length} open assignments.`);
 }
 
 main()
