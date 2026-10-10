@@ -438,7 +438,8 @@ export const MORTALITY_FROM = "2026-10-11";
  *
  * Held back, for a person, when the fall cannot be one day's deaths: the count
  * went up; it did not move in a house that loses several birds a day (the
- * panel was not updated); or it fell by more than three times the house's
+ * panel was not updated); it did not move the day BEFORE, so today's fall may
+ * carry both; or it fell by more than three times the house's
  * usual and 30 besides (several days in one, as L2's 104 on 5 Oct was 51 + 53).
  * Also held back when culls or moves were recorded that day, since the count
  * falls for those too.
@@ -479,6 +480,12 @@ export async function panelMortality(
   const usual = sorted.length ? sorted[Math.floor(sorted.length / 2)]! : null;
   if (fall === 0 && usual != null && usual >= 3) {
     return { held: `The panel's bird count didn't move; this house usually loses about ${usual} a day — was the panel updated?` };
+  }
+  // A day the panel was skipped lands in the next day's fall (L2's 104 on
+  // 5 Oct was 51 + 53; L4's 17 on 6 Oct was 12 + 5).
+  const before = await count(startOf(addDays(day, -1)));
+  if (fall > 0 && usual != null && usual >= 3 && before != null && Math.round(before - start) === 0) {
+    return { held: `The panel's count fell ${fall}, but it didn't move the day before — this may be two days' deaths.` };
   }
   if (usual != null && fall > Math.max(3 * usual, usual + 30)) {
     return { held: `The panel's count fell ${fall}, against about ${usual} a day — several days at once?` };
