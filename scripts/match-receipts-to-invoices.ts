@@ -112,8 +112,11 @@ async function main() {
   if (plan.length > 25) console.log(`  ... and ${plan.length - 25} more invoices`);
   console.log(`\n    invoices settled in full ... ${invoicesSettled}`);
   console.log(`    invoices part-settled ...... ${partly}`);
-  console.log(`    cash allocated ............. Rs ${(totalP / 10000000).toFixed(2)} crore`);
-  console.log(`    cash still unapplied ....... Rs ${(leftoverP / 10000000).toFixed(2)} crore`);
+  // paise, so a lakh is 1e7 and a crore is 1e9. Getting this wrong once
+  // printed 3.23 crore for 3.23 lakh.
+  const lakh = (p: number) => (p / 10000000).toFixed(2);
+  console.log(`    cash allocated ............. Rs ${lakh(totalP)} lakh`);
+  console.log(`    cash still unapplied ....... Rs ${lakh(leftoverP)} lakh`);
   console.log(`    (* = receipt predates the invoice, i.e. a true advance)`);
 
   if (!APPLY) {

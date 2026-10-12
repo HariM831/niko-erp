@@ -17,11 +17,6 @@
       "new": "A-INV-EG-27-0569"
     },
     {
-      "current": "A-INV-EG-27-0580",
-      "new": "A-INV-EG-27-0570",
-      "date": "2026-08-05"
-    },
-    {
       "current": "A-INV-EG-27-0574",
       "new": "A-INV-EG-27-0571"
     },
@@ -66,9 +61,8 @@
       "new": "A-INV-EG-27-0581"
     },
     {
-      "current": "A-INV-EG-27-0598",
-      "new": "A-INV-EG-27-0582",
-      "date": "2026-08-08"
+      "current": "A-INV-EG-27-0580",
+      "new": "A-INV-EG-27-0582"
     },
     {
       "current": "A-INV-EG-27-0581",
@@ -92,822 +86,813 @@
     },
     {
       "current": "A-INV-EG-27-0586",
-      "new": "A-INV-EG-27-0589"
+      "new": "A-INV-EG-27-0588"
     },
     {
       "current": "A-INV-EG-27-0587",
-      "new": "A-INV-EG-27-0590"
+      "new": "A-INV-EG-27-0589"
     },
     {
       "current": "A-INV-EG-27-0588",
-      "new": "A-INV-EG-27-0591"
+      "new": "A-INV-EG-27-0590"
     },
     {
       "current": "A-INV-EG-27-0590",
-      "new": "A-INV-EG-27-0592"
+      "new": "A-INV-EG-27-0591"
     },
     {
       "current": "A-INV-EG-27-0591",
-      "new": "A-INV-EG-27-0593"
+      "new": "A-INV-EG-27-0592"
     },
     {
       "current": "A-INV-EG-27-0592",
-      "new": "A-INV-EG-27-0594"
+      "new": "A-INV-EG-27-0593"
     },
     {
       "current": "A-INV-EG-27-0593",
-      "new": "A-INV-EG-27-0595"
+      "new": "A-INV-EG-27-0594"
     },
     {
       "current": "A-INV-EG-27-0594",
-      "new": "A-INV-EG-27-0596"
+      "new": "A-INV-EG-27-0595"
     },
     {
       "current": "A-INV-EG-27-0595",
-      "new": "A-INV-EG-27-0597"
+      "new": "A-INV-EG-27-0596"
     },
     {
       "current": "A-INV-EG-27-0596",
-      "new": "A-INV-EG-27-0598"
+      "new": "A-INV-EG-27-0597"
     },
     {
       "current": "A-INV-EG-27-0597",
+      "new": "A-INV-EG-27-0598"
+    },
+    {
+      "current": "A-INV-EG-27-0598",
       "new": "A-INV-EG-27-0599"
     },
     {
-      "current": "A-INV-EG-27-0602",
-      "new": "A-INV-EG-27-0600",
-      "date": "2026-08-11"
-    },
-    {
       "current": "A-INV-EG-27-0599",
-      "new": "A-INV-EG-27-0601"
+      "new": "A-INV-EG-27-0600"
     },
     {
       "current": "A-INV-EG-27-0600",
-      "new": "A-INV-EG-27-0602"
+      "new": "A-INV-EG-27-0601"
     },
     {
       "current": "A-INV-EG-27-0601",
-      "new": "A-INV-EG-27-0603"
+      "new": "A-INV-EG-27-0602"
     },
     {
-      "current": "A-INV-EG-27-0603",
-      "new": "A-INV-EG-27-0605"
-    },
-    {
-      "current": "A-INV-EG-27-0604",
+      "current": "A-INV-EG-27-0602",
       "new": "A-INV-EG-27-0606"
     },
     {
-      "current": "A-INV-EG-27-0605",
+      "current": "A-INV-EG-27-0606",
       "new": "A-INV-EG-27-0607"
     },
     {
-      "current": "A-INV-EG-27-0606",
+      "current": "A-INV-EG-27-0607",
       "new": "A-INV-EG-27-0608"
     },
     {
-      "current": "A-INV-EG-27-0607",
+      "current": "A-INV-EG-27-0608",
       "new": "A-INV-EG-27-0609"
     },
     {
-      "current": "A-INV-EG-27-0608",
+      "current": "A-INV-EG-27-0609",
       "new": "A-INV-EG-27-0610"
     },
     {
-      "current": "A-INV-EG-27-0609",
+      "current": "A-INV-EG-27-0610",
       "new": "A-INV-EG-27-0611"
     },
     {
-      "current": "A-INV-EG-27-0610",
+      "current": "A-INV-EG-27-0611",
       "new": "A-INV-EG-27-0612"
     },
     {
-      "current": "A-INV-EG-27-0611",
+      "current": "A-INV-EG-27-0612",
       "new": "A-INV-EG-27-0613"
     },
     {
-      "current": "A-INV-EG-27-0612",
+      "current": "A-INV-EG-27-0613",
       "new": "A-INV-EG-27-0614"
     },
     {
-      "current": "A-INV-EG-27-0613",
+      "current": "A-INV-EG-27-0614",
       "new": "A-INV-EG-27-0615"
     },
     {
-      "current": "A-INV-EG-27-0614",
+      "current": "A-INV-EG-27-0615",
       "new": "A-INV-EG-27-0616"
     },
     {
-      "current": "A-INV-EG-27-0615",
+      "current": "A-INV-EG-27-0616",
       "new": "A-INV-EG-27-0617"
     },
     {
-      "current": "A-INV-EG-27-0616",
+      "current": "A-INV-EG-27-0617",
       "new": "A-INV-EG-27-0618"
     },
     {
-      "current": "A-INV-EG-27-0617",
+      "current": "A-INV-EG-27-0618",
       "new": "A-INV-EG-27-0619"
     },
     {
-      "current": "A-INV-EG-27-0618",
+      "current": "A-INV-EG-27-0619",
       "new": "A-INV-EG-27-0620"
     },
     {
-      "current": "A-INV-EG-27-0619",
+      "current": "A-INV-EG-27-0620",
       "new": "A-INV-EG-27-0621"
     },
     {
-      "current": "A-INV-EG-27-0620",
+      "current": "A-INV-EG-27-0621",
       "new": "A-INV-EG-27-0622"
     },
     {
-      "current": "A-INV-EG-27-0621",
+      "current": "A-INV-EG-27-0622",
       "new": "A-INV-EG-27-0623"
     },
     {
-      "current": "A-INV-EG-27-0622",
+      "current": "A-INV-EG-27-0623",
       "new": "A-INV-EG-27-0624"
     },
     {
-      "current": "A-INV-EG-27-0623",
+      "current": "A-INV-EG-27-0624",
       "new": "A-INV-EG-27-0625"
     },
     {
-      "current": "A-INV-EG-27-0624",
+      "current": "A-INV-EG-27-0625",
       "new": "A-INV-EG-27-0626"
     },
     {
-      "current": "A-INV-EG-27-0625",
+      "current": "A-INV-EG-27-0626",
       "new": "A-INV-EG-27-0627"
     },
     {
-      "current": "A-INV-EG-27-0626",
+      "current": "A-INV-EG-27-0627",
       "new": "A-INV-EG-27-0628"
     },
     {
-      "current": "A-INV-EG-27-0627",
+      "current": "A-INV-EG-27-0628",
       "new": "A-INV-EG-27-0629"
     },
     {
-      "current": "A-INV-EG-27-0628",
+      "current": "A-INV-EG-27-0629",
       "new": "A-INV-EG-27-0630"
     },
     {
-      "current": "A-INV-EG-27-0629",
+      "current": "A-INV-EG-27-0630",
       "new": "A-INV-EG-27-0631"
     },
     {
-      "current": "A-INV-EG-27-0630",
+      "current": "A-INV-EG-27-0631",
       "new": "A-INV-EG-27-0632"
     },
     {
-      "current": "A-INV-EG-27-0631",
+      "current": "A-INV-EG-27-0632",
       "new": "A-INV-EG-27-0633"
     },
     {
-      "current": "A-INV-EG-27-0632",
+      "current": "A-INV-EG-27-0633",
       "new": "A-INV-EG-27-0634"
     },
     {
-      "current": "A-INV-EG-27-0633",
+      "current": "A-INV-EG-27-0634",
       "new": "A-INV-EG-27-0635"
     },
     {
-      "current": "A-INV-EG-27-0634",
+      "current": "A-INV-EG-27-0635",
       "new": "A-INV-EG-27-0636"
     },
     {
-      "current": "A-INV-EG-27-0635",
+      "current": "A-INV-EG-27-0636",
       "new": "A-INV-EG-27-0637"
     },
     {
-      "current": "A-INV-EG-27-0636",
+      "current": "A-INV-EG-27-0637",
       "new": "A-INV-EG-27-0638"
     },
     {
-      "current": "A-INV-EG-27-0637",
+      "current": "A-INV-EG-27-0638",
       "new": "A-INV-EG-27-0639"
     },
     {
-      "current": "A-INV-EG-27-0638",
+      "current": "A-INV-EG-27-0639",
       "new": "A-INV-EG-27-0640"
     },
     {
-      "current": "A-INV-EG-27-0639",
+      "current": "A-INV-EG-27-0640",
       "new": "A-INV-EG-27-0641"
     },
     {
-      "current": "A-INV-EG-27-0640",
+      "current": "A-INV-EG-27-0641",
       "new": "A-INV-EG-27-0642"
     },
     {
-      "current": "A-INV-EG-27-0641",
+      "current": "A-INV-EG-27-0642",
       "new": "A-INV-EG-27-0643"
     },
     {
-      "current": "A-INV-EG-27-0642",
+      "current": "A-INV-EG-27-0643",
       "new": "A-INV-EG-27-0644"
     },
     {
-      "current": "A-INV-EG-27-0643",
+      "current": "A-INV-EG-27-0644",
       "new": "A-INV-EG-27-0645"
     },
     {
-      "current": "A-INV-EG-27-0644",
+      "current": "A-INV-EG-27-0645",
       "new": "A-INV-EG-27-0646"
     },
     {
-      "current": "A-INV-EG-27-0645",
+      "current": "A-INV-EG-27-0646",
       "new": "A-INV-EG-27-0647"
     },
     {
-      "current": "A-INV-EG-27-0646",
+      "current": "A-INV-EG-27-0647",
       "new": "A-INV-EG-27-0648"
     },
     {
-      "current": "A-INV-EG-27-0647",
+      "current": "A-INV-EG-27-0648",
       "new": "A-INV-EG-27-0649"
     },
     {
-      "current": "A-INV-EG-27-0648",
+      "current": "A-INV-EG-27-0649",
       "new": "A-INV-EG-27-0650"
     },
     {
-      "current": "A-INV-EG-27-0649",
+      "current": "A-INV-EG-27-0650",
       "new": "A-INV-EG-27-0651"
     },
     {
-      "current": "A-INV-EG-27-0650",
+      "current": "A-INV-EG-27-0651",
       "new": "A-INV-EG-27-0652"
     },
     {
-      "current": "A-INV-EG-27-0651",
+      "current": "A-INV-EG-27-0652",
       "new": "A-INV-EG-27-0653"
     },
     {
-      "current": "A-INV-EG-27-0652",
+      "current": "A-INV-EG-27-0653",
       "new": "A-INV-EG-27-0654"
     },
     {
-      "current": "A-INV-EG-27-0653",
+      "current": "A-INV-EG-27-0654",
       "new": "A-INV-EG-27-0655"
     },
     {
-      "current": "A-INV-EG-27-0654",
+      "current": "A-INV-EG-27-0655",
       "new": "A-INV-EG-27-0656"
     },
     {
-      "current": "A-INV-EG-27-0655",
+      "current": "A-INV-EG-27-0656",
       "new": "A-INV-EG-27-0657"
     },
     {
-      "current": "A-INV-EG-27-0656",
+      "current": "A-INV-EG-27-0657",
       "new": "A-INV-EG-27-0658"
     },
     {
-      "current": "A-INV-EG-27-0657",
+      "current": "A-INV-EG-27-0658",
       "new": "A-INV-EG-27-0659"
     },
     {
-      "current": "A-INV-EG-27-0658",
+      "current": "A-INV-EG-27-0659",
       "new": "A-INV-EG-27-0660"
     },
     {
-      "current": "A-INV-EG-27-0659",
+      "current": "A-INV-EG-27-0660",
       "new": "A-INV-EG-27-0661"
     },
     {
-      "current": "A-INV-EG-27-0660",
+      "current": "A-INV-EG-27-0661",
       "new": "A-INV-EG-27-0662"
     },
     {
-      "current": "A-INV-EG-27-0661",
+      "current": "A-INV-EG-27-0662",
       "new": "A-INV-EG-27-0663"
     },
     {
-      "current": "A-INV-EG-27-0662",
+      "current": "A-INV-EG-27-0663",
       "new": "A-INV-EG-27-0664"
     },
     {
-      "current": "A-INV-EG-27-0663",
-      "new": "A-INV-EG-27-0665"
-    },
-    {
       "current": "A-INV-EG-27-0664",
-      "new": "A-INV-EG-27-0666",
+      "new": "A-INV-EG-27-0665",
       "date": "2026-08-23"
     },
     {
       "current": "A-INV-EG-27-0665",
-      "new": "A-INV-EG-27-0667",
+      "new": "A-INV-EG-27-0666",
       "date": "2026-08-23"
     },
     {
       "current": "A-INV-EG-27-0666",
-      "new": "A-INV-EG-27-0668",
+      "new": "A-INV-EG-27-0667",
       "date": "2026-08-23"
     },
     {
       "current": "A-INV-EG-27-0667",
-      "new": "A-INV-EG-27-0669",
+      "new": "A-INV-EG-27-0668",
       "date": "2026-08-23"
     },
     {
       "current": "A-INV-EG-27-0668",
-      "new": "A-INV-EG-27-0670"
+      "new": "A-INV-EG-27-0669"
     },
     {
       "current": "A-INV-EG-27-0669",
-      "new": "A-INV-EG-27-0671"
+      "new": "A-INV-EG-27-0670"
     },
     {
       "current": "A-INV-EG-27-0670",
-      "new": "A-INV-EG-27-0672"
+      "new": "A-INV-EG-27-0671"
     },
     {
       "current": "A-INV-EG-27-0671",
-      "new": "A-INV-EG-27-0673"
+      "new": "A-INV-EG-27-0672"
     },
     {
       "current": "A-INV-EG-27-0672",
-      "new": "A-INV-EG-27-0674"
+      "new": "A-INV-EG-27-0673"
     },
     {
       "current": "A-INV-EG-27-0673",
-      "new": "A-INV-EG-27-0675"
+      "new": "A-INV-EG-27-0674"
     },
     {
       "current": "A-INV-EG-27-0674",
-      "new": "A-INV-EG-27-0676"
+      "new": "A-INV-EG-27-0675"
     },
     {
       "current": "A-INV-EG-27-0675",
-      "new": "A-INV-EG-27-0677"
+      "new": "A-INV-EG-27-0676"
     },
     {
       "current": "A-INV-EG-27-0676",
-      "new": "A-INV-EG-27-0678"
+      "new": "A-INV-EG-27-0677"
     },
     {
       "current": "A-INV-EG-27-0677",
-      "new": "A-INV-EG-27-0679",
+      "new": "A-INV-EG-27-0678",
       "date": "2026-08-26"
     },
     {
       "current": "A-INV-EG-27-0678",
-      "new": "A-INV-EG-27-0680",
+      "new": "A-INV-EG-27-0679",
       "date": "2026-08-26"
     },
     {
       "current": "A-INV-EG-27-0679",
-      "new": "A-INV-EG-27-0681",
+      "new": "A-INV-EG-27-0680",
       "date": "2026-08-26"
     },
     {
       "current": "A-INV-EG-27-0680",
-      "new": "A-INV-EG-27-0682",
+      "new": "A-INV-EG-27-0681",
       "date": "2026-08-26"
     },
     {
       "current": "A-INV-EG-27-0681",
-      "new": "A-INV-EG-27-0683",
+      "new": "A-INV-EG-27-0682",
       "date": "2026-08-26"
     },
     {
       "current": "A-INV-EG-27-0682",
-      "new": "A-INV-EG-27-0684",
+      "new": "A-INV-EG-27-0683",
       "date": "2026-08-27"
     },
     {
       "current": "A-INV-EG-27-0683",
-      "new": "A-INV-EG-27-0685",
+      "new": "A-INV-EG-27-0684",
       "date": "2026-08-27"
     },
     {
       "current": "A-INV-EG-27-0684",
-      "new": "A-INV-EG-27-0686",
+      "new": "A-INV-EG-27-0685",
       "date": "2026-08-27"
     },
     {
       "current": "A-INV-EG-27-0685",
-      "new": "A-INV-EG-27-0687",
+      "new": "A-INV-EG-27-0686",
       "date": "2026-08-27"
     },
     {
       "current": "A-INV-EG-27-0686",
-      "new": "A-INV-EG-27-0688",
+      "new": "A-INV-EG-27-0687",
       "date": "2026-08-27"
     },
     {
       "current": "A-INV-EG-27-0687",
-      "new": "A-INV-EG-27-0689"
+      "new": "A-INV-EG-27-0688"
     },
     {
       "current": "A-INV-EG-27-0688",
-      "new": "A-INV-EG-27-0690"
+      "new": "A-INV-EG-27-0689"
     },
     {
       "current": "A-INV-EG-27-0689",
-      "new": "A-INV-EG-27-0691"
+      "new": "A-INV-EG-27-0690"
     },
     {
       "current": "A-INV-EG-27-0690",
-      "new": "A-INV-EG-27-0692",
+      "new": "A-INV-EG-27-0691",
       "date": "2026-08-29"
     },
     {
       "current": "A-INV-EG-27-0691",
-      "new": "A-INV-EG-27-0693",
+      "new": "A-INV-EG-27-0692",
       "date": "2026-08-29"
     },
     {
       "current": "A-INV-EG-27-0692",
-      "new": "A-INV-EG-27-0694",
+      "new": "A-INV-EG-27-0693",
       "date": "2026-08-29"
     },
     {
       "current": "A-INV-EG-27-0693",
-      "new": "A-INV-EG-27-0695",
+      "new": "A-INV-EG-27-0694",
       "date": "2026-08-29"
     },
     {
       "current": "A-INV-EG-27-0694",
-      "new": "A-INV-EG-27-0696",
+      "new": "A-INV-EG-27-0695",
       "date": "2026-08-29"
     },
     {
       "current": "A-INV-EG-27-0695",
-      "new": "A-INV-EG-27-0697",
+      "new": "A-INV-EG-27-0696",
       "date": "2026-08-29"
     },
     {
       "current": "A-INV-EG-27-0696",
-      "new": "A-INV-EG-27-0698",
+      "new": "A-INV-EG-27-0697",
       "date": "2026-08-30"
     },
     {
       "current": "A-INV-EG-27-0697",
-      "new": "A-INV-EG-27-0699",
+      "new": "A-INV-EG-27-0698",
       "date": "2026-08-30"
     },
     {
       "current": "A-INV-EG-27-0698",
-      "new": "A-INV-EG-27-0700",
+      "new": "A-INV-EG-27-0699",
       "date": "2026-08-30"
     },
     {
       "current": "A-INV-EG-27-0699",
-      "new": "A-INV-EG-27-0701",
+      "new": "A-INV-EG-27-0700",
       "date": "2026-08-31"
     },
     {
       "current": "A-INV-EG-27-0700",
-      "new": "A-INV-EG-27-0702",
+      "new": "A-INV-EG-27-0701",
       "date": "2026-08-31"
     },
     {
       "current": "A-INV-EG-27-0701",
-      "new": "A-INV-EG-27-0703",
+      "new": "A-INV-EG-27-0702",
       "date": "2026-08-31"
     },
     {
       "current": "A-INV-EG-27-0703",
-      "new": "A-INV-EG-27-0704",
+      "new": "A-INV-EG-27-0703",
       "date": "2026-08-31"
     },
     {
       "current": "A-INV-EG-27-0704",
-      "new": "A-INV-EG-27-0705",
+      "new": "A-INV-EG-27-0704",
       "date": "2026-08-31"
     },
     {
       "current": "A-INV-EG-27-0705",
-      "new": "A-INV-EG-27-0706",
+      "new": "A-INV-EG-27-0705",
       "date": "2026-08-31"
     },
     {
       "current": "A-INV-EG-27-0707",
-      "new": "A-INV-EG-27-0707",
+      "new": "A-INV-EG-27-0706",
       "date": "2026-08-31"
     },
     {
       "current": "A-INV-EG-27-0726",
-      "new": "A-INV-EG-27-0708",
+      "new": "A-INV-EG-27-0707",
       "date": "2026-09-01"
     },
     {
       "current": "A-INV-EG-27-0706",
-      "new": "A-INV-EG-27-0709"
+      "new": "A-INV-EG-27-0708"
     },
     {
       "current": "A-INV-EG-27-0708",
-      "new": "A-INV-EG-27-0710"
+      "new": "A-INV-EG-27-0709"
     },
     {
       "current": "A-INV-EG-27-0709",
-      "new": "A-INV-EG-27-0711"
+      "new": "A-INV-EG-27-0710"
     },
     {
       "current": "A-INV-EG-27-0710",
-      "new": "A-INV-EG-27-0712"
+      "new": "A-INV-EG-27-0711"
     },
     {
       "current": "A-INV-EG-27-0711",
-      "new": "A-INV-EG-27-0713"
+      "new": "A-INV-EG-27-0712"
     },
     {
       "current": "A-INV-EG-27-0712",
-      "new": "A-INV-EG-27-0714"
+      "new": "A-INV-EG-27-0713"
     },
     {
       "current": "A-INV-EG-27-0713",
-      "new": "A-INV-EG-27-0715"
+      "new": "A-INV-EG-27-0714"
     },
     {
       "current": "A-INV-EG-27-0702",
-      "new": "A-INV-EG-27-0716"
+      "new": "A-INV-EG-27-0715"
     },
     {
       "current": "A-INV-EG-27-0714",
-      "new": "A-INV-EG-27-0717"
+      "new": "A-INV-EG-27-0716"
     },
     {
       "current": "A-INV-EG-27-0715",
-      "new": "A-INV-EG-27-0718"
+      "new": "A-INV-EG-27-0717"
     },
     {
       "current": "A-INV-EG-27-0716",
-      "new": "A-INV-EG-27-0719"
+      "new": "A-INV-EG-27-0718"
     },
     {
       "current": "A-INV-EG-27-0717",
-      "new": "A-INV-EG-27-0720"
+      "new": "A-INV-EG-27-0719"
     },
     {
       "current": "A-INV-EG-27-0718",
-      "new": "A-INV-EG-27-0721"
+      "new": "A-INV-EG-27-0720"
     },
     {
       "current": "A-INV-EG-27-0719",
-      "new": "A-INV-EG-27-0722"
+      "new": "A-INV-EG-27-0721"
     },
     {
       "current": "A-INV-EG-27-0720",
-      "new": "A-INV-EG-27-0723"
+      "new": "A-INV-EG-27-0722"
     },
     {
       "current": "A-INV-EG-27-0721",
-      "new": "A-INV-EG-27-0724"
+      "new": "A-INV-EG-27-0723"
     },
     {
       "current": "A-INV-EG-27-0722",
-      "new": "A-INV-EG-27-0725"
+      "new": "A-INV-EG-27-0724"
     },
     {
       "current": "A-INV-EG-27-0723",
-      "new": "A-INV-EG-27-0726"
+      "new": "A-INV-EG-27-0725"
     },
     {
       "current": "A-INV-EG-27-0724",
-      "new": "A-INV-EG-27-0727"
+      "new": "A-INV-EG-27-0726"
     },
     {
       "current": "A-INV-EG-27-0725",
-      "new": "A-INV-EG-27-0728"
+      "new": "A-INV-EG-27-0727"
     },
     {
       "current": "A-INV-EG-27-0727",
-      "new": "A-INV-EG-27-0730"
+      "new": "A-INV-EG-27-0728"
     },
     {
       "current": "A-INV-EG-27-0728",
-      "new": "A-INV-EG-27-0731"
+      "new": "A-INV-EG-27-0729"
     },
     {
       "current": "A-INV-EG-27-0729",
-      "new": "A-INV-EG-27-0732"
+      "new": "A-INV-EG-27-0730"
     },
     {
       "current": "A-INV-EG-27-0730",
-      "new": "A-INV-EG-27-0733"
+      "new": "A-INV-EG-27-0731"
     },
     {
       "current": "A-INV-EG-27-0731",
-      "new": "A-INV-EG-27-0734"
+      "new": "A-INV-EG-27-0732"
     },
     {
       "current": "A-INV-EG-27-0732",
-      "new": "A-INV-EG-27-0735"
+      "new": "A-INV-EG-27-0733"
     },
     {
       "current": "A-INV-EG-27-0733",
-      "new": "A-INV-EG-27-0736"
+      "new": "A-INV-EG-27-0734"
     },
     {
       "current": "A-INV-EG-27-0734",
-      "new": "A-INV-EG-27-0737"
+      "new": "A-INV-EG-27-0735"
     },
     {
       "current": "A-INV-EG-27-0736",
-      "new": "A-INV-EG-27-0739",
+      "new": "A-INV-EG-27-0737",
       "date": "2026-09-05"
     },
     {
       "current": "A-INV-EG-27-0737",
-      "new": "A-INV-EG-27-0740",
+      "new": "A-INV-EG-27-0738",
       "date": "2026-09-05"
     },
     {
       "current": "A-INV-EG-27-0738",
-      "new": "A-INV-EG-27-0741",
+      "new": "A-INV-EG-27-0739",
       "date": "2026-09-05"
     },
     {
       "current": "A-INV-EG-27-0739",
-      "new": "A-INV-EG-27-0742",
+      "new": "A-INV-EG-27-0740",
       "date": "2026-09-05"
     },
     {
       "current": "A-INV-EG-27-0740",
-      "new": "A-INV-EG-27-0743",
+      "new": "A-INV-EG-27-0741",
       "date": "2026-09-05"
     },
     {
       "current": "A-INV-EG-27-0741",
-      "new": "A-INV-EG-27-0744",
+      "new": "A-INV-EG-27-0742",
       "date": "2026-09-05"
     },
     {
       "current": "A-INV-EG-27-0742",
-      "new": "A-INV-EG-27-0745"
+      "new": "A-INV-EG-27-0743"
     },
     {
       "current": "A-INV-EG-27-0743",
-      "new": "A-INV-EG-27-0746"
+      "new": "A-INV-EG-27-0744"
     },
     {
       "current": "A-INV-EG-27-0744",
-      "new": "A-INV-EG-27-0747"
+      "new": "A-INV-EG-27-0745"
     },
     {
       "current": "A-INV-EG-27-0745",
-      "new": "A-INV-EG-27-0748"
+      "new": "A-INV-EG-27-0746"
     },
     {
       "current": "A-INV-EG-27-0746",
-      "new": "A-INV-EG-27-0749",
+      "new": "A-INV-EG-27-0747",
       "date": "2026-09-06"
     },
     {
       "current": "A-INV-EG-27-0735",
-      "new": "A-INV-EG-27-0750"
+      "new": "A-INV-EG-27-0748"
     },
     {
       "current": "A-INV-EG-27-0747",
-      "new": "A-INV-EG-27-0751",
+      "new": "A-INV-EG-27-0749",
       "date": "2026-09-07"
     },
     {
       "current": "A-INV-EG-27-0748",
-      "new": "A-INV-EG-27-0752",
+      "new": "A-INV-EG-27-0750",
       "date": "2026-09-07"
     },
     {
       "current": "A-INV-EG-27-0749",
-      "new": "A-INV-EG-27-0753",
+      "new": "A-INV-EG-27-0751",
       "date": "2026-09-07"
     },
     {
       "current": "A-INV-EG-27-0750",
-      "new": "A-INV-EG-27-0754",
+      "new": "A-INV-EG-27-0752",
       "date": "2026-09-07"
     },
     {
       "current": "A-INV-EG-27-0751",
-      "new": "A-INV-EG-27-0755",
+      "new": "A-INV-EG-27-0753",
       "date": "2026-09-07"
     },
     {
       "current": "A-INV-EG-27-0752",
-      "new": "A-INV-EG-27-0756",
+      "new": "A-INV-EG-27-0754",
       "date": "2026-09-07"
     },
     {
       "current": "A-INV-EG-27-0753",
-      "new": "A-INV-EG-27-0757",
+      "new": "A-INV-EG-27-0755",
       "date": "2026-09-07"
     },
     {
       "current": "A-INV-EG-27-0754",
-      "new": "A-INV-EG-27-0758",
+      "new": "A-INV-EG-27-0756",
       "date": "2026-09-08"
     },
     {
       "current": "A-INV-EG-27-0755",
-      "new": "A-INV-EG-27-0759",
+      "new": "A-INV-EG-27-0757",
       "date": "2026-09-08"
     },
     {
       "current": "A-INV-EG-27-0756",
-      "new": "A-INV-EG-27-0760",
+      "new": "A-INV-EG-27-0758",
       "date": "2026-09-08"
     },
     {
       "current": "A-INV-EG-27-0757",
-      "new": "A-INV-EG-27-0761",
+      "new": "A-INV-EG-27-0759",
       "date": "2026-09-08"
     },
     {
       "current": "A-INV-EG-27-0758",
-      "new": "A-INV-EG-27-0762",
+      "new": "A-INV-EG-27-0760",
       "date": "2026-09-08"
     },
     {
       "current": "A-INV-EG-27-0759",
-      "new": "A-INV-EG-27-0763",
+      "new": "A-INV-EG-27-0761",
       "date": "2026-09-08"
     },
     {
       "current": "A-INV-EG-27-0760",
-      "new": "A-INV-EG-27-0764",
+      "new": "A-INV-EG-27-0762",
       "date": "2026-09-09"
     },
     {
       "current": "A-INV-EG-27-0761",
-      "new": "A-INV-EG-27-0765",
+      "new": "A-INV-EG-27-0763",
       "date": "2026-09-09"
     },
     {
       "current": "A-INV-EG-27-0762",
-      "new": "A-INV-EG-27-0766",
+      "new": "A-INV-EG-27-0764",
       "date": "2026-09-09"
     },
     {
       "current": "A-INV-EG-27-0763",
-      "new": "A-INV-EG-27-0767",
+      "new": "A-INV-EG-27-0765",
       "date": "2026-09-09"
     },
     {
       "current": "A-INV-EG-27-0764",
-      "new": "A-INV-EG-27-0768",
+      "new": "A-INV-EG-27-0766",
       "date": "2026-09-09"
     },
     {
       "current": "A-INV-EG-27-0765",
-      "new": "A-INV-EG-27-0769",
+      "new": "A-INV-EG-27-0767",
       "date": "2026-09-09"
     },
     {
       "current": "A-INV-EG-27-0767",
-      "new": "A-INV-EG-27-0770",
+      "new": "A-INV-EG-27-0768",
       "date": "2026-09-09"
     },
     {
       "current": "A-INV-EG-27-0766",
-      "new": "A-INV-EG-27-0771",
-      "date": "2026-09-10"
-    },
-    {
-      "current": "A-INV-EG-27-0768",
       "new": "A-INV-EG-27-0772",
       "date": "2026-09-10"
     },
     {
-      "current": "A-INV-EG-27-0770",
+      "current": "A-INV-EG-27-0768",
       "new": "A-INV-EG-27-0773",
       "date": "2026-09-10"
     },
     {
-      "current": "A-INV-EG-27-0772",
+      "current": "A-INV-EG-27-0770",
       "new": "A-INV-EG-27-0774",
       "date": "2026-09-10"
     },
     {
-      "current": "A-INV-EG-27-0771",
-      "new": "A-INV-EG-27-0776",
-      "date": "2026-09-11"
+      "current": "A-INV-EG-27-0772",
+      "new": "A-INV-EG-27-0775",
+      "date": "2026-09-10"
     },
     {
-      "current": "A-INV-EG-27-0773",
+      "current": "A-INV-EG-27-0771",
       "new": "A-INV-EG-27-0777",
       "date": "2026-09-11"
     },
     {
-      "current": "A-INV-EG-27-0775",
+      "current": "A-INV-EG-27-0773",
       "new": "A-INV-EG-27-0778",
       "date": "2026-09-11"
     },
     {
-      "current": "A-INV-EG-27-0776",
+      "current": "A-INV-EG-27-0775",
       "new": "A-INV-EG-27-0779",
       "date": "2026-09-11"
     },
     {
-      "current": "A-INV-EG-27-0781",
+      "current": "A-INV-EG-27-0776",
       "new": "A-INV-EG-27-0780",
+      "date": "2026-09-11"
+    },
+    {
+      "current": "A-INV-EG-27-0781",
+      "new": "A-INV-EG-27-0781",
       "date": "2026-09-11"
     },
     {
@@ -1000,165 +985,165 @@
     },
     {
       "current": "A-INV-EG-27-0778",
-      "new": "A-INV-EG-27-0802"
+      "new": "A-INV-EG-27-0801"
     },
     {
       "current": "A-INV-EG-27-0783",
-      "new": "A-INV-EG-27-0803"
+      "new": "A-INV-EG-27-0802"
     },
     {
       "current": "A-INV-EG-27-0797",
-      "new": "A-INV-EG-27-0804"
+      "new": "A-INV-EG-27-0803"
     },
     {
       "current": "A-INV-EG-27-0798",
-      "new": "A-INV-EG-27-0805"
+      "new": "A-INV-EG-27-0804"
     },
     {
       "current": "A-INV-EG-27-0799",
-      "new": "A-INV-EG-27-0806"
+      "new": "A-INV-EG-27-0805"
     },
     {
       "current": "A-INV-EG-27-0800",
-      "new": "A-INV-EG-27-0807"
+      "new": "A-INV-EG-27-0806"
     },
     {
       "current": "A-INV-EG-27-0802",
-      "new": "A-INV-EG-27-0808"
+      "new": "A-INV-EG-27-0807"
     },
     {
       "current": "A-INV-EG-27-0803",
-      "new": "A-INV-EG-27-0809"
+      "new": "A-INV-EG-27-0808"
     },
     {
       "current": "A-INV-EG-27-0809",
-      "new": "A-INV-EG-27-0810",
+      "new": "A-INV-EG-27-0809",
       "date": "2026-09-16"
     },
     {
       "current": "A-INV-EG-27-0812",
-      "new": "A-INV-EG-27-0811"
+      "new": "A-INV-EG-27-0810"
     },
     {
       "current": "A-INV-EG-27-0806",
-      "new": "A-INV-EG-27-0812"
+      "new": "A-INV-EG-27-0811"
     },
     {
       "current": "A-INV-EG-27-0810",
-      "new": "A-INV-EG-27-0814"
+      "new": "A-INV-EG-27-0812"
     },
     {
       "current": "A-INV-EG-27-0801",
-      "new": "A-INV-EG-27-0815",
+      "new": "A-INV-EG-27-0813",
       "date": "2026-09-17"
     },
     {
       "current": "A-INV-EG-27-0807",
-      "new": "A-INV-EG-27-0816"
+      "new": "A-INV-EG-27-0814"
     },
     {
       "current": "A-INV-EG-27-0808",
-      "new": "A-INV-EG-27-0817"
+      "new": "A-INV-EG-27-0815"
     },
     {
       "current": "A-INV-EG-27-0811",
-      "new": "A-INV-EG-27-0818"
+      "new": "A-INV-EG-27-0816"
     },
     {
       "current": "A-INV-EG-27-0813",
-      "new": "A-INV-EG-27-0819"
+      "new": "A-INV-EG-27-0817"
     },
     {
       "current": "A-INV-EG-27-0814",
-      "new": "A-INV-EG-27-0820"
+      "new": "A-INV-EG-27-0818"
     },
     {
       "current": "A-INV-EG-27-0815",
-      "new": "A-INV-EG-27-0821"
+      "new": "A-INV-EG-27-0819"
     },
     {
       "current": "A-INV-EG-27-0816",
-      "new": "A-INV-EG-27-0822"
+      "new": "A-INV-EG-27-0820"
     },
     {
       "current": "A-INV-EG-27-0817",
-      "new": "A-INV-EG-27-0823"
+      "new": "A-INV-EG-27-0821"
     },
     {
       "current": "A-INV-EG-27-0818",
-      "new": "A-INV-EG-27-0824"
+      "new": "A-INV-EG-27-0822"
     },
     {
       "current": "A-INV-EG-27-0819",
-      "new": "A-INV-EG-27-0825"
+      "new": "A-INV-EG-27-0823"
     },
     {
       "current": "A-INV-EG-27-0820",
-      "new": "A-INV-EG-27-0826"
+      "new": "A-INV-EG-27-0824"
     },
     {
       "current": "A-INV-EG-27-0821",
-      "new": "A-INV-EG-27-0827"
+      "new": "A-INV-EG-27-0825"
     },
     {
       "current": "A-INV-EG-27-0822",
-      "new": "A-INV-EG-27-0828"
+      "new": "A-INV-EG-27-0826"
     },
     {
       "current": "A-INV-EG-27-0823",
-      "new": "A-INV-EG-27-0829"
+      "new": "A-INV-EG-27-0827"
     },
     {
       "current": "A-INV-EG-27-0824",
-      "new": "A-INV-EG-27-0830"
+      "new": "A-INV-EG-27-0828"
     },
     {
       "current": "A-INV-EG-27-0825",
-      "new": "A-INV-EG-27-0831"
+      "new": "A-INV-EG-27-0829"
     },
     {
       "current": "A-INV-EG-27-0826",
-      "new": "A-INV-EG-27-0832"
+      "new": "A-INV-EG-27-0830"
     },
     {
       "current": "A-INV-EG-27-0827",
-      "new": "A-INV-EG-27-0833"
-    },
-    {
-      "current": "A-INV-EG-27-0828",
-      "new": "A-INV-EG-27-0834"
-    },
-    {
-      "current": "A-INV-EG-27-0829",
       "new": "A-INV-EG-27-0835"
     },
     {
-      "current": "A-INV-EG-27-0831",
+      "current": "A-INV-EG-27-0828",
       "new": "A-INV-EG-27-0836"
     },
     {
-      "current": "A-INV-EG-27-0832",
+      "current": "A-INV-EG-27-0829",
       "new": "A-INV-EG-27-0837"
     },
     {
-      "current": "A-INV-EG-27-0833",
+      "current": "A-INV-EG-27-0831",
       "new": "A-INV-EG-27-0838"
     },
     {
-      "current": "A-INV-EG-27-0834",
+      "current": "A-INV-EG-27-0832",
       "new": "A-INV-EG-27-0839"
     },
     {
-      "current": "A-INV-EG-27-0835",
+      "current": "A-INV-EG-27-0833",
       "new": "A-INV-EG-27-0840"
     },
     {
-      "current": "A-INV-EG-27-0804",
+      "current": "A-INV-EG-27-0834",
       "new": "A-INV-EG-27-0841"
     },
     {
+      "current": "A-INV-EG-27-0835",
+      "new": "A-INV-EG-27-0842"
+    },
+    {
+      "current": "A-INV-EG-27-0804",
+      "new": "A-INV-EG-27-0843"
+    },
+    {
       "current": "A-INV-EG-27-0830",
-      "new": "A-INV-EG-27-0846",
+      "new": "A-INV-EG-27-0847",
       "date": "2026-09-22"
     },
     {
@@ -1167,974 +1152,855 @@
     },
     {
       "current": "A-INV-EG-27-0836",
-      "new": "A-INV-EG-27-0865"
+      "new": "A-INV-EG-27-0860"
     },
     {
       "current": "A-INV-EG-27-0852",
-      "new": "A-INV-EG-27-0936",
+      "new": "A-INV-EG-27-0919",
       "date": "2026-10-05"
     },
     {
       "current": "A-INV-EG-27-0839",
-      "new": "A-INV-EG-27-0939"
+      "new": "A-INV-EG-27-0922"
     },
     {
       "current": "A-INV-EG-27-0838",
-      "new": "A-INV-EG-27-0940"
+      "new": "A-INV-EG-27-0923"
     },
     {
       "current": "A-INV-EG-27-0841",
-      "new": "A-INV-EG-27-0942"
+      "new": "A-INV-EG-27-0925"
     },
     {
       "current": "A-INV-EG-27-0840",
-      "new": "A-INV-EG-27-0943"
+      "new": "A-INV-EG-27-0926"
     },
     {
       "current": "A-INV-EG-27-0837",
-      "new": "A-INV-EG-27-0944"
+      "new": "A-INV-EG-27-0927"
     },
     {
       "current": "A-INV-EG-27-0846",
-      "new": "A-INV-EG-27-0948",
+      "new": "A-INV-EG-27-0931",
       "date": "2026-10-07"
     },
     {
       "current": "A-INV-EG-27-0856",
-      "new": "A-INV-EG-27-0949"
+      "new": "A-INV-EG-27-0932"
     },
     {
       "current": "A-INV-EG-27-0842",
-      "new": "A-INV-EG-27-0953"
+      "new": "A-INV-EG-27-0936"
     },
     {
       "current": "A-INV-EG-27-0850",
-      "new": "A-INV-EG-27-0954"
+      "new": "A-INV-EG-27-0937"
     },
     {
       "current": "A-INV-EG-27-0851",
-      "new": "A-INV-EG-27-0955"
+      "new": "A-INV-EG-27-0938"
     },
     {
       "current": "A-INV-EG-27-0853",
-      "new": "A-INV-EG-27-0956"
+      "new": "A-INV-EG-27-0939"
     },
     {
       "current": "A-INV-EG-27-0854",
-      "new": "A-INV-EG-27-0957"
+      "new": "A-INV-EG-27-0940"
     },
     {
       "current": "A-INV-EG-27-0855",
-      "new": "A-INV-EG-27-0958"
+      "new": "A-INV-EG-27-0941"
     },
     {
       "current": "A-INV-EG-27-0843",
-      "new": "A-INV-EG-27-0959"
+      "new": "A-INV-EG-27-0942"
     },
     {
       "current": "A-INV-EG-27-0844",
-      "new": "A-INV-EG-27-0960"
+      "new": "A-INV-EG-27-0943"
     },
     {
       "current": "A-INV-EG-27-0845",
-      "new": "A-INV-EG-27-0961"
+      "new": "A-INV-EG-27-0944"
     },
     {
       "current": "A-INV-EG-27-0849",
-      "new": "A-INV-EG-27-0963"
+      "new": "A-INV-EG-27-0946"
     },
     {
       "current": "A-INV-EG-27-0847",
-      "new": "A-INV-EG-27-0964"
+      "new": "A-INV-EG-27-0947"
     },
     {
       "current": "A-INV-EG-27-0848",
-      "new": "A-INV-EG-27-0965"
+      "new": "A-INV-EG-27-0948"
     },
     {
       "current": "A-INV-EG-27-0857",
-      "new": "A-INV-EG-27-0974"
+      "new": "A-INV-EG-27-0957"
     }
   ],
   "creates": [
     {
-      "zoho": "A-INV-EG-27-0508",
-      "new": "A-INV-EG-27-0588",
-      "date": "2026-08-09",
-      "customer": "North East Egg Centre",
-      "amount": 514400.0
-    },
-    {
-      "zoho": "A-INV-EG-27-0602",
-      "new": "A-INV-EG-27-0604",
-      "date": "2026-08-12",
+      "zoho": "A-INV-EG-27-0570",
+      "new": "A-INV-EG-27-0570",
+      "date": "2026-08-05",
       "customer": "Protein Shop",
       "amount": 138600.0
     },
     {
-      "zoho": "A-INV-EG-27-0726",
-      "new": "A-INV-EG-27-0729",
-      "date": "2026-09-03",
-      "customer": "Tapan Saha",
-      "amount": 269800.0
-    },
-    {
       "zoho": "A-INV-EG-27-0735",
-      "new": "A-INV-EG-27-0738",
+      "new": "A-INV-EG-27-0736",
       "date": "2026-09-05",
       "customer": "Fresh Egg Traders",
       "amount": 1175462.0
     },
     {
-      "zoho": "A-INV-EG-27-0769",
-      "new": "A-INV-EG-27-0775",
-      "date": "2026-09-11",
+      "zoho": "INV-2026-27/0284",
+      "new": "A-INV-EG-27-0769",
+      "date": "2026-09-09",
+      "customer": "Fresh Egg Traders",
+      "amount": 1183033.0
+    },
+    {
+      "zoho": "INV-2026-27/0285",
+      "new": "A-INV-EG-27-0770",
+      "date": "2026-09-09",
+      "customer": "Sahil Egg Center",
+      "amount": 579290.0
+    },
+    {
+      "zoho": "INV-2026-27/0287",
+      "new": "A-INV-EG-27-0771",
+      "date": "2026-09-09",
       "customer": "Kamakhya Traders",
-      "amount": 280500.0
+      "amount": 135450.0
     },
     {
-      "zoho": "A-INV-EG-27-0778",
-      "new": "A-INV-EG-27-0781",
-      "date": "2026-09-12",
-      "customer": "DG Egg Point (Debajeet Gogoi)",
-      "amount": 232050.0
-    },
-    {
-      "zoho": "A-INV-EG-27-0797",
-      "new": "A-INV-EG-27-0801",
-      "date": "2026-09-15",
+      "zoho": "INV-2026-27/0286",
+      "new": "A-INV-EG-27-0776",
+      "date": "2026-09-10",
       "customer": "PD Egg Store",
-      "amount": 261480.0
+      "amount": 548300.0
     },
     {
-      "zoho": "A-INV-EG-27-0832",
-      "new": "A-INV-EG-27-0813",
-      "date": "2026-09-17",
-      "customer": "Josef Ali",
-      "amount": 161500.0
+      "zoho": "INV-2026-27/0298",
+      "new": "A-INV-EG-27-0831",
+      "date": "2026-09-19",
+      "customer": "Kamakhya Traders",
+      "amount": 275100.0
+    },
+    {
+      "zoho": "INV-2026-27/0302",
+      "new": "A-INV-EG-27-0832",
+      "date": "2026-09-19",
+      "customer": "Kamakhya Traders",
+      "amount": 275100.0
+    },
+    {
+      "zoho": "INV-2026-27/0303",
+      "new": "A-INV-EG-27-0833",
+      "date": "2026-09-19",
+      "customer": "Fresh Egg Traders",
+      "amount": 1166033.0
+    },
+    {
+      "zoho": "INV-2026-27/0305",
+      "new": "A-INV-EG-27-0834",
+      "date": "2026-09-19",
+      "customer": "Sahil Egg Center",
+      "amount": 590330.0
     },
     {
       "zoho": "A-INV-EG-27-0841",
-      "new": "A-INV-EG-27-0842",
+      "new": "A-INV-EG-27-0844",
       "date": "2026-09-21",
       "customer": "PD Egg Store",
       "amount": 296250.0
     },
     {
       "zoho": "A-INV-EG-27-0842",
-      "new": "A-INV-EG-27-0843",
+      "new": "A-INV-EG-27-0845",
       "date": "2026-09-21",
       "customer": "Protein Shop",
       "amount": 148125.0
     },
     {
-      "zoho": "A-INV-EG-27-0843",
-      "new": "A-INV-EG-27-0844",
-      "date": "2026-09-21",
-      "customer": "Kamakhya Traders",
-      "amount": 262550.0
-    },
-    {
       "zoho": "A-INV-EG-27-0844",
-      "new": "A-INV-EG-27-0845",
+      "new": "A-INV-EG-27-0846",
       "date": "2026-09-22",
       "customer": "Sahil Egg Center",
       "amount": 1072266.0
     },
     {
-      "zoho": "A-INV-EG-27-0846",
-      "new": "A-INV-EG-27-0847",
-      "date": "2026-09-22",
-      "customer": "M/s Mayengbam Enterprises",
-      "amount": 1185340.0
-    },
-    {
-      "zoho": "A-INV-EG-27-0848",
-      "new": "A-INV-EG-27-0849",
-      "date": "2026-09-22",
-      "customer": "DN Store",
-      "amount": 283825.0
-    },
-    {
       "zoho": "A-INV-EG-27-0849",
-      "new": "A-INV-EG-27-0850",
+      "new": "A-INV-EG-27-0849",
       "date": "2026-09-22",
       "customer": "M/s Annapurna Bakery",
       "amount": 119670.0
     },
     {
       "zoho": "A-INV-EG-27-0850",
-      "new": "A-INV-EG-27-0851",
+      "new": "A-INV-EG-27-0850",
       "date": "2026-09-22",
       "customer": "Rahman Store",
       "amount": 1159105.0
     },
     {
-      "zoho": "A-INV-EG-27-0851",
-      "new": "A-INV-EG-27-0852",
-      "date": "2026-09-23",
-      "customer": "NB Traders",
-      "amount": 529200.0
-    },
-    {
       "zoho": "A-INV-EG-27-0852",
-      "new": "A-INV-EG-27-0853",
+      "new": "A-INV-EG-27-0851",
       "date": "2026-09-23",
       "customer": "Tapan Saha",
       "amount": 463050.0
     },
     {
       "zoho": "A-INV-EG-27-0853",
-      "new": "A-INV-EG-27-0854",
+      "new": "A-INV-EG-27-0852",
       "date": "2026-09-23",
       "customer": "Kamakhya Traders",
       "amount": 529200.0
     },
     {
       "zoho": "A-INV-EG-27-0854",
-      "new": "A-INV-EG-27-0855",
+      "new": "A-INV-EG-27-0853",
       "date": "2026-09-23",
       "customer": "DG Egg Point (Debajeet Gogoi)",
       "amount": 212500.0
     },
     {
       "zoho": "A-INV-EG-27-0855",
-      "new": "A-INV-EG-27-0856",
+      "new": "A-INV-EG-27-0854",
       "date": "2026-09-23",
       "customer": "Protein Shop",
       "amount": 142300.0
     },
     {
-      "zoho": "A-INV-EG-27-0856",
-      "new": "A-INV-EG-27-0857",
-      "date": "2026-09-23",
-      "customer": "Sayedur Rahman",
-      "amount": 266940.0
-    },
-    {
       "zoho": "A-INV-EG-27-0857",
-      "new": "A-INV-EG-27-0858",
+      "new": "A-INV-EG-27-0855",
       "date": "2026-09-23",
       "customer": "DD Egg Point (Gahin Handique)",
       "amount": 287500.0
     },
     {
-      "zoho": "A-INV-EG-27-0858",
-      "new": "A-INV-EG-27-0859",
-      "date": "2026-09-24",
-      "customer": "NB Traders",
-      "amount": 198450.0
-    },
-    {
       "zoho": "A-INV-EG-27-0859",
-      "new": "A-INV-EG-27-0860",
+      "new": "A-INV-EG-27-0856",
       "date": "2026-09-24",
       "customer": "Tapan Saha",
       "amount": 264600.0
     },
     {
-      "zoho": "A-INV-EG-27-0860",
-      "new": "A-INV-EG-27-0861",
-      "date": "2026-09-24",
-      "customer": "Chowdhury n Sons",
-      "amount": 1091700.0
-    },
-    {
       "zoho": "A-INV-EG-27-0861",
-      "new": "A-INV-EG-27-0862",
+      "new": "A-INV-EG-27-0857",
       "date": "2026-09-24",
       "customer": "Josef Ali",
       "amount": 171195.0
     },
     {
       "zoho": "A-INV-EG-27-0862",
-      "new": "A-INV-EG-27-0863",
+      "new": "A-INV-EG-27-0858",
       "date": "2026-09-24",
       "customer": "Kamakhya Traders",
       "amount": 264600.0
     },
     {
       "zoho": "A-INV-EG-27-0863",
-      "new": "A-INV-EG-27-0864",
+      "new": "A-INV-EG-27-0859",
       "date": "2026-09-24",
       "customer": "Zakir Egg Store",
       "amount": 1226922.0
     },
     {
       "zoho": "A-INV-EG-27-0864",
-      "new": "A-INV-EG-27-0866",
+      "new": "A-INV-EG-27-0861",
       "date": "2026-09-25",
       "customer": "Kamakhya Traders",
       "amount": 258300.0
     },
     {
-      "zoho": "A-INV-EG-27-0865",
-      "new": "A-INV-EG-27-0867",
-      "date": "2026-09-25",
-      "customer": "Fariha Store",
-      "amount": 203460.0
-    },
-    {
       "zoho": "A-INV-EG-27-0866",
-      "new": "A-INV-EG-27-0868",
+      "new": "A-INV-EG-27-0862",
       "date": "2026-09-25",
       "customer": "Ali Whiz",
       "amount": 1128503.0
     },
     {
       "zoho": "A-INV-EG-27-0867",
-      "new": "A-INV-EG-27-0869",
+      "new": "A-INV-EG-27-0863",
       "date": "2026-09-25",
       "customer": "Surjya Store",
       "amount": 253000.0
     },
     {
       "zoho": "A-INV-EG-27-0868",
-      "new": "A-INV-EG-27-0870",
+      "new": "A-INV-EG-27-0864",
       "date": "2026-09-25",
       "customer": "SS Food",
       "amount": 253000.0
     },
     {
       "zoho": "A-INV-EG-27-0869",
-      "new": "A-INV-EG-27-0871",
+      "new": "A-INV-EG-27-0865",
       "date": "2026-09-25",
       "customer": "PD Egg Store",
       "amount": 258300.0
     },
     {
       "zoho": "A-INV-EG-27-0870",
-      "new": "A-INV-EG-27-0872",
+      "new": "A-INV-EG-27-0866",
       "date": "2026-09-25",
       "customer": "Tapan Saha",
       "amount": 258300.0
-    },
-    {
-      "zoho": "A-INV-EG-27-0871",
-      "new": "A-INV-EG-27-0873",
-      "date": "2026-09-25",
-      "customer": "NB Traders",
-      "amount": 258300.0
-    },
-    {
-      "zoho": "A-INV-EG-27-0872",
-      "new": "A-INV-EG-27-0874",
-      "date": "2026-09-25",
-      "customer": "Ashim Dey",
-      "amount": 148680.0
-    },
-    {
-      "zoho": "A-INV-EG-27-0873",
-      "new": "A-INV-EG-27-0875",
-      "date": "2026-09-26",
-      "customer": "Tapan Saha",
-      "amount": 260400.0
     },
     {
       "zoho": "A-INV-EG-27-0874",
-      "new": "A-INV-EG-27-0876",
+      "new": "A-INV-EG-27-0867",
       "date": "2026-09-26",
       "customer": "Kamakhya Traders",
       "amount": 385300.0
     },
     {
       "zoho": "A-INV-EG-27-0875",
-      "new": "A-INV-EG-27-0877",
+      "new": "A-INV-EG-27-0868",
       "date": "2026-09-26",
       "customer": "Protein Shop",
       "amount": 143220.0
     },
     {
       "zoho": "A-INV-EG-27-0876",
-      "new": "A-INV-EG-27-0878",
+      "new": "A-INV-EG-27-0869",
       "date": "2026-09-26",
       "customer": "Fresh Egg Traders",
       "amount": 1164114.0
     },
     {
-      "zoho": "A-INV-EG-27-0877",
-      "new": "A-INV-EG-27-0879",
-      "date": "2026-09-26",
-      "customer": "DG Egg Point (Debajeet Gogoi)",
-      "amount": 212330.0
-    },
-    {
       "zoho": "A-INV-EG-27-0878",
-      "new": "A-INV-EG-27-0880",
+      "new": "A-INV-EG-27-0870",
       "date": "2026-09-26",
       "customer": "NB Traders",
       "amount": 249800.0
     },
     {
-      "zoho": "A-INV-EG-27-0879",
-      "new": "A-INV-EG-27-0881",
+      "zoho": "INV-2026-27/0313",
+      "new": "A-INV-EG-27-0871",
       "date": "2026-09-26",
-      "customer": "M/s Mayengbam Enterprises",
-      "amount": 1175769.0
+      "customer": "M/s Annapurna Bakery",
+      "amount": 156510.0
     },
     {
       "zoho": "A-INV-EG-27-0880",
-      "new": "A-INV-EG-27-0882",
+      "new": "A-INV-EG-27-0872",
       "date": "2026-09-27",
       "customer": "SS Food",
       "amount": 264600.0
     },
     {
       "zoho": "A-INV-EG-27-0881",
-      "new": "A-INV-EG-27-0883",
+      "new": "A-INV-EG-27-0873",
       "date": "2026-09-27",
       "customer": "Kamakhya Traders",
       "amount": 264600.0
     },
     {
       "zoho": "A-INV-EG-27-0882",
-      "new": "A-INV-EG-27-0884",
+      "new": "A-INV-EG-27-0874",
       "date": "2026-09-27",
       "customer": "DN Store",
       "amount": 259300.0
     },
     {
       "zoho": "A-INV-EG-27-0883",
-      "new": "A-INV-EG-27-0885",
+      "new": "A-INV-EG-27-0875",
       "date": "2026-09-27",
       "customer": "DD Egg Point (Gahin Handique)",
       "amount": 291050.0
     },
     {
-      "zoho": "A-INV-EG-27-0884",
-      "new": "A-INV-EG-27-0886",
-      "date": "2026-09-27",
-      "customer": "Tapan Saha",
-      "amount": 264600.0
-    },
-    {
       "zoho": "A-INV-EG-27-0885",
-      "new": "A-INV-EG-27-0887",
+      "new": "A-INV-EG-27-0876",
       "date": "2026-09-27",
       "customer": "Rahman Store",
       "amount": 1132450.0
     },
     {
+      "zoho": "INV-2026-27/0314",
+      "new": "A-INV-EG-27-0877",
+      "date": "2026-09-27",
+      "customer": "NB Traders",
+      "amount": 264600.0
+    },
+    {
       "zoho": "A-INV-EG-27-0886",
-      "new": "A-INV-EG-27-0888",
+      "new": "A-INV-EG-27-0878",
       "date": "2026-09-28",
       "customer": "Tapan Saha",
       "amount": 266700.0
     },
     {
       "zoho": "A-INV-EG-27-0887",
-      "new": "A-INV-EG-27-0889",
+      "new": "A-INV-EG-27-0879",
       "date": "2026-09-28",
       "customer": "Kamakhya Traders",
       "amount": 789500.0
     },
     {
-      "zoho": "A-INV-EG-27-0888",
-      "new": "A-INV-EG-27-0890",
-      "date": "2026-09-28",
-      "customer": "Josef Ali",
-      "amount": 173355.0
-    },
-    {
       "zoho": "A-INV-EG-27-0889",
-      "new": "A-INV-EG-27-0891",
+      "new": "A-INV-EG-27-0880",
       "date": "2026-09-28",
       "customer": "Protein Shop",
       "amount": 146685.0
     },
     {
       "zoho": "A-INV-EG-27-0890",
-      "new": "A-INV-EG-27-0892",
+      "new": "A-INV-EG-27-0881",
       "date": "2026-09-28",
       "customer": "NB Traders",
       "amount": 522800.0
     },
     {
-      "zoho": "A-INV-EG-27-0891",
-      "new": "A-INV-EG-27-0893",
-      "date": "2026-09-29",
-      "customer": "Tapan Saha",
-      "amount": 268800.0
-    },
-    {
-      "zoho": "A-INV-EG-27-0892",
-      "new": "A-INV-EG-27-0894",
-      "date": "2026-09-29",
-      "customer": "Kamakhya Traders",
-      "amount": 268800.0
-    },
-    {
       "zoho": "A-INV-EG-27-0893",
-      "new": "A-INV-EG-27-0895",
+      "new": "A-INV-EG-27-0882",
       "date": "2026-09-29",
       "customer": "Sayedur Rahman",
       "amount": 268800.0
     },
     {
       "zoho": "A-INV-EG-27-0894",
-      "new": "A-INV-EG-27-0896",
+      "new": "A-INV-EG-27-0883",
       "date": "2026-09-29",
       "customer": "Surjya Store",
       "amount": 268800.0
     },
     {
       "zoho": "A-INV-EG-27-0895",
-      "new": "A-INV-EG-27-0897",
+      "new": "A-INV-EG-27-0884",
       "date": "2026-09-29",
       "customer": "NB Traders",
       "amount": 532300.0
     },
     {
       "zoho": "A-INV-EG-27-0896",
-      "new": "A-INV-EG-27-0898",
+      "new": "A-INV-EG-27-0885",
       "date": "2026-09-29",
       "customer": "Ashim Dey",
       "amount": 154920.0
     },
     {
-      "zoho": "A-INV-EG-27-0897",
-      "new": "A-INV-EG-27-0899",
-      "date": "2026-09-30",
-      "customer": "Kamakhya Traders",
-      "amount": 537600.0
-    },
-    {
-      "zoho": "A-INV-EG-27-0898",
-      "new": "A-INV-EG-27-0900",
-      "date": "2026-09-30",
-      "customer": "Tapan Saha",
-      "amount": 336000.0
-    },
-    {
       "zoho": "A-INV-EG-27-0899",
-      "new": "A-INV-EG-27-0901",
+      "new": "A-INV-EG-27-0886",
       "date": "2026-09-30",
       "customer": "SS Food",
       "amount": 161280.0
     },
     {
       "zoho": "A-INV-EG-27-0900",
-      "new": "A-INV-EG-27-0902",
+      "new": "A-INV-EG-27-0887",
       "date": "2026-09-30",
       "customer": "NB Traders",
       "amount": 268800.0
     },
     {
-      "zoho": "A-INV-EG-27-0901",
-      "new": "A-INV-EG-27-0903",
-      "date": "2026-09-30",
-      "customer": "DN Store",
-      "amount": 268800.0
-    },
-    {
-      "zoho": "A-INV-EG-27-0902",
-      "new": "A-INV-EG-27-0904",
-      "date": "2026-09-30",
-      "customer": "DG Egg Point (Debajeet Gogoi)",
-      "amount": 219470.0
-    },
-    {
       "zoho": "A-INV-EG-27-0903",
-      "new": "A-INV-EG-27-0905",
+      "new": "A-INV-EG-27-0888",
       "date": "2026-09-30",
       "customer": "Protein Shop",
       "amount": 147840.0
     },
     {
       "zoho": "A-INV-EG-27-0904",
-      "new": "A-INV-EG-27-0906",
+      "new": "A-INV-EG-27-0889",
       "date": "2026-09-30",
       "customer": "Fresh Egg Traders",
       "amount": 1185408.0
     },
     {
       "zoho": "A-INV-EG-27-0905",
-      "new": "A-INV-EG-27-0907",
+      "new": "A-INV-EG-27-0890",
       "date": "2026-09-30",
       "customer": "PD Egg Store",
       "amount": 531278.0
     },
     {
       "zoho": "A-INV-EG-27-0906",
-      "new": "A-INV-EG-27-0908",
+      "new": "A-INV-EG-27-0891",
       "date": "2026-10-01",
       "customer": "Tapan Saha",
       "amount": 268800.0
     },
     {
       "zoho": "A-INV-EG-27-0907",
-      "new": "A-INV-EG-27-0909",
+      "new": "A-INV-EG-27-0892",
       "date": "2026-10-01",
       "customer": "Kamakhya Traders",
       "amount": 268800.0
     },
     {
       "zoho": "A-INV-EG-27-0908",
-      "new": "A-INV-EG-27-0910",
+      "new": "A-INV-EG-27-0893",
       "date": "2026-10-01",
       "customer": "NB Traders",
       "amount": 268800.0
     },
     {
       "zoho": "A-INV-EG-27-0909",
-      "new": "A-INV-EG-27-0911",
+      "new": "A-INV-EG-27-0894",
       "date": "2026-10-01",
       "customer": "Josef Ali",
       "amount": 174720.0
     },
     {
       "zoho": "A-INV-EG-27-0910",
-      "new": "A-INV-EG-27-0912",
+      "new": "A-INV-EG-27-0895",
       "date": "2026-10-01",
       "customer": "SS Food",
       "amount": 174720.0
     },
     {
       "zoho": "A-INV-EG-27-0911",
-      "new": "A-INV-EG-27-0913",
+      "new": "A-INV-EG-27-0896",
       "date": "2026-10-02",
       "customer": "M/s Mayengbam Enterprises",
       "amount": 1209600.0
     },
     {
       "zoho": "A-INV-EG-27-0912",
-      "new": "A-INV-EG-27-0914",
+      "new": "A-INV-EG-27-0897",
       "date": "2026-10-02",
       "customer": "NB Traders",
       "amount": 268800.0
     },
     {
       "zoho": "A-INV-EG-27-0913",
-      "new": "A-INV-EG-27-0915",
+      "new": "A-INV-EG-27-0898",
       "date": "2026-10-02",
       "customer": "PUYA MARKETING",
       "amount": 1241856.0
     },
     {
       "zoho": "A-INV-EG-27-0914",
-      "new": "A-INV-EG-27-0916",
+      "new": "A-INV-EG-27-0899",
       "date": "2026-10-02",
       "customer": "Kamakhya Traders",
       "amount": 268800.0
     },
     {
       "zoho": "A-INV-EG-27-0915",
-      "new": "A-INV-EG-27-0917",
+      "new": "A-INV-EG-27-0900",
       "date": "2026-10-03",
       "customer": "Kamakhya Traders",
       "amount": 268800.0
     },
     {
       "zoho": "A-INV-EG-27-0916",
-      "new": "A-INV-EG-27-0918",
+      "new": "A-INV-EG-27-0901",
       "date": "2026-10-03",
       "customer": "NB Traders",
       "amount": 268800.0
     },
     {
       "zoho": "A-INV-EG-27-0917",
-      "new": "A-INV-EG-27-0919",
+      "new": "A-INV-EG-27-0902",
       "date": "2026-10-03",
       "customer": "Chowdhury n Sons",
       "amount": 1129968.0
     },
     {
       "zoho": "A-INV-EG-27-0918",
-      "new": "A-INV-EG-27-0920",
+      "new": "A-INV-EG-27-0903",
       "date": "2026-10-03",
       "customer": "Protein Shop",
       "amount": 147840.0
     },
     {
       "zoho": "A-INV-EG-27-0919",
-      "new": "A-INV-EG-27-0921",
+      "new": "A-INV-EG-27-0904",
       "date": "2026-10-03",
       "customer": "PD Egg Store",
       "amount": 529784.0
     },
     {
       "zoho": "A-INV-EG-27-0920",
-      "new": "A-INV-EG-27-0922",
+      "new": "A-INV-EG-27-0905",
       "date": "2026-10-04",
       "customer": "Tapan Saha",
       "amount": 256200.0
     },
     {
       "zoho": "A-INV-EG-27-0921",
-      "new": "A-INV-EG-27-0923",
+      "new": "A-INV-EG-27-0906",
       "date": "2026-10-04",
       "customer": "Zakir Egg Store",
       "amount": 1209387.0
     },
     {
       "zoho": "A-INV-EG-27-0922",
-      "new": "A-INV-EG-27-0924",
+      "new": "A-INV-EG-27-0907",
       "date": "2026-10-04",
       "customer": "Kamakhya Traders",
       "amount": 256200.0
     },
     {
       "zoho": "A-INV-EG-27-0923",
-      "new": "A-INV-EG-27-0925",
+      "new": "A-INV-EG-27-0908",
       "date": "2026-10-04",
       "customer": "SS Food",
       "amount": 166530.0
     },
     {
       "zoho": "A-INV-EG-27-0924",
-      "new": "A-INV-EG-27-0926",
+      "new": "A-INV-EG-27-0909",
       "date": "2026-10-04",
       "customer": "NB Traders",
       "amount": 256200.0
     },
     {
       "zoho": "A-INV-EG-27-0925",
-      "new": "A-INV-EG-27-0927",
+      "new": "A-INV-EG-27-0910",
       "date": "2026-10-04",
       "customer": "Fresh Egg Traders",
       "amount": 1144676.0
     },
     {
       "zoho": "A-INV-EG-27-0926",
-      "new": "A-INV-EG-27-0928",
+      "new": "A-INV-EG-27-0911",
       "date": "2026-10-04",
       "customer": "Sahil Egg Center",
       "amount": 577860.0
     },
     {
       "zoho": "A-INV-EG-27-0927",
-      "new": "A-INV-EG-27-0929",
+      "new": "A-INV-EG-27-0912",
       "date": "2026-10-05",
       "customer": "NB Traders",
       "amount": 256200.0
     },
     {
       "zoho": "A-INV-EG-27-0928",
-      "new": "A-INV-EG-27-0930",
+      "new": "A-INV-EG-27-0913",
       "date": "2026-10-05",
       "customer": "Tapan Saha",
       "amount": 409300.0
     },
     {
       "zoho": "A-INV-EG-27-0929",
-      "new": "A-INV-EG-27-0931",
+      "new": "A-INV-EG-27-0914",
       "date": "2026-10-05",
       "customer": "Josef Ali",
       "amount": 146695.0
     },
     {
       "zoho": "A-INV-EG-27-0930",
-      "new": "A-INV-EG-27-0932",
+      "new": "A-INV-EG-27-0915",
       "date": "2026-10-05",
       "customer": "SS Food",
       "amount": 289670.0
     },
     {
       "zoho": "A-INV-EG-27-0931",
-      "new": "A-INV-EG-27-0933",
+      "new": "A-INV-EG-27-0916",
       "date": "2026-10-05",
       "customer": "Kamakhya Traders",
       "amount": 256200.0
     },
     {
       "zoho": "A-INV-EG-27-0932",
-      "new": "A-INV-EG-27-0934",
+      "new": "A-INV-EG-27-0917",
       "date": "2026-10-05",
       "customer": "Fariha Store",
       "amount": 217150.0
     },
     {
       "zoho": "A-INV-EG-27-0933",
-      "new": "A-INV-EG-27-0935",
+      "new": "A-INV-EG-27-0918",
       "date": "2026-10-05",
       "customer": "Rahman Store",
       "amount": 1195840.0
     },
     {
       "zoho": "A-INV-EG-27-0935",
-      "new": "A-INV-EG-27-0937",
+      "new": "A-INV-EG-27-0920",
       "date": "2026-10-05",
       "customer": "M/s Annapurna Bakery",
       "amount": 150120.0
     },
     {
       "zoho": "A-INV-EG-27-0936",
-      "new": "A-INV-EG-27-0938",
+      "new": "A-INV-EG-27-0921",
       "date": "2026-10-05",
       "customer": "HKD Egg Traders",
       "amount": 246760.0
     },
     {
       "zoho": "A-INV-EG-27-0939",
-      "new": "A-INV-EG-27-0941",
+      "new": "A-INV-EG-27-0924",
       "date": "2026-10-06",
       "customer": "PD Egg Store",
       "amount": 571145.0
     },
     {
       "zoho": "A-INV-EG-27-0942",
-      "new": "A-INV-EG-27-0945",
+      "new": "A-INV-EG-27-0928",
       "date": "2026-10-07",
       "customer": "Fresh Egg Traders",
       "amount": 1167320.0
     },
     {
       "zoho": "A-INV-EG-27-0943",
-      "new": "A-INV-EG-27-0946",
+      "new": "A-INV-EG-27-0929",
       "date": "2026-10-07",
       "customer": "DN Store",
       "amount": 279070.0
     },
     {
       "zoho": "A-INV-EG-27-0944",
-      "new": "A-INV-EG-27-0947",
+      "new": "A-INV-EG-27-0930",
       "date": "2026-10-07",
       "customer": "DG Egg Point (Debajeet Gogoi)",
       "amount": 295060.0
     },
     {
       "zoho": "A-INV-EG-27-0947",
-      "new": "A-INV-EG-27-0950",
+      "new": "A-INV-EG-27-0933",
       "date": "2026-10-07",
       "customer": "Protein Shop",
       "amount": 154200.0
     },
     {
       "zoho": "A-INV-EG-27-0948",
-      "new": "A-INV-EG-27-0951",
+      "new": "A-INV-EG-27-0934",
       "date": "2026-10-07",
       "customer": "PUYA MARKETING",
       "amount": 1210600.0
     },
     {
       "zoho": "A-INV-EG-27-0949",
-      "new": "A-INV-EG-27-0952",
+      "new": "A-INV-EG-27-0935",
       "date": "2026-10-07",
       "customer": "Tapan Saha",
       "amount": 417800.0
     },
     {
       "zoho": "A-INV-EG-27-0953",
-      "new": "A-INV-EG-27-0962",
+      "new": "A-INV-EG-27-0945",
       "date": "2026-10-08",
       "customer": "Kamakhya Traders",
       "amount": 263850.0
     },
     {
       "zoho": "A-INV-EG-27-0957",
-      "new": "A-INV-EG-27-0966",
+      "new": "A-INV-EG-27-0949",
       "date": "2026-10-09",
       "customer": "Kamakhya Traders",
       "amount": 152300.0
     },
     {
       "zoho": "A-INV-EG-27-0958",
-      "new": "A-INV-EG-27-0967",
+      "new": "A-INV-EG-27-0950",
       "date": "2026-10-09",
       "customer": "PD Egg Store",
       "amount": 615450.0
     },
     {
       "zoho": "A-INV-EG-27-0959",
-      "new": "A-INV-EG-27-0968",
+      "new": "A-INV-EG-27-0951",
       "date": "2026-10-09",
       "customer": "Tapan Saha",
       "amount": 152300.0
     },
     {
       "zoho": "A-INV-EG-27-0960",
-      "new": "A-INV-EG-27-0969",
+      "new": "A-INV-EG-27-0952",
       "date": "2026-10-09",
       "customer": "SS Food",
       "amount": 196150.0
     },
     {
       "zoho": "A-INV-EG-27-0961",
-      "new": "A-INV-EG-27-0970",
+      "new": "A-INV-EG-27-0953",
       "date": "2026-10-09",
       "customer": "Zakir Egg Store",
       "amount": 1186100.0
     },
     {
       "zoho": "A-INV-EG-27-0962",
-      "new": "A-INV-EG-27-0971",
+      "new": "A-INV-EG-27-0954",
       "date": "2026-10-09",
       "customer": "NB Traders",
       "amount": 152300.0
     },
     {
       "zoho": "A-INV-EG-27-0963",
-      "new": "A-INV-EG-27-0972",
+      "new": "A-INV-EG-27-0955",
       "date": "2026-10-09",
       "customer": "Sahil Egg Center",
       "amount": 578400.0
     },
     {
       "zoho": "A-INV-EG-27-0964",
-      "new": "A-INV-EG-27-0973",
+      "new": "A-INV-EG-27-0956",
       "date": "2026-10-10",
       "customer": "SS Food",
       "amount": 304290.0
     },
     {
       "zoho": "A-INV-EG-27-0966",
-      "new": "A-INV-EG-27-0975",
+      "new": "A-INV-EG-27-0958",
       "date": "2026-10-10",
       "customer": "NB Traders",
       "amount": 413700.0
     },
     {
       "zoho": "A-INV-EG-27-0967",
-      "new": "A-INV-EG-27-0976",
+      "new": "A-INV-EG-27-0959",
       "date": "2026-10-10",
       "customer": "Kamakhya Traders",
       "amount": 454500.0
     },
     {
       "zoho": "A-INV-EG-27-0968",
-      "new": "A-INV-EG-27-0977",
+      "new": "A-INV-EG-27-0960",
       "date": "2026-10-10",
       "customer": "Protein Shop",
       "amount": 145530.0
     },
     {
       "zoho": "A-INV-EG-27-0969",
-      "new": "A-INV-EG-27-0978",
+      "new": "A-INV-EG-27-0961",
       "date": "2026-10-10",
       "customer": "SS Food",
       "amount": 171990.0
     },
     {
       "zoho": "A-INV-EG-27-0970",
-      "new": "A-INV-EG-27-0979",
+      "new": "A-INV-EG-27-0962",
       "date": "2026-10-11",
       "customer": "SS Food",
       "amount": 412200.0
     },
     {
       "zoho": "A-INV-EG-27-0971",
-      "new": "A-INV-EG-27-0980",
+      "new": "A-INV-EG-27-0963",
       "date": "2026-10-11",
       "customer": "Tapan Saha",
       "amount": 402850.0
     },
     {
       "zoho": "A-INV-EG-27-0972",
-      "new": "A-INV-EG-27-0981",
+      "new": "A-INV-EG-27-0964",
       "date": "2026-10-11",
       "customer": "NB Traders",
       "amount": 269450.0
     },
     {
       "zoho": "A-INV-EG-27-0973",
-      "new": "A-INV-EG-27-0982",
+      "new": "A-INV-EG-27-0965",
       "date": "2026-10-11",
       "customer": "Kamakhya Traders",
       "amount": 269450.0
     },
     {
       "zoho": "A-INV-EG-27-0974",
-      "new": "A-INV-EG-27-0983",
+      "new": "A-INV-EG-27-0966",
       "date": "2026-10-11",
       "customer": "M/s Annapurna Bakery",
       "amount": 84240.0
