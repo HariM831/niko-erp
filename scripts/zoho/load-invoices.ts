@@ -141,7 +141,12 @@ function discountAsAdjustment(inv: ZohoInvoice) {
 
 async function main() {
   const commit = process.argv.includes("--commit");
-  const raw = await readFile(".zoho-dump/detail/invoices.jsonl", "utf8");
+  // --dir: read another folder of Zoho detail, for bringing across particular
+  // invoices rather than the whole module. The same option the bill and
+  // payment loaders take.
+  const dirAt = process.argv.indexOf("--dir");
+  const dir = dirAt > -1 ? process.argv[dirAt + 1]! : ".zoho-dump/detail";
+  const raw = await readFile(`${dir}/invoices.jsonl`, "utf8");
   const all: ZohoInvoice[] = raw.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
 
   // Oldest first, and a stable tiebreak so a re-run walks them in the same
@@ -193,7 +198,7 @@ async function main() {
   const isFreeTextEggs = (l: ZohoLine) =>
     !l.item_id && l.account_id === CATCH_ALL_SALES && /^eggs\b/i.test(l.description?.trim() ?? "");
   const itemDefaultAccount = new Map<string, string>();
-  for (const line of (await readFile(".zoho-dump/detail/items.jsonl", "utf8")).trim().split("\n")) {
+  for (const line of (await readFile(`${dir}/items.jsonl`, "utf8")).trim().split("\n")) {
     if (!line.trim()) continue;
     const it = JSON.parse(line) as { item_id: string; account_id?: string };
     if (it.account_id) itemDefaultAccount.set(it.item_id, it.account_id);
