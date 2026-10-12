@@ -37,7 +37,12 @@ interface ZohoItem {
 
 async function main() {
   const commit = process.argv.includes("--commit");
-  const raw = await readFile(".zoho-dump/detail/items.jsonl", "utf8");
+  // --dir: read another folder of Zoho detail, the same option the invoice,
+  // bill and payment loaders take. A catch-up run needs the handful of
+  // items created since the first load before the documents that use them.
+  const dirAt = process.argv.indexOf("--dir");
+  const dir = dirAt > -1 ? process.argv[dirAt + 1]! : ".zoho-dump/detail";
+  const raw = await readFile(`${dir}/items.jsonl`, "utf8");
   const all: ZohoItem[] = raw.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
 
   const accountRows = await db
