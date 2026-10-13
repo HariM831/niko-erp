@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { SearchSelect } from "@/components/search-select";
-import { ArrowLeft, Plus, Bird, Calendar, Scale, Droplets, Wheat, AlertTriangle, Check, Trash2, Home, Egg, ArrowDownRight, ArrowUpRight, Scissors, Syringe, Upload, Edit, Eye, EyeOff } from "lucide-react";
+import { ArrowLeft, Plus, Bird, Calendar, Scale, Droplets, Wheat, AlertTriangle, Check, Trash2, Home, Egg, ArrowDownRight, ArrowUpRight, Scissors, Syringe, Upload, Edit, Eye, EyeOff, FileText } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -1198,6 +1198,18 @@ export function HouseDetailPage() {
                 >
                   <Edit className="w-3 h-3 mr-1" /> Edit Shed
                 </Button>
+              )}
+              {shed.type === 'layer' && (
+                <a
+                  className="btn-secondary inline-flex h-7 items-center gap-1.5 px-2 text-xs"
+                  href={`/api/farms/houses/${shed.id}/weekly-report.pdf`}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Last week, Monday to Sunday, on one page"
+                  data-testid="link-weekly-report"
+                >
+                  <FileText className="h-3 w-3" /> Weekly report
+                </a>
               )}
               {batchesWithCounts.length > 0 && (
                 <SearchSelect

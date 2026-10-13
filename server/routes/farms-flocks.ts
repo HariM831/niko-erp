@@ -20,6 +20,7 @@ import {
   locations,
   mortalityCauses,
   movementDelta,
+  orgProfile,
   standardPoints,
   standardSets,
 } from "@shared/schema";
@@ -31,6 +32,7 @@ import { PostingError } from "../services/posting";
 import { dayBoard, saveDay } from "../services/daily";
 import { housesBoard } from "../services/houses-board";
 import { houseDetail } from "../services/house-detail";
+import { HouseWeeklyError, houseWeeklyFilename, houseWeeklySpec, renderHouseWeekly } from "../services/house-weekly-pdf";
 import {
   ageOn,
   boardRows,
@@ -775,4 +777,27 @@ farmsFlockRouter.get("/houses/:id/detail", view, async (req, res) => {
   const out = await db.transaction((tx) => houseDetail(tx, req.params.id!));
   if (!out) return res.status(404).json({ error: "House not found" });
   res.json(out);
+});
+
+/**
+ * A layer house's week as a one-page PDF: the days, the lay and feed-per-egg
+ * curves since first egg, the feed in use against its standard, and Dr Niko.
+ * `week` is any day in the Monday-to-Sunday week wanted; without it, the last
+ * week that has fully passed.
+ */
+farmsFlockRouter.get("/houses/:id/weekly-report.pdf", view, async (req, res) => {
+  const week = typeof req.query.week === "string" ? req.query.week : null;
+  if (week && !isoDate.safeParse(week).success) return res.status(400).json({ error: "Use a YYYY-MM-DD date for the week" });
+  if (!z.string().uuid().safeParse(req.params.id).success) return res.status(404).json({ error: "House not found" });
+  try {
+    const [org] = await db.select({ name: orgProfile.name }).from(orgProfile).limit(1);
+    const spec = await houseWeeklySpec(db, req.params.id!, week, org?.name ?? "Niko");
+    const pdf = await renderHouseWeekly(spec);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${houseWeeklyFilename(spec)}"`);
+    res.send(pdf);
+  } catch (err) {
+    if (err instanceof HouseWeeklyError) return res.status(422).json({ error: err.message });
+    throw err;
+  }
 });
