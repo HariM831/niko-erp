@@ -4,10 +4,11 @@
  * An agreement is a schedule, a box count and a spread; never a price. Editing
  * one corrects every future day instantly because nothing is generated from
  * it. Ending one sets its end date — the row stays, because past invoices
- * were priced off its spread and must stay explainable.
+ * were priced off its spread and must stay explainable. One entered by mistake,
+ * with nothing loaded against it yet, can be deleted outright.
  */
 import { useEffect, useState } from "react";
-import { Loader2, Pencil, Plus } from "lucide-react";
+import { Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { api, formatDate } from "../api";
 import { filterRows, useAdvancedSearch, type SearchField } from "../components/advanced-search";
 import { SortTh, useSortedRows } from "../components/sortable-table";
@@ -256,6 +257,7 @@ function AgreementDialog({
             daysOfWeek: schedule === "daily" ? null : days,
             boxes: Number(boxes),
             spreadPerEgg: Number(spread),
+            startDate,
             status: status === "ended" ? undefined : status,
             endDate: endDate || null,
             notes: notes || null,
@@ -282,10 +284,24 @@ function AgreementDialog({
     }
   };
 
+  const remove = async () => {
+    if (!agreement) return;
+    if (!window.confirm(`Delete the agreement with ${agreement.customerName}? This cannot be undone.`)) return;
+    setError(null);
+    setSaving(true);
+    try {
+      await api(`/api/sales/eggs/agreements/${agreement.id}`, { method: "DELETE" });
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed");
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={onClose}>
       <div className="mt-10 w-full max-w-md rounded-lg bg-background p-4 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <h2 className="mb-3 text-lg font-semibold">{agreement ? "Edit agreement" : "New agreement"}</h2>
+        <h2 className="mb-3 text-lg font-semibold">{agreement ? `Edit agreement · ${agreement.customerName}` : "New agreement"}</h2>
         <div className="space-y-3">
           {!agreement && (
             <div>
@@ -346,12 +362,10 @@ function AgreementDialog({
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            {!agreement && (
-              <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">Starts</label>
-                <DateInput value={startDate} onChange={(e) => setStartDate(e.target.value)} className={inputCls} />
-              </div>
-            )}
+            <div>
+              <label className="mb-1 block text-xs font-medium text-muted-foreground">Starts</label>
+              <DateInput value={startDate} onChange={(e) => setStartDate(e.target.value)} className={inputCls} />
+            </div>
             {agreement && (
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">Status</label>
@@ -377,6 +391,12 @@ function AgreementDialog({
               <DateInput value={endDate} onChange={(e) => setEndDate(e.target.value)} className={inputCls} />
             </div>
           </div>
+          {agreement && (
+            <p className="text-xs text-muted-foreground">
+              To stop an agreement, set an end date: it stays on file because invoices were priced from it. Pause holds it
+              without ending it.
+            </p>
+          )}
 
           <div>
             <label className="mb-1 block text-xs font-medium text-muted-foreground">Notes</label>
@@ -386,12 +406,21 @@ function AgreementDialog({
 
         {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
         <div className="mt-4 flex justify-end gap-2">
+          {agreement && (
+            <button
+              onClick={remove}
+              disabled={saving}
+              className="mr-auto inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4" /> Delete
+            </button>
+          )}
           <button onClick={onClose} className="rounded-md px-3 py-2 text-sm text-muted-foreground hover:text-foreground">
             Cancel
           </button>
           <button
             onClick={submit}
-            disabled={saving || !boxes || (schedule === "weekdays" && !days.length)}
+            disabled={saving || !boxes || !startDate || (schedule === "weekdays" && !days.length)}
             className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
           >
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}

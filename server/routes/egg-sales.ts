@@ -147,6 +147,8 @@ const agreementPatch = z.object({
   boxes: looseNumber(z.number().int().positive()).optional(),
   spreadPerEgg: spread.optional(),
   status: z.enum(["active", "paused"]).optional(),
+  /** The day the standing order begins; correctable, as a mistyped one must be. */
+  startDate: dateStr.optional(),
   /** Setting this ends the agreement — the void that keeps its history. */
   endDate: dateStr.nullish(),
   notes: z.string().max(500).nullish(),
@@ -157,8 +159,19 @@ eggSalesRouter.patch("/agreements/:id", create, validateBody(agreementPatch), as
   const [existing] = await db.select().from(eggAgreements).where(eq(eggAgreements.id, req.params.id!));
   if (!existing) return res.status(404).json({ error: "No such agreement" });
   if (existing.status === "ended" && b.endDate !== null) {
-    return res.status(422).json({ error: "This agreement has ended — start a new one instead of editing it" });
+    return res.status(422).json({ error: "This agreement has ended — clear its end date to reopen it, or start a new one" });
   }
+  const start = b.startDate ?? existing.startDate;
+  const end = b.endDate === undefined ? existing.endDate : b.endDate;
+  if (end && end < start) return res.status(422).json({ error: "The end date is before the start date" });
+  /*
+   * The end date decides the status only when it actually changes: set, the
+   * agreement has ended; cleared on an ended one, it is open again. The form
+   * sends the end date with every save, and a blank one used to force
+   * "active" — so pausing an agreement saved and came straight back active.
+   */
+  const ending = b.endDate !== undefined && b.endDate !== null;
+  const reopening = b.endDate === null && existing.status === "ended";
   const [row] = await db
     .update(eggAgreements)
     .set({
@@ -167,15 +180,37 @@ eggSalesRouter.patch("/agreements/:id", create, validateBody(agreementPatch), as
       ...(b.boxes !== undefined && { boxes: b.boxes }),
       ...(b.spreadPerEgg !== undefined && { spreadPerEgg: b.spreadPerEgg.toFixed(4) }),
       ...(b.notes !== undefined && { notes: b.notes }),
+      ...(b.startDate !== undefined && { startDate: b.startDate }),
       ...(b.status !== undefined && { status: b.status }),
-      ...(b.endDate !== undefined && {
-        endDate: b.endDate,
-        status: b.endDate === null ? "active" : "ended",
-      }),
+      ...(b.endDate !== undefined && { endDate: b.endDate }),
+      ...(ending && { status: "ended" }),
+      ...(reopening && { status: b.status ?? "active" }),
     })
     .where(eq(eggAgreements.id, req.params.id!))
     .returning();
   res.json(row);
+});
+
+/**
+ * Delete an agreement entered by mistake. Only one nothing was ever loaded
+ * against: once a delivery stands on it, its spread is what that invoice was
+ * priced from, and the agreement is ended instead. Its skipped days and box
+ * changes go with it.
+ */
+eggSalesRouter.delete("/agreements/:id", create, async (req, res) => {
+  const [existing] = await db.select({ id: eggAgreements.id }).from(eggAgreements).where(eq(eggAgreements.id, req.params.id!));
+  if (!existing) return res.status(404).json({ error: "No such agreement" });
+  const [used] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(eggDispatches)
+    .where(eq(eggDispatches.agreementId, existing.id));
+  if (used && used.n > 0) {
+    return res.status(422).json({
+      error: `${used.n} deliver${used.n === 1 ? "y has" : "ies have"} been loaded against this agreement, so it cannot be deleted — set an end date to end it instead`,
+    });
+  }
+  await db.delete(eggAgreements).where(eq(eggAgreements.id, existing.id));
+  res.json({ ok: true });
 });
 
 /* ── Exceptions: the per-day void for standing orders ────────────────────── */
