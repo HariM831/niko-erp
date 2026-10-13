@@ -152,7 +152,7 @@ function rowInForce(cat: Catalog, code: string, settings: Record<string, string>
 }
 
 /** Within the vendor's range for the register, as printed. */
-function withinRange(range: string, value: number): boolean {
+export function withinRange(range: string, value: number): boolean {
   const m = /^\s*(-?[\d.]+)\s*[~-]\s*(-?[\d.]+)/.exec(range);
   if (!m) return true;
   return value >= Number(m[1]) && value <= Number(m[2]);

@@ -25,6 +25,7 @@ import {
 import {
   FARM_KEY,
   approveProposal,
+  createManualProposal,
   dismissProposal,
   evaluateAll,
   evaluateHouse,
@@ -177,6 +178,19 @@ controlsRouter.get("/:houseId/proposals", view, async (req, res) => {
 controlsRouter.post("/proposals/evaluate", manage, async (req, res) => {
   const houseId = (req.body as { houseId?: string })?.houseId;
   res.json({ results: houseId ? [await evaluateHouse(houseId)] : await evaluateAll() });
+});
+
+/** Raise a change by hand; it waits for approval like any other. */
+controlsRouter.post("/:houseId/proposals", control, async (req, res) => {
+  const body = req.body as { changes?: Array<{ register?: unknown; after?: unknown }>; reason?: unknown };
+  const items = (Array.isArray(body.changes) ? body.changes : []).map((c) => ({ register: String(c.register ?? ""), after: Number(c.after) }));
+  try {
+    const p = await createManualProposal(req.params.houseId!, items, String(body.reason ?? ""), req.session.user!.id);
+    console.log(`[controls] manual proposal #${p.id} on ${req.params.houseId} raised by ${req.session.user!.id}`);
+    res.json({ proposal: p });
+  } catch (e) {
+    res.status(422).json({ error: e instanceof Error ? e.message : String(e) });
+  }
 });
 
 /** Say yes: write through the one path, with readback. */

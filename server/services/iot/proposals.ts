@@ -21,9 +21,9 @@ import { db } from "../../db";
 import { fetchDeviceStatus } from "./bhfarm";
 import { getCatalog, ladderFans, latestSnapshot, snapshotHouse } from "./controls";
 import { writeAndConfirm } from "./control";
-import { checkBounds, farmBounds, houseMode, MODE_KEY } from "./bounds";
+import { BOUNDED, checkBounds, farmBounds, houseMode, MODE_KEY } from "./bounds";
 import { weekStats } from "./house-stats";
-import { evaluate, RULES, type Draft, type RuleKey } from "./rules";
+import { evaluate, RULES, withinRange, type Draft, type ProposedChange, type RuleKey } from "./rules";
 
 /* ── Rule parameters: farm defaults, per-house overrides ───────────────── */
 
@@ -137,8 +137,9 @@ export async function evaluateHouse(houseId: string): Promise<EvaluationResult> 
     });
     created++;
   }
-  // a rule that no longer has anything to say withdraws its open proposal
+  // a rule that no longer has anything to say withdraws its open proposal; one a person raised is theirs to withdraw
   for (const o of open) {
+    if (o.rule === MANUAL_RULE) continue;
     if (!seen.has(o.rule) && o.status === "open") {
       await db.update(controllerProposals).set({ status: "superseded", decidedAt: new Date() }).where(eq(controllerProposals.id, o.id));
       superseded++;
@@ -166,6 +167,64 @@ export async function evaluateAll(): Promise<EvaluationResult[]> {
     }
   }
   return out;
+}
+
+/* ── By hand ───────────────────────────────────────────────────────────── */
+
+export const MANUAL_RULE = "manual";
+
+/**
+ * A change a person asks for, outside any rule: the same open proposal, the
+ * same approval, the same write path and readback. Each register must be a
+ * setting the catalogue knows and the vendor lets be written; the value must
+ * sit in the vendor's range, and a percentage between 0 and 100. What the
+ * register holds today comes from the kept settings.
+ */
+export async function createManualProposal(houseId: string, items: Array<{ register: string; after: number }>, reason: string, userId: string) {
+  const cat = await getCatalog();
+  const snap = await latestSnapshot(houseId);
+  if (!cat || !snap) throw new Error("No catalogue or no kept settings yet for this house");
+  if (!items.length) throw new Error("Nothing to change");
+  if (!reason.trim()) throw new Error("Say why, in a line: it is what the next person reads");
+  const settings = snap.values as Record<string, string>;
+  const changes: ProposedChange[] = [];
+  for (const it of items) {
+    if (!Number.isFinite(it.after)) throw new Error(`${it.register}: not a number`);
+    const pg = cat.pages.find((p) => p.registers.includes(it.register));
+    if (!pg) throw new Error(`${it.register} is not a setting in the catalogue`);
+    if (pg.readOnlyRegisters.includes(it.register)) throw new Error(`${it.register} is a reading, not a setting`);
+    const where = pg.pathEn[pg.pathEn.length - 1] ?? pg.code;
+    let label = where;
+    let unit = "";
+    let range = "";
+    const field = [...(pg.fields ?? []), ...(pg.shared ?? [])].find((f) => f.register === it.register);
+    if (field) {
+      if (field.readOnly) throw new Error(`${it.register} is a reading, not a setting`);
+      label = `${where}: ${field.labelEn}`;
+      unit = field.unit;
+      range = field.range;
+    } else {
+      for (const row of pg.rows ?? []) {
+        const key = Object.keys(row.cells).find((k) => row.cells[k] === it.register);
+        if (!key) continue;
+        const col = pg.columns?.find((c) => c.key === key);
+        label = `${where}: row ${row.label}, ${col?.labelEn ?? key}`;
+        unit = col?.unit ?? "";
+        range = col?.range ?? "";
+      }
+    }
+    if (!withinRange(range, it.after)) throw new Error(`${label}: ${it.after} is outside the vendor's range ${range}`);
+    if (unit === "%" && (it.after < 0 || it.after > 100)) throw new Error(`${label}: a percentage is between 0 and 100`);
+    const before = settings[it.register] ?? null;
+    if (before != null && Number(before) === it.after) continue;
+    changes.push({ register: it.register, label, unit, before, after: String(it.after), critical: BOUNDED.some((b) => b.test.test(it.register)) });
+  }
+  if (!changes.length) throw new Error("The controller already holds these values");
+  const [row] = await db
+    .insert(controllerProposals)
+    .values({ houseId, rule: MANUAL_RULE, title: "Set by hand", reason: reason.trim(), evidence: { requestedBy: userId }, changes })
+    .returning();
+  return row!;
 }
 
 /* ── Deciding ──────────────────────────────────────────────────────────── */
