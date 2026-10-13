@@ -13,6 +13,7 @@ import {
   expenses,
   invoices,
   journalEntries,
+  orgProfile,
   journalEntryLineTags,
   journalEntryLines,
   billLines,
@@ -32,6 +33,7 @@ import { weeklySummary } from "../services/rollup";
 import { istDate } from "../services/day-resolution";
 import { costAnalysis } from "../services/cost-analysis";
 import { reorderReport } from "../services/reorder";
+import { HouseWeeklyError, houseWeeklyFilename, houseWeeklySpec, lastFullWeek, renderHouseWeekly } from "../services/house-weekly-pdf";
 
 export const reportsRouter = Router();
 
@@ -1296,4 +1298,35 @@ reportsRouter.get("/cost-analysis", requirePermission("reports", "view"), async 
   const { from, to } = req.query as Record<string, string | undefined>;
   if (!from || !to) return res.status(400).json({ message: "Choose a date range" });
   res.json(await costAnalysis(db, from, to));
+});
+
+/**
+ * Weekly House Report — a layer house's Monday-to-Sunday week on one page.
+ * The same PDF the house's own page opens, reached here by people who read
+ * reports rather than enter records; this one carries the feed's cost per kg.
+ */
+reportsRouter.get("/weekly-house-report/houses", requirePermission("reports", "view"), async (_req, res) => {
+  const rows = await db
+    .select({ id: houses.id, code: houses.code, name: houses.name })
+    .from(houses)
+    .where(and(eq(houses.purpose, "layer"), eq(houses.isActive, true)))
+    .orderBy(asc(houses.code));
+  res.json({ houses: rows, lastWeek: lastFullWeek() });
+});
+
+reportsRouter.get("/weekly-house-report/:houseId/report.pdf", requirePermission("reports", "view"), async (req, res) => {
+  const week = typeof req.query.week === "string" ? req.query.week : null;
+  if (week && !/^\d{4}-\d{2}-\d{2}$/.test(week)) return res.status(400).json({ error: "Use a YYYY-MM-DD date for the week" });
+  if (!/^[0-9a-f-]{36}$/i.test(req.params.houseId!)) return res.status(404).json({ error: "House not found" });
+  try {
+    const [org] = await db.select({ name: orgProfile.name }).from(orgProfile).limit(1);
+    const spec = await houseWeeklySpec(db, req.params.houseId!, week, org?.name ?? "Niko");
+    const pdf = await renderHouseWeekly(spec);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${houseWeeklyFilename(spec)}"`);
+    res.send(pdf);
+  } catch (err) {
+    if (err instanceof HouseWeeklyError) return res.status(422).json({ error: err.message });
+    throw err;
+  }
 });

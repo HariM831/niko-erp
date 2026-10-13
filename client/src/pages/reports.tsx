@@ -107,6 +107,8 @@ const REPORTS: ReportDef[] = [
     category: "Farms",
     period: "range",
   },
+  // One layer house, one Monday-to-Sunday week, as a PDF — see report-weekly-house.tsx.
+  { key: "weekly-house-report", label: "Weekly House Report", category: "Farms", period: "range" },
 ];
 
 const CATEGORIES = [...new Set(REPORTS.map((r) => r.category))];

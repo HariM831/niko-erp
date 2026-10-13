@@ -6,6 +6,7 @@ import { LandingPage } from "./pages/landing";
 import { HomePage } from "./pages/home";
 import { ReportsPage, ReportViewPage } from "./pages/reports";
 import { WeeklySummaryPage } from "./pages/report-weekly-summary";
+import { WeeklyHousePage } from "./pages/report-weekly-house";
 import { OwnerBillingPage } from "./pages/owner-billing";
 import { ChartOfAccountsPage } from "./pages/chart-of-accounts";
 import { TransactionLockingPage } from "./pages/transaction-locking";
@@ -281,6 +282,7 @@ export function App() {
         <Route path="/payroll/settings">{() => <Redirect to="/settings/m-payroll" />}</Route>
         <Route path="/payroll" component={PayrollOverviewPage} />
         <Route path="/reports/weekly-management-summary" component={WeeklySummaryPage} />
+        <Route path="/reports/weekly-house-report" component={WeeklyHousePage} />
         <Route path="/reports/:key">{(p) => <ReportViewPage reportKey={p.key!} />}</Route>
         <Route path="/reports" component={ReportsPage} />
         <Route path="/activity-log" component={ActivityLogPage} />

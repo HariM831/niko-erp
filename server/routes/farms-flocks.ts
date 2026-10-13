@@ -26,7 +26,7 @@ import {
 } from "@shared/schema";
 import { db } from "../db";
 import { autofillDay } from "../services/house-day-autofill";
-import { requirePermission } from "../lib/rbac";
+import { holds, requirePermission } from "../lib/rbac";
 import { nonBlank, validateBody } from "../lib/validate";
 import { PostingError } from "../services/posting";
 import { dayBoard, saveDay } from "../services/daily";
@@ -792,6 +792,9 @@ farmsFlockRouter.get("/houses/:id/weekly-report.pdf", view, async (req, res) => 
   try {
     const [org] = await db.select({ name: orgProfile.name }).from(orgProfile).limit(1);
     const spec = await houseWeeklySpec(db, req.params.id!, week, org?.name ?? "Niko");
+    // Cost is a report figure: the people entering daily records see no rupee
+    // anywhere in Farms, and this page is theirs too.
+    if (spec.feed && !holds(req.session.user?.permissions, "reports", "view")) spec.feed.costPerKg = null;
     const pdf = await renderHouseWeekly(spec);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `inline; filename="${houseWeeklyFilename(spec)}"`);
