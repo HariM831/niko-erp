@@ -2459,7 +2459,34 @@ payrollRouter.get("/slips/:id/pdf", view, async (req, res) => {
 
 /* ══ Reports ═════════════════════════════════════════════════════════════ */
 
-/** Daily-wage cost over a range: rate × (P + 0.5·H) per person, totalled by role. */
+/** The pay months a range covers end to end: 1–30 Sep is September; 1–15 Sep is none. */
+function wholeMonthsIn(from: string, to: string): Array<{ year: number; month: number }> {
+  const out: Array<{ year: number; month: number }> = [];
+  let y = Number(from.slice(0, 4));
+  let m = Number(from.slice(5, 7));
+  if (from.slice(8) !== "01") m++;
+  for (;; m++) {
+    if (m > 12) { m = 1; y++; }
+    const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const end = `${y}-${String(m).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
+    if (end > to) break;
+    out.push({ year: y, month: m });
+  }
+  return out;
+}
+
+const WAGE_INPUT_KINDS = ["overtime", "arrears", "bonus", "reimbursement", "deduction"] as const;
+type WageInputKind = (typeof WAGE_INPUT_KINDS)[number];
+
+/**
+ * Daily-wage cost over a range: rate × (P + 0.5·H) per person, totalled by role.
+ *
+ * Wage workers are paid outside the run, so their approved pay inputs —
+ * overtime, arrears, bonus, reimbursement, less deductions — are added here
+ * (14 Oct 2026: September's report showed none of them). A pay input belongs
+ * to a pay MONTH, not a day, so it is counted only when the range covers that
+ * month end to end; a half-month range shows wages alone and says so.
+ */
 async function wagesReport(from: string, to: string, roleFilter: string | null) {
   const conds = [eq(employees.payType, "daily_wage" as const)];
   const staff = await db
@@ -2473,10 +2500,33 @@ async function wagesReport(from: string, to: string, roleFilter: string | null) 
   // Each day is paid at the rate of the role it was WORKED in. The empty
   // bucket is days with no per-day role, priced at the worker's usual role.
   const totals = await wageDayTotals(db, from, to, staff.map((s) => s.id));
+
+  const inputMonths = wholeMonthsIn(from, to);
+  const inputs = new Map<string, Record<WageInputKind, number>>();
+  if (inputMonths.length && staff.length) {
+    const got = await db
+      .select({ employeeId: payInputs.employeeId, kind: payInputs.kind, amount: sql<string>`sum(coalesce(${payInputs.approvedAmount}, ${payInputs.amount}))` })
+      .from(payInputs)
+      .where(
+        and(
+          inArray(payInputs.employeeId, staff.map((s) => s.id)),
+          inArray(payInputs.status, ["approved", "paid"]),
+          or(...inputMonths.map((im) => and(eq(payInputs.year, im.year), eq(payInputs.month, im.month)))),
+        ),
+      )
+      .groupBy(payInputs.employeeId, payInputs.kind);
+    for (const g of got) {
+      const e = inputs.get(g.employeeId) ?? { overtime: 0, arrears: 0, bonus: 0, reimbursement: 0, deduction: 0 };
+      e[g.kind as WageInputKind] = Math.round((e[g.kind as WageInputKind] + Number(g.amount)) * 100) / 100;
+      inputs.set(g.employeeId, e);
+    }
+  }
+
   const byRole = new Map<string, { role: string; heads: number; presentDays: number; halfDays: number; amount: number }>();
   const rows: Array<{
     id: string; empCode: string; name: string; role: string | null;
     dailyRate: number; presentDays: number; halfDays: number; amount: number;
+    overtime: number; arrears: number; bonus: number; reimbursement: number; deduction: number; net: number;
   }> = [];
   for (const s of staff) {
     const buckets = totals.get(s.id) ?? new Map<string, { P: number; H: number }>();
@@ -2512,7 +2562,9 @@ async function wagesReport(from: string, to: string, roleFilter: string | null) 
       if (agg) agg.heads++;
     }
     if (roleFilter && !touchesFilter && s.defaultRoleId !== roleFilter) continue;
-    if (presentDays + halfDays === 0 && !roleFilter) continue;
+    const extra = inputs.get(s.id) ?? { overtime: 0, arrears: 0, bonus: 0, reimbursement: 0, deduction: 0 };
+    const hasInputs = WAGE_INPUT_KINDS.some((k) => extra[k] !== 0);
+    if (presentDays + halfDays === 0 && !hasInputs && !roleFilter) continue;
     worked.sort((a, b) => b.days - a.days);
     const primary = worked[0];
     const defaultRole = s.defaultRoleId ? roleById.get(s.defaultRoleId) : undefined;
@@ -2525,9 +2577,19 @@ async function wagesReport(from: string, to: string, roleFilter: string | null) 
       presentDays,
       halfDays,
       amount,
+      ...extra,
+      net: Math.round((amount + extra.overtime + extra.arrears + extra.bonus + extra.reimbursement - extra.deduction) * 100) / 100,
     });
   }
-  return { rows, byRole: [...byRole.values()], total: rows.reduce((n, r) => n + r.amount, 0) };
+  const sum = (k: "amount" | WageInputKind | "net") => Math.round(rows.reduce((n, r) => n + r[k], 0) * 100) / 100;
+  return {
+    rows,
+    byRole: [...byRole.values()],
+    inputMonths,
+    inputs: Object.fromEntries(WAGE_INPUT_KINDS.map((k) => [k, sum(k)])) as Record<WageInputKind, number>,
+    wages: sum("amount"),
+    total: sum("net"),
+  };
 }
 
 payrollRouter.get("/reports/wages", wagesPerm, async (req, res) => {

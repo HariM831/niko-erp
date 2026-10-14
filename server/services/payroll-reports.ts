@@ -150,16 +150,20 @@ export function wagesReportFile(
   format: "csv" | "xlsx",
   from: string,
   to: string,
-  workers: Array<{ empCode: string; name: string; role: string | null; dailyRate: number; presentDays: number; halfDays: number; amount: number }>,
+  workers: Array<{
+    empCode: string; name: string; role: string | null; dailyRate: number; presentDays: number; halfDays: number; amount: number;
+    overtime: number; arrears: number; bonus: number; reimbursement: number; deduction: number; net: number;
+  }>,
 ): { filename: string; contentType: string; body: Buffer | string } {
-  const headers = ["Emp Code", "Name", "Role", "Daily Rate", "Present Days", "Half Days", "Paid Days", "Amount"];
-  const kinds: ("text" | "number" | "money")[] = ["text", "text", "text", "money", "number", "number", "number", "money"];
+  const headers = ["Emp Code", "Name", "Role", "Daily Rate", "Present Days", "Half Days", "Paid Days", "Wages", "Overtime", "Arrears", "Bonus", "Reimbursement", "Deduction", "Net Pay"];
+  const kinds: ("text" | "number" | "money")[] = ["text", "text", "text", "money", "number", "number", "number", "money", "money", "money", "money", "money", "money", "money"];
   const sorted = [...workers].sort((a, b) => a.empCode.localeCompare(b.empCode, undefined, { numeric: true }));
   const body: (string | number)[][] = sorted.map((w) => [
     w.empCode, w.name, w.role ?? "", n(w.dailyRate), w.presentDays, w.halfDays, w.presentDays + 0.5 * w.halfDays, n(w.amount),
+    n(w.overtime), n(w.arrears), n(w.bonus), n(w.reimbursement), n(w.deduction), n(w.net),
   ]);
   const sum = (i: number) => n(body.reduce((a, r) => a + Number(r[i]), 0));
-  const total: (string | number)[] = ["", "Total", "", "", sum(4), sum(5), sum(6), sum(7)];
+  const total: (string | number)[] = ["", "Total", "", "", ...[4, 5, 6, 7, 8, 9, 10, 11, 12, 13].map(sum)];
   const stem = `Daily_Wages_${from}_to_${to}`;
   if (format === "csv") {
     const esc = (v: string | number) => {

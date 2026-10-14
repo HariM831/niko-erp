@@ -4,6 +4,9 @@
  * Month: the daily-wage report — per worker, days present and half, amount
  * priced day by day at the role each day was worked in; totals by role. It
  * downloads as CSV or Excel, since wages are paid outside the run (8 Oct 2026).
+ * Approved pay inputs — overtime, arrears, bonus, reimbursement, less
+ * deductions — are added for every pay month the range covers end to end
+ * (14 Oct 2026); Net is what the worker is owed.
  *
  * Day roles: one day at a time, every wage worker with an editable role
  * dropdown — because people change jobs day to day, egg picking today and
@@ -43,12 +46,25 @@ interface WageRow {
   presentDays: number;
   halfDays: number;
   amount: number | string;
+  overtime: number;
+  arrears: number;
+  bonus: number;
+  reimbursement: number;
+  deduction: number;
+  net: number;
 }
 interface WagesReport {
   rows: WageRow[];
   byRole: { role: string | null; heads: number; presentDays: number; halfDays: number; amount: number | string }[];
+  inputMonths: { year: number; month: number }[];
+  inputs: { overtime: number; arrears: number; bonus: number; reimbursement: number; deduction: number };
+  wages: number;
   total?: number | string;
 }
+
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** Bonus and reimbursement less deductions: rare enough for wage workers to share one column. */
+const otherOf = (r: { bonus: number; reimbursement: number; deduction: number }) => r.bonus + r.reimbursement - r.deduction;
 interface WageRole { id: string; name: string; isActive: boolean }
 interface DayRow {
   id: string;
@@ -130,14 +146,23 @@ export function PayrollWagesPage() {
         case "rate":
           return Number(r.dailyRate);
         case "amount":
-          return Number(r.amount);
+          return Number(r.net);
       }
     },
   );
   const paged = usePaged(shown);
   const grand = reportQ.data?.total != null
     ? Number(reportQ.data.total)
-    : rows.reduce((a, r) => a + Number(r.amount), 0);
+    : rows.reduce((a, r) => a + Number(r.net), 0);
+  const inp = reportQ.data?.inputs;
+  const inputCards = inp
+    ? ([
+        ["Overtime", inp.overtime],
+        ["Arrears", inp.arrears],
+        ["Bonus, reimbursement, deductions", otherOf(inp)],
+      ] as const).filter(([, v]) => v !== 0)
+    : [];
+  const months = reportQ.data?.inputMonths ?? [];
 
   return (
     <div className="p-4 md:p-6">
@@ -197,11 +222,24 @@ export function PayrollWagesPage() {
                   <div className="text-[11px] tabular-nums text-gray-500">{t.heads} workers · {num(t.presentDays + t.halfDays * 0.5, 1)} days</div>
                 </div>
               ))}
+              {inputCards.map(([label, v]) => (
+                <div key={label} className="rounded-lg bg-white px-4 py-2 shadow-sm ring-1 ring-amber-100">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">{label}</div>
+                  <div className="text-[15px] font-semibold tabular-nums">{formatMoney(v)}</div>
+                </div>
+              ))}
               <div className="rounded-lg bg-white px-4 py-2 shadow-sm ring-1 ring-brand-100">
                 <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Total</div>
                 <div className="text-[15px] font-semibold tabular-nums">{formatMoney(grand)}</div>
               </div>
             </div>
+          )}
+          {reportQ.data && (
+            <p className="mb-3 text-[12px] text-gray-500">
+              {months.length
+                ? `Approved overtime, arrears and other pay inputs for ${months.map((m) => `${MONTH_NAMES[m.month - 1]} ${m.year}`).join(", ")} are included.`
+                : "Pay inputs (overtime, arrears…) belong to a whole month — choose a range from the 1st to the month's last day to include them."}
+            </p>
           )}
 
           <div className="table-surface">
@@ -212,7 +250,8 @@ export function PayrollWagesPage() {
                 <thead className="table-head">
                   <tr>
                     <Th className="col-fill">Worker</Th><Th className="col-portrait-hide">Role</Th><Th right className="col-portrait-hide">Rate/day</Th>
-                    <Th right className="col-portrait-hide">Present</Th><Th right className="col-portrait-hide">Half</Th><Th right className="col-qty">Paid days</Th><Th right>Amount</Th>
+                    <Th right className="col-portrait-hide">Present</Th><Th right className="col-portrait-hide">Half</Th><Th right className="col-qty">Paid days</Th><Th right className="col-portrait-hide">Wages</Th>
+                    <Th right className="col-portrait-hide">Overtime</Th><Th right className="col-portrait-hide">Arrears</Th><Th right className="col-portrait-hide">Other</Th><Th right>Net</Th>
                   </tr>
                 </thead>
                 <tbody>
@@ -224,13 +263,21 @@ export function PayrollWagesPage() {
                       <Td right className="col-portrait-hide">{num(r.presentDays, 1)}</Td>
                       <Td right className="col-portrait-hide">{num(r.halfDays, 1)}</Td>
                       <Td right className="col-qty">{num(r.presentDays + r.halfDays * 0.5, 1)}</Td>
-                      <Td right className="font-semibold">{formatMoney(r.amount)}</Td>
+                      <Td right className="col-portrait-hide">{formatMoney(r.amount)}</Td>
+                      <Td right className="col-portrait-hide">{r.overtime ? formatMoney(r.overtime) : "—"}</Td>
+                      <Td right className="col-portrait-hide">{r.arrears ? formatMoney(r.arrears) : "—"}</Td>
+                      <Td right className="col-portrait-hide">{otherOf(r) ? formatMoney(otherOf(r)) : "—"}</Td>
+                      <Td right className="font-semibold">{formatMoney(r.net)}</Td>
                     </tr>
                   ))}
-                  {!paged.page.length && <tr><Td colSpan={7}><Empty>{(term.trim() || advMonth.active) && rows.length ? "Nobody matches." : "No daily-wage attendance in this range."}</Empty></Td></tr>}
+                  {!paged.page.length && <tr><Td colSpan={11}><Empty>{(term.trim() || advMonth.active) && rows.length ? "Nobody matches." : "No daily-wage attendance in this range."}</Empty></Td></tr>}
                   {paged.page.length > 0 && (
                     <tr className="bg-gray-50 font-semibold">
                       <Td colSpan={6}>Total ({rows.length} workers)</Td>
+                      <Td right className="col-portrait-hide">{formatMoney(reportQ.data?.wages ?? 0)}</Td>
+                      <Td right className="col-portrait-hide">{formatMoney(inp?.overtime ?? 0)}</Td>
+                      <Td right className="col-portrait-hide">{formatMoney(inp?.arrears ?? 0)}</Td>
+                      <Td right className="col-portrait-hide">{formatMoney(inp ? otherOf(inp) : 0)}</Td>
                       <Td right>{formatMoney(grand)}</Td>
                     </tr>
                   )}
