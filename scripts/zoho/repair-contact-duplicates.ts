@@ -113,8 +113,10 @@ async function main() {
     if (n) buckets.set(`name:${n}`, [...(buckets.get(`name:${n}`) ?? []), r]);
   }
 
-  // One contact can sit in both buckets; dedupe the pairs it makes.
-  const pairs = new Map<string, { a: Row; b: Row; on: string }>();
+  // One pair can turn up in both buckets. Dedupe it, but keep both reasons:
+  // "GSTIN and name" is a good deal more certain than either alone, and the
+  // output is there to be read by somebody deciding whether to trust it.
+  const pairs = new Map<string, { a: Row; b: Row; on: Set<string> }>();
   for (const [key, group] of buckets) {
     if (group.length < 2) continue;
     if (group.length > 2) {
@@ -125,14 +127,18 @@ async function main() {
       );
     }
     const [a, b] = group as [Row, Row];
-    pairs.set([a.id, b.id].sort().join("|"), { a, b, on: key.startsWith("gstin:") ? "GSTIN" : "name" });
+    const id = [a.id, b.id].sort().join("|");
+    const seen = pairs.get(id) ?? { a, b, on: new Set<string>() };
+    seen.on.add(key.startsWith("gstin:") ? "GSTIN" : "name");
+    pairs.set(id, seen);
   }
 
   console.log(`${rows.length} contacts on file, ${pairs.size} pair(s) that look like one party\n`);
 
   const plan: Array<{ keep: Row; drop: Row; on: string; patch: Record<string, string> }> = [];
 
-  for (const { a, b, on } of pairs.values()) {
+  for (const { a, b, on: reasons } of pairs.values()) {
+    const on = [...reasons].join(" and ");
     const counts = new Map<string, number>();
     for (const r of [a, b]) {
       let hard = 0;
