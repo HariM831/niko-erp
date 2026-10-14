@@ -289,6 +289,14 @@ export function resolveDay(employee: EmployeeLike, day: string, ctx: ResolveCont
       return { status, source: "punch", workedHours: round2(s.hours), openIn: true, compOffEligible: offDay, shift };
     }
     const status = statusForHours(s.hours, ctx);
+    // A punch wins to give credit for work — never to take a day away. Hours too
+    // short for a half day on an approved leave, a holiday or a weekly off leave
+    // that day as it was (14 Oct 2026: a CL taken after 1.8 h at work read Absent).
+    if (status === "A" && offDay) {
+      if (holiday) return { status: "HO", source: "holiday", workedHours: round2(s.hours), openIn: s.openIn, compOffEligible: false, shift };
+      if (leave) return { status: "L", source: "leave", workedHours: round2(s.hours), openIn: s.openIn, compOffEligible: false, shift };
+      return { status: "WO", source: "weekly_off", workedHours: round2(s.hours), openIn: s.openIn, compOffEligible: false, shift };
+    }
     return {
       status,
       source: "punch",
