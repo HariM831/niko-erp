@@ -235,6 +235,7 @@ interface NirScan {
   scannedAt: string;
   readings: Record<string, number>;
   flagged: string[];
+  noResult?: string[];
 }
 
 interface QcLine {
@@ -254,6 +255,7 @@ interface QcLine {
     average: Record<string, number>;
     instrument: Record<string, number>;
     flagged: string[];
+    noResult?: string[];
     fromDryMatter: string[];
   } | null;
   /** The last photo grading of this sample (maize), if one was taken. */
@@ -759,6 +761,13 @@ function QcPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
                     <span className="ml-1 text-amber-700">
                       · instrument flagged {l.nir.flagged.join(", ")}
                     </span>
+                  )}
+                  {(l.nir.noResult?.length ?? 0) > 0 && (
+                    <div className="mt-0.5 text-red-700">
+                      No result from the instrument for {l.nir.noResult!.map((p) => p.replace(/_/g, " ")).join(", ")} —
+                      the sample is outside what the model can read. Check the model is right for this material,
+                      rescan, or type the figures by hand.
+                    </div>
                   )}
                   <div className="mt-0.5 text-brand-900">
                     {Object.entries(l.nir.average)

@@ -38,7 +38,7 @@ import {
   officeReceipts,
   type NirResult,
 } from "@shared/schema";
-import { type NirUploadModel, type NirUploadRow, asReceived, dryMatterBase, qcParameterFor, sampleKey } from "@shared/nir";
+import { type NirUploadModel, type NirUploadRow, asReceived, dryMatterBase, isNirNoResult, qcParameterFor, sampleKey } from "@shared/nir";
 import type { Db, Tx } from "../db";
 
 /** A bench PC clock a little ahead of the server is not a reason to refuse a scan. */
@@ -272,6 +272,8 @@ export interface ScanView {
   readings: Record<string, number>;
   /** Instrument names the analyser flagged. */
   flagged: string[];
+  /** Instrument names the model gave no figure for (IAS's −987654). */
+  noResult: string[];
 }
 
 export interface LineNir {
@@ -282,6 +284,8 @@ export interface LineNir {
   instrument: Record<string, number>;
   /** QC parameters at least one scan was flagged on by the instrument. */
   flagged: string[];
+  /** QC parameters a scan gave no figure for — left empty for a person to type. */
+  noResult: string[];
   /** QC parameters the model reports on dry matter, converted with each scan's moisture. */
   fromDryMatter: string[];
 }
@@ -296,17 +300,19 @@ export interface Unplaced {
 type ReceiptLite = { id: string; number: string; status: string; arrivalAt: Date };
 type LineLite = { id: string; receiptId: string; itemId: string | null; itemName: string | null; status: string };
 
-function view(r: NirResult): ScanView {
+export function scanView(r: NirResult): ScanView {
   const flags = (r.flags ?? {}) as Record<string, number>;
+  const all = Object.entries((r.readings ?? {}) as Record<string, number>);
   return {
     resultSn: r.resultSn,
     model: r.model,
     sampleName: r.sampleName,
     scannedAt: r.scannedAt.toISOString(),
-    readings: (r.readings ?? {}) as Record<string, number>,
+    readings: Object.fromEntries(all.filter(([, v]) => !isNirNoResult(v))),
     flagged: Object.entries(flags)
       .filter(([, c]) => Number(c) !== 0)
       .map(([n]) => n),
+    noResult: all.filter(([, v]) => isNirNoResult(v)).map(([n]) => n),
   };
 }
 
@@ -334,7 +340,9 @@ export function averageScans(scans: ScanView[]): LineNir {
   const raw = new Map<string, { total: number; n: number }>();
   const flagged = new Set<string>();
   const fromDryMatter = new Set<string>();
+  const noResult = new Set<string>();
   for (const s of scans) {
+    for (const name of s.noResult ?? []) noResult.add(qcParameterFor(dryMatterBase(name) ?? name) ?? name);
     const moistureName = Object.keys(s.readings).find((n) => !dryMatterBase(n) && qcParameterFor(n) === "moisture");
     const moisture = moistureName == null ? null : s.readings[moistureName]!;
     for (const [name, value] of Object.entries(s.readings)) {
@@ -358,6 +366,7 @@ export function averageScans(scans: ScanView[]): LineNir {
     average: means(sums),
     instrument: means(raw),
     flagged: [...flagged],
+    noResult: [...noResult],
     fromDryMatter: [...fromDryMatter],
   };
 }
@@ -382,7 +391,7 @@ export function placeScans(
   const placed = new Map<string, ScanView[]>();
   const unplaced: Unplaced[] = [];
   const miss = (s: NirResult, receiptNumber: string | null, reason: string) =>
-    unplaced.push({ scan: view(s), receiptNumber, reason });
+    unplaced.push({ scan: scanView(s), receiptNumber, reason });
 
   for (const s of scans) {
     // Taken by a request: the line was chosen in niko and the model checked
@@ -395,7 +404,7 @@ export function placeScans(
       } else if (!OPEN_FOR_QC.has(receipt.status) || line.status !== "pending") {
         miss(s, receipt.number, `Taken for ${receipt.number}, which is no longer waiting on QC`);
       } else {
-        placed.set(line.id, [...(placed.get(line.id) ?? []), view(s)]);
+        placed.set(line.id, [...(placed.get(line.id) ?? []), scanView(s)]);
       }
       continue;
     }
@@ -443,7 +452,7 @@ export function placeScans(
       continue;
     }
     const line = candidates[0]!;
-    placed.set(line.id, [...(placed.get(line.id) ?? []), view(s)]);
+    placed.set(line.id, [...(placed.get(line.id) ?? []), scanView(s)]);
   }
   for (const list of placed.values()) list.sort((a, b) => a.scannedAt.localeCompare(b.scannedAt));
   return { placed, unplaced };

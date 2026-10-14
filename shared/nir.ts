@@ -70,6 +70,14 @@ export function dryMatterBase(instrumentName: string): string | null {
   return m ? m[1]!.trim() : null;
 }
 
+/**
+ * IAS writes −987654 where the model gave no figure — a sample outside what the
+ * model was built on (DORB on 14 Oct 2026: every parameter, every one flagged).
+ * It is not a reading, so it fills nothing and is said to be missing.
+ */
+export const NIR_NO_RESULT = -987654;
+export const isNirNoResult = (v: number) => Math.round(v) === NIR_NO_RESULT;
+
 export const asReceived = (dryMatterValue: number, moisturePct: number) =>
   (dryMatterValue * (100 - moisturePct)) / 100;
 

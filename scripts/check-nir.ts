@@ -28,6 +28,7 @@ import { db, type Tx } from "../server/db";
 import {
   NirMatchError,
   averageScans,
+  scanView,
   closeRequestsFor,
   consumeScans,
   createRequest,
@@ -60,7 +61,7 @@ async function main() {
   check("Protein (DM) is dry matter, Moisture is not", dryMatterBase("Protein (DM)") === "Protein" && dryMatterBase("Moisture") === null);
   const corn = (sn: string, moisture: number, proteinDm: number) => ({
     resultSn: sn, model: "Corn", sampleName: "GR-1", scannedAt: new Date().toISOString(),
-    readings: { "Fat (DM)": 3.6, Moisture: moisture, "Starch (DM)": 63.5, "Protein (DM)": proteinDm }, flagged: [],
+    readings: { "Fat (DM)": 3.6, Moisture: moisture, "Starch (DM)": 63.5, "Protein (DM)": proteinDm }, flagged: [], noResult: [],
   });
   const dm = averageScans([corn("a", 6, 10), corn("b", 14, 10)]);
   // 10 × 0.94 = 9.4 and 10 × 0.86 = 8.6, so 9.0.
@@ -71,6 +72,20 @@ async function main() {
   check("moisture itself is untouched", dm.average.moisture === 10);
   check("protein and fat are marked as from DM", dm.fromDryMatter.sort().join() === "fat,protein");
   check("starch is kept as the instrument reported it", dm.instrument["Starch (DM)"] === 63.5 && !("starch" in dm.average));
+
+  console.log("\n  NO RESULT FROM THE MODEL\n");
+  // DORB, 14 Oct 2026: IAS wrote −987654 for every parameter and flagged them all.
+  const dorb = scanView({
+    resultSn: "nr", model: "DORB", sampleName: "GR-1", scannedAt: new Date(),
+    readings: { SS: -987654, Ash: 9.1, Oil: -987654, Fibre: -987654, Protein: -987654, Moisture: -987654 },
+    flags: { SS: 1, Oil: 1, Fibre: 1, Protein: 1, Moisture: 1 },
+  } as unknown as Parameters<typeof scanView>[0]);
+  check("−987654 is not kept as a reading", Object.keys(dorb.readings).join() === "Ash", Object.keys(dorb.readings).join());
+  check("…it is listed as no result", dorb.noResult.length === 5);
+  const dorbLine = averageScans([dorb]);
+  check("…so it fills no QC parameter", Object.keys(dorbLine.average).length === 0, JSON.stringify(dorbLine.average));
+  check("…and the line says which parameters had none", dorbLine.noResult.sort().join() === "fat,fiber,moisture,protein,sand_silica",
+    dorbLine.noResult.join());
 
   try {
     await db.transaction(async (tx: Tx) => {

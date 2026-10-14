@@ -20,6 +20,8 @@ interface ScanView {
   scannedAt: string;
   readings: Record<string, number>;
   flagged: string[];
+  /** Instrument names the model gave no figure for. */
+  noResult?: string[];
 }
 
 interface BenchStatus {
@@ -131,6 +133,11 @@ function Readings({ scan }: { scan: ScanView }) {
           {scan.flagged.includes(n) ? "⚑" : ""}
         </span>
       ))}
+      {(scan.noResult?.length ?? 0) > 0 && (
+        <span className="text-red-700">
+          {Object.keys(scan.readings).length > 0 ? " · " : ""}no result for {scan.noResult!.join(", ")}
+        </span>
+      )}
     </span>
   );
 }
