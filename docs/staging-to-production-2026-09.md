@@ -130,6 +130,64 @@ What the staging rehearsal proved, and what production must match:
 
 `load-attachments.ts` is **deliberately not run** — ~2.5 GB, deferred.
 
+#### A top-up load duplicates any contact that reached niko another way
+
+`load-contacts.ts` decided what to insert from `zoho_id_map` alone: it selected
+the Zoho ids it had loaded before, and created a contact for everything else. A
+party that arrived by another route — the Amino import, `create-vendors.ts`, or
+typed in at the office — has no map row, so it looked unimported and got a
+second copy beside the original.
+
+The **12 Oct 2026 catch-up on staging** (12 contacts, `.zoho-catchup/` via
+`--dir`) did that to **seven** of the twelve:
+
+| niko already held | Zoho's spelling | found by |
+|---|---|---|
+| ELITE WINDOWS | ELITE WINDOWS | name |
+| LCGC BIOANALYTIC SOLUTIONS LLP | LCGC BIOANALYTIC SOLUTIONS LLP | name |
+| VAISHNAVI DRUG CORPORATION | VAISHNAVI DRUG CORPORATION | GSTIN + name |
+| Rajendra Trading Company | Rajendra Trading Company | GSTIN + name |
+| Goyal Proteins Limited | GOYALPROTEINS LIMITED | GSTIN + name |
+| M.B Suppliers (Mrinmoy Borah) | M.B SUPPLIERS(Mrinmoy Borah) | name |
+| RK Phosphates Pvt Ltd | R K Phosphates Pvt Ltd | name |
+
+**Only the first four repeat a `display_name`.** The other three are a space
+and some capitals away from the row the office had already typed in, so a
+search for duplicate names does not find them — which is why matching compares
+name *shapes*, not spellings.
+
+Fixed in `scripts/contact-identity.ts`: the loader now looks for the party
+before inserting, settling it on a shared GSTIN and taking a matching name
+shape as strong on its own, and writes the `zoho_id_map` row against the
+contact already on file. `create-vendors.ts` asks the same question from the
+same place, so the two cannot disagree about what counts as a party niko holds.
+Ambiguous evidence stops the run instead of guessing.
+
+**Repairing rows already loaded:** `npx tsx
+scripts/zoho/repair-contact-duplicates.ts` (dry by default, `--commit` to
+apply). It carries any field the copy filled and the survivor left blank,
+repoints `zoho_id_map.eggsy_id`, and deletes the copy — refusing any copy that
+a bill, PO or payment points at, since it moves no documents. Safe to re-run.
+Applied to staging on 14 Oct 2026: 7 removed, 7 Zoho ids repointed, no
+orphaned map rows, and no two contacts left sharing a name or a GSTIN.
+
+**Production needs none of this today** — the catch-up was never applied there,
+and it has no duplicate contacts as of 14 Oct 2026. It becomes necessary the
+moment that catch-up is replayed there, so run the repair after any `--dir`
+top-up and read its dry run before committing.
+
+One pair it deliberately will not touch: **M/S Praveen Steel Furniture** and
+**Praveen Steel Furniture**, both from the 17 Sep load, each carrying a bill
+and a payment. Zoho itself holds that party twice under two spellings, and the
+loader's merge is by exact name, so the M/S prefix split them. Merging those
+two means moving documents and deciding which name is right — a person's call,
+not a repair script's. It will also recur on the production load unless the
+records are reconciled in Zoho first, or the loader's **grouping** (still exact
+name, `trim().toLowerCase()`) is moved onto the same shape rule as its
+matching. That grouping change would collapse pairs like this one on the
+go-live load, so it would invalidate the rehearsal figures above and is left
+open deliberately.
+
 ### 3.2 Feed mill
 
 8. `npx tsx scripts/import-formulas-2026-09.ts` — the five recipes.
