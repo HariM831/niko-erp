@@ -39,3 +39,7 @@ __pycache__/
 scripts/scada/niko_scada.json
 scripts/scada/niko_scada.log*
 tmp-grain-tiles/
+
+# The office's vendor bank sheet and the review built from it: account numbers
+# of everyone we pay. Same rule as the people export — never in git.
+docs/vendor-bank-details-*.xlsx
