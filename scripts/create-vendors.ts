@@ -16,12 +16,15 @@
  * It refuses rather than risk a second row for a party niko already holds:
  * an exact name, a name differing only in case, punctuation or an M/S prefix,
  * or an account number another contact already uses. The duplicate vendors the
- * Zoho contact load left on staging are what that guard is for.
+ * Zoho contact load left on staging are what that guard is for — and the Zoho
+ * loader now asks the same question from the same place, `contact-identity.ts`,
+ * so the two cannot disagree about what counts as a party already held.
  */
 import { readFileSync } from "node:fs";
 import { inArray } from "drizzle-orm";
 import { contacts, gstTreatment } from "@shared/schema";
 import { db, pool } from "../server/db";
+import { squash } from "./contact-identity";
 
 const COMMIT = process.argv.includes("--commit");
 const file = process.argv.slice(2).find((a) => !a.startsWith("--"));
@@ -30,10 +33,6 @@ const IFSC = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 const ACCOUNT = /^[0-9A-Za-z]{5,30}$/;
 /** Straight from the schema, so a renamed treatment cannot go stale here. */
 const TREATMENTS: readonly string[] = gstTreatment.enumValues;
-
-/** Same party, written differently: case, punctuation, an M/S or Ms. prefix. */
-const squash = (s: string) =>
-  s.toLowerCase().replace(/^(m\/s\.?|ms\.?)\s+/, "").replace(/[^a-z0-9]/g, "");
 
 function parse(text: string): string[][] {
   const rows: string[][] = [];

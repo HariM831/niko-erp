@@ -16,12 +16,25 @@
  *
  * Both Zoho ids point at the merged row in zoho_id_map, so every document still
  * resolves, whichever record it named.
+ *
+ * A party niko already holds is adopted, not duplicated. Deciding what to
+ * insert from `zoho_id_map` alone is not enough: a contact that arrived by
+ * another route — the Amino import, or typed in at the office — has no map row,
+ * so it looks unimported and a second copy gets created beside it. That is what
+ * the 12 Oct 2026 catch-up did on staging to seven of the twelve contacts it
+ * loaded. So before inserting, each party is looked for among the contacts
+ * already on file: a shared GSTIN settles it, and a matching name shape is
+ * strong enough on its own. Where the evidence is ambiguous or
+ * self-contradictory the run stops and says why, because a wrong pairing posts
+ * somebody's bills to the wrong ledger — see `decideExisting` in
+ * `scripts/contact-identity.ts`, which `create-vendors.ts` shares.
  */
 import { readFile } from "node:fs/promises";
 import { eq } from "drizzle-orm";
 import { contactAddresses, contactPersons, contacts, zohoIdMap } from "@shared/schema";
 import { db, pool } from "../../server/db";
 import { toGstStateCode } from "@shared/gst-states";
+import { decideExisting, indexExisting, type Decision } from "../contact-identity";
 
 /** Zoho's GST treatment vocabulary onto niko's. */
 const GST_TREATMENT: Record<string, string> = {
@@ -32,6 +45,10 @@ const GST_TREATMENT: Record<string, string> = {
   overseas: "overseas",
   business_sez: "special_economic_zone",
 };
+
+/** Treatments that say "this party is not GST-registered". */
+const UNREGISTERED = new Set(["consumer", "unregistered_business"]);
+const registered = (t: string | null | undefined) => !!t && !UNREGISTERED.has(t);
 
 interface ZohoAddress {
   attention?: string;
@@ -117,9 +134,56 @@ async function main() {
   const todo = [...groups.values()].filter((g) => !g.some((c) => already.has(c.contact_id)));
   const merges = [...groups.values()].filter((g) => g.length > 1);
 
+  // Every contact on file, whatever brought it here. Rows that already carry a
+  // Zoho id are candidates too: a second Zoho record for a party imported
+  // earlier is the same merge this script does within one dump, and pointing
+  // the new id at the existing contact is what makes its documents resolve.
+  const existingRows = await db
+    .select({
+      id: contacts.id,
+      displayName: contacts.displayName,
+      type: contacts.type,
+      gstin: contacts.gstin,
+      gstTreatment: contacts.gstTreatment,
+      companyName: contacts.companyName,
+      email: contacts.email,
+      phone: contacts.phone,
+      mobile: contacts.mobile,
+      website: contacts.website,
+      pan: contacts.pan,
+      placeOfSupplyState: contacts.placeOfSupplyState,
+      notes: contacts.notes,
+    })
+    .from(contacts);
+  const fullById = new Map(existingRows.map((r) => [r.id, r]));
+  const index = indexExisting(existingRows);
+
+  const decisions = new Map<ZohoContact[], Decision>();
+  for (const group of todo) decisions.set(group, decideExisting(group, index));
+
+  // Two parties in one dump claiming the same niko contact: the dump says they
+  // are different (different names) and the match says they are the same.
+  const claimed = new Map<string, ZohoContact[]>();
+  for (const [group, d] of decisions) {
+    if (d.kind !== "adopt") continue;
+    const prior = claimed.get(d.contact.id);
+    if (prior) {
+      throw new Error(
+        `"${prior[0]!.contact_name.trim()}" and "${group[0]!.contact_name.trim()}" both match ` +
+          `niko contact ${d.contact.id} ("${d.contact.displayName}"). ` +
+          `They cannot both be it — fix the dump, or merge in niko.`,
+      );
+    }
+    claimed.set(d.contact.id, group);
+  }
+
+  const adopting = [...decisions.entries()].filter(([, d]) => d.kind === "adopt");
+  const creating = [...decisions.entries()].filter(([, d]) => d.kind === "create");
+
   const customers = all.filter((c) => c.contact_type === "customer").length;
   console.log(`${all.length} Zoho contacts — ${customers} customers, ${all.length - customers} vendors`);
-  console.log(`  ${groups.size} distinct names -> ${todo.length} niko contacts to create`);
+  console.log(`  ${groups.size} distinct names -> ${todo.length} parties not yet mapped`);
+  console.log(`      ${creating.length} to create, ${adopting.length} already on file in niko`);
   console.log(`  ${already.size} Zoho ids already imported`);
   console.log(`  ${all.filter((c) => c.contact_persons?.length).length} have contact persons`);
   console.log(`  ${all.filter((c) => hasAddress(c.billing_address)).length} have a billing address`);
@@ -136,6 +200,20 @@ async function main() {
     }
   }
 
+  if (adopting.length) {
+    console.log(
+      `\n  ${adopting.length} party(ies) niko already holds — Zoho's id goes onto the existing` +
+        ` contact rather than a second copy:`,
+    );
+    for (const [group, d] of adopting) {
+      const adopt = d as Extract<Decision, { kind: "adopt" }>;
+      console.log(
+        `    ${group[0]!.contact_name.trim()}  ->  ${adopt.contact.id}` +
+          `  ("${adopt.contact.displayName}", matched on ${adopt.on})`,
+      );
+    }
+  }
+
   if (!commit) {
     console.log("\nDry run — nothing written. Re-run with --commit to apply.");
     await pool.end();
@@ -144,9 +222,13 @@ async function main() {
 
   let people = 0;
   let addresses = 0;
+  let adopted = 0;
+  let widened = 0;
+  let filled = 0;
 
   await db.transaction(async (tx) => {
     for (const group of todo) {
+      const decision = decisions.get(group)!;
       const kinds = new Set(group.map((g) => g.contact_type));
       const type = kinds.size > 1 ? "both" : kinds.has("customer") ? "customer" : "vendor";
 
@@ -156,38 +238,89 @@ async function main() {
       const first = <K extends keyof ZohoContact>(key: K) =>
         group.map((g) => g[key]).find((v) => v != null && String(v).trim() !== "");
 
-      const [row] = await tx
-        .insert(contacts)
-        .values({
-          type,
-          // Longest spelling wins, so "NANDAMURI POULTRIES LLP" does not beat
-          // the properly cased version on a coin toss.
-          displayName: group
-            .map((g) => g.contact_name.trim())
-            .sort((a, b) => b.length - a.length || a.localeCompare(b))[0]!,
-          companyName: clean(first("company_name") as string),
-          email: clean(first("email") as string),
-          phone: clean(first("phone") as string),
-          mobile: clean(first("mobile") as string),
-          website: clean(first("website") as string),
-          gstTreatment: (GST_TREATMENT[(first("gst_treatment") as string) ?? ""] ??
-            "unregistered_business") as typeof contacts.$inferInsert.gstTreatment,
-          gstin: clean(first("gst_no") as string, 15),
-          pan: clean(first("pan_no") as string, 10),
-          placeOfSupplyState: toGstStateCode(clean(first("place_of_contact") as string, 4) ?? "") || null,
-          paymentTermsDays: Number(first("payment_terms") ?? 0),
-          // Left at zero deliberately: no contact in this org carries a Zoho
-          // opening balance, and the whole document history is being imported,
-          // so anything here would double-count against the invoices and bills.
-          openingBalance: "0",
-          notes: clean(first("notes") as string),
-          isActive: group.some((g) => g.status === "active"),
-        })
-        .returning({ id: contacts.id });
+      const fromZoho = {
+        companyName: clean(first("company_name") as string),
+        email: clean(first("email") as string),
+        phone: clean(first("phone") as string),
+        mobile: clean(first("mobile") as string),
+        website: clean(first("website") as string),
+        gstTreatment: (GST_TREATMENT[(first("gst_treatment") as string) ?? ""] ??
+          "unregistered_business") as typeof contacts.$inferInsert.gstTreatment,
+        gstin: clean(first("gst_no") as string, 15),
+        pan: clean(first("pan_no") as string, 10),
+        placeOfSupplyState: toGstStateCode(clean(first("place_of_contact") as string, 4) ?? "") || null,
+        notes: clean(first("notes") as string),
+      };
 
-      const contactId = row!.id;
-      // Every Zoho id points at the merged row, so a document naming either
-      // half still resolves.
+      let contactId: string;
+
+      if (decision.kind === "adopt") {
+        const mine = fullById.get(decision.contact.id)!;
+        contactId = mine.id;
+        adopted += 1;
+
+        const patch: Record<string, unknown> = {};
+
+        // Widened, never narrowed: a contact niko knows as a customer that
+        // Zoho also bills as a vendor is both, and leaving it customer-only
+        // would hide real payables from every vendor-scoped list.
+        if (mine.type !== "both" && mine.type !== type) {
+          patch.type = "both";
+          widened += 1;
+          console.log(`  ${mine.displayName}: type ${mine.type} -> both`);
+        }
+
+        // Blanks only. The row on file is niko's own and may be deliberately
+        // maintained — vendor bank details come off the office's sheet, not
+        // from Zoho — so nothing that already holds a value is touched.
+        for (const key of [
+          "companyName", "email", "phone", "mobile", "website",
+          "gstin", "pan", "placeOfSupplyState", "notes",
+        ] as const) {
+          const theirs = fromZoho[key];
+          if (theirs != null && !mine[key]) {
+            patch[key] = theirs;
+            filled += 1;
+            console.log(`  ${mine.displayName}: ${key} was blank, took "${theirs}" from Zoho`);
+          }
+        }
+        // A GSTIN on a row still marked unregistered contradicts itself, so
+        // the registration status comes across with it.
+        if (patch.gstin && !registered(mine.gstTreatment) && registered(fromZoho.gstTreatment)) {
+          patch.gstTreatment = fromZoho.gstTreatment;
+          console.log(`  ${mine.displayName}: gstTreatment ${mine.gstTreatment} -> ${fromZoho.gstTreatment}`);
+        }
+
+        if (Object.keys(patch).length) {
+          await tx
+            .update(contacts)
+            .set({ ...patch, updatedAt: new Date() })
+            .where(eq(contacts.id, contactId));
+        }
+      } else {
+        const [row] = await tx
+          .insert(contacts)
+          .values({
+            type,
+            // Longest spelling wins, so "NANDAMURI POULTRIES LLP" does not beat
+            // the properly cased version on a coin toss.
+            displayName: group
+              .map((g) => g.contact_name.trim())
+              .sort((a, b) => b.length - a.length || a.localeCompare(b))[0]!,
+            ...fromZoho,
+            paymentTermsDays: Number(first("payment_terms") ?? 0),
+            // Left at zero deliberately: no contact in this org carries a Zoho
+            // opening balance, and the whole document history is being imported,
+            // so anything here would double-count against the invoices and bills.
+            openingBalance: "0",
+            isActive: group.some((g) => g.status === "active"),
+          })
+          .returning({ id: contacts.id });
+        contactId = row!.id;
+      }
+
+      // Every Zoho id points at the one row, so a document naming either half
+      // still resolves.
       for (const g of group) {
         await tx.insert(zohoIdMap).values({
           entity: "contact",
@@ -197,7 +330,22 @@ async function main() {
         });
       }
 
+      // On an adopted contact the people already on file were entered by
+      // somebody at the office; add only the ones that are missing.
       const seenPeople = new Set<string>();
+      if (decision.kind === "adopt") {
+        const held = await tx
+          .select({
+            firstName: contactPersons.firstName,
+            lastName: contactPersons.lastName,
+            email: contactPersons.email,
+          })
+          .from(contactPersons)
+          .where(eq(contactPersons.contactId, contactId));
+        for (const p of held) {
+          seenPeople.add(`${p.firstName}|${p.lastName ?? ""}|${p.email ?? ""}`.toLowerCase());
+        }
+      }
       for (const p of group.flatMap((g) => g.contact_persons ?? [])) {
         const firstName = clean(p.first_name) ?? clean(p.last_name);
         if (!firstName) continue; // niko requires a first name; a nameless row says nothing.
@@ -218,13 +366,23 @@ async function main() {
       }
 
       // Only the first record's addresses: two halves of the same party share
-      // an address, and a second identical billing address is noise.
+      // an address, and a second identical billing address is noise. On an
+      // adopted contact the address on file is the one the office uses.
+      const heldKinds = new Set<string>();
+      if (decision.kind === "adopt") {
+        const held = await tx
+          .select({ kind: contactAddresses.kind })
+          .from(contactAddresses)
+          .where(eq(contactAddresses.contactId, contactId));
+        for (const a of held) heldKinds.add(a.kind);
+      }
       const base = group[0]!;
       for (const [kind, a] of [
         ["billing", base.billing_address],
         ["shipping", base.shipping_address],
       ] as const) {
         if (!hasAddress(a)) continue;
+        if (heldKinds.has(kind)) continue;
         await tx.insert(contactAddresses).values({
           contactId,
           kind,
@@ -243,7 +401,11 @@ async function main() {
     }
   });
 
-  console.log(`\nCommitted ${todo.length} contacts, ${people} contact persons, ${addresses} addresses.`);
+  console.log(
+    `\nCommitted ${creating.length} new contacts, ${adopted} mapped onto contacts already on` +
+      ` file (${widened} widened to both, ${filled} blank field(s) filled),` +
+      ` ${people} contact persons, ${addresses} addresses.`,
+  );
   await pool.end();
 }
 
