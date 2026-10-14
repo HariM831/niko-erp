@@ -2,7 +2,8 @@
  * Where this browser is, for the pages that record a person being somewhere —
  * the attendance gate and the canteen counter.
  *
- * A punch or a plate without a location is refused (the user, 10 Oct 2026), so
+ * A punch without a location is refused (the user, 10 Oct 2026; a canteen plate
+ * falls back to its canteen's site since 14 Oct), so
  * both pages hold a position from the moment they open and keep it fresh,
  * rather than asking at the instant of the scan: a GPS cold start takes longer
  * than a queue at the gate will wait.

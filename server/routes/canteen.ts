@@ -645,9 +645,23 @@ const gateServing = z.object({
 
 canteenRouter.post("/gate/servings", serve, validateBody(gateServing), async (req, res) => {
   const at = req.body as z.infer<typeof gateServing>;
-  if (!isRealPoint(at.latitude, at.longitude)) return res.status(422).json({ error: LOCATION_REQUIRED, locationRequired: true });
+  // The counter stands in one place, and a PC there often cannot get a fix:
+  // with no point of its own a plate takes its canteen's site, with no
+  // accuracy, which is how such a plate is told apart (the user, 14 Oct 2026 —
+  // 13 Oct's lunch was lost to the strict rule). The gate keeps the strict rule.
+  if (!isRealPoint(at.latitude, at.longitude)) {
+    const [site] = await db
+      .select({ latitude: locations.latitude, longitude: locations.longitude })
+      .from(canteens)
+      .innerJoin(locations, eq(locations.id, canteens.locationId))
+      .where(eq(canteens.id, at.canteenId));
+    const lat = site?.latitude != null ? Number(site.latitude) : null;
+    const lng = site?.longitude != null ? Number(site.longitude) : null;
+    if (!isRealPoint(lat, lng)) return res.status(422).json({ error: LOCATION_REQUIRED, locationRequired: true });
+    Object.assign(at, { latitude: lat, longitude: lng, accuracyM: null });
+  }
   try {
-    const { serving, replay } = await db.transaction((tx) => recordBrowserServing(tx, req.session.user!.id, req.body as z.infer<typeof gateServing>));
+    const { serving, replay } = await db.transaction((tx) => recordBrowserServing(tx, req.session.user!.id, at));
     // The face and the frame stay on the server: the counter has no use for them back.
     const { faceEmbedding: _f, photoUrl: _p, ...plate } = serving;
     res.status(replay ? 200 : 201).json({ ...plate, mealLabel: MEAL_LABEL[serving.meal] });

@@ -17,8 +17,10 @@
  *   Who someone is, when it is not sure. As at the attendance gate, a name is
  *   picked by hand only after a scan has failed, or when no scan is possible.
  *
- * One thing it insists on: where the counter is. A plate is recorded with this
- * browser's location, and without one nothing is served (10 Oct 2026).
+ * Where the counter is: a plate carries this browser's location when it has
+ * one. When it has none the plate is still served, and the server records it at
+ * the canteen's own site (14 Oct 2026 — a PC at the counter often gets no fix,
+ * and the strict rule of 10 Oct lost 13 Oct's lunch).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -34,7 +36,7 @@ import { useCamera } from "../../lib/use-camera";
 import { buildMatchIndex, findBestMatchIndexed } from "@shared/face-match";
 import { centredOf, useCentredIndex, type CentredResult } from "../../lib/face-model";
 import { useAppOutdated } from "../../lib/app-version";
-import { LOCATION_REQUIRED, usePosition } from "../../lib/use-position";
+import { usePosition } from "../../lib/use-position";
 import { matchesTerms } from "@shared/search";
 
 interface Person { id: string; empCode: string; name: string; payType: string; descriptors: number[][]; breakfast: boolean; dinner: boolean }
@@ -84,7 +86,7 @@ export function PayrollCanteenGatePage() {
   const { err, setErr, fail } = useErr();
   const { videoRef, cameraOn, setCameraOn, cameraError, facingMode, setFacingMode, engineState } = useCamera();
   const [stage, setStage] = useState<Stage>({ kind: "idle" });
-  const { position, asking: askingPosition, retry: retryPosition } = usePosition();
+  const { position } = usePosition();
   const [manualOpen, setManualOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [canteenId, setCanteenId] = useState<string>(() => {
@@ -186,8 +188,6 @@ export function PayrollCanteenGatePage() {
   async function scan() {
     const video = videoRef.current;
     if (!video || video.videoWidth === 0) { setErr("Camera not ready."); return; }
-    // No location, no plate: say so before anyone has stood for the scan.
-    if (!position) { setErr(LOCATION_REQUIRED); void retryPosition(); return; }
     setErr(null);
     setStage({ kind: "matching" });
     lastScan.current = null;
@@ -231,13 +231,8 @@ export function PayrollCanteenGatePage() {
 
   async function serve(person: Person, method: "face" | "manual", score: number | null, centred: CentredResult | null = null) {
     setStage({ kind: "posting" });
-    // The server refuses a plate without a location; stop here with words the counter can act on.
-    const pos = position ?? (await retryPosition());
-    if (!pos) {
-      setStage({ kind: "idle" });
-      setErr(LOCATION_REQUIRED);
-      return;
-    }
+    // No fix of its own: sent without one, and the server puts it at the canteen's site.
+    const pos = position;
     const seen = lastScan.current && Date.now() - lastScan.current.at < SCAN_FRESH_MS ? lastScan.current : null;
     lastScan.current = null;
     try {
@@ -250,9 +245,9 @@ export function PayrollCanteenGatePage() {
           employeeId: person.id,
           method,
           matchScore: score,
-          latitude: pos.latitude,
-          longitude: pos.longitude,
-          accuracyM: pos.accuracy,
+          latitude: pos?.latitude ?? null,
+          longitude: pos?.longitude ?? null,
+          accuracyM: pos?.accuracy ?? null,
           centred,
           // The scan this plate followed, while it is still this plate's.
           ...(seen && {
@@ -286,7 +281,7 @@ export function PayrollCanteenGatePage() {
       <PageHeader title="Canteen Gate" sub="Scan a face, serve a plate.">
         {position
           ? <Badge tone="green"><MapPin size={11} className="mr-1 inline" /> Location on</Badge>
-          : <Badge tone="red"><MapPinOff size={11} className="mr-1 inline" /> No location</Badge>}
+          : <Badge tone="amber"><MapPinOff size={11} className="mr-1 inline" /> Canteen's location</Badge>}
         {meal && (
           <Badge tone={stateQ.data?.outsideWindow ? "amber" : "green"}>
             <Utensils size={12} className="mr-1 inline" />
@@ -295,15 +290,6 @@ export function PayrollCanteenGatePage() {
         )}
       </PageHeader>
       <ErrorBanner message={err} onClose={() => setErr(null)} />
-      {!position && (
-        <div className="card mb-3 flex flex-wrap items-center gap-3 border-red-300 bg-red-50 p-3 text-[13px] text-red-800">
-          <MapPinOff size={16} className="shrink-0" />
-          <span className="min-w-0 flex-1">{LOCATION_REQUIRED}</span>
-          <button className="btn-secondary" disabled={askingPosition} onClick={() => void retryPosition().then((p) => p && setErr(null))}>
-            {askingPosition ? "Looking…" : "Retry"}
-          </button>
-        </div>
-      )}
 
       {canteenId && (
         <div className="card mb-3 p-3">
