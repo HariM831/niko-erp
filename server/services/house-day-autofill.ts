@@ -209,8 +209,11 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
 
   // A week of tankers before the day, to prove the silo's weights — and the
   // day after, so a transfer whose first load came this evening finds the
-  // rest of it.
-  const week = await tankersFor(houseId, addDays(day, -6), addDays(day, 1));
+  // rest of it. Matched from three days earlier still: a transfer at the
+  // window's edge whose first load fell before it takes its neighbour's load
+  // instead, and the theft runs on down the week (L5 on 12 Oct 2026: FT-00095
+  // took FT-00099's, FT-00099 took FT-00102's, and FT-00102 read as unseen).
+  const week = await tankersFor(houseId, addDays(day, -9), addDays(day, 1));
   const today = week.tankers.filter((t) => t.move.start >= dayStart && t.move.start < dayEnd);
   // A transfer whose arrival window has not closed yet is pending, not unseen.
   const now = new Date();

@@ -134,20 +134,28 @@ async function loopsTick(): Promise<void> {
  * Hourly rather than once: a day the controller was blind for at 00:30 can
  * still fill once the gap filler recovers its readings, and a boxes-only-if-
  * empty write is harmless to repeat. See services/house-day-autofill.ts.
+ *
+ * The last week, not just yesterday, oldest first: the mill enters its
+ * transfers days late (11–14 Oct 2026 went in at 02:00 on the 15th), and until
+ * they are in, the silo's tankers can't be matched and the day stops. Each
+ * day's stock opens on the one before, hence the order.
  */
+const RETRY_DAYS = 7;
 let saving = false;
 let lastSave = { day: "", at: 0 };
 async function autoSaveTick(): Promise<void> {
   if (saving) return;
   const ist = new Date(Date.now() + 5.5 * 3_600_000);
   if (ist.getUTCHours() === 0 && ist.getUTCMinutes() < 30) return;
-  const day = addDays(istDate(), -1);
-  if (lastSave.day === day && Date.now() - lastSave.at < 3_600_000) return;
+  const yesterday = addDays(istDate(), -1);
+  if (lastSave.day === yesterday && Date.now() - lastSave.at < 3_600_000) return;
   saving = true;
   try {
-    const saved = await autoSaveDay(day);
-    for (const n of saved) console.log(`[house-day] ${day} saved ${n}`);
-    lastSave = { day, at: Date.now() };
+    for (let day = addDays(yesterday, 1 - RETRY_DAYS); day <= yesterday; day = addDays(day, 1)) {
+      const saved = await autoSaveDay(day);
+      for (const n of saved) console.log(`[house-day] ${day} saved ${n}`);
+    }
+    lastSave = { day: yesterday, at: Date.now() };
   } catch (e) {
     console.error(`[house-day] auto-save crashed: ${e instanceof Error ? e.message : e}`);
   } finally {
