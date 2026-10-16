@@ -19,7 +19,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import { ArrowLeft, Printer, Scale, Truck } from "lucide-react";
 import { ApiError, api } from "../api";
 import { matchesTerm } from "../lib/utils";
-import { PlatformWeight } from "./platform-weight";
+import { PlatformWeight, WeightDisplay } from "./platform-weight";
 import { SearchSelect } from "./search-select";
 import { WeighbridgeCamera, type Shot } from "./weighbridge-camera";
 import type { Criteria } from "./advanced-search";
@@ -406,12 +406,7 @@ function FirstWeighment({
       <div className="mt-3">
         <PlatformWeight onUse={setWeight} />
         <label className="label">Weight (kg) *</label>
-        <input
-          value={weight}
-          onChange={(e) => setWeight(e.target.value)}
-          inputMode="decimal"
-          className="input text-right text-[18px]"
-        />
+        <WeightDisplay kg={weight} />
       </div>
 
       <div className="mt-3">
@@ -511,13 +506,7 @@ function SecondWeighment({
 
       <PlatformWeight onUse={setWeight} />
       <label className="label">{kind === "gross" ? "Gross" : "Tare"} weight (kg) *</label>
-      <input
-        value={weight}
-        onChange={(e) => setWeight(e.target.value)}
-        inputMode="decimal"
-        className="input text-right text-[18px]"
-        autoFocus
-      />
+      <WeightDisplay kg={weight} />
 
       {net != null && (
         <div className={`mt-3 rounded-lg p-3 text-[13px] ${net > 0 ? "bg-gray-50" : "bg-red-50"}`}>

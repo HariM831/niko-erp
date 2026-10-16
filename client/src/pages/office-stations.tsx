@@ -28,7 +28,7 @@ import { specAxis, specBands, specTicks } from "../lib/spec-bands";
 import { useAuth } from "../auth";
 import { StatusBadge } from "../components/status-badge";
 import { FeedTransferForm } from "../components/feed-transfer-form";
-import { PlatformWeight } from "../components/platform-weight";
+import { PlatformWeight, WeightDisplay } from "../components/platform-weight";
 import { WeighbridgeSlips } from "../components/weighbridge-slips";
 import { NirBench, NirFeedStatus, useNirFeed } from "../components/nir-bench";
 import { type SearchField, useAdvancedSearch } from "../components/advanced-search";
@@ -175,13 +175,7 @@ function GrossPanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
       {error && <Err msg={error} />}
       <PlatformWeight onUse={setWeight} />
       <Field label="Gross weight from our platform (kg)">
-        <input
-          value={weight}
-          onChange={(e) => setWeight(e.target.value)}
-          inputMode="decimal"
-          className="input text-right text-[18px]"
-          autoFocus
-        />
+        <WeightDisplay kg={weight} />
       </Field>
 
       {slip > 0 && (
@@ -998,13 +992,7 @@ function TarePanel({ receipt, done }: { receipt: Receipt; done: () => void }) {
       <PlatformWeight onUse={setTare} />
 
       <Field label="Tare weight from our platform (kg)">
-        <input
-          value={tare}
-          onChange={(e) => setTare(e.target.value)}
-          inputMode="decimal"
-          className="input text-right text-[18px]"
-          autoFocus
-        />
+        <WeightDisplay kg={tare} />
       </Field>
 
       <div className="mt-3 rounded-lg bg-gray-50 p-3 text-[12px]">
