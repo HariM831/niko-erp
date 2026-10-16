@@ -65,17 +65,31 @@ async function main() {
 
   const stale: typeof links = [];
   const gone: typeof links = [];
+  const drift: typeof links = [];
   for (const l of links) {
     const z = zoho.get(l.zohoId);
     if (!z) { gone.push(l); continue; }
     const party = sameParty(z.customer_name ?? "", l.cust);
     const day = z.date === l.date;
-    const money = Math.abs(Number(l.total) - Number(z.total)) <= 1;
-    if (!party || !day || !money) stale.push(l);
+    const diff = Math.abs(Number(l.total) - Number(z.total));
+    /**
+     * The same tolerance the matcher pairs on. A different customer or a
+     * different day means a different sale and the link is wrong. A few rupees
+     * apart on the same customer and the same day is one sale carrying a
+     * rounding difference — a figure to correct, NOT a link to drop. Dropping
+     * it would make the catch-up import the invoice a second time, which is
+     * how a reconciliation turns into a duplicate: A-INV-EG-27-0848 and
+     * INV-2026-27/0310 are thirty rupees apart.
+     */
+    const money = diff <= Math.max(50, Number(z.total) * 0.005);
+    if (!party || !day) stale.push(l);
+    else if (!money) stale.push(l);
+    else if (diff > 1) drift.push(l);
   }
   console.log(`  ${links.length} link(s)`);
-  console.log(`    agree on customer, date and amount ... ${links.length - stale.length - gone.length}`);
-  console.log(`    disagree — stale .................... ${stale.length}`);
+  console.log(`    agree ................................ ${links.length - stale.length - gone.length - drift.length}`);
+  console.log(`    same sale, a few rupees apart ........ ${drift.length}   (kept; correct the figure, do not re-import)`);
+  console.log(`    different sale — stale ............... ${stale.length}`);
   console.log(`    point at an invoice Zoho no longer has ${gone.length}`);
 
   if (stale.length) {
@@ -84,6 +98,14 @@ async function main() {
       const z = zoho.get(l.zohoId)!;
       console.log(`    ${l.number}  ${l.date}  ${l.cust.slice(0, 22).padEnd(23)}${Number(l.total).toFixed(0).padStart(11)}`);
       console.log(`      says it is ${z.invoice_number}  ${z.date}  ${(z.customer_name ?? "").slice(0, 22).padEnd(23)}${Number(z.total).toFixed(0).padStart(11)}`);
+    }
+  }
+  if (drift.length) {
+    console.log(`
+  same sale, a few rupees apart — left linked:`);
+    for (const l of drift) {
+      const z = zoho.get(l.zohoId)!;
+      console.log(`    ${l.number}  ${l.date}  ${l.cust.slice(0, 22).padEnd(23)}${Number(l.total).toFixed(0).padStart(11)}  vs ${z.invoice_number} ${Number(z.total).toFixed(0)}`);
     }
   }
   if (gone.length) {
