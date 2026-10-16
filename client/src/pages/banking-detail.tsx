@@ -11,6 +11,7 @@ import { SearchSelect } from "../components/search-select";
 import { filterRows, useAdvancedSearch, type SearchField } from "../components/advanced-search";
 import { DateInput } from "../components/date-input";
 import { readPdfStatement } from "../lib/pdf-statement";
+import { StatementLinePane, type StatementLine } from "../components/statement-line-pane";
 
 interface BankTxn {
   id: string;
@@ -21,15 +22,10 @@ interface BankTxn {
   description?: string;
   counterparty?: string;
   matchStatus: string;
-  matchedJournalEntryId?: string | null;
+  links?: Array<{ journalEntryId: string; kind: "matched" | "categorized" }>;
+  matchFound?: boolean;
 }
 type Account = AccountNode;
-interface Journal {
-  id: string;
-  entryNumber: string;
-  entryDate: string;
-  narration: string;
-}
 interface BankAccountDoc {
   id: string;
   name: string;
@@ -51,6 +47,7 @@ interface RegisterRow {
   party: string | null;
   status: "Categorized" | "Matched" | "Manually Added";
   docPath: string;
+  statementLineId: string | null;
 }
 
 type TabKey = "dashboard" | "uncategorized" | "all";
@@ -407,8 +404,8 @@ function StatementResults({
             {rows.map((t) => (
               <tr
                 key={t.id}
-                onClick={t.matchedJournalEntryId ? () => onOpen(`/accountant/journals/${t.matchedJournalEntryId}`) : undefined}
-                className={`border-b border-[#ece3d5] bg-white ${t.matchedJournalEntryId ? "cursor-pointer hover:bg-gray-50" : ""}`}
+                onClick={t.links?.[0] ? () => onOpen(`/accountant/journals/${t.links![0]!.journalEntryId}`) : undefined}
+                className={`border-b border-[#ece3d5] bg-white ${t.links?.length ? "cursor-pointer hover:bg-gray-50" : ""}`}
               >
                 <td className="px-4 py-2.5">{formatDate(t.txnDate)}</td>
                 <td className="px-4 py-2.5">{t.description ?? t.counterparty ?? "—"}</td>
@@ -621,7 +618,33 @@ function AllTransactionsTab({
   statementOnlyStatus: boolean;
   onOpen: (path: string) => void;
 }) {
+  const qc = useQueryClient();
+  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
   const desc = [...rows].reverse();
+
+  /**
+   * Zoho's Unmatch and Uncategorize. Unmatching leaves the transaction in the
+   * books, Manually Added; uncategorizing deletes the one the line made.
+   */
+  const undo = async (r: RegisterRow) => {
+    const uncategorize = r.status === "Categorized";
+    const ask = uncategorize
+      ? `Uncategorize this line? ${r.typeLabel} ${r.entryNumber}, which it made, will be deleted and the line goes back to Uncategorized.`
+      : `Unmatch this line from ${r.typeLabel} ${r.entryNumber}? The transaction stays in the books.`;
+    if (!window.confirm(ask)) return;
+    try {
+      const out = await api<{ deleted: string[] }>(`/api/banking/transactions/${r.statementLineId}/unmatch`, { method: "POST" });
+      setNotice({
+        ok: true,
+        text: uncategorize
+          ? `Uncategorized${out.deleted.length ? `; deleted ${out.deleted.join(", ")}` : ""}.`
+          : "Unmatched. The statement line is uncategorized again.",
+      });
+      await qc.invalidateQueries();
+    } catch (err) {
+      setNotice({ ok: false, text: err instanceof Error ? err.message : "Failed" });
+    }
+  };
   if (!desc.length && statementOnlyStatus) {
     return (
       <div className="p-12 text-center text-sm text-gray-500">
@@ -639,6 +662,10 @@ function AllTransactionsTab({
     return <div className="p-12 text-center text-sm text-gray-500">No transactions posted to this account yet.</div>;
   }
   return (
+    <>
+    {notice && (
+      <p className={`border-b px-6 py-2 text-sm ${notice.ok ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"}`}>{notice.text}</p>
+    )}
     <table className="w-full text-[13px]">
       <thead className="table-head sticky top-0">
         <tr>
@@ -660,7 +687,20 @@ function AllTransactionsTab({
               <div className="text-gray-800">{r.typeLabel}</div>
               {r.party && <div className="max-w-56 truncate text-xs text-gray-500">{r.party}</div>}
             </td>
-            <td className={`border-b border-[#ece3d5] px-4 py-2.5 align-top ${STATUS_STYLES[r.status]}`}>{r.status}</td>
+            <td className={`border-b border-[#ece3d5] px-4 py-2.5 align-top ${STATUS_STYLES[r.status]}`}>
+              <div>{r.status}</div>
+              {r.statementLineId && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void undo(r);
+                  }}
+                  className="text-[11px] text-gray-500 hover:text-red-600 hover:underline"
+                >
+                  {r.status === "Categorized" ? "Uncategorize" : "Unmatch"}
+                </button>
+              )}
+            </td>
             <td className="border-b border-[#ece3d5] px-4 py-2.5 text-right align-top tabular-nums">
               {Number(r.debit) > 0 ? formatMoney(r.debit) : ""}
             </td>
@@ -674,6 +714,7 @@ function AllTransactionsTab({
         ))}
       </tbody>
     </table>
+    </>
   );
 }
 
@@ -1074,10 +1115,7 @@ function UncategorizedTab({
 }) {
   const qc = useQueryClient();
   const [subTab, setSubTab] = useState<"unmatched" | "excluded">("unmatched");
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [catAccount, setCatAccount] = useState("");
-  const [catNarration, setCatNarration] = useState("");
-  const [matchJe, setMatchJe] = useState("");
+  const [openLine, setOpenLine] = useState<StatementLine | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -1086,21 +1124,9 @@ function UncategorizedTab({
     queryFn: () => api<BankTxn[]>(`/api/banking/transactions?bankAccountId=${bankAccountId}&matchStatus=${subTab}`),
     select: (rows) => rows.filter((t) => matchesTerm(term, [t.description, t.counterparty, t.utr])),
   });
-  const { data: accounts } = useQuery({
-    queryKey: ["accounts-all"],
-    queryFn: () => api<Account[]>("/api/accounting/accounts"),
-  });
-  const { data: journals } = useQuery({
-    queryKey: ["journals-recent"],
-    queryFn: () => api<Journal[]>("/api/accounting/journals"),
-  });
-
   const refresh = async () => {
     await qc.invalidateQueries();
-    setExpanded(null);
-    setCatAccount("");
-    setCatNarration("");
-    setMatchJe("");
+    setOpenLine(null);
   };
   const act = async (fn: () => Promise<unknown>) => {
     setError(null);
@@ -1164,103 +1190,52 @@ function UncategorizedTab({
           </thead>
           <tbody>
             {txns.map((t) => (
-              <>
-                <tr
-                  key={t.id}
-                  onClick={() => setExpanded(expanded === t.id ? null : t.id)}
-                  className="cursor-pointer border-b border-[#ece3d5] hover:bg-gray-50"
-                >
-                  <td className="px-4 py-2.5">{formatDate(t.txnDate)}</td>
-                  <td className="px-4 py-2.5">{t.description ?? t.counterparty ?? "—"}</td>
-                  <td className="px-4 py-2.5 text-gray-500">{t.utr ?? "—"}</td>
-                  <td className="px-4 py-2.5 text-right tabular-nums">
-                    {t.direction === "debit" ? formatMoney(t.amount) : ""}
-                  </td>
-                  <td className="px-4 py-2.5 text-right tabular-nums">
-                    {t.direction === "credit" ? formatMoney(t.amount) : ""}
-                  </td>
-                  <td className="px-4 py-2.5">
+              <tr
+                key={t.id}
+                onClick={() => (t.matchStatus === "unmatched" ? setOpenLine(t as StatementLine) : undefined)}
+                className={`border-b border-[#ece3d5] ${t.matchStatus === "unmatched" ? "cursor-pointer hover:bg-gray-50" : ""} ${openLine?.id === t.id ? "bg-brand-50" : ""}`}
+              >
+                <td className="px-4 py-2.5">{formatDate(t.txnDate)}</td>
+                <td className="px-4 py-2.5">
+                  {t.description ?? t.counterparty ?? "—"}
+                  {t.matchFound && (
+                    <span className="ml-2 rounded bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-green-700">Match found</span>
+                  )}
+                </td>
+                <td className="px-4 py-2.5 text-gray-500">{t.utr ?? "—"}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums">{t.direction === "debit" ? formatMoney(t.amount) : ""}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums">{t.direction === "credit" ? formatMoney(t.amount) : ""}</td>
+                <td className="px-4 py-2.5">
+                  {t.matchStatus === "excluded" ? (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void act(() => api(`/api/banking/transactions/${t.id}/unmatch`, { method: "POST" }));
+                      }}
+                      className="text-[13px] font-medium text-brand-600 hover:underline"
+                    >
+                      Restore to Uncategorized
+                    </button>
+                  ) : (
                     <StatusBadge status={t.matchStatus} />
-                  </td>
-                </tr>
-                {expanded === t.id && (
-                  <tr key={`${t.id}-x`} className="border-b border-[#ece3d5] bg-gray-50">
-                    <td colSpan={6} className="px-6 py-4">
-                      {t.matchStatus === "unmatched" ? (
-                        <div className="flex flex-wrap items-end gap-3">
-                          <div className="w-72">
-                            <label className="label">Categorize to account</label>
-                            <AccountSelect value={catAccount} onChange={setCatAccount} accounts={accounts} include={() => true} />
-                          </div>
-                          <div className="w-72">
-                            <label className="label">Narration</label>
-                            <input value={catNarration} onChange={(e) => setCatNarration(e.target.value)} className="input" />
-                          </div>
-                          <button
-                            onClick={() =>
-                              void act(() =>
-                                api(`/api/banking/transactions/${t.id}/categorize`, {
-                                  method: "POST",
-                                  body: { accountId: catAccount, narration: catNarration || `Bank: ${t.description ?? t.utr ?? "transaction"}` },
-                                }),
-                              )
-                            }
-                            disabled={!catAccount}
-                            className="btn-primary"
-                          >
-                            Categorize
-                          </button>
-                          <span className="text-xs text-gray-400">or</span>
-                          <div className="w-72">
-                            <label className="label">Match to journal entry</label>
-                            <SearchSelect
-                              value={matchJe || null}
-                              onChange={(id) => setMatchJe(id ?? "")}
-                              options={(journals ?? []).map((j) => ({
-                                id: j.id,
-                                label: `${j.entryNumber} · ${j.narration.slice(0, 40)}`,
-                                sub: formatDate(j.entryDate),
-                              }))}
-                              placeholder="Select entry…"
-                              keepOrder
-                            />
-                          </div>
-                          <button
-                            onClick={() =>
-                              void act(() =>
-                                api(`/api/banking/transactions/${t.id}/match`, {
-                                  method: "POST",
-                                  body: { journalEntryId: matchJe },
-                                }),
-                              )
-                            }
-                            disabled={!matchJe}
-                            className="btn-secondary"
-                          >
-                            Match
-                          </button>
-                          <button
-                            onClick={() => void act(() => api(`/api/banking/transactions/${t.id}/exclude`, { method: "POST" }))}
-                            className="ml-auto text-[13px] text-gray-500 hover:underline"
-                          >
-                            Exclude
-                          </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => void act(() => api(`/api/banking/transactions/${t.id}/unmatch`, { method: "POST" }))}
-                          className="text-[13px] font-medium text-brand-600 hover:underline"
-                        >
-                          Restore to Uncategorized
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                )}
-              </>
+                  )}
+                </td>
+              </tr>
             ))}
           </tbody>
         </table>
+      )}
+
+      {openLine && (
+        <StatementLinePane
+          line={openLine}
+          bankAccountId={bankAccountId}
+          onClose={() => setOpenLine(null)}
+          onDone={(message) => {
+            setNotice(message);
+            void refresh();
+          }}
+        />
       )}
     </div>
   );

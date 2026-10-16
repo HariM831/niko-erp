@@ -6,11 +6,14 @@ import { z } from "zod";
 import {
   accounts,
   bankAccounts,
+  bankTransactionLinks,
   bankTransactions,
   bankTxnDirection,
   bills,
+  attachments,
   contacts,
   creditNotes,
+  customFieldValues,
   customerPayments,
   expenses,
   invoices,
@@ -24,8 +27,11 @@ import { db, type Tx } from "../db";
 import { requirePermission } from "../lib/rbac";
 import { nonBlank, validateBody } from "../lib/validate";
 import { addDays, istDate } from "../services/day-resolution";
-import { PostingError, postJournal } from "../services/posting";
+import { PostingError, assertPeriodOpen, postJournal } from "../services/posting";
 import { toPaise } from "../services/documents";
+import { assertLineFits, linkStatementLine, suggestParties } from "../services/bank-links";
+import { deleteCustomerPayment } from "./sales";
+import { deleteVendorPayment } from "./purchases";
 
 /** journal source_type -> the document list/detail this account register links to. */
 const SOURCE_DOC_BASE: Record<string, string> = {
@@ -339,10 +345,15 @@ bankingRouter.get("/accounts/:id/register", requirePermission("banking", "view")
       running: sql<string>`SUM(${journalEntryLines.debit} - ${journalEntryLines.credit}) OVER (ORDER BY ${journalEntries.entryDate}, ${journalEntries.postedAt}, ${journalEntryLines.lineOrder})::numeric(14,2)`,
       linkedTxnId: bankTransactions.id,
       linkedUtr: bankTransactions.utr,
+      linkKind: bankTransactionLinks.kind,
     })
     .from(journalEntryLines)
     .innerJoin(journalEntries, eq(journalEntries.id, journalEntryLines.entryId))
-    .leftJoin(bankTransactions, eq(bankTransactions.matchedJournalEntryId, journalEntries.id))
+    .leftJoin(
+      bankTransactionLinks,
+      and(eq(bankTransactionLinks.journalEntryId, journalEntries.id), eq(bankTransactionLinks.bankAccountId, bank.id)),
+    )
+    .leftJoin(bankTransactions, eq(bankTransactions.id, bankTransactionLinks.bankTransactionId))
     .where(and(...conditions))
     .orderBy(asc(journalEntries.entryDate), asc(journalEntryLines.lineOrder));
 
@@ -354,9 +365,7 @@ bankingRouter.get("/accounts/:id/register", requirePermission("banking", "view")
     const docPath = base && r.sourceId ? `${base}/${r.sourceId}` : `/accountant/journals/${r.entryId}`;
 
     let status: "Categorized" | "Matched" | "Manually Added" = "Manually Added";
-    if (r.linkedTxnId) {
-      status = r.sourceType === "banking" && r.sourceId === r.linkedTxnId ? "Categorized" : "Matched";
-    }
+    if (r.linkedTxnId) status = r.linkKind === "categorized" ? "Categorized" : "Matched";
 
     let party = partyLabels.get(`${r.sourceType}:${r.sourceId}`) ?? null;
     if (!party && r.sourceType === "banking" && r.narration.startsWith("Transfer: ")) {
@@ -378,6 +387,8 @@ bankingRouter.get("/accounts/:id/register", requirePermission("banking", "view")
       sourceType: r.sourceType,
       party,
       status,
+      // The statement line it is matched to, for Unmatch / Uncategorize.
+      statementLineId: r.linkedTxnId ?? null,
       docPath,
       docId,
     };
@@ -394,6 +405,8 @@ const transferSchema = z.object({
   amount: money,
   date: dateStr,
   reference: z.string().optional(),
+  /** Made from this statement line (Categorize Manually); it is linked in the same transaction. */
+  bankTransactionId: z.string().uuid().optional(),
 });
 
 bankingRouter.post(
@@ -412,9 +425,15 @@ bankingRouter.post(
           tx.query.bankAccounts.findFirst({ where: eq(bankAccounts.id, body.toBankAccountId) }),
         ]);
         if (!from || !to) throw new PostingError("Bank account not found");
-        return postJournal(tx, {
+        const line = body.bankTransactionId ? await tx.query.bankTransactions.findFirst({ where: eq(bankTransactions.id, body.bankTransactionId) }) : undefined;
+        if (line) {
+          const ours = line.direction === "debit" ? from.id : to.id;
+          await assertLineFits(tx, line.id, { bankAccountId: ours, date: body.date });
+        }
+        const jeId = await postJournal(tx, {
           entryDate: body.date,
           narration: `Transfer: ${from.name} → ${to.name}${body.reference ? ` (${body.reference})` : ""}`,
+          reference: body.reference,
           sourceType: "banking",
           postedBy: req.session.user!.id,
           lines: [
@@ -422,6 +441,8 @@ bankingRouter.post(
             { accountId: from.glAccountId, credit: body.amount },
           ],
         });
+        if (line) await linkStatementLine(tx, { bankTransactionId: line.id, journalEntryIds: [jeId], kind: "categorized" });
+        return jeId;
       });
       res.status(201).json({ journalEntryId: jeId });
     } catch (err) {
@@ -574,14 +595,16 @@ const statementSearch: DocumentSearch = {
         if (v === "uncategorized") return eq(bankTransactions.matchStatus, "unmatched");
         if (v === "excluded") return eq(bankTransactions.matchStatus, "excluded");
         if (v === "categorized" || v === "matched") {
-          // Categorizing posts a banking journal whose sourceId is the line
-          // itself. Asked as a pair IN an uncorrelated list rather than a
-          // correlated subquery: drizzle can render the outer column unqualified
-          // there, and it then resolves against the subquery's own table.
-          const own = sql`(${bankTransactions.matchedJournalEntryId}, ${bankTransactions.id}) IN (
-            SELECT id, source_id FROM journal_entries WHERE source_type = 'banking' AND source_id IS NOT NULL
-          )`;
-          return and(eq(bankTransactions.matchStatus, "matched"), v === "categorized" ? own : sql`NOT ${own}`);
+          return and(
+            eq(bankTransactions.matchStatus, "matched"),
+            inArray(
+              bankTransactions.id,
+              db
+                .select({ id: bankTransactionLinks.bankTransactionId })
+                .from(bankTransactionLinks)
+                .where(eq(bankTransactionLinks.kind, v)),
+            ),
+          );
         }
         return sql`false`;
       },
@@ -593,15 +616,20 @@ const statementSearch: DocumentSearch = {
         if (!v) return undefined;
         if (v === "deposit") return eq(bankTransactions.direction, "credit");
         if (v === "withdrawal") return eq(bankTransactions.direction, "debit");
-        const journals = db.select({ id: journalEntries.id }).from(journalEntries);
-        if (v === "transfer") {
-          return inArray(
-            bankTransactions.matchedJournalEntryId,
-            journals.where(and(eq(journalEntries.sourceType, "banking"), sql`${journalEntries.narration} LIKE 'Transfer: %'`)),
+        const linesOf = (where: ReturnType<typeof sql>) =>
+          inArray(
+            bankTransactions.id,
+            db
+              .select({ id: bankTransactionLinks.bankTransactionId })
+              .from(bankTransactionLinks)
+              .innerJoin(journalEntries, eq(journalEntries.id, bankTransactionLinks.journalEntryId))
+              .where(where),
           );
+        if (v === "transfer") {
+          return linesOf(sql`${journalEntries.sourceType} = 'banking' AND ${journalEntries.narration} LIKE 'Transfer: %'`);
         }
         if (!(journalSourceType.enumValues as readonly string[]).includes(v)) return sql`false`;
-        return inArray(bankTransactions.matchedJournalEntryId, journals.where(sql`${journalEntries.sourceType} = ${v}`));
+        return linesOf(sql`${journalEntries.sourceType} = ${v}`);
       },
     },
   },
@@ -631,15 +659,63 @@ bankingRouter.get(
       .orderBy(desc(bankTransactions.txnDate));
     // A search is not capped, for the reason listLimit gives: a truncated
     // result answers "no such line" when the line exists.
-    res.json(advanced.length ? await rows : await rows.limit(500));
+    const lines = advanced.length ? await rows : await rows.limit(500);
+    res.json(await withLinkInfo(lines));
   },
 );
 
-// ---------- Categorize (create JE from a statement line) ----------
+/**
+ * Each line with what it stands for in the books, and for a line still
+ * uncategorized whether exactly one transaction in the books fits it — Zoho's
+ * "Match found" tag: same bank, same side, the very amount, within a week, not
+ * matched to anything yet.
+ */
+async function withLinkInfo(lines: Array<typeof bankTransactions.$inferSelect>) {
+  if (!lines.length) return [];
+  const ids = lines.map((l) => l.id);
+  const links = await db
+    .select({ lineId: bankTransactionLinks.bankTransactionId, journalEntryId: bankTransactionLinks.journalEntryId, kind: bankTransactionLinks.kind })
+    .from(bankTransactionLinks)
+    .where(inArray(bankTransactionLinks.bankTransactionId, ids));
+  const open = lines.filter((l) => l.matchStatus === "unmatched").map((l) => l.id);
+  const fits = new Map<string, number>();
+  if (open.length) {
+    const rows = await db.execute(sql`
+      SELECT c.line_id, COUNT(*)::int AS n FROM (
+        SELECT t.id AS line_id, je.id AS entry_id
+        FROM bank_transactions t
+        JOIN bank_accounts b ON b.id = t.bank_account_id
+        JOIN journal_entries je ON je.status = 'posted' AND NOT je.is_reversal
+          AND je.entry_date BETWEEN t.txn_date - 7 AND t.txn_date + 7
+        JOIN journal_entry_lines l ON l.entry_id = je.id AND l.account_id = b.gl_account_id
+        WHERE t.id IN (${sql.join(open.map((id) => sql`${id}::uuid`), sql`, `)})
+          AND NOT EXISTS (SELECT 1 FROM bank_transaction_links k WHERE k.journal_entry_id = je.id AND k.bank_account_id = b.id)
+        GROUP BY t.id, t.direction, t.amount, je.id
+        HAVING SUM(l.debit - l.credit) = CASE WHEN t.direction = 'credit' THEN t.amount ELSE -t.amount END
+      ) c GROUP BY c.line_id`);
+    for (const r of rows.rows as Array<{ line_id: string; n: number }>) fits.set(r.line_id, r.n);
+  }
+  return lines.map((l) => ({
+    ...l,
+    links: links.filter((k) => k.lineId === l.id).map(({ lineId: _l, ...k }) => k),
+    matchFound: fits.get(l.id) === 1,
+  }));
+}
+
+// ---------- Categorize, match, unmatch (Zoho's statement-line pane) ----------
 
 /**
- * Zoho "categorize": a statement credit becomes DR bank / CR chosen account,
- * a debit the reverse. Posts the JE and marks the line matched, atomically.
+ * Heads a line may not be categorized to as a bare journal. Receivables and
+ * payables belong to a customer or vendor: money in from one is a Customer
+ * Payment or Advance, out to one a Vendor Payment or Advance, or it lands in
+ * the ledger against nobody.
+ */
+const PARTY_KEYS = new Set(["ar", "ap", "customer_advances", "vendor_advances"]);
+
+/**
+ * Categorize to an account (Interest Income, Other Income, Owner's
+ * Contribution, Owner Drawings and the rest): the line against the chosen
+ * head, made from the line and linked to it.
  */
 bankingRouter.post(
   "/transactions/:id/categorize",
@@ -649,12 +725,17 @@ bankingRouter.post(
     try {
       const result = await db.transaction(async (tx) => {
         const txn = await loadUnmatchedTxn(tx, req.params.id!);
-        const [bank] = await tx
-          .select()
-          .from(bankAccounts)
-          .where(eq(bankAccounts.id, txn.bankAccountId))
-          .limit(1);
+        const bank = await tx.query.bankAccounts.findFirst({ where: eq(bankAccounts.id, txn.bankAccountId) });
         if (!bank) throw new PostingError("Bank account not found");
+        const account = await tx.query.accounts.findFirst({ where: eq(accounts.id, req.body.accountId) });
+        if (!account) throw new PostingError("Account not found");
+        if (account.systemKey && PARTY_KEYS.has(account.systemKey)) {
+          throw new PostingError(
+            `${account.name} carries a customer or vendor — categorize this as a ${txn.direction === "credit" ? "Customer Payment or Customer Advance" : "Vendor Payment or Vendor Advance"} instead`,
+          );
+        }
+        const asBank = await tx.query.bankAccounts.findFirst({ where: eq(bankAccounts.glAccountId, account.id) });
+        if (asBank) throw new PostingError(`${asBank.name} is a bank account — categorize this as a transfer`);
 
         const isCredit = txn.direction === "credit";
         const jeId = await postJournal(tx, {
@@ -665,26 +746,11 @@ bankingRouter.post(
           sourceId: txn.id,
           postedBy: req.session.user!.id,
           lines: [
-            {
-              accountId: bank.glAccountId,
-              [isCredit ? "debit" : "credit"]: txn.amount,
-            } as never,
-            {
-              accountId: req.body.accountId,
-              [isCredit ? "credit" : "debit"]: txn.amount,
-            } as never,
+            { accountId: bank.glAccountId, [isCredit ? "debit" : "credit"]: txn.amount } as never,
+            { accountId: account.id, [isCredit ? "credit" : "debit"]: txn.amount } as never,
           ],
         });
-        const [updated] = await tx
-          .update(bankTransactions)
-          .set({
-            matchStatus: "matched",
-            matchedJournalEntryId: jeId,
-            reconciledAt: new Date(),
-          })
-          .where(eq(bankTransactions.id, txn.id))
-          .returning();
-        return updated!;
+        return linkStatementLine(tx, { bankTransactionId: txn.id, journalEntryIds: [jeId], kind: "categorized" });
       });
       res.json(result);
     } catch (err) {
@@ -694,75 +760,19 @@ bankingRouter.post(
   },
 );
 
-// ---------- Match to an existing journal entry ----------
-
 /**
- * Match a statement line to an already-posted JE. Validated, not a prompt():
- * the JE must exist, be posted, be unmatched, and carry a line on this bank's
- * GL account with the same amount on the correct side.
+ * Match a line to transactions already in the books: one, or several that
+ * together move this bank by exactly the line.
  */
 bankingRouter.post(
   "/transactions/:id/match",
   requirePermission("banking", "edit"),
-  validateBody(z.object({ journalEntryId: z.string().uuid() })),
+  validateBody(z.object({ journalEntryIds: z.array(z.string().uuid()).min(1).max(50) })),
   async (req, res) => {
     try {
-      const result = await db.transaction(async (tx) => {
-        const txn = await loadUnmatchedTxn(tx, req.params.id!);
-        const [bank] = await tx
-          .select()
-          .from(bankAccounts)
-          .where(eq(bankAccounts.id, txn.bankAccountId))
-          .limit(1);
-        if (!bank) throw new PostingError("Bank account not found");
-
-        const je = await tx.query.journalEntries.findFirst({
-          where: eq(journalEntries.id, req.body.journalEntryId),
-        });
-        if (!je) throw new PostingError("Journal entry not found");
-        if (je.status !== "posted") throw new PostingError("Journal entry is not posted");
-
-        const [alreadyMatched] = await tx
-          .select({ id: bankTransactions.id })
-          .from(bankTransactions)
-          .where(eq(bankTransactions.matchedJournalEntryId, je.id))
-          .limit(1);
-        if (alreadyMatched) {
-          throw new PostingError("Journal entry is already matched to another statement line");
-        }
-
-        // Statement credit = money in = a debit on the bank GL account.
-        const wantDebitSide = txn.direction === "credit";
-        const lines = await tx
-          .select()
-          .from(journalEntryLines)
-          .where(
-            and(
-              eq(journalEntryLines.entryId, je.id),
-              eq(journalEntryLines.accountId, bank.glAccountId),
-            ),
-          );
-        const matchingLine = lines.find((l) => {
-          const side = wantDebitSide ? l.debit : l.credit;
-          return toPaise(side) === toPaise(txn.amount);
-        });
-        if (!matchingLine) {
-          throw new PostingError(
-            "Journal entry has no line on this bank account with a matching amount and side",
-          );
-        }
-
-        const [updated] = await tx
-          .update(bankTransactions)
-          .set({
-            matchStatus: "matched",
-            matchedJournalEntryId: je.id,
-            reconciledAt: new Date(),
-          })
-          .where(eq(bankTransactions.id, txn.id))
-          .returning();
-        return updated!;
-      });
+      const result = await db.transaction((tx) =>
+        linkStatementLine(tx, { bankTransactionId: req.params.id!, journalEntryIds: req.body.journalEntryIds, kind: "matched" }),
+      );
       res.json(result);
     } catch (err) {
       if (err instanceof PostingError) return res.status(422).json({ error: err.message });
@@ -771,19 +781,199 @@ bankingRouter.post(
   },
 );
 
-bankingRouter.post(
-  "/transactions/:id/unmatch",
-  requirePermission("banking", "edit"),
-  async (req, res) => {
-    const [updated] = await db
-      .update(bankTransactions)
-      .set({ matchStatus: "unmatched", matchedJournalEntryId: null, reconciledAt: null })
-      .where(eq(bankTransactions.id, req.params.id!))
-      .returning();
-    if (!updated) return res.status(404).json({ error: "Transaction not found" });
-    res.json(updated);
-  },
-);
+const fromPaiseStr = (p: number) => (p / 100).toFixed(2);
+const dayDiff = (a: string, b: string) => (Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86_400_000;
+
+/**
+ * Zoho's Possible Matches: posted transactions on this bank, not yet matched
+ * here, on the line's side and no larger than it (several may be added up),
+ * dated near it. The closest come first: the exact amount, then a shared
+ * reference, then the nearest date. The filter widens or narrows the search.
+ */
+bankingRouter.get("/transactions/:id/possible-matches", requirePermission("banking", "view"), async (req, res) => {
+  const line = await db.query.bankTransactions.findFirst({ where: eq(bankTransactions.id, req.params.id!) });
+  if (!line) return res.status(404).json({ error: "Bank statement line not found" });
+  const bank = await db.query.bankAccounts.findFirst({ where: eq(bankAccounts.id, line.bankAccountId) });
+  if (!bank) return res.status(404).json({ error: "Bank account not found" });
+  const q = req.query as Record<string, string | undefined>;
+  const isDate = (v?: string) => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v);
+  const isMoney = (v?: string) => !!v && /^\d+(\.\d{1,2})?$/.test(v);
+  const from = isDate(q.from) ? q.from! : addDays(line.txnDate, -7);
+  const to = isDate(q.to) ? q.to! : addDays(line.txnDate, 7);
+  const lineP = toPaise(line.amount);
+  const minP = isMoney(q.min) ? toPaise(q.min!) : 0;
+  const maxP = isMoney(q.max) ? toPaise(q.max!) : lineP;
+  const wantDebit = line.direction === "credit";
+  const both = q.includeOpposite === "true";
+
+  const net = sql<string>`SUM(${journalEntryLines.debit} - ${journalEntryLines.credit})::numeric(14,2)`;
+  const rows = await db
+    .select({
+      entryId: journalEntries.id,
+      entryNumber: journalEntries.entryNumber,
+      entryDate: journalEntries.entryDate,
+      narration: journalEntries.narration,
+      reference: journalEntries.reference,
+      sourceType: journalEntries.sourceType,
+      sourceId: journalEntries.sourceId,
+      net,
+    })
+    .from(journalEntries)
+    .innerJoin(journalEntryLines, eq(journalEntryLines.entryId, journalEntries.id))
+    .where(
+      and(
+        eq(journalEntryLines.accountId, bank.glAccountId),
+        eq(journalEntries.status, "posted"),
+        eq(journalEntries.isReversal, false),
+        gte(journalEntries.entryDate, from),
+        lte(journalEntries.entryDate, to),
+        q.type && (journalSourceType.enumValues as readonly string[]).includes(q.type)
+          ? sql`${journalEntries.sourceType} = ${q.type}`
+          : undefined,
+        sql`NOT EXISTS (SELECT 1 FROM bank_transaction_links k WHERE k.journal_entry_id = ${journalEntries.id} AND k.bank_account_id = ${bank.id})`,
+      ),
+    )
+    .groupBy(journalEntries.id)
+    .having(sql`${net} <> 0`);
+
+  const labels = await loadPartyLabels(rows);
+  const utr = (line.utr ?? "").replace(/\s+/g, "").toLowerCase();
+  const desc = (line.description ?? "").replace(/\s+/g, "").toLowerCase();
+  const text = (q.contact ?? "").trim().toLowerCase();
+  const ref = (q.reference ?? "").trim().toLowerCase();
+  const candidates = rows
+    .map((r) => {
+      const p = toPaise(r.net);
+      const party = labels.get(`${r.sourceType}:${r.sourceId}`) ?? null;
+      const refKey = (r.reference ?? "").replace(/\s+/g, "").toLowerCase();
+      const base = SOURCE_DOC_BASE[r.sourceType];
+      return {
+        journalEntryId: r.entryId,
+        entryNumber: r.entryNumber,
+        date: r.entryDate,
+        typeLabel: SOURCE_LABEL[r.sourceType] ?? r.sourceType,
+        sourceType: r.sourceType,
+        docPath: base && r.sourceId ? `${base}/${r.sourceId}` : `/accountant/journals/${r.entryId}`,
+        party,
+        narration: r.narration,
+        reference: r.reference,
+        direction: p > 0 ? ("credit" as const) : ("debit" as const),
+        amount: fromPaiseStr(Math.abs(p)),
+        exact: Math.abs(p) === lineP && p > 0 === wantDebit,
+        sharedRef: refKey.length >= 6 && (utr.includes(refKey) || desc.includes(refKey) || (utr.length >= 6 && refKey.includes(utr))),
+        days: Math.abs(dayDiff(r.entryDate, line.txnDate)),
+        p,
+      };
+    })
+    .filter((c) => both || c.p > 0 === wantDebit)
+    .filter((c) => Math.abs(c.p) >= minP && Math.abs(c.p) <= maxP)
+    .filter((c) => !text || (c.party ?? "").toLowerCase().includes(text) || c.narration.toLowerCase().includes(text))
+    .filter((c) => !ref || (c.reference ?? "").toLowerCase().includes(ref) || c.entryNumber.toLowerCase().includes(ref))
+    .sort((a, b) => Number(b.exact) - Number(a.exact) || Number(b.sharedRef) - Number(a.sharedRef) || a.days - b.days)
+    .slice(0, 100)
+    .map(({ p: _p, ...c }) => c);
+  res.json({ from, to, candidates });
+});
+
+/**
+ * Who a statement line is probably from or to: a customer or vendor whose
+ * bank account number the line carries, or whose name it spells out.
+ * Offered at the top of the picker; never chosen for anyone.
+ */
+bankingRouter.get("/transactions/:id/party-suggestions", requirePermission("banking", "view"), async (req, res) => {
+  const line = await db.query.bankTransactions.findFirst({ where: eq(bankTransactions.id, req.params.id!) });
+  if (!line) return res.status(404).json({ error: "Bank statement line not found" });
+  const side = req.query.side === "vendor" ? "vendor" : "customer";
+  const people = await db
+    .select({
+      id: contacts.id,
+      displayName: contacts.displayName,
+      companyName: contacts.companyName,
+      beneficiary: contacts.bankBeneficiaryName,
+      accountNumber: contacts.bankAccountNumber,
+    })
+    .from(contacts)
+    .where(and(inArray(contacts.type, [side, "both"]), eq(contacts.isActive, true), eq(contacts.isGroupCompany, false)));
+  res.json(suggestParties(`${line.description ?? ""} ${line.utr ?? ""} ${line.counterparty ?? ""}`, people));
+});
+
+/**
+ * Unmatch, or uncategorize. A matched line only lets go of what it was
+ * matched to. A categorized line also deletes what it made — the payment,
+ * expense or journal — as Zoho does, so categorizing it again does not post
+ * it twice. Either way the line is uncategorized again.
+ */
+bankingRouter.post("/transactions/:id/unmatch", requirePermission("banking", "edit"), async (req, res) => {
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [line] = await tx.select().from(bankTransactions).where(eq(bankTransactions.id, req.params.id!)).for("update");
+      if (!line) throw new PostingError("Bank statement line not found");
+      // An excluded line comes back the same way, with nothing to let go of.
+      if (line.matchStatus === "unmatched") throw new PostingError("That statement line is not matched or excluded");
+
+      const links = await tx.select().from(bankTransactionLinks).where(eq(bankTransactionLinks.bankTransactionId, line.id));
+      await tx.delete(bankTransactionLinks).where(eq(bankTransactionLinks.bankTransactionId, line.id));
+
+      const deleted: string[] = [];
+      for (const link of links.filter((l) => l.kind === "categorized")) {
+        const [elsewhere] = await tx
+          .select({ id: bankTransactionLinks.id })
+          .from(bankTransactionLinks)
+          .where(eq(bankTransactionLinks.journalEntryId, link.journalEntryId))
+          .limit(1);
+        if (elsewhere) {
+          throw new PostingError("That transfer is matched on the other account's statement too — unmatch it there first");
+        }
+        const je = await tx.query.journalEntries.findFirst({ where: eq(journalEntries.id, link.journalEntryId) });
+        if (!je) continue;
+        if (je.sourceType === "customer_payment" && je.sourceId) {
+          deleted.push((await deleteCustomerPayment(tx, je.sourceId)).number);
+        } else if (je.sourceType === "vendor_payment" && je.sourceId) {
+          deleted.push((await deleteVendorPayment(tx, je.sourceId)).number);
+        } else if (je.sourceType === "expense" && je.sourceId) {
+          deleted.push(await deleteStatementExpense(tx, je.sourceId));
+        } else if (je.sourceType === "banking") {
+          await assertPeriodOpen(tx, je.entryDate, "banking");
+          await tx.delete(journalEntries).where(eq(journalEntries.id, je.id));
+          deleted.push(je.entryNumber);
+        } else {
+          throw new PostingError(`A ${SOURCE_LABEL[je.sourceType] ?? je.sourceType} cannot be uncategorized here`);
+        }
+      }
+
+      const [updated] = await tx
+        .update(bankTransactions)
+        .set({ matchStatus: "unmatched", reconciledAt: null })
+        .where(eq(bankTransactions.id, line.id))
+        .returning();
+      return { line: updated!, deleted };
+    });
+    res.json(result);
+  } catch (err) {
+    if (err instanceof PostingError) return res.status(422).json({ error: err.message });
+    throw err;
+  }
+});
+
+/**
+ * An expense made from a statement line, deleted when the line is
+ * uncategorized: its journals, custom field values and attachments with it.
+ * Only a paid one — an unpaid expense is owed through the vendor and may sit
+ * on the Vendor Sheet.
+ */
+async function deleteStatementExpense(tx: Tx, expenseId: string) {
+  const expense = await tx.query.expenses.findFirst({ where: eq(expenses.id, expenseId) });
+  if (!expense) throw new PostingError("Expense not found");
+  if (!expense.paidThroughId) throw new PostingError(`${expense.number} is unpaid — it cannot be uncategorized`);
+  await assertPeriodOpen(tx, expense.expenseDate, "expense");
+  await tx
+    .delete(journalEntries)
+    .where(and(eq(journalEntries.sourceType, "expense"), eq(journalEntries.sourceId, expense.id)));
+  await tx.delete(customFieldValues).where(eq(customFieldValues.entityId, expense.id));
+  await tx.delete(attachments).where(and(eq(attachments.entityType, "expense"), eq(attachments.entityId, expense.id)));
+  await tx.delete(expenses).where(eq(expenses.id, expense.id));
+  return expense.number;
+}
 
 bankingRouter.post(
   "/transactions/:id/exclude",

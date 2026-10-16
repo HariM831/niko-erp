@@ -41,6 +41,7 @@ import {
   toPaise,
   type DocLineInput,
 } from "../services/documents";
+import { assertLineFits, carryLinks, linkStatementLine, linkedStatementLine } from "../services/bank-links";
 
 /** A journal line as accepted by postJournal: account by id or by system key. */
 type PostingLineInput = {
@@ -116,6 +117,8 @@ const paymentSchema = z.object({
   reference: z.string().optional(),
   bankAccountId: z.string().uuid(),
   notes: z.string().optional(),
+  /** Made from this bank statement line (Banking › Categorize Manually); linked to it in the same transaction. */
+  bankTransactionId: z.string().uuid().optional(),
   applications: z
     .array(z.object({ invoiceId: z.string().uuid(), amount: money }))
     .max(100)
@@ -848,6 +851,9 @@ salesRouter.post(
           .where(eq(bankAccounts.id, body.bankAccountId))
           .limit(1);
         if (!bank) throw new PostingError("Bank account not found");
+        if (body.bankTransactionId) {
+          await assertLineFits(tx, body.bankTransactionId, { bankAccountId: bank.id, date: body.paymentDate });
+        }
 
         const amountP = toPaise(body.amount);
         if (amountP <= 0) throw new PostingError("Payment amount must be positive");
@@ -943,6 +949,9 @@ salesRouter.post(
           .set({ journalEntryId: jeId })
           .where(eq(customerPayments.id, payment!.id))
           .returning();
+        if (body.bankTransactionId) {
+          await linkStatementLine(tx, { bankTransactionId: body.bankTransactionId, journalEntryIds: [jeId], kind: "categorized" });
+        }
         return updated!;
       });
       res.status(201).json(result);
@@ -1063,6 +1072,7 @@ salesRouter.patch(
           postedBy: req.session.user!.id,
           lines: jeLines,
         });
+        await carryLinks(tx, payment.journalEntryId, jeId, payment.number);
 
         const [updated] = await tx
           .update(customerPayments)
@@ -1125,11 +1135,7 @@ export async function deleteCustomerPayment(tx: Tx, paymentId: string) {
     .where(and(eq(journalEntries.sourceType, "customer_payment"), eq(journalEntries.sourceId, payment.id)));
   const entryIds = entries.map((e) => e.id);
   if (entryIds.length) {
-    const [matched] = await tx
-      .select({ id: bankTransactions.id })
-      .from(bankTransactions)
-      .where(inArray(bankTransactions.matchedJournalEntryId, entryIds))
-      .limit(1);
+    const matched = await linkedStatementLine(tx, entryIds);
     if (matched) {
       throw new PostingError(
         `${payment.number} is matched to a bank statement line — unmatch it in Banking before deleting it`,

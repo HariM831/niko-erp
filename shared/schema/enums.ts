@@ -178,3 +178,7 @@ export const bankTxnMatchStatus = pgEnum("bank_txn_match_status", [
   "matched",
   "excluded",
 ]);
+
+/** How a statement line came to stand for a journal: paired with one already in the books, or made from the line. */
+export const bankLinkKind = pgEnum("bank_link_kind", ["matched", "categorized"]);
+

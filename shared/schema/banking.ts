@@ -6,10 +6,11 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
-import { bankTxnDirection, bankTxnMatchStatus } from "./enums";
+import { bankLinkKind, bankTxnDirection, bankTxnMatchStatus } from "./enums";
 import { accounts, journalEntries } from "./accounting";
 
 const money = (name: string) => numeric(name, { precision: 14, scale: 2 });
@@ -55,14 +56,43 @@ export const bankTransactions = pgTable(
     matchStatus: bankTxnMatchStatus("match_status")
       .notNull()
       .default("unmatched"),
-    matchedJournalEntryId: uuid("matched_journal_entry_id").references(
-      () => journalEntries.id,
-    ),
     reconciledAt: timestamp("reconciled_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (t) => [
     index("ix_banktxn_account_date").on(t.bankAccountId, t.txnDate),
     index("ix_banktxn_hash").on(t.importHash),
+  ],
+);
+
+/**
+ * What a matched or categorized statement line stands for in the books: one or
+ * more journals whose movements on this bank's account add up to the line
+ * (Zoho lets several be selected). A journal is spoken for once per bank
+ * account, not once overall: a transfer's one journal moves two banks, and the
+ * line on each bank's statement matches it.
+ *
+ * "categorized" marks the document the line created (a payment, an expense, a
+ * journal); uncategorizing deletes it. "matched" only unlinks.
+ */
+export const bankTransactionLinks = pgTable(
+  "bank_transaction_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    bankTransactionId: uuid("bank_transaction_id")
+      .notNull()
+      .references(() => bankTransactions.id, { onDelete: "cascade" }),
+    bankAccountId: uuid("bank_account_id")
+      .notNull()
+      .references(() => bankAccounts.id),
+    journalEntryId: uuid("journal_entry_id")
+      .notNull()
+      .references(() => journalEntries.id, { onDelete: "cascade" }),
+    kind: bankLinkKind("kind").notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("ix_banklink_txn").on(t.bankTransactionId),
+    uniqueIndex("ux_banklink_je_bank").on(t.journalEntryId, t.bankAccountId),
   ],
 );

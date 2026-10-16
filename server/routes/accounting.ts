@@ -19,6 +19,7 @@ import { requirePermission } from "../lib/rbac";
 import { requireReferenceRead } from "../lib/reference-access";
 import { nonBlank, validateBody } from "../lib/validate";
 import { PostingError, postJournal, reverseJournal } from "../services/posting";
+import { linkedStatementLine } from "../services/bank-links";
 import { advancedSearch, listLimit, quickSearch } from "../services/document-search";
 import { journalSearch } from "../services/search-specs";
 
@@ -362,9 +363,13 @@ accountingRouter.post(
   validateBody(z.object({ reversalDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })),
   async (req, res) => {
     try {
-      const id = await db.transaction((tx) =>
-        reverseJournal(tx, req.params.id!, req.body.reversalDate, req.session.user!.id),
-      );
+      const id = await db.transaction(async (tx) => {
+        // A bank statement line says this money moved; reversing the journal under it would leave the line matched to nothing.
+        if (await linkedStatementLine(tx, [req.params.id!])) {
+          throw new PostingError("This journal is matched to a bank statement line — unmatch it in Banking before reversing it");
+        }
+        return reverseJournal(tx, req.params.id!, req.body.reversalDate, req.session.user!.id);
+      });
       res.status(201).json({ id });
     } catch (err) {
       if (err instanceof PostingError) return res.status(422).json({ error: err.message });
