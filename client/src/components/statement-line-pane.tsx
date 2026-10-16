@@ -89,7 +89,10 @@ export function statementReference(line: { utr?: string | null; description?: st
     /NEFT\*.*?\*([A-Z]{4,5}\d{8,})/i.exec(d) ??
     /\b(CMP(?:IFT|NEFT)\/[A-Z0-9]+)/i.exec(d) ??
     /\b(SBI[A-Z]?\d{10,})/i.exec(d);
-  return m?.[1] ?? "";
+  if (!m) return "";
+  // A PDF wraps a long reference: "CMPIFT/071026019 9581/SUBHASH" is CMPIFT/0710260199581.
+  const wrapped = /^\s(\d{1,6})(?=\/)/.exec(d.slice(m.index + m[0].length));
+  return m[1]! + (wrapped?.[1] ?? "");
 }
 const rupees = (p: number) => (p / 100).toFixed(2);
 
