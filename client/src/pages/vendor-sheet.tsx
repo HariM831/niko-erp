@@ -46,6 +46,8 @@ interface Payable {
   bankIfsc: string | null;
   bankName: string | null;
   sentBatchId: string | null;
+  /** The transfer itself, for cancelling just this one. */
+  sentLineId: string | null;
   sentBatchNumber: string | null;
   sentBatchDate: string | null;
   sentAmount: string | null;
@@ -179,6 +181,7 @@ export function VendorSheetPage() {
   const [showSent, setShowSent] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [cancelling, setCancelling] = useState<CancelTarget | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["/api/purchases/payables", showSent],
@@ -259,8 +262,10 @@ export function VendorSheetPage() {
   // Only a row we can actually pay is selectable: a vendor with no account
   // number cannot go in the file, and letting it be ticked only moves the
   // disappointment to the end of the run.
+  // On the Sent tab a tick picks transfers to cancel instead.
   // The header box works on the rows in view, leaving ticks elsewhere alone.
-  const payable = shown.filter((r) => hasBank(r) && !r.sentBatchId);
+  const canTick = (r: Payable) => (showSent ? !!r.sentLineId : hasBank(r) && !r.sentBatchId);
+  const payable = shown.filter(canTick);
   const allSelected = payable.length > 0 && payable.every((r) => selected.has(rowKey(r)));
 
   const toggleAll = () =>
@@ -315,13 +320,23 @@ export function VendorSheetPage() {
               {selected.size} selected · {formatMoney(selectedTotal)}
             </span>
           )}
-          <button
-            onClick={() => setDialogOpen(true)}
-            disabled={selected.size === 0}
-            className="btn-primary"
-          >
-            Send to bank
-          </button>
+          {showSent ? (
+            <button
+              onClick={() => setCancelling({ kind: "lines", rows: chosen })}
+              disabled={selected.size === 0}
+              className="btn-secondary"
+            >
+              Cancel transfers
+            </button>
+          ) : (
+            <button
+              onClick={() => setDialogOpen(true)}
+              disabled={selected.size === 0}
+              className="btn-primary"
+            >
+              Send to bank
+            </button>
+          )}
         </div>
       </header>
 
@@ -378,7 +393,7 @@ export function VendorSheetPage() {
             <tbody>
               {groups.flatMap(({ vendorId, vendorName, rows: vendorRows, subtotal, bank }) => {
                 const open = !collapsed.has(vendorId);
-                const groupPayable = vendorRows.filter((r) => hasBank(r) && !r.sentBatchId);
+                const groupPayable = vendorRows.filter(canTick);
                 const groupAllOn = groupPayable.length > 0 && groupPayable.every((r) => selected.has(rowKey(r)));
                 const header = (
                   <tr key={`v:${vendorId}`} className="bg-gray-50 text-[12px]">
@@ -388,7 +403,9 @@ export function VendorSheetPage() {
                         checked={groupAllOn}
                         disabled={groupPayable.length === 0}
                         title={
-                          groupPayable.length === 0
+                          showSent
+                            ? `Tick every ${vendorName} transfer`
+                            : groupPayable.length === 0
                             ? bank
                               ? "Everything here has been sent"
                               : `${vendorName} has no bank details on file`
@@ -439,7 +456,7 @@ export function VendorSheetPage() {
                   header,
                   ...vendorRows.map((r) => {
                     const k = rowKey(r);
-                    const selectable = hasBank(r) && !r.sentBatchId;
+                    const selectable = canTick(r);
                     return (
                       <tr
                         key={k}
@@ -452,7 +469,9 @@ export function VendorSheetPage() {
                             checked={selected.has(k)}
                             disabled={!selectable}
                             title={
-                              r.sentBatchId
+                              showSent
+                                ? `Cancel this transfer from ${r.sentBatchNumber}`
+                                : r.sentBatchId
                                 ? `Already sent in ${r.sentBatchNumber}`
                                 : selectable
                                   ? undefined
@@ -472,6 +491,22 @@ export function VendorSheetPage() {
                           {r.sentBatchNumber && (
                             <div className="text-[11px] text-brand-600">
                               sent {r.sentBatchNumber} · {shortDate(r.sentBatchDate)}
+                              {showSent && r.sentBatchId && (
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setCancelling({
+                                      kind: "batch",
+                                      batchId: r.sentBatchId!,
+                                      batchNumber: r.sentBatchNumber!,
+                                      rows: rows.filter((x) => x.sentBatchId === r.sentBatchId),
+                                    });
+                                  }}
+                                  className="ml-2 text-gray-400 underline hover:text-red-600"
+                                >
+                                  cancel batch
+                                </button>
+                              )}
                             </div>
                           )}
                         </td>
@@ -535,6 +570,17 @@ export function VendorSheetPage() {
       </div>
 
       {adv.dialog}
+      {cancelling && (
+        <CancelTransfersDialog
+          target={cancelling}
+          onClose={() => setCancelling(null)}
+          onDone={async () => {
+            setCancelling(null);
+            setSelected(new Set());
+            await qc.invalidateQueries({ queryKey: ["/api/purchases/payables"] });
+          }}
+        />
+      )}
       {dialogOpen && (
         <SendToBankDialog
           rows={chosen}
@@ -706,6 +752,103 @@ function SendToBankDialog({
             </div>
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+type CancelTarget =
+  | { kind: "lines"; rows: Payable[] }
+  | { kind: "batch"; batchId: string; batchNumber: string; rows: Payable[] };
+
+/**
+ * Take transfers back from the bank: a file raised in error, or a line the bank
+ * bounced. The documents return to To pay; the batch stays on record, marked
+ * cancelled, with the reason given here.
+ */
+function CancelTransfersDialog({
+  target,
+  onClose,
+  onDone,
+}: {
+  target: CancelTarget;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const total = target.rows.reduce((sum, r) => sum + Number(r.amount), 0);
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      if (target.kind === "batch") {
+        await api(`/api/purchases/payment-batches/${target.batchId}/cancel`, {
+          method: "POST",
+          body: { reason },
+        });
+      } else {
+        await api("/api/purchases/payment-batch-lines/cancel", {
+          method: "POST",
+          body: { reason, lineIds: target.rows.map((r) => r.sentLineId) },
+        });
+      }
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not cancel");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-md rounded-lg border bg-white p-5 shadow-2xl">
+        <h2 className="text-base font-semibold text-gray-800">
+          {target.kind === "batch" ? `Cancel ${target.batchNumber}` : "Cancel transfers"}
+        </h2>
+        <p className="mt-1 text-[12.5px] text-gray-500">
+          {target.rows.length} {target.rows.length === 1 ? "transfer" : "transfers"} ·{" "}
+          {formatMoney(total)}
+        </p>
+        <ul className="mt-3 max-h-40 overflow-auto rounded border border-gray-100 text-[12.5px]">
+          {target.rows.map((r) => (
+            <li
+              key={rowKey(r)}
+              className="flex justify-between gap-3 border-b border-gray-100 px-2.5 py-1.5 last:border-0"
+            >
+              <span className="truncate text-gray-700">
+                {r.vendorName} · {r.kind === "bill" ? r.billNumber : r.number}
+              </span>
+              <span className="tabular-nums text-gray-600">{formatMoney(r.amount)}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-3 text-[12.5px] text-gray-600">
+          These go back to To pay. Cancel only once you know the bank has not paid them — a
+          transfer that went through, sent again, is paid twice.
+        </p>
+        <div className="mt-3">
+          <label className="label-required">Reason *</label>
+          <input
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Never uploaded, bounced on IFSC…"
+            className="input"
+            autoFocus
+          />
+        </div>
+        {error && <p className="mt-3 text-[12.5px] text-red-600">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="btn-secondary">
+            Keep
+          </button>
+          <button onClick={submit} disabled={busy || !reason.trim()} className="btn-primary">
+            {busy ? "Cancelling…" : target.kind === "batch" ? "Cancel batch" : "Cancel transfers"}
+          </button>
+        </div>
       </div>
     </div>
   );

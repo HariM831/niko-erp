@@ -33,8 +33,12 @@ export interface PayableRow {
   bankAccountNumber: string | null;
   bankIfsc: string | null;
   bankName: string | null;
-  /** The last batch this document went to the bank in, if any. */
+  /**
+   * The last batch this document went to the bank in, if any. A cancelled
+   * transfer does not count: its document is unsent again.
+   */
   sentBatchId: string | null;
+  sentLineId: string | null;
   sentBatchNumber: string | null;
   sentBatchDate: string | null;
   sentAmount: string | null;
@@ -119,17 +123,20 @@ export async function listPayables(
       c.bank_name,
       GREATEST(0, (NOW() AT TIME ZONE 'Asia/Kolkata')::date - p.due_date) AS overdue_days,
       sent.batch_id,
+      sent.line_id,
       sent.batch_number,
       sent.batch_date,
       sent.sent_amount
     FROM payable p
     JOIN contacts c ON c.id = p.vendor_id
     LEFT JOIN LATERAL (
-      SELECT pb.id AS batch_id, pb.number AS batch_number, pb.batch_date, pbl.amount AS sent_amount
+      SELECT pb.id AS batch_id, pbl.id AS line_id, pb.number AS batch_number, pb.batch_date,
+             pbl.amount AS sent_amount
       FROM payment_batch_lines pbl
       JOIN payment_batches pb ON pb.id = pbl.batch_id
-      WHERE (p.kind = 'bill' AND pbl.bill_id = p.id)
-         OR (p.kind = 'expense' AND pbl.expense_id = p.id)
+      WHERE ((p.kind = 'bill' AND pbl.bill_id = p.id)
+          OR (p.kind = 'expense' AND pbl.expense_id = p.id))
+        AND pbl.cancelled_at IS NULL
       ORDER BY pb.batch_date DESC, pb.created_at DESC
       LIMIT 1
     ) sent ON TRUE
@@ -157,6 +164,7 @@ export async function listPayables(
     bankIfsc: (r.bank_ifsc as string | null) ?? null,
     bankName: (r.bank_name as string | null) ?? null,
     sentBatchId: (r.batch_id as string | null) ?? null,
+    sentLineId: (r.line_id as string | null) ?? null,
     sentBatchNumber: (r.batch_number as string | null) ?? null,
     sentBatchDate: (r.batch_date as string | null) ?? null,
     sentAmount: r.sent_amount === null || r.sent_amount === undefined ? null : String(r.sent_amount),

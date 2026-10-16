@@ -363,6 +363,13 @@ export const paymentBatches = pgTable("payment_batches", {
     .notNull()
     .references(() => users.id),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  /**
+   * Cancelled: the file was raised in error or never went. Every line is
+   * cancelled with it, so its documents are back on To pay. Kept, not deleted.
+   */
+  cancelledAt: timestamp("cancelled_at"),
+  cancelledBy: uuid("cancelled_by").references(() => users.id),
+  cancelReason: text("cancel_reason"),
 });
 
 /**
@@ -395,6 +402,13 @@ export const paymentBatchLines = pgTable(
     /** What the vendor sees against the credit — the document number. */
     remarks: text("remarks"),
     lineOrder: integer("line_order").notNull().default(0),
+    /**
+     * This one transfer will not happen — the bank bounced it, or it was taken
+     * out before upload. The document counts as unsent again.
+     */
+    cancelledAt: timestamp("cancelled_at"),
+    cancelledBy: uuid("cancelled_by").references(() => users.id),
+    cancelReason: text("cancel_reason"),
   },
   (t) => [
     index("ix_pbl_batch").on(t.batchId),

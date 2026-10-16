@@ -2790,6 +2790,120 @@ purchasesRouter.post(
   },
 );
 
+const cancelTransferSchema = z.object({
+  /** Why it will not happen — "never uploaded", "bounced: IFSC changed". */
+  reason: z.string().trim().min(1, "Say why it is being cancelled").max(500),
+});
+
+/**
+ * Cancel a whole batch: the file was raised in error or never went to the bank.
+ *
+ * Every transfer still live in it is cancelled with it, so their documents are
+ * back on To pay and can go in another file. The batch and its lines stay on
+ * record, marked, and the file can still be re-downloaded as it was raised.
+ * Nothing touches the ledger, because raising the file never did.
+ */
+purchasesRouter.post(
+  "/payment-batches/:id/cancel",
+  requirePermission("purchases", "delete"),
+  validateBody(cancelTransferSchema),
+  async (req, res) => {
+    const { reason } = req.body as z.infer<typeof cancelTransferSchema>;
+    const userId = req.session.user!.id;
+    try {
+      const result = await db.transaction(async (tx) => {
+        const [batch] = await tx
+          .select()
+          .from(paymentBatches)
+          .where(eq(paymentBatches.id, req.params.id!))
+          .for("update")
+          .limit(1);
+        if (!batch) throw new PostingError("Payment batch not found");
+        if (batch.cancelledAt) throw new PostingError(`${batch.number} is already cancelled`);
+        const now = new Date();
+        const lines = await tx
+          .update(paymentBatchLines)
+          .set({ cancelledAt: now, cancelledBy: userId, cancelReason: reason })
+          .where(
+            and(eq(paymentBatchLines.batchId, batch.id), sql`${paymentBatchLines.cancelledAt} IS NULL`),
+          )
+          .returning({ id: paymentBatchLines.id });
+        await tx
+          .update(paymentBatches)
+          .set({ cancelledAt: now, cancelledBy: userId, cancelReason: reason })
+          .where(eq(paymentBatches.id, batch.id));
+        return { number: batch.number, transfersCancelled: lines.length };
+      });
+      res.json(result);
+    } catch (err) {
+      if (!handlePostingError(err, res)) throw err;
+    }
+  },
+);
+
+/**
+ * Cancel single transfers — the bank bounced a line, or one was taken out of
+ * the file before upload. Their documents go back to To pay; the rest of each
+ * batch stands. A batch left with nothing live in it is cancelled too, under
+ * the same reason, so the Sent list never shows a file that sends nothing.
+ */
+purchasesRouter.post(
+  // Not under /payment-batches/, where ":id/cancel" would claim "lines".
+  "/payment-batch-lines/cancel",
+  requirePermission("purchases", "delete"),
+  validateBody(cancelTransferSchema.extend({ lineIds: z.array(z.string().uuid()).min(1).max(500) })),
+  async (req, res) => {
+    const { reason, lineIds } = req.body as z.infer<typeof cancelTransferSchema> & { lineIds: string[] };
+    const userId = req.session.user!.id;
+    try {
+      const result = await db.transaction(async (tx) => {
+        const lines = await tx
+          .select({
+            id: paymentBatchLines.id,
+            batchId: paymentBatchLines.batchId,
+            cancelledAt: paymentBatchLines.cancelledAt,
+            remarks: paymentBatchLines.remarks,
+          })
+          .from(paymentBatchLines)
+          .where(inArray(paymentBatchLines.id, lineIds))
+          .for("update");
+        if (lines.length !== new Set(lineIds).size) {
+          throw new PostingError("Some of these transfers no longer exist — reload the page");
+        }
+        const already = lines.filter((l) => l.cancelledAt);
+        if (already.length) {
+          throw new PostingError(
+            `Already cancelled: ${already.map((l) => l.remarks ?? l.id).join(", ")}`,
+          );
+        }
+        const now = new Date();
+        await tx
+          .update(paymentBatchLines)
+          .set({ cancelledAt: now, cancelledBy: userId, cancelReason: reason })
+          .where(inArray(paymentBatchLines.id, lineIds));
+
+        const batchIds = [...new Set(lines.map((l) => l.batchId))];
+        const emptied = await tx
+          .update(paymentBatches)
+          .set({ cancelledAt: now, cancelledBy: userId, cancelReason: reason })
+          .where(
+            and(
+              inArray(paymentBatches.id, batchIds),
+              sql`${paymentBatches.cancelledAt} IS NULL`,
+              sql`NOT EXISTS (SELECT 1 FROM ${paymentBatchLines} l
+                              WHERE l.batch_id = ${paymentBatches.id} AND l.cancelled_at IS NULL)`,
+            ),
+          )
+          .returning({ number: paymentBatches.number });
+        return { transfersCancelled: lines.length, batchesCancelled: emptied.map((b) => b.number) };
+      });
+      res.json(result);
+    } catch (err) {
+      if (!handlePostingError(err, res)) throw err;
+    }
+  },
+);
+
 /**
  * Who the bank is debiting, as their file wants it named: our customer code and
  * account from the bank account, the account name from the org profile.
