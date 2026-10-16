@@ -13,7 +13,7 @@ process.env.DATABASE_URL ??= "postgres://unused@localhost/unused";
 import { judgeStock, sameFigure } from "@shared/house-day";
 import type { DayAutofill } from "@shared/house-day";
 import { dayCoverage, siloFed, siloMoves, siloTankers } from "../server/services/iot/silo-events";
-import { matchTankers, provenance } from "../server/services/house-day-autofill";
+import { matchTankers, provenance, rejudgeEarlyFeed } from "../server/services/house-day-autofill";
 import { PostingError } from "../server/services/posting";
 
 let failures = 0;
@@ -175,6 +175,39 @@ function series(day: string, points: Array<[string, number]>, from = "00:00", to
   );
   ok("A saved figure left as it was needs no reason", kept.feedConsumedKg === undefined);
   ok("Water agrees to 50 litres", sameFigure("waterKl", 36.4, 36.44) && !sameFigure("waterKl", 36.4, 36.5));
+}
+
+// ── Feed eaten from 18:00, judged again after midnight ──
+{
+  const upTo = "2026-10-15T12:35:00.000Z"; // 18:05 IST
+  const early = { from: "silo" as const, offered: 11731, upTo };
+  const filled = (value: number) => ({
+    complete: true,
+    feedConsumedKg: { status: "filled" as const, value, from: "silo" as const, note: "" },
+    lastRunEnd: "2026-10-15T11:18:00.000Z",
+  });
+  const stopped = (lastRunEnd: string, complete = true) => ({
+    complete,
+    feedConsumedKg: { status: "check" as const, value: null, from: "silo" as const, note: "unproven" },
+    lastRunEnd,
+  });
+  ok("Not judged before the day is over", rejudgeEarlyFeed(false, filled(11731), 11731, early, true) === null);
+  ok("A figure without upTo is left alone", rejudgeEarlyFeed(true, filled(9000), 11731, { from: "silo", offered: 11731 }, true) === null);
+  const same = rejudgeEarlyFeed(true, filled(11900), 11731, early, true);
+  ok("No run after the cut: it stands, evening tanker or not", same?.value === undefined && same?.source.upTo === undefined && same?.source.offered === 11731);
+  const ranLate = { ...filled(14100), lastRunEnd: "2026-10-15T15:30:00.000Z" };
+  const more = rejudgeEarlyFeed(true, ranLate, 11731, early, false);
+  ok("A run after the cut: the whole day replaces it, keeping the old", more?.value === 14100 && more.source.was === 11731);
+  ok("Waits while the night's readings are missing", rejudgeEarlyFeed(true, stopped("2026-10-15T11:18:00.000Z", false), 11731, early, true) === null);
+  const quiet = rejudgeEarlyFeed(true, stopped("2026-10-15T11:18:00.000Z"), 11731, early, true);
+  ok("Stopped, but no run after the cut: it stands", quiet?.value === undefined && quiet?.source.upTo === undefined);
+  const late = "2026-10-15T15:30:00.000Z"; // 21:00 IST
+  const cleared = rejudgeEarlyFeed(true, stopped(late), 11731, early, true);
+  ok("A run after the cut clears niko's own figure", cleared?.value === null && cleared.source.was === 11731 && !!cleared.source.note);
+  const noted = rejudgeEarlyFeed(true, stopped(late), 11731, early, false);
+  ok("…but only notes one a person saved", noted?.value === undefined && !!noted?.source.note);
+  const typed = rejudgeEarlyFeed(true, ranLate, 10900, early, false);
+  ok("A typed figure is never replaced", typed?.value === undefined);
 }
 
 console.log(failures ? `\n${failures} failure(s)` : "\nAll good");

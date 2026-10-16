@@ -25,6 +25,11 @@ export interface Figure {
   note: string;
   /** Other readings worth seeing beside it. */
   also?: Array<{ label: string; value: number }>;
+  /**
+   * For a figure offered before the day is over (feed eaten, from 18:00): the
+   * last reading it runs to. The midnight save judges the day again.
+   */
+  upTo?: string | null;
 }
 
 export interface TankerLine {
@@ -60,6 +65,8 @@ export interface DayAutofill {
   /** Transfers dated around this day that no tanker has matched. */
   unseenTransfers: Array<{ number: string; quantityKg: number; transferDate: string }>;
   eggsProduced: number | null;
+  /** When the day's last feeding run ended, if the silo saw one. */
+  lastRunEnd?: string | null;
 }
 
 /** The book and the silo may differ by this much before stock stops for a person. */

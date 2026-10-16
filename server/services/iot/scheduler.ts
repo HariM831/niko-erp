@@ -139,23 +139,30 @@ async function loopsTick(): Promise<void> {
  * transfers days late (11–14 Oct 2026 went in at 02:00 on the 15th), and until
  * they are in, the silo's tankers can't be matched and the day stops. Each
  * day's stock opens on the one before, hence the order.
+ *
+ * From 18:00, today too: its feed eaten is in by then (16 Oct 2026), and the
+ * first tick after 18:00 runs at once rather than waiting out the hour.
  */
 const RETRY_DAYS = 7;
+const TODAY_FROM_HOUR = 18;
 let saving = false;
-let lastSave = { day: "", at: 0 };
+let lastSave = { key: "", at: 0 };
 async function autoSaveTick(): Promise<void> {
   if (saving) return;
   const ist = new Date(Date.now() + 5.5 * 3_600_000);
   if (ist.getUTCHours() === 0 && ist.getUTCMinutes() < 30) return;
-  const yesterday = addDays(istDate(), -1);
-  if (lastSave.day === yesterday && Date.now() - lastSave.at < 3_600_000) return;
+  const today = istDate();
+  const withToday = ist.getUTCHours() >= TODAY_FROM_HOUR;
+  const key = `${today}${withToday ? "+" : ""}`;
+  if (lastSave.key === key && Date.now() - lastSave.at < 3_600_000) return;
   saving = true;
   try {
-    for (let day = addDays(yesterday, 1 - RETRY_DAYS); day <= yesterday; day = addDays(day, 1)) {
+    const last = withToday ? today : addDays(today, -1);
+    for (let day = addDays(today, -RETRY_DAYS); day <= last; day = addDays(day, 1)) {
       const saved = await autoSaveDay(day);
       for (const n of saved) console.log(`[house-day] ${day} saved ${n}`);
     }
-    lastSave = { day: yesterday, at: Date.now() };
+    lastSave = { key, at: Date.now() };
   } catch (e) {
     console.error(`[house-day] auto-save crashed: ${e instanceof Error ? e.message : e}`);
   } finally {
