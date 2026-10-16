@@ -938,6 +938,7 @@ salesRouter.post(
         const jeId = await postJournal(tx, {
           entryDate: body.paymentDate,
           narration: `Payment ${number} — ${customer.displayName}`,
+          reference: body.reference,
           sourceType: "customer_payment",
           sourceId: payment!.id,
           postedBy: req.session.user!.id,
@@ -1067,6 +1068,7 @@ salesRouter.patch(
         const jeId = await postJournal(tx, {
           entryDate: paymentDate,
           narration: `Payment ${payment.number} — ${customer.displayName}`,
+          reference: body.reference ?? payment.reference ?? undefined,
           sourceType: "customer_payment",
           sourceId: payment.id,
           postedBy: req.session.user!.id,

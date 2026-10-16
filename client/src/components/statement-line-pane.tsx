@@ -63,6 +63,24 @@ interface BankAccount {
 }
 
 const paise = (v: string | number) => Math.round(Number(v || 0) * 100);
+
+/**
+ * The bank's own reference, where the narration carries one: the RTGS UTR,
+ * the IMPS or UPI number, or the bank's transfer reference.
+ */
+export function statementReference(line: { utr?: string | null; description?: string | null }) {
+  // A reference is one unbroken code; "TRANSFER FROM 99509044300 /" is the PDF's column, not one.
+  const utr = (line.utr ?? "").replace(/^[\s/]+|[\s/]+$/g, "");
+  if (/^[A-Z0-9/-]{6,}$/i.test(utr)) return utr;
+  const d = line.description ?? "";
+  const m =
+    /UTR\s*NO:?\s*([A-Z0-9]{8,})/i.exec(d) ??
+    /\b(?:IMPS|UPI\/(?:CR|DR))\/(\d{8,})/i.exec(d) ??
+    /NEFT\*.*?\*([A-Z]{4,5}\d{8,})/i.exec(d) ??
+    /\b(CMP(?:IFT|NEFT)\/[A-Z0-9]+)/i.exec(d) ??
+    /\b(SBI[A-Z]?\d{10,})/i.exec(d);
+  return m?.[1] ?? "";
+}
 const rupees = (p: number) => (p / 100).toFixed(2);
 
 /**
@@ -115,7 +133,9 @@ export function StatementLinePane({
   onClose: () => void;
   onDone: (message: string) => void;
 }) {
-  const [tab, setTab] = useState<"match" | "categorize">("match");
+  // Most deposits are a customer's advance with nothing in the books yet: a
+  // line without a match opens where it will be categorized.
+  const [tab, setTab] = useState<"match" | "categorize">(line.matchFound ? "match" : "categorize");
   const isIn = line.direction === "credit";
 
   useEffect(() => {
@@ -397,7 +417,7 @@ function CategorizeTab({
   const cashy = /cash\s*deposit/i.test(line.description ?? "");
   const [contactId, setContactId] = useState("");
   const [mode, setMode] = useState<string>(cashy ? "cash" : "bank_transfer");
-  const [reference, setReference] = useState(line.utr ?? "");
+  const [reference, setReference] = useState(statementReference(line));
   const [notes, setNotes] = useState(line.description ?? "");
   const [applied, setApplied] = useState<Record<string, string>>({});
   const [tds, setTds] = useState("");
@@ -433,6 +453,13 @@ function CategorizeTab({
     queryFn: () => api<Suggestion[]>(`/api/banking/transactions/${line.id}/party-suggestions?side=${side ?? "vendor"}`),
     enabled: !!side || type.kind === "expense",
   });
+  // One name on the statement that the books hold: filled in, for the person
+  // saving to see and change. Two or more, or none, and nothing is filled.
+  useEffect(() => {
+    if (side && suggestions?.length === 1) setContactId(suggestions[0]!.id);
+    if (type.kind === "expense" && suggestions?.length === 1) setVendorId(suggestions[0]!.id);
+  }, [suggestions, side, type.kind]);
+
   const { data: docs } = useQuery({
     queryKey: ["open-docs", side, contactId],
     queryFn: () =>

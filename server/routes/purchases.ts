@@ -1323,6 +1323,7 @@ purchasesRouter.post(
         const jeId = await postJournal(tx, {
           entryDate: body.paymentDate,
           narration: `Payment ${number} — ${vendor.displayName}`,
+          reference: body.reference,
           sourceType: "vendor_payment",
           sourceId: payment!.id,
           postedBy: req.session.user!.id,
@@ -1449,6 +1450,7 @@ purchasesRouter.patch(
         const jeId = await postJournal(tx, {
           entryDate: paymentDate,
           narration: `Payment ${payment.number} — ${vendor.displayName}`,
+          reference: body.reference ?? payment.reference ?? undefined,
           sourceType: "vendor_payment",
           sourceId: payment.id,
           postedBy: req.session.user!.id,
