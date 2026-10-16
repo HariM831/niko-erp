@@ -66,6 +66,7 @@ async function main() {
   const stale: typeof links = [];
   const gone: typeof links = [];
   const drift: typeof links = [];
+  const party_diff: typeof links = [];
   for (const l of links) {
     const z = zoho.get(l.zohoId);
     if (!z) { gone.push(l); continue; }
@@ -82,8 +83,15 @@ async function main() {
      * INV-2026-27/0310 are thirty rupees apart.
      */
     const money = diff <= Math.max(50, Number(z.total) * 0.005);
-    if (!party || !day) stale.push(l);
-    else if (!money) stale.push(l);
+    /**
+     * The same day and the same money is identity enough on its own. One
+     * invoice is attributed to North East Egg Centre in Zoho and to Pal Egg
+     * Center here — both books carry both customers, and exactly one sale sits
+     * on the other one. That is a customer to settle, not a link to drop:
+     * dropping it left a paid receipt with nowhere to go.
+     */
+    if (!day || !money) stale.push(l);
+    else if (!party) party_diff.push(l);
     else if (diff > 1) drift.push(l);
   }
   console.log(`  ${links.length} link(s)`);
@@ -98,6 +106,14 @@ async function main() {
       const z = zoho.get(l.zohoId)!;
       console.log(`    ${l.number}  ${l.date}  ${l.cust.slice(0, 22).padEnd(23)}${Number(l.total).toFixed(0).padStart(11)}`);
       console.log(`      says it is ${z.invoice_number}  ${z.date}  ${(z.customer_name ?? "").slice(0, 22).padEnd(23)}${Number(z.total).toFixed(0).padStart(11)}`);
+    }
+  }
+  if (party_diff.length) {
+    console.log(`
+  same day and amount, a different customer — left linked:`);
+    for (const l of party_diff) {
+      const z = zoho.get(l.zohoId)!;
+      console.log(`    ${l.number}  ${l.date}  ${Number(l.total).toFixed(0).padStart(11)}   niko ${l.cust}  /  zoho ${z.customer_name}`);
     }
   }
   if (drift.length) {
