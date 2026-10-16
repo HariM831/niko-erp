@@ -28,8 +28,16 @@ import { contacts, invoices, zohoIdMap } from "@shared/schema";
 import { db, pool } from "../../server/db";
 
 const COMMIT = process.argv.includes("--commit");
-const file = process.argv.slice(2).find((a) => !a.startsWith("--"));
-const DUMP = ".zoho-dump/detail/invoices.jsonl";
+const args = process.argv.slice(2);
+const file = args.filter((a, i) => !a.startsWith("--") && args[i - 1] !== "--dump")[0];
+/**
+ * Which dump to read. The droplet keeps its own .zoho-dump from the original
+ * September pull, so a run there against the default would check the pairs
+ * against three-week-old copies — which is exactly the staleness this script
+ * exists to repair. Pass the current one.
+ */
+const dumpAt = process.argv.indexOf("--dump");
+const DUMP = dumpAt > -1 ? process.argv[dumpAt + 1]! : ".zoho-dump/detail/invoices.jsonl";
 
 interface Zoho { invoice_id: string; invoice_number: string; date: string; customer_name?: string; total: number }
 
