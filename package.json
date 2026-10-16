@@ -33,6 +33,7 @@
     "javascript-lp-solver": "^1.0.3",
     "lucide-react": "^1.30.0",
     "multer": "^2.2.0",
+    "pdfjs-dist": "^4.10.38",
     "pdfkit": "^0.19.1",
     "pg": "^8.13.1",
     "react": "^19.2.8",

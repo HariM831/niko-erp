@@ -10,6 +10,7 @@ import { AccountSelect, bankNodes, type AccountNode } from "../components/accoun
 import { SearchSelect } from "../components/search-select";
 import { filterRows, useAdvancedSearch, type SearchField } from "../components/advanced-search";
 import { DateInput } from "../components/date-input";
+import { readPdfStatement } from "../lib/pdf-statement";
 
 interface BankTxn {
   id: string;
@@ -712,7 +713,9 @@ function parseCsv(text: string): string[][] {
   return rows;
 }
 
-/** Bank exports are usually DD/MM/YYYY or DD-MM-YYYY; also accept ISO. Returns null if unparseable. */
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+/** Bank exports are usually DD/MM/YYYY or DD-MM-YYYY; PDFs print 7 Oct 2026 or 07-Oct-2026; also accept ISO. Returns null if unparseable. */
 function parseFlexibleDate(raw: string): string | null {
   const s = raw.trim();
   if (!s) return null;
@@ -722,6 +725,9 @@ function parseFlexibleDate(raw: string): string | null {
     const [, d, mo, y] = m;
     return `${y}-${mo!.padStart(2, "0")}-${d!.padStart(2, "0")}`;
   }
+  const named = /^(\d{1,2})[\s-]([A-Za-z]{3})[A-Za-z]*[\s-,]+(\d{4})$/.exec(s);
+  const month = named ? MONTHS.indexOf(named[2]!.toLowerCase()) + 1 : 0;
+  if (named && month) return `${named[3]}-${String(month).padStart(2, "0")}-${named[1]!.padStart(2, "0")}`;
   return null;
 }
 
@@ -822,13 +828,27 @@ function ImportStatementWizard({
 
   const loadFile = async (file: File) => {
     setError(null);
-    const text = await file.text();
-    const parsed = parseCsv(text);
-    if (parsed.length < 2) {
-      setError("Couldn't find any data rows in that file.");
-      return;
+    let head: string[];
+    let rows: string[][];
+    if (/\.pdf$/i.test(file.name) || file.type === "application/pdf") {
+      try {
+        ({ headers: head, rows } = await readPdfStatement(file));
+      } catch {
+        setError("Couldn't read that PDF. A scanned statement has no text to read; download it from net banking instead.");
+        return;
+      }
+      if (!head.length || !rows.length) {
+        setError("Couldn't find a transaction table in that PDF (a header row with Date, Debit and Credit).");
+        return;
+      }
+    } else {
+      const parsed = parseCsv(await file.text());
+      if (parsed.length < 2) {
+        setError("Couldn't find any data rows in that file.");
+        return;
+      }
+      [head, ...rows] = parsed as [string[], ...string[][]];
     }
-    const [head, ...rows] = parsed;
     setFileName(file.name);
     setHeaders(head!);
     setDataRows(rows);
@@ -911,12 +931,12 @@ function ImportStatementWizard({
           >
             <UploadCloud size={22} className="mb-2 text-gray-400" />
             <div className="text-[13px] text-gray-600">
-              {fileName ? <span className="font-medium text-gray-800">{fileName}</span> : "Drag and drop a CSV statement, or click to choose a file"}
+              {fileName ? <span className="font-medium text-gray-800">{fileName}</span> : "Drag and drop a CSV or PDF statement, or click to choose a file"}
             </div>
-            <div className="mt-1 text-xs text-gray-400">Maximum file size 1 MB · CSV only</div>
+            <div className="mt-1 text-xs text-gray-400">CSV or PDF (PDFs must have text, not a scan)</div>
             <input
               type="file"
-              accept=".csv,text/csv"
+              accept=".csv,text/csv,.pdf,application/pdf"
               className="hidden"
               onChange={(e) => {
                 const file = e.target.files?.[0];
