@@ -12,10 +12,14 @@
  * held still, which is the part a person is bad at judging and a computer is
  * good at.
  *
- * The weight is never typed. Since 16 Oct 2026 the field it fills is a
- * display (`WeightDisplay` below): the button may be pressed as often as the
- * operator likes, each press replacing the last, but no hand-keyed number
- * reaches a slip. A platform that is not connected has to be connected.
+ * On a goods receipt the weight is never typed. Since 16 Oct 2026 the field
+ * it fills there is a display (`WeightDisplay` below): the button may be
+ * pressed as often as the operator likes, each press replacing the last, but
+ * no hand-keyed number reaches a receipt. A platform that is not connected
+ * has to be connected.
+ *
+ * The Weighbridge tab's own slips are the exception (`typed`): a slip for a
+ * load that is not a purchase can still be keyed in by hand.
  */
 import { useEffect, useSyncExternalStore } from "react";
 import { Plug, Scale } from "lucide-react";
@@ -43,6 +47,7 @@ export function PlatformWeight({
   onUse,
   takes,
   compact,
+  typed,
 }: {
   onUse?: (kg: string) => void;
   takes?: Take[];
@@ -55,6 +60,8 @@ export function PlatformWeight({
    * the wall, whether or not a receipt is open yet.
    */
   compact?: boolean;
+  /** The field beside it can be typed into, so a dead platform is no dead end. */
+  typed?: boolean;
 }) {
   const buttons: Take[] = takes ?? (onUse ? [{ label: "Use this weight", onUse }] : []);
   const state = useSyncExternalStore(subscribe, getSnapshot);
@@ -69,6 +76,7 @@ export function PlatformWeight({
   }, [supported]);
 
   if (!supported) {
+    if (typed) return null;
     return (
       <div className="mb-3 rounded-lg border border-dashed border-red-200 bg-red-50/60 px-3 py-2 text-[12px] text-red-700">
         This browser cannot read the platform. Use Chrome or Edge on the weighbridge computer.
@@ -112,7 +120,10 @@ export function PlatformWeight({
     return (
       <div className="mb-3 flex items-center justify-between gap-3 rounded-lg border border-dashed border-gray-300 bg-gray-50/60 px-3 py-2">
         <div className="min-w-0 text-[12px] text-gray-500">
-          {state.error ?? "The platform is not connected — connect it to take the weight."}
+          {state.error ??
+            (typed
+              ? "The platform is not connected — type the weight, or connect it."
+              : "The platform is not connected — connect it to take the weight.")}
         </div>
         <button className="btn-secondary shrink-0" onClick={() => void choosePort()}>
           <Plug className="h-3.5 w-3.5" />
