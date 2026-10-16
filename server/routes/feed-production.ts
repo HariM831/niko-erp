@@ -41,7 +41,7 @@ import {
   productionOrders,
 } from "@shared/schema";
 import { db, type Tx } from "../db";
-import { holds, requirePermission } from "../lib/rbac";
+import { holds, requireAnyPermission, requirePermission } from "../lib/rbac";
 import { validateBody } from "../lib/validate";
 import { nextDocumentNumber } from "../lib/numbering";
 import { PostingError, assertPeriodOpen, reverseJournal } from "../services/posting";
@@ -735,7 +735,17 @@ const transferSearch: DocumentSearch = {
   },
 };
 
-feedProductionRouter.get("/transfers", requirePermission("feed_mill", "view"), async (req, res) => {
+/**
+ * Reading what a transfer needs. Whoever may raise one may read its pickers
+ * and its list: a weighbridge hand granted Feed Transfer alone holds no
+ * other mill right, and on `view` alone the dropdowns came back empty.
+ */
+const transferRead = requireAnyPermission([
+  ["feed_mill", "view"],
+  ["feed_mill", "transfer"],
+]);
+
+feedProductionRouter.get("/transfers", transferRead, async (req, res) => {
   // The top-bar search, as on production runs: uncapped, since a search has
   // to reach past the newest hundred.
   const term = typeof req.query.search === "string" ? req.query.search.trim() : "";
@@ -790,7 +800,7 @@ feedProductionRouter.get("/transfers", requirePermission("feed_mill", "view"), a
 /** What a transfer picks from: each formula's feed with the stock behind it. */
 feedProductionRouter.get(
   "/transfers/context",
-  requirePermission("feed_mill", "view"),
+  transferRead,
   async (_req, res) => {
     const [levels, formulaRows, locs, houseRows] = await Promise.all([
       stockOnHand(db),
@@ -1100,7 +1110,7 @@ export async function redateTransfer(
  */
 feedProductionRouter.get(
   "/transfers/unbooked",
-  requirePermission("feed_mill", "view"),
+  transferRead,
   async (_req, res) => {
     const houseRows = await db
       .select({ id: houses.id, code: houses.code, farmName: locations.name })

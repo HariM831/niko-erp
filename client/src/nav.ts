@@ -141,16 +141,21 @@ export const NAV: NavItem[] = [
           ["feed_mill", "formulas"],
           ["feed_mill", "produce"],
           ["feed_mill", "scada"],
+          ["office", "quality_control"],
+          ["feed_mill", "transfer"],
         ],
       },
       { label: "Gate In", path: "/office/gate", perm: ["office", "gate_in"] },
-      /* Weigh In, QC, Weigh Out and Feed Transfer — four tabs on one page,
-         because a truck walks them in a single visit. */
+      /* Weigh In, Weigh Out and the slips — tabs on one page, because they
+         are one operator at one platform. QC and Feed Transfer are pages of
+         their own so each can be granted without the weighbridge. */
       { label: "Weighment", path: "/office/unloading", perm: ["office", "weighbridge"] },
+      { label: "Quality Control", path: "/office/qc", perm: ["office", "quality_control"] },
       { label: "Settlement", path: "/office/settlement", perm: ["office", "settle"] },
       { label: "Goods Receipts", path: "/office/receipts", perm: ["office", "receipts"] },
       { label: "Formulas", path: "/feed-mill/formulas", perm: ["feed_mill", "formulas"] },
       { label: "Production", path: "/feed-mill/production", perm: ["feed_mill", "produce"] },
+      { label: "Feed Transfer", path: "/feed-mill/transfers", perm: ["feed_mill", "transfer"] },
       { label: "SCADA Batches", path: "/feed-mill/scada", perm: ["feed_mill", "scada"] },
       { label: "Live Mill", path: "/feed-mill/live", perm: ["feed_mill", "scada"] },
     ],

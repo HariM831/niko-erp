@@ -130,7 +130,7 @@ export function FeedMillOverviewPage() {
 
   const spots = [
     { key: "atGate", label: "At the gate", hint: "waiting to come in", href: "/office/gate" },
-    { key: "awaitingQc", label: "Awaiting QC", hint: "weighed, not sampled", href: "/office/unloading/qc" },
+    { key: "awaitingQc", label: "Awaiting QC", hint: "weighed, not sampled", href: "/office/qc" },
     { key: "onPlatform", label: "On the platform", hint: "unloading or weighing out", href: "/office/unloading" },
     { key: "toSettle", label: "To settle", hint: "gate out, not billed", href: "/office/settlement" },
   ] as const;
@@ -187,10 +187,12 @@ export function FeedMillOverviewPage() {
             {[
               { label: "Gate In", href: "/office/gate", show: can("office", "gate_in") },
               { label: "Weighment", href: "/office/unloading", show: can("office", "weighbridge") },
+              { label: "Quality Control", href: "/office/qc", show: can("office", "quality_control") },
               { label: "Settlement", href: "/office/settlement", show: can("office", "settle") },
               { label: "Goods Receipts", href: "/office/receipts", show: can("office", "view") },
               { label: "Formulas", href: "/feed-mill/formulas", show: can("feed_mill", "view") },
               { label: "Production", href: "/feed-mill/production", show: can("feed_mill", "produce") },
+              { label: "Feed Transfer", href: "/feed-mill/transfers", show: can("feed_mill", "transfer") },
             ]
               .filter((j) => j.show)
               .map((j) => (

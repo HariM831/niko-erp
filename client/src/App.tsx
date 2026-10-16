@@ -81,7 +81,7 @@ import { OfficeStationPage } from "./pages/office";
 import { GoodsReceiptsPage } from "./pages/office-receipts";
 import { FeedMillOverviewPage } from "./pages/feed-mill-overview";
 import { GateInPage } from "./pages/office-gate";
-import { StationPage, isStation, stationPath } from "./pages/office-stations";
+import { StationPage, isStation, isWeighmentTab, stationPath } from "./pages/office-stations";
 import { WeighbridgeIndicatorPage } from "./pages/weighbridge-indicator";
 import { SettlementPage } from "./pages/office-settlement";
 import { PayrollOverviewPage } from "./pages/payroll/overview";
@@ -189,15 +189,18 @@ export function App() {
         <Route path="/feed-mill" component={FeedMillOverviewPage} />
         <Route path="/office/receipts" component={GoodsReceiptsPage} />
         <Route path="/office/gate" component={GateInPage} />
-        {/* Weigh In, QC, Unloading and Weigh Out are one page with four tabs.
-            The tab lives in the URL so a refresh and a shared link both land
-            where they were, and the four old paths still work. */}
+        {/* Weigh In, Weigh Out and the weighbridge slips are one page with
+            tabs. The tab lives in the URL so a refresh and a shared link both
+            land where they were. QC and Feed Transfer were tabs here too; their
+            old tab links go to the pages they now have. */}
         <Route path="/office/unloading/:station">
           {(p) =>
-            isStation(p.station!) ? (
+            !isStation(p.station!) ? (
+              <Redirect to={stationPath("weighbridge")} />
+            ) : isWeighmentTab(p.station) ? (
               <StationPage key={p.station} station={p.station} />
             ) : (
-              <Redirect to={stationPath("weighbridge")} />
+              <Redirect to={stationPath(p.station)} />
             )
           }
         </Route>
@@ -207,7 +210,7 @@ export function App() {
         <Route path="/office/weighbridge/indicator" component={WeighbridgeIndicatorPage} />
         {/* The stations had a sidebar entry each before they became tabs. */}
         <Route path="/office/weighbridge">{() => <Redirect to={stationPath("weighbridge")} />}</Route>
-        <Route path="/office/qc">{() => <Redirect to={stationPath("qc")} />}</Route>
+        <Route path="/office/qc">{() => <StationPage key="qc" station="qc" />}</Route>
         <Route path="/office/weigh-out">{() => <Redirect to={stationPath("weigh-out")} />}</Route>
         {/* An analysis is a fact about a material, so it lives on the
             material — beside its quality spec. */}
@@ -236,10 +239,10 @@ export function App() {
         <Route path="/farms/controls" component={FarmControlsPage} />
         <Route path="/farms/houses/:id" component={HouseDetailPage} />
         <Route path="/farms/flocks/:id" component={FlockDetailPage} />
-        {/* Feed transfer is weighed on the same platform, so it lives with the
-            other weighments rather than in a screen of its own. */}
+        {/* Its own page since 16 Oct 2026, so it can be granted on its own:
+            as a Weighment tab it took the weighbridge right to reach. */}
         <Route path="/feed-mill/transfers">
-          {() => <Redirect to={stationPath("transfer")} />}
+          {() => <StationPage key="transfer" station="transfer" />}
         </Route>
         <Route path="/office/settlement" component={SettlementPage} />
         <Route path="/office/:station">

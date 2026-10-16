@@ -55,7 +55,20 @@ const QUEUELESS: Station[] = ["transfer", "slips"];
 export const isStation = (v: string): v is Station =>
   (STATION_ORDER as string[]).includes(v);
 
-export const stationPath = (s: Station) => `/office/unloading/${s}`;
+/**
+ * The tabs the Weighment page still holds.
+ *
+ * Quality Control and Feed Transfer were tabs here too, and moved to sidebar
+ * pages of their own on 16 Oct 2026: a tab is reached only by whoever may open
+ * Weighment, so a QC chemist or a transfer clerk needed the weighbridge right
+ * to get to their own job.
+ */
+const WEIGHMENT_TABS: Station[] = ["weighbridge", "weigh-out", "slips"];
+
+export const isWeighmentTab = (s: Station) => WEIGHMENT_TABS.includes(s);
+
+export const stationPath = (s: Station) =>
+  s === "qc" ? "/office/qc" : s === "transfer" ? "/feed-mill/transfers" : `/office/unloading/${s}`;
 
 const QUEUE_OF: Record<Station, string> = {
   weighbridge: "gross",
@@ -1201,7 +1214,9 @@ export function StationPage({ station }: { station: Station }) {
   return (
     <div className="mx-auto max-w-4xl p-4 sm:p-6">
       <div className="page-header -mx-4 mb-4 flex items-baseline justify-between gap-4 px-4 py-3 sm:-mx-6 sm:px-6">
-        <h1 className="text-[19px] font-semibold text-gray-900">Weighment</h1>
+        <h1 className="text-[19px] font-semibold text-gray-900">
+          {isWeighmentTab(station) ? "Weighment" : meta.title}
+        </h1>
         {/* What is on the platform, whether or not a truck has been picked.
             The two weighing stations only; QC weighs nothing, and Feed Transfer
             already carries a reading that does not wait on a selection.
@@ -1215,8 +1230,9 @@ export function StationPage({ station }: { station: Station }) {
         {station === "qc" && <NirFeedStatus />}
         {QUEUELESS.includes(station) && adv.button}
       </div>
+      {isWeighmentTab(station) && (
       <div className="mb-4 flex gap-1 border-b border-gray-200" role="tablist">
-        {STATION_ORDER.map((s) => {
+        {WEIGHMENT_TABS.map((s) => {
           const count = queues[s]?.data?.length ?? 0;
           const active = s === station;
           return (
@@ -1245,6 +1261,7 @@ export function StationPage({ station }: { station: Station }) {
           );
         })}
       </div>
+      )}
 
       {!QUEUELESS.includes(station) && (
         <div className="mb-3 text-right text-[13px] text-gray-400">{term.trim() ? `${queue?.length ?? 0} of ${allQueued?.length ?? 0}` : (queue?.length ?? 0)} waiting</div>
