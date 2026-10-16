@@ -67,6 +67,7 @@ async function main() {
   const gone: typeof links = [];
   const drift: typeof links = [];
   const party_diff: typeof links = [];
+  const figures: typeof links = [];
   for (const l of links) {
     const z = zoho.get(l.zohoId);
     if (!z) { gone.push(l); continue; }
@@ -84,19 +85,31 @@ async function main() {
      */
     const money = diff <= Math.max(50, Number(z.total) * 0.005);
     /**
-     * The same day and the same money is identity enough on its own. One
-     * invoice is attributed to North East Egg Centre in Zoho and to Pal Egg
-     * Center here — both books carry both customers, and exactly one sale sits
-     * on the other one. That is a customer to settle, not a link to drop:
-     * dropping it left a paid receipt with nowhere to go.
+     * The day anchors identity, and then either the customer or the money has
+     * to corroborate it. Both of the ways these books drift are covered:
+     *
+     *   same day, same customer, different amount — one sale with a wrong
+     *   figure here. 0177 and 0211 have their amounts transposed between them
+     *   and 0702 is exactly double. Those are corrections; drop the link and
+     *   there is nothing left to correct, and the invoice cannot be rebuilt.
+     *
+     *   same day, same amount, different customer — one sale attributed to
+     *   North East Egg Centre in Zoho and Pal Egg Center here. A question of
+     *   which customer bought, not evidence of two sales. Drop the link and a
+     *   paid receipt of 6,00,600 has nowhere to go.
+     *
+     * A different day is a different sale, and so is a day where neither the
+     * customer nor the money agrees.
      */
-    if (!day || !money) stale.push(l);
+    if (!day || (!party && !money)) stale.push(l);
     else if (!party) party_diff.push(l);
+    else if (!money) figures.push(l);
     else if (diff > 1) drift.push(l);
   }
   console.log(`  ${links.length} link(s)`);
   console.log(`    agree ................................ ${links.length - stale.length - gone.length - drift.length}`);
   console.log(`    same sale, a few rupees apart ........ ${drift.length}   (kept; correct the figure, do not re-import)`);
+  console.log(`    same day and customer, other amount .. ${figures.length}   (kept; correct the figure)`);
   console.log(`    different sale — stale ............... ${stale.length}`);
   console.log(`    point at an invoice Zoho no longer has ${gone.length}`);
 
@@ -106,6 +119,14 @@ async function main() {
       const z = zoho.get(l.zohoId)!;
       console.log(`    ${l.number}  ${l.date}  ${l.cust.slice(0, 22).padEnd(23)}${Number(l.total).toFixed(0).padStart(11)}`);
       console.log(`      says it is ${z.invoice_number}  ${z.date}  ${(z.customer_name ?? "").slice(0, 22).padEnd(23)}${Number(z.total).toFixed(0).padStart(11)}`);
+    }
+  }
+  if (figures.length) {
+    console.log(`
+  same day and customer, a different amount — left linked, correct the figure:`);
+    for (const l of figures) {
+      const z = zoho.get(l.zohoId)!;
+      console.log(`    ${l.number}  ${l.date}  ${l.cust.slice(0, 24).padEnd(25)}  niko ${Number(l.total).toFixed(0)}  zoho ${Number(z.total).toFixed(0)}`);
     }
   }
   if (party_diff.length) {
