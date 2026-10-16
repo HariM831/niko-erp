@@ -16,7 +16,7 @@
  * is the same authority that records a gross weight at Weigh In.
  */
 import { Router } from "express";
-import { and, asc, desc, eq, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, isNull, not, notInArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { contacts, items, locations, orgProfile, users, weighTickets } from "@shared/schema";
 import { db } from "../db";
@@ -90,6 +90,16 @@ const withNames = () =>
 const isOpen = or(isNull(weighTickets.grossWeightKg), isNull(weighTickets.tareWeightKg));
 
 /**
+ * A part-weighed vehicle stops being "on the weighbridge" after 48 hours.
+ *
+ * Nobody comes back for a second weighment two days later: what sits that
+ * long is a slip opened by mistake or a load turned away after one run, and
+ * it crowded the queue the operator works from. It drops into the past
+ * weighments as it is — still there to find, and still completable.
+ */
+const lapsed = sql`${weighTickets.createdAt} < now() - interval '48 hours'`;
+
+/**
  * The advanced search over past weighments — what a driver back for a copy of
  * his slip can tell you: the plate, the day, whose load it was and what was on
  * it, roughly how heavy.
@@ -119,9 +129,9 @@ weighTicketsRouter.get(
     const status = (req.query.status as string | undefined) ?? "open";
     const byStatus =
       status === "open"
-        ? isOpen
+        ? and(isOpen, not(lapsed))
         : status === "closed"
-          ? and(isNotNull(weighTickets.grossWeightKg), isNotNull(weighTickets.tareWeightKg))
+          ? or(and(isNotNull(weighTickets.grossWeightKg), isNotNull(weighTickets.tareWeightKg)), lapsed)
           : undefined;
     // The top-bar search, by the rule every list follows. Past slips are
     // browsed fifty at a time; a search reaches every one, so it is not capped.

@@ -269,7 +269,12 @@ export function WeighbridgeSlips({ term = "", criteria = {} }: { term?: string; 
             >
               <div className="flex items-baseline justify-between gap-2">
                 <span className="text-[14px] font-semibold text-gray-900">{t.vehicleNumber}</span>
-                <span className="text-[13px] font-semibold tabular-nums text-gray-900">Net {kg(t.netWeightKg)}</span>
+                {isClosed(t) ? (
+                  <span className="text-[13px] font-semibold tabular-nums text-gray-900">Net {kg(t.netWeightKg)}</span>
+                ) : (
+                  // Left part-weighed past 48 hours, so it came off the queue.
+                  <span className="text-[12px] font-medium text-amber-600">One weighment only</span>
+                )}
               </div>
               <div className="flex items-baseline justify-between gap-2 text-[12px] text-gray-500">
                 <span className="truncate">
