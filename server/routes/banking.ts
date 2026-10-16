@@ -699,7 +699,8 @@ function partyVerdict(label: string | null | undefined, names: Set<string> | und
 /**
  * Each line with what it stands for in the books, and for a line still
  * uncategorized whether exactly one transaction in the books fits it — Zoho's
- * "Match found" tag: same bank, same side, the very amount, within a week, not
+ * "Match found" tag: same bank, same side, the very amount, within three days (a week-old receipt of the same sum is
+ * usually the week before's, not this one), not
  * matched to anything yet.
  */
 async function withLinkInfo(lines: Array<typeof bankTransactions.$inferSelect>) {
@@ -717,7 +718,7 @@ async function withLinkInfo(lines: Array<typeof bankTransactions.$inferSelect>) 
         FROM bank_transactions t
         JOIN bank_accounts b ON b.id = t.bank_account_id
         JOIN journal_entries je ON je.status = 'posted' AND NOT je.is_reversal
-          AND je.entry_date BETWEEN t.txn_date - 7 AND t.txn_date + 7
+          AND je.entry_date BETWEEN t.txn_date - 3 AND t.txn_date + 3
         JOIN journal_entry_lines l ON l.entry_id = je.id AND l.account_id = b.gl_account_id
         WHERE t.id IN (${sql.join(open.map((id) => sql`${id}::uuid`), sql`, `)})
           AND NOT EXISTS (SELECT 1 FROM bank_transaction_links k WHERE k.journal_entry_id = je.id AND k.bank_account_id = b.id)
