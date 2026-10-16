@@ -2668,12 +2668,12 @@ purchasesRouter.post(
         if (!bank) throw new PostingError("Paying bank account not found");
         if (!bank.isActive) throw new PostingError("That bank account is no longer active");
 
-        // The bank rejects a file whose first four columns do not identify us,
-        // and it rejects it after the accounts team has uploaded it and gone
-        // home. Cheaper to refuse here, naming the screen that fixes it.
+        // Cheaper to refuse here than after the accounts team has uploaded the
+        // file, naming the screen that fixes it. The bank's customer code is
+        // not required: without one its column goes out blank and the sheet
+        // still carries every account for a bulk transfer.
         const payer = await paymentFilePayer(bank, tx);
         const unset: string[] = [];
-        if (!payer.customerCode) unset.push("the bank's customer code on this account (Banking)");
         if (!payer.accountNumber) unset.push("this account's number (Banking)");
         if (!payer.customerName) unset.push("the organisation name (Settings)");
         if (unset.length) {

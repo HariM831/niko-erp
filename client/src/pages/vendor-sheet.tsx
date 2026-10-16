@@ -667,9 +667,9 @@ function SendToBankDialog({
                   include={() => true}
                 />
                 {account && !account.bankCustomerCode && (
-                  <p className="mt-1 text-[12px] text-amber-700">
-                    This account has no customer code from the bank. Add it under Banking, or the
-                    bank will reject the file.
+                  <p className="mt-1 text-[12px] text-gray-500">
+                    No customer code from the bank on this account — the Cus Code column is left
+                    blank.
                   </p>
                 )}
               </div>
