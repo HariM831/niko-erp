@@ -932,6 +932,13 @@
       "when": 1792600000000,
       "tag": "0128_bank_transaction_links",
       "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "7",
+      "when": 1792700000000,
+      "tag": "0129_salary_slip_paid",
+      "breakpoints": true
     }
   ]
 }

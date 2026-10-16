@@ -513,6 +513,15 @@ export const salarySlips = pgTable(
     bankName: text("bank_name"),
     bankAccountNumber: varchar("bank_account_number", { length: 30 }),
     bankIfsc: varchar("bank_ifsc", { length: 11 }),
+    /**
+     * The journal that paid this slip from a bank statement line (Banking ›
+     * Salary Payment): Salary Payable against the bank. Cleared when the line
+     * is uncategorized and the journal deleted, so the slip can be paid again.
+     */
+    paidJournalEntryId: uuid("paid_journal_entry_id").references(() => journalEntries.id, { onDelete: "set null" }),
   },
-  (t) => [uniqueIndex("uq_salary_slips_run_emp").on(t.payrollRunId, t.employeeId)],
+  (t) => [
+    uniqueIndex("uq_salary_slips_run_emp").on(t.payrollRunId, t.employeeId),
+    uniqueIndex("uq_salary_slips_paid_je").on(t.paidJournalEntryId),
+  ],
 );

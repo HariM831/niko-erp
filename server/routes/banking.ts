@@ -14,6 +14,9 @@ import {
   contacts,
   creditNotes,
   customFieldValues,
+  employees,
+  payrollRuns,
+  salarySlips,
   customerPayments,
   expenses,
   invoices,
@@ -947,6 +950,117 @@ bankingRouter.get("/transactions/:id/party-suggestions", requirePermission("bank
     .where(and(inArray(contacts.type, [side, "both"]), eq(contacts.isActive, true), eq(contacts.isGroupCompany, false)));
   res.json(suggestParties(`${line.description ?? ""} ${line.utr ?? ""} ${line.counterparty ?? ""}`, people));
 });
+
+// ---------- Salary Payment (a payslip paid from the bank) ----------
+
+/**
+ * Payslips a salary transfer could be paying: confirmed runs whose journal
+ * owes the pay in Salary Payable, from the line's month and the three before,
+ * not paid yet, net pay to the rupee. The employee the line names (or whose
+ * bank account it carries) first.
+ */
+async function salaryCandidates(tx: Tx | typeof db, line: typeof bankTransactions.$inferSelect) {
+  const [y, m] = line.txnDate.split("-").map(Number) as [number, number];
+  const ym = y * 12 + (m - 1);
+  const rows = await tx
+    .select({
+      slipId: salarySlips.id,
+      employeeId: employees.id,
+      employeeName: employees.name,
+      accountNumber: salarySlips.bankAccountNumber,
+      netPay: salarySlips.netPay,
+      month: payrollRuns.month,
+      year: payrollRuns.year,
+    })
+    .from(salarySlips)
+    .innerJoin(payrollRuns, eq(payrollRuns.id, salarySlips.payrollRunId))
+    .innerJoin(employees, eq(employees.id, salarySlips.employeeId))
+    .where(
+      and(
+        eq(payrollRuns.status, "confirmed"),
+        sql`${payrollRuns.journalEntryId} IS NOT NULL`,
+        sql`${salarySlips.paidJournalEntryId} IS NULL`,
+        eq(salarySlips.netPay, line.amount),
+        sql`${payrollRuns.year} * 12 + ${payrollRuns.month} - 1 BETWEEN ${ym - 3} AND ${ym}`,
+      ),
+    );
+  const named = new Map(
+    suggestParties(
+      `${line.description ?? ""} ${line.utr ?? ""} ${line.counterparty ?? ""}`,
+      rows.map((r) => ({ id: r.slipId, displayName: r.employeeName, accountNumber: r.accountNumber })),
+    ).map((s) => [s.id, s.reason]),
+  );
+  return rows
+    .map((r) => ({
+      slipId: r.slipId,
+      employeeName: r.employeeName,
+      month: r.month,
+      year: r.year,
+      netPay: r.netPay,
+      reason: named.get(r.slipId) ?? null,
+    }))
+    .sort((a, b) => Number(!!b.reason) - Number(!!a.reason) || b.year * 12 + b.month - (a.year * 12 + a.month));
+}
+
+bankingRouter.get("/transactions/:id/salary-suggestions", requirePermission("banking", "view"), async (req, res) => {
+  const line = await db.query.bankTransactions.findFirst({ where: eq(bankTransactions.id, req.params.id!) });
+  if (!line) return res.status(404).json({ error: "Bank statement line not found" });
+  if (line.direction !== "debit") return res.json([]);
+  res.json(await salaryCandidates(db, line));
+});
+
+/**
+ * Pay a payslip from a statement line: Salary Payable against the bank. The
+ * month's run already put the pay in Salary Payable and the expense in
+ * salaries; this only says it left the bank, so posting it to an expense
+ * would count the month twice.
+ */
+bankingRouter.post(
+  "/transactions/:id/salary-payment",
+  requirePermission("banking", "create"),
+  validateBody(z.object({ salarySlipId: z.string().uuid(), reference: z.string().max(100).optional() })),
+  async (req, res) => {
+    try {
+      const result = await db.transaction(async (tx) => {
+        const txn = await loadUnmatchedTxn(tx, req.params.id!);
+        if (txn.direction !== "debit") throw new PostingError("A salary payment is money out — this line is a deposit");
+        const bank = await tx.query.bankAccounts.findFirst({ where: eq(bankAccounts.id, txn.bankAccountId) });
+        if (!bank) throw new PostingError("Bank account not found");
+        const slip = (await salaryCandidates(tx, txn)).find((c) => c.slipId === req.body.salarySlipId);
+        if (!slip) {
+          throw new PostingError(
+            "That payslip cannot be paid from this line: it is already paid, its run is not confirmed and posted, or its net pay is not the line's amount",
+          );
+        }
+        const month = `${String(slip.month).padStart(2, "0")}/${slip.year}`;
+        const jeId = await postJournal(tx, {
+          entryDate: txn.txnDate,
+          narration: `Salary ${month} — ${slip.employeeName}`,
+          reference: req.body.reference || txn.utr || undefined,
+          sourceType: "banking",
+          sourceId: txn.id,
+          postedBy: req.session.user!.id,
+          lines: [
+            { systemKey: "salary_payable", debit: txn.amount, description: `Salary ${month} — ${slip.employeeName}` },
+            { accountId: bank.glAccountId, credit: txn.amount },
+          ] as never,
+        });
+        const [paid] = await tx
+          .update(salarySlips)
+          .set({ paidJournalEntryId: jeId })
+          .where(and(eq(salarySlips.id, slip.slipId), sql`${salarySlips.paidJournalEntryId} IS NULL`))
+          .returning({ id: salarySlips.id });
+        if (!paid) throw new PostingError(`${slip.employeeName}'s ${month} payslip was paid a moment ago`);
+        await linkStatementLine(tx, { bankTransactionId: txn.id, journalEntryIds: [jeId], kind: "categorized" });
+        return { journalEntryId: jeId, employeeName: slip.employeeName, month };
+      });
+      res.json(result);
+    } catch (err) {
+      if (err instanceof PostingError) return res.status(422).json({ error: err.message });
+      throw err;
+    }
+  },
+);
 
 /**
  * Unmatch, or uncategorize. A matched line only lets go of what it was

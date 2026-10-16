@@ -54,6 +54,16 @@ interface OpenDoc {
   billDate?: string;
   dueDate?: string;
 }
+interface SalaryCandidate {
+  slipId: string;
+  employeeName: string;
+  month: number;
+  year: number;
+  netPay: string;
+  reason: string | null;
+}
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
 interface BankAccount {
   id: string;
   name: string;
@@ -88,7 +98,7 @@ const rupees = (p: number) => (p / 100).toFixed(2);
  * expense in its own module, a transfer, or a journal to a head of the kind
  * the type names.
  */
-type Kind = "customer_advance" | "customer_payment" | "vendor_advance" | "vendor_payment" | "expense" | "transfer" | "card_payment" | "account";
+type Kind = "customer_advance" | "customer_payment" | "vendor_advance" | "vendor_payment" | "expense" | "transfer" | "card_payment" | "salary" | "account";
 interface TxnType {
   id: string;
   label: string;
@@ -109,6 +119,8 @@ const MONEY_OUT: TxnType[] = [
   { id: "expense", label: "Expense", kind: "expense" },
   { id: "vendor_advance", label: "Vendor Advance", kind: "vendor_advance" },
   { id: "vendor_payment", label: "Vendor Payment", kind: "vendor_payment" },
+  // Not one of Zoho's: a payslip paid from the bank, against Salary Payable.
+  { id: "salary_payment", label: "Salary Payment", kind: "salary" },
   { id: "transfer_out", label: "Transfer To Another Account", kind: "transfer" },
   { id: "card_payment", label: "Card Payment", kind: "card_payment" },
   { id: "owner_drawings", label: "Owner Drawings", kind: "account", heads: (a) => a.type === "equity" },
@@ -424,6 +436,7 @@ function CategorizeTab({
   const [accountId, setAccountId] = useState("");
   const [otherBankId, setOtherBankId] = useState("");
   const [vendorId, setVendorId] = useState("");
+  const [slipId, setSlipId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -459,6 +472,23 @@ function CategorizeTab({
     if (side && suggestions?.length === 1) setContactId(suggestions[0]!.id);
     if (type.kind === "expense" && suggestions?.length === 1) setVendorId(suggestions[0]!.id);
   }, [suggestions, side, type.kind]);
+
+  const { data: slips } = useQuery({
+    queryKey: ["salary-suggestions", line.id],
+    queryFn: () => api<SalaryCandidate[]>(`/api/banking/transactions/${line.id}/salary-suggestions`),
+    enabled: !isIn,
+  });
+  // A transfer to someone whose payslip it pays is a salary, not an expense.
+  const [typeChosen, setTypeChosen] = useState(false);
+  useEffect(() => {
+    if (!typeChosen && slips?.some((c) => c.reason)) setTypeId("salary_payment");
+  }, [slips, typeChosen]);
+  useEffect(() => {
+    if (type.kind !== "salary" || !slips) return;
+    const named = slips.filter((c) => c.reason);
+    const only = named.length === 1 ? named[0] : slips.length === 1 ? slips[0] : undefined;
+    if (only) setSlipId(only.slipId);
+  }, [slips, type.kind]);
 
   const { data: docs } = useQuery({
     queryKey: ["open-docs", side, contactId],
@@ -519,7 +549,9 @@ function CategorizeTab({
         ? !!accountId
         : type.kind === "transfer" || type.kind === "card_payment"
           ? !!otherBankId
-          : !!contactId && appliedP <= grossP && (side !== "vendor" || tdsP < grossP);
+          : type.kind === "salary"
+            ? !!slipId
+            : !!contactId && appliedP <= grossP && (side !== "vendor" || tdsP < grossP);
 
   const save = async () => {
     setBusy(true);
@@ -564,6 +596,12 @@ function CategorizeTab({
           },
         });
         message = `Expense ${saved.number} recorded and the line categorized.`;
+      } else if (type.kind === "salary") {
+        const paid = await api<{ employeeName: string; month: string }>(`/api/banking/transactions/${line.id}/salary-payment`, {
+          method: "POST",
+          body: { salarySlipId: slipId, reference: reference || undefined },
+        });
+        message = `${paid.employeeName}'s ${paid.month} salary paid from Salary Payable and the line categorized.`;
       } else if (type.kind === "transfer" || type.kind === "card_payment") {
         await api("/api/banking/transfer", {
           method: "POST",
@@ -599,7 +637,17 @@ function CategorizeTab({
     <div className="space-y-3 px-5 py-4 text-[13px]">
       <div>
         <label className="label-required">Category *</label>
-        <SearchSelect value={typeId} onChange={(id) => id && setTypeId(id)} options={typeOptions} allowClear={false} keepOrder />
+        <SearchSelect
+          value={typeId}
+          onChange={(id) => {
+            if (!id) return;
+            setTypeChosen(true);
+            setTypeId(id);
+          }}
+          options={typeOptions}
+          allowClear={false}
+          keepOrder
+        />
         <p className="mt-1 text-[11px] text-gray-400">{isIn ? "Money In" : "Money Out"}</p>
       </div>
 
@@ -613,6 +661,37 @@ function CategorizeTab({
             pinned={pinned}
             placeholder={`Select ${side === "customer" ? "Customer" : "Vendor"}`}
           />
+        </div>
+      )}
+
+      {type.kind === "salary" && (
+        <div>
+          <label className="label-required">Payslip *</label>
+          {!slips ? (
+            <p className="text-gray-400">Loading…</p>
+          ) : !slips.length ? (
+            <p className="text-gray-500">
+              No unpaid payslip in a confirmed run comes to {formatMoney(line.amount)}. A payslip shows here once its month is
+              confirmed in Payroll and only until it is paid.
+            </p>
+          ) : (
+            <>
+              <SearchSelect
+                value={slipId || null}
+                onChange={(id) => setSlipId(id ?? "")}
+                options={slips.map((c) => ({
+                  id: c.slipId,
+                  label: `${c.employeeName} — ${MONTH_SHORT[c.month - 1]} ${c.year}`,
+                  sub: c.reason ? `statement matches ${c.reason}` : "same net pay",
+                }))}
+                placeholder="Select payslip"
+                keepOrder
+              />
+              <p className="mt-1 text-[11px] text-gray-400">
+                Paid from Salary Payable: the month's payroll run has already booked the salary expense.
+              </p>
+            </>
+          )}
         </div>
       )}
 
