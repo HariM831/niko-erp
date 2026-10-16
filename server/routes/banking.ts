@@ -664,6 +664,38 @@ bankingRouter.get(
   },
 );
 
+/** The names of the customers and vendors each line spells out or carries the account number of. */
+async function linePartyNames(lines: Array<{ id: string; description: string | null; utr: string | null; counterparty: string | null }>) {
+  const out = new Map<string, Set<string>>();
+  if (!lines.length) return out;
+  const people = await db
+    .select({
+      id: contacts.id,
+      displayName: contacts.displayName,
+      companyName: contacts.companyName,
+      beneficiary: contacts.bankBeneficiaryName,
+      accountNumber: contacts.bankAccountNumber,
+    })
+    .from(contacts)
+    .where(and(eq(contacts.isActive, true), eq(contacts.isGroupCompany, false)));
+  for (const l of lines) {
+    const found = suggestParties(`${l.description ?? ""} ${l.utr ?? ""} ${l.counterparty ?? ""}`, people);
+    out.set(l.id, new Set(found.map((f) => f.displayName)));
+  }
+  return out;
+}
+
+/**
+ * Does a transaction's party ("Customer: NB Traders") agree with the names a
+ * line carries? "same" when it is one of them, "other" when the line names
+ * someone else, undefined when either side names nobody.
+ */
+function partyVerdict(label: string | null | undefined, names: Set<string> | undefined) {
+  if (!label || !names?.size) return undefined;
+  const name = label.slice(label.indexOf(": ") + 2);
+  return names.has(name) ? ("same" as const) : ("other" as const);
+}
+
 /**
  * Each line with what it stands for in the books, and for a line still
  * uncategorized whether exactly one transaction in the books fits it — Zoho's
@@ -681,8 +713,7 @@ async function withLinkInfo(lines: Array<typeof bankTransactions.$inferSelect>) 
   const fits = new Map<string, number>();
   if (open.length) {
     const rows = await db.execute(sql`
-      SELECT c.line_id, COUNT(*)::int AS n FROM (
-        SELECT t.id AS line_id, je.id AS entry_id
+      SELECT t.id AS line_id, je.id AS entry_id, je.source_type, je.source_id
         FROM bank_transactions t
         JOIN bank_accounts b ON b.id = t.bank_account_id
         JOIN journal_entries je ON je.status = 'posted' AND NOT je.is_reversal
@@ -691,9 +722,17 @@ async function withLinkInfo(lines: Array<typeof bankTransactions.$inferSelect>) 
         WHERE t.id IN (${sql.join(open.map((id) => sql`${id}::uuid`), sql`, `)})
           AND NOT EXISTS (SELECT 1 FROM bank_transaction_links k WHERE k.journal_entry_id = je.id AND k.bank_account_id = b.id)
         GROUP BY t.id, t.direction, t.amount, je.id
-        HAVING SUM(l.debit - l.credit) = CASE WHEN t.direction = 'credit' THEN t.amount ELSE -t.amount END
-      ) c GROUP BY c.line_id`);
-    for (const r of rows.rows as Array<{ line_id: string; n: number }>) fits.set(r.line_id, r.n);
+        HAVING SUM(l.debit - l.credit) = CASE WHEN t.direction = 'credit' THEN t.amount ELSE -t.amount END`);
+    const exact = rows.rows as Array<{ line_id: string; entry_id: string; source_type: string; source_id: string | null }>;
+    const labels = await loadPartyLabels(exact.map((r) => ({ sourceType: r.source_type, sourceId: r.source_id })));
+    const named = await linePartyNames(lines.filter((l) => l.matchStatus === "unmatched"));
+    // Two customers paid ₹2,62,013 on the same day: the amount alone would
+    // tag both lines with the one receipt. A line that names its payer only
+    // fits a receipt from that payer.
+    for (const r of exact) {
+      if (partyVerdict(labels.get(`${r.source_type}:${r.source_id}`), named.get(r.line_id)) === "other") continue;
+      fits.set(r.line_id, (fits.get(r.line_id) ?? 0) + 1);
+    }
   }
   return lines.map((l) => ({
     ...l,
@@ -837,6 +876,7 @@ bankingRouter.get("/transactions/:id/possible-matches", requirePermission("banki
     .having(sql`${net} <> 0`);
 
   const labels = await loadPartyLabels(rows);
+  const named = (await linePartyNames([line])).get(line.id);
   const utr = (line.utr ?? "").replace(/\s+/g, "").toLowerCase();
   const desc = (line.description ?? "").replace(/\s+/g, "").toLowerCase();
   const text = (q.contact ?? "").trim().toLowerCase();
@@ -861,6 +901,7 @@ bankingRouter.get("/transactions/:id/possible-matches", requirePermission("banki
         amount: fromPaiseStr(Math.abs(p)),
         exact: Math.abs(p) === lineP && p > 0 === wantDebit,
         sharedRef: refKey.length >= 6 && (utr.includes(refKey) || desc.includes(refKey) || (utr.length >= 6 && refKey.includes(utr))),
+        party_: partyVerdict(party, named),
         days: Math.abs(dayDiff(r.entryDate, line.txnDate)),
         p,
       };
@@ -869,9 +910,18 @@ bankingRouter.get("/transactions/:id/possible-matches", requirePermission("banki
     .filter((c) => Math.abs(c.p) >= minP && Math.abs(c.p) <= maxP)
     .filter((c) => !text || (c.party ?? "").toLowerCase().includes(text) || c.narration.toLowerCase().includes(text))
     .filter((c) => !ref || (c.reference ?? "").toLowerCase().includes(ref) || c.entryNumber.toLowerCase().includes(ref))
-    .sort((a, b) => Number(b.exact) - Number(a.exact) || Number(b.sharedRef) - Number(a.sharedRef) || a.days - b.days)
+    // The closest first: the very amount from the payer the line names, then
+    // the payer, then a shared reference, then the amount, then the date.
+    .sort(
+      (a, b) =>
+        Number(b.exact && b.party_ !== "other") - Number(a.exact && a.party_ !== "other") ||
+        Number(b.party_ === "same") - Number(a.party_ === "same") ||
+        Number(b.sharedRef) - Number(a.sharedRef) ||
+        Number(b.exact) - Number(a.exact) ||
+        a.days - b.days,
+    )
     .slice(0, 100)
-    .map(({ p: _p, ...c }) => c);
+    .map(({ p: _p, party_, ...c }) => ({ ...c, sameParty: party_ === "same", otherParty: party_ === "other" }));
   res.json({ from, to, candidates });
 });
 

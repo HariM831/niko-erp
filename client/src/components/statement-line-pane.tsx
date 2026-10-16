@@ -32,6 +32,9 @@ interface Candidate {
   amount: string;
   exact: boolean;
   sharedRef: boolean;
+  sameParty: boolean;
+  /** The line names a different customer or vendor. */
+  otherParty: boolean;
 }
 interface Contact {
   id: string;
@@ -316,7 +319,15 @@ function MatchTab({ line, onDone }: { line: StatementLine; onDone: (m: string) =
                     <a href={c.docPath} target="_blank" rel="noreferrer" className="text-brand-600 hover:underline">
                       {c.entryNumber}
                     </a>
-                    {c.exact && <span className="rounded bg-green-100 px-1.5 text-[10px] font-semibold uppercase text-green-700">Best match</span>}
+                    {c.exact && !c.otherParty && (
+                      <span className="rounded bg-green-100 px-1.5 text-[10px] font-semibold uppercase text-green-700">Best match</span>
+                    )}
+                    {c.sameParty && <span className="rounded bg-green-50 px-1.5 text-[10px] font-semibold uppercase text-green-700">Same party</span>}
+                    {c.otherParty && (
+                      <span className="rounded bg-amber-100 px-1.5 text-[10px] font-semibold uppercase text-amber-700" title="The statement line names someone else">
+                        Different party
+                      </span>
+                    )}
                     {c.sharedRef && <span className="rounded bg-blue-100 px-1.5 text-[10px] font-semibold uppercase text-blue-700">Same ref</span>}
                   </div>
                   <div className="text-[12px] text-gray-500">
