@@ -12,8 +12,8 @@
  * The reasons come back in words either way, because the person deciding
  * whether to turn a loaded truck away has to see which condition failed.
  */
-import { and, eq, inArray, sql } from "drizzle-orm";
-import { items, purchaseOrderLines, purchaseOrders } from "@shared/schema";
+import { and, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { items, officeReceiptLines, purchaseOrderLines, purchaseOrders } from "@shared/schema";
 import { getPreferences } from "./preferences";
 import type { Db, Tx } from "../db";
 import type { LineMatch, MatchReason, PoCandidate } from "@shared/po-match-types";
@@ -131,9 +131,23 @@ function checkDate(billDate: string | null, expected: string | null): MatchReaso
  */
 export async function matchPurchaseOrderLines(
   db: Db | Tx,
-  input: { vendorId: string | null; billDate: string | null; lines: LineToMatch[] },
+  input: {
+    vendorId: string | null;
+    billDate: string | null;
+    lines: LineToMatch[];
+    /**
+     * The receipt being edited, when it is one.
+     *
+     * A QC rejection counts its kilos as delivered on the order at once, so
+     * on an edit of that same receipt the order looked used up by the very
+     * load being corrected — the line could not find its own order, and
+     * saving dropped the link (GR-00053, 13 Oct 2026). What this receipt's
+     * rejected lines charged is credited back before anything is judged.
+     */
+    receiptId?: string | null;
+  },
 ): Promise<LineMatch[]> {
-  const { vendorId, billDate, lines } = input;
+  const { vendorId, billDate, lines, receiptId } = input;
 
   const none = (message: string): LineMatch[] =>
     lines.map((_, i) => ({
@@ -150,7 +164,22 @@ export async function matchPurchaseOrderLines(
   // matcher honours the same setting and none can be given a different one.
   const tolerancePct = Number((await getPreferences(db)).poOverDeliveryPct);
 
-  const open = await db
+  const ownCharge = new Map<string, number>();
+  if (receiptId) {
+    const charged = await db
+      .select({ poLineId: officeReceiptLines.poLineId, qty: officeReceiptLines.billQuantityKg })
+      .from(officeReceiptLines)
+      .where(
+        and(
+          eq(officeReceiptLines.receiptId, receiptId),
+          eq(officeReceiptLines.qcVerdict, "rejected"),
+          isNotNull(officeReceiptLines.poLineId),
+        ),
+      );
+    for (const c of charged) ownCharge.set(c.poLineId!, (ownCharge.get(c.poLineId!) ?? 0) + n(c.qty));
+  }
+
+  const rows = await db
     .select({
       poId: purchaseOrders.id,
       poNumber: purchaseOrders.number,
@@ -169,10 +198,18 @@ export async function matchPurchaseOrderLines(
       and(
         eq(purchaseOrders.vendorId, vendorId),
         inArray(purchaseOrders.status, [...OPEN_PO_STATUSES]),
-        // Only what the vendor still owes us.
-        sql`${purchaseOrderLines.deliveredQuantity} < ${purchaseOrderLines.quantity}`,
+        // Only what the vendor still owes us — counting this receipt's own
+        // rejected kilos as still owed.
+        or(
+          sql`${purchaseOrderLines.deliveredQuantity} < ${purchaseOrderLines.quantity}`,
+          ownCharge.size ? inArray(purchaseOrderLines.id, [...ownCharge.keys()]) : undefined,
+        ),
       ),
     );
+  const open = rows.map((r) => {
+    const credit = ownCharge.get(r.lineId);
+    return credit ? { ...r, delivered: String(n(r.delivered) - credit) } : r;
+  });
 
   if (!open.length) return none("This vendor has no open order with anything still due");
 

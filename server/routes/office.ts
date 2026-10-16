@@ -294,6 +294,7 @@ officeRouter.post(
     z.object({
       vendorId: z.string().uuid().nullable().optional(),
       billDate: dateStr.nullable().optional(),
+      receiptId: z.string().uuid().nullable().optional(),
       lines: z
         .array(
           z.object({
@@ -311,11 +312,13 @@ officeRouter.post(
     const body = req.body as {
       vendorId?: string | null;
       billDate?: string | null;
+      receiptId?: string | null;
       lines: LineToMatch[];
     };
     const matches = await matchPurchaseOrderLines(db, {
       vendorId: body.vendorId ?? null,
       billDate: body.billDate ?? null,
+      receiptId: body.receiptId ?? null,
       lines: body.lines,
     });
     res.json({
@@ -2501,6 +2504,25 @@ officeRouter.patch(
           .select()
           .from(officeReceiptLines)
           .where(eq(officeReceiptLines.receiptId, receipt.id));
+        /*
+         * What a rejection has already counted as delivered, taken back.
+         *
+         * QC rejecting a line counts its billed kilos as delivered on the
+         * order at once (the vendor discharged the slot by sending it). An
+         * edit that turned the verdict to pass left that count standing, so
+         * the order looked used up and the receipt could not settle against
+         * it (GR-00053, 13 Oct 2026). Every charge the old lines made is
+         * reversed here and the new lines' charges made below — a line that
+         * was rejected and still is nets to nothing.
+         */
+        for (const l of existing) {
+          if (l.qcVerdict !== "rejected" || !l.poLineId) continue;
+          await tx
+            .update(purchaseOrderLines)
+            .set({ deliveredQuantity: sql`${purchaseOrderLines.deliveredQuantity} - ${l.billQuantityKg}` })
+            .where(eq(purchaseOrderLines.id, l.poLineId));
+        }
+
         const keep = new Set(body.lines.map((l) => l.id).filter(Boolean));
         const dropped = existing.filter((l) => !keep.has(l.id));
         if (dropped.length) {
@@ -2578,6 +2600,12 @@ officeRouter.patch(
             await tx.insert(officeReceiptLines).values(values);
           }
           written.push({ qcVerdict: values.qcVerdict ?? null, allocatedNetKg: values.allocatedNetKg });
+          if (values.qcVerdict === "rejected" && values.poLineId) {
+            await tx
+              .update(purchaseOrderLines)
+              .set({ deliveredQuantity: sql`${purchaseOrderLines.deliveredQuantity} + ${values.billQuantityKg}` })
+              .where(eq(purchaseOrderLines.id, values.poLineId));
+          }
         }
 
         const gross = body.grossWeightKg !== undefined ? body.grossWeightKg : receipt.grossWeightKg;

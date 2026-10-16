@@ -304,6 +304,9 @@ export function ReceiptEditor({
         body: {
           vendorId,
           billDate: billDate || null,
+          // On an edit the matcher credits back what this receipt's own
+          // rejected lines counted as delivered, so a line still finds its order.
+          receiptId: receiptId ?? null,
           lines: usable.map((l) => ({
             itemId: l.itemId || null,
             itemName: l.itemName || null,

@@ -16,7 +16,8 @@
  *
  * Run: npx tsx scripts/check-po-match.ts
  */
-import { contacts, items, purchaseOrderLines, purchaseOrders } from "@shared/schema";
+import { eq, sql } from "drizzle-orm";
+import { contacts, items, officeReceiptLines, officeReceipts, purchaseOrderLines, purchaseOrders } from "@shared/schema";
 import { db } from "../server/db";
 import { nextDocumentNumber } from "../server/lib/numbering";
 import { matchPurchaseOrderLines } from "../server/services/po-match";
@@ -104,6 +105,54 @@ async function main() {
     // Months late.
     const [stale] = await run([{ itemId: maize.id, itemName: "Maize", quantityKg: 40790, ratePerKg: 23.1 }], "2026-02-01");
     check("a delivery months late is refused", stale!.method === "unmatched", stale!.message);
+
+    console.log();
+    // QC rejects the whole load, which counts it as delivered at once; the
+    // order is used up by that very receipt. Opening the receipt to correct
+    // it must still find its own order (GR-00053, 13 Oct 2026).
+    const [poLine] = await tx
+      .select({ id: purchaseOrderLines.id })
+      .from(purchaseOrderLines)
+      .where(eq(purchaseOrderLines.purchaseOrderId, po.id));
+    const [loc] = (await tx.execute(sql`SELECT id FROM locations LIMIT 1`)).rows as Array<{ id: string }>;
+    const [receipt] = await tx
+      .insert(officeReceipts)
+      .values({
+        number: "ZZ-CHECK-GR",
+        locationId: loc!.id,
+        vendorId: vendor.id,
+        vehicleNumber: "ZZCHECK01",
+        status: "rejected",
+        gateInBy: userId,
+        arrivalAt: new Date(),
+      })
+      .returning({ id: officeReceipts.id });
+    await tx.insert(officeReceiptLines).values({
+      receiptId: receipt!.id,
+      lineNo: 1,
+      status: "qc_rejected",
+      itemId: maize.id,
+      itemName: "Maize",
+      billQuantityKg: "50000.000",
+      billRatePerKg: "23.100000",
+      purchaseOrderId: po.id,
+      poLineId: poLine!.id,
+      qcVerdict: "rejected",
+    });
+    await tx
+      .update(purchaseOrderLines)
+      .set({ deliveredQuantity: "50000.000" })
+      .where(eq(purchaseOrderLines.id, poLine!.id));
+    const full = [{ itemId: maize.id, itemName: "Maize", quantityKg: 50000, ratePerKg: 23.1 }];
+    const [elsewhere] = await run(full);
+    check("a rejected load uses the order up", elsewhere!.method === "unmatched", elsewhere!.message);
+    const [own] = await matchPurchaseOrderLines(tx, {
+      vendorId: vendor.id,
+      billDate: "2026-08-13",
+      lines: full,
+      receiptId: receipt!.id,
+    });
+    check("its own receipt still finds the order", own!.chosen?.poLineId === poLine!.id, own!.message);
 
     throw new Rollback();
   });
