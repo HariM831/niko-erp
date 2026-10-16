@@ -796,12 +796,18 @@ function buildTxnRows(data: string[][], mapping: Mapping): ParsedTxnRow[] {
     if (!txnDate) reason = "Unrecognised date";
     else if (!amount) reason = "No withdrawal or deposit amount";
 
+    // The reference field holds a UTR or cheque number (40 characters). Some
+    // statements print a whole phrase there ("TRANSFER FROM 4531… D N STORE /");
+    // that is kept as part of the description rather than refusing the import.
+    const reference = get("reference");
+    const longRef = reference.length > 40;
+    const description = [get("description"), longRef ? reference : ""].filter(Boolean).join(" · ");
     return {
       txnDate,
       direction,
       amount,
-      utr: get("reference") || undefined,
-      description: get("description") || undefined,
+      utr: longRef ? undefined : reference || undefined,
+      description: description || undefined,
       valid: !reason,
       reason,
     };
