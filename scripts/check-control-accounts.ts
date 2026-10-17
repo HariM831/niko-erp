@@ -72,10 +72,16 @@ async function main() {
   const [bill] = (
     await db.execute(sql`
       SELECT (SELECT coalesce(sum(balance_due), 0) FROM bills WHERE status NOT IN ('void', 'draft'))::float8 AS open,
-             (SELECT coalesce(sum(unapplied_amount), 0) FROM vendor_payments)::float8 AS ahead
+             (SELECT coalesce(sum(p.unapplied_amount), 0) FROM vendor_payments p
+               WHERE EXISTS (SELECT 1 FROM zoho_id_map z
+                              WHERE z.entity = 'vendor_payment' AND z.eggsy_id = p.id))::float8 AS imported,
+             (SELECT coalesce(sum(p.unapplied_amount), 0) FROM vendor_payments p
+               WHERE NOT EXISTS (SELECT 1 FROM zoho_id_map z
+                                  WHERE z.entity = 'vendor_payment' AND z.eggsy_id = p.id))::float8 AS own
     `)
-  ).rows as Array<{ open: number; ahead: number }>;
-  checks.push({ what: "open bills less advances", key: "ap", docs: bill!.open - bill!.ahead, sign: -1 });
+  ).rows as Array<{ open: number; imported: number; own: number }>;
+  checks.push({ what: "open bills less own advances", key: "ap", docs: bill!.open - bill!.own, sign: -1 });
+  checks.push({ what: "advances on imported payments", key: "vendor_advances", docs: bill!.imported, sign: 1 });
 
   for (const c of checks) {
     const acct = await balance(c.key);
@@ -173,7 +179,15 @@ async function main() {
   line(KEY === "ar" ? "invoices raised" : "bills raised", sides!.raised, raisedSide);
   line("applied to them", sides!.paid + sides!.credited, appliedSide);
   if (KEY === "ap") {
-    console.log(`    ${"paid ahead".padEnd(16)}${money(bill!.ahead).padStart(15)}   (sits inside payables as a debit)`);
+    /**
+     * Two conventions meet here. A vendor payment raised in niko debits
+     * payables for the whole of itself, so money paid ahead of a bill sits
+     * inside payables; the Zoho loader puts that part in vendor advances
+     * instead. Both are internally consistent and the two figures below are
+     * where each convention's advances went, not a difference to chase.
+     */
+    console.log(`    ${"paid ahead".padEnd(16)}${money(bill!.own).padStart(15)}   raised here — sits inside payables`);
+    console.log(`    ${"".padEnd(16)}${money(bill!.imported).padStart(15)}   imported — sits in vendor advances`);
   }
 
   /**
