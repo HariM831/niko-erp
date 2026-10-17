@@ -39,15 +39,17 @@ const file = named.length ? undefined : bare[0];
 const money = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
 
 async function main() {
-  if (!file) {
-    console.error("Usage: void-invoices.ts <file of niko invoice numbers> [--on YYYY-MM-DD] [--commit]");
+  if (!file && !named.length) {
+    console.error("Usage: void-invoices.ts <numbers | file of numbers> [--on YYYY-MM-DD] [--commit]");
     process.exitCode = 1;
     return;
   }
   const numbers = [...new Set(
-    readFileSync(file, "utf8").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#")),
+    file
+      ? readFileSync(file, "utf8").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"))
+      : named,
   )];
-  console.log(`\n  ${numbers.length} invoice(s) from ${file} — ${COMMIT ? "VOIDING" : "dry run"}\n`);
+  console.log(`\n  ${numbers.length} invoice(s)${file ? ` from ${file}` : ""} — ${COMMIT ? "VOIDING" : "dry run"}\n`);
 
   const rows = (
     await db.execute(sql`
