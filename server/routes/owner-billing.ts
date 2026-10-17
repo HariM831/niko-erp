@@ -19,7 +19,10 @@ import { requirePermission } from "../lib/rbac";
 import { PostingError } from "../services/posting";
 import {
   agreementOn,
+  birdStatement,
   buildStatements,
+  eggStatement,
+  feedStatement,
   draftAll,
   draftMonth,
   owners,
@@ -63,6 +66,48 @@ ownerBillingRouter.get("/drafts/:contactId", requirePermission("sales", "view"),
   try {
     const p = period.parse(String(req.query.period ?? ""));
     res.json(await draftMonth(db, req.params.contactId!, p));
+  } catch (err) {
+    if (err instanceof z.ZodError) return res.status(400).json({ error: err.errors[0]?.message });
+    if (!fail(err, res)) throw err;
+  }
+});
+
+/**
+ * The working behind a month's figure, day by day: feed by delivery day, pullets
+ * by housing, eggs by day and house at that day's rate. The same rows the
+ * attached PDF is printed from, so what is checked before raising is what goes
+ * out with the document.
+ */
+ownerBillingRouter.get("/statements/:contactId", requirePermission("sales", "view"), async (req, res) => {
+  try {
+    const p = period.parse(String(req.query.period ?? ""));
+    const kind = z.enum(["feed", "birds", "eggs"]).parse(req.query.kind);
+    const id = req.params.contactId!;
+    if (kind === "feed") {
+      const s = await feedStatement(db, id, p);
+      return res.json({
+        columns: ["Date", "Shed", "Feed", "Transfer", "Kg", "Rate/kg", "Value"],
+        rows: s.rows,
+        totals: { qty: s.totalKg, value: s.totalValue },
+        note: s.blended ? "A day with more than one delivery shows the weighted rate." : null,
+      });
+    }
+    if (kind === "birds") {
+      const s = await birdStatement(db, id, p);
+      return res.json({
+        columns: ["Date", "Flock", "Moved", "Age (wk)", "Birds", "Rate/bird", "Value"],
+        rows: s.rows,
+        totals: { qty: s.totalBirds, value: s.totalValue },
+        note: null,
+      });
+    }
+    const s = await eggStatement(db, id, p);
+    return res.json({
+      columns: ["Date", "Shed", "Flock", "Eggs", "Cracked", "Rate/egg", "Value"],
+      rows: s.rows,
+      totals: { qty: s.totalEggs, value: s.totalValue },
+      note: "Each day at that day's benchmark plus the agreed spread.",
+    });
   } catch (err) {
     if (err instanceof z.ZodError) return res.status(400).json({ error: err.errors[0]?.message });
     if (!fail(err, res)) throw err;
