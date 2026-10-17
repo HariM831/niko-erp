@@ -143,7 +143,16 @@ async function main() {
           JOIN payment_applications pa ON pa.invoice_id = i.id
           JOIN customer_payments p ON p.id = pa.payment_id
          WHERE i.number IN (${sql.join(over.map((r) => sql`${r.number}`), sql`, `)})
-         ORDER BY i.number, p.payment_date, p.number
+         UNION ALL
+        SELECT b.number AS doc, p.number AS receipt, p.payment_date::text AS date,
+               p.amount::float8 AS amount, pa.amount_applied::float8 AS applied,
+               (SELECT z.zoho_id FROM zoho_id_map z
+                 WHERE z.entity = 'vendor_payment' AND z.eggsy_id = p.id) AS zoho
+          FROM bills b
+          JOIN vendor_payment_applications pa ON pa.bill_id = b.id
+          JOIN vendor_payments p ON p.id = pa.payment_id
+         WHERE b.number IN (${sql.join(over.map((r) => sql`${r.number}`), sql`, `)})
+         ORDER BY 1, 3, 2
       `)
     ).rows as Array<{ doc: string; receipt: string; date: string; amount: number;
                       applied: number; zoho: string | null }>;
