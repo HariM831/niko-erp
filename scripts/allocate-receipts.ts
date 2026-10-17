@@ -256,7 +256,7 @@ async function main() {
         - coalesce((SELECT sum(amount_applied) FROM credit_note_applications WHERE invoice_id = i.id), 0) <= 0 THEN 'paid'
         WHEN coalesce((SELECT sum(amount_applied) FROM payment_applications WHERE invoice_id = i.id), 0)
            + coalesce((SELECT sum(amount_applied) FROM credit_note_applications WHERE invoice_id = i.id), 0) > 0
-        THEN 'partially_paid' ELSE 'sent' END
+        THEN 'partially_paid' ELSE 'sent' END::invoice_status
        WHERE i.status NOT IN ('void', 'draft')
     `);
   });
