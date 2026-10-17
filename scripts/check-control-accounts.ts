@@ -102,6 +102,37 @@ async function main() {
     console.log(`    ${s.src.padEnd(24)}${String(s.entries).padStart(6)} entries   ${money(s.net).padStart(15)}`);
   }
   /**
+   * A hand-written entry against a control account is worth naming: the
+   * documents cannot account for it, so the difference it makes never closes
+   * on its own. Two of them hold 31 lakh of customer advances on staging.
+   */
+  const manual = (
+    await db.execute(sql`
+      SELECT j.entry_date::text AS date, j.narration,
+             coalesce(sum(l.debit - l.credit), 0)::float8 AS net
+        FROM journal_entries j
+        JOIN journal_entry_lines l ON l.entry_id = j.id
+       WHERE l.account_id = (SELECT id FROM accounts WHERE system_key = ${KEY})
+         AND j.source_type = 'manual'
+       GROUP BY j.id, j.entry_date, j.narration
+       ORDER BY abs(sum(l.debit - l.credit)) DESC LIMIT 15
+    `)
+  ).rows as Array<{ date: string; narration: string | null; net: number }>;
+  if (manual.length) {
+    console.log(`
+  hand-written entries against it:`);
+    for (const m of manual) {
+      console.log(`    ${m.date}  ${money(m.net).padStart(14)}   ${(m.narration ?? "(no narration)").slice(0, 70)}`);
+    }
+  }
+
+  if (KEY !== "ar") {
+    console.log();
+    await pool.end();
+    return;
+  }
+
+  /**
    * Both sides of the gap, separately: what the invoices are worth against
    * what they debited, and what has been applied to them against what was
    * credited back. A control account is only ever wrong on one of those two.
