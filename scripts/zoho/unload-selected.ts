@@ -33,11 +33,11 @@ import { readFileSync } from "node:fs";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   customerPayments, invoiceLines, invoices, journalEntries, journalEntryLines,
-  paymentApplications, zohoIdMap,
+  paymentApplications, vendorPaymentApplications, vendorPayments, zohoIdMap,
 } from "@shared/schema";
 import { db, pool } from "../../server/db";
 
-const ENTITIES = ["invoice", "customer_payment"] as const;
+const ENTITIES = ["invoice", "customer_payment", "vendor_payment"] as const;
 type Entity = (typeof ENTITIES)[number];
 
 async function main() {
@@ -65,7 +65,9 @@ async function main() {
   )];
   console.log(`\n  ${numbers.length} ${entity}(s)${file ? ` from ${file}` : ""} — ${yes ? "REMOVING" : "dry run"}\n`);
 
-  const table = entity === "invoice" ? invoices : customerPayments;
+  const table = entity === "invoice" ? invoices
+    : entity === "vendor_payment" ? vendorPayments
+    : customerPayments;
   const rows = await db
     .select({ id: table.id, number: table.number })
     .from(table)
@@ -131,6 +133,8 @@ async function main() {
     // The document points at its entry, so the reference goes before the entry.
     if (entity === "invoice") {
       await tx.update(invoices).set({ journalEntryId: null }).where(inArray(invoices.id, ids));
+    } else if (entity === "vendor_payment") {
+      await tx.update(vendorPayments).set({ journalEntryId: null }).where(inArray(vendorPayments.id, ids));
     } else {
       await tx.update(customerPayments).set({ journalEntryId: null }).where(inArray(customerPayments.id, ids));
     }
@@ -141,6 +145,9 @@ async function main() {
     if (entity === "invoice") {
       await tx.delete(invoiceLines).where(inArray(invoiceLines.invoiceId, ids));
       await tx.delete(invoices).where(inArray(invoices.id, ids));
+    } else if (entity === "vendor_payment") {
+      await tx.delete(vendorPaymentApplications).where(inArray(vendorPaymentApplications.paymentId, ids));
+      await tx.delete(vendorPayments).where(inArray(vendorPayments.id, ids));
     } else {
       await tx.delete(paymentApplications).where(inArray(paymentApplications.paymentId, ids));
       await tx.delete(customerPayments).where(inArray(customerPayments.id, ids));
