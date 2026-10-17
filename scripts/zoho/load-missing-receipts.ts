@@ -50,7 +50,7 @@ const days = (a: string, b: string) => Math.abs((Date.parse(a) - Date.parse(b)) 
 
 interface Z {
   payment_number: string; date: string; customer_name?: string; customer_id?: string;
-  amount: number; reference_number?: string;
+  amount: number; reference_number?: string; created_time?: string;
 }
 
 async function main() {
@@ -86,9 +86,34 @@ async function main() {
   // carries a Zoho number IS that receipt, matched already.
   const own = here.filter((r) => !byNumber.has(r.number) || !r.number.startsWith("CP-"));
 
+  /**
+   * Zoho holds some deposits twice itself. Between 6 and 8 October somebody
+   * re-keyed old receipts into it — CP-2026-27/1346 carries the same UTR as
+   * CP-2026-27/569 of 29 June under a different customer's name — and Zoho
+   * applied both copies to one invoice, so its own A-INV-EG-27-0439 says it
+   * is paid while carrying 7,04,026 against a total of 3,52,013.
+   *
+   * Those copies were removed from niko on 17 Oct 2026, and this script
+   * promptly offered to load them again: having no route into niko is exactly
+   * what a removed duplicate looks like. So a receipt whose own twin is
+   * already here under its own number is not missing, it is the second copy.
+   * The twin is the earlier record — the one keyed when the money arrived.
+   */
+  const twinHere = (z: Z) =>
+    zoho.find(
+      (o) =>
+        o.payment_number !== z.payment_number &&
+        byNumber.has(o.payment_number) &&
+        String(o.customer_id ?? "") === String(z.customer_id ?? "") &&
+        Math.abs(Number(o.amount) - Number(z.amount)) <= 1 &&
+        days(o.date, z.date) <= 2 &&
+        Date.parse(o.created_time ?? o.date) < Date.parse(z.created_time ?? z.date),
+    );
+
   const taken = new Set<string>();
   const load: Z[] = [];
   const skip: Array<{ z: Z; as: typeof own[number]; utr: boolean }> = [];
+  const twins: Array<{ z: Z; as: Z }> = [];
   for (const z of zoho) {
     if (byNumber.has(z.payment_number)) continue;        // already here under its own number
     const zu = utrs(z.reference_number);
@@ -114,17 +139,31 @@ async function main() {
       : undefined;
     const loose = candidates.find((k) => !zu.size || !utrs(k.reference).size);
     const hit = byUtr ?? loose;
-    if (hit) { taken.add(hit.number); skip.push({ z, as: hit, utr: hit === byUtr }); }
-    else load.push(z);
+    if (hit) { taken.add(hit.number); skip.push({ z, as: hit, utr: hit === byUtr }); continue; }
+    const twin = twinHere(z);
+    if (twin) { twins.push({ z, as: twin }); continue; }
+    load.push(z);
   }
 
   const money = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
   console.log(`\n  ${zoho.length} Zoho receipts in ${DIR}`);
   console.log(`    already here under their own number .. ${zoho.length - load.length - skip.length}`);
   console.log(`    already here, keyed from the statement ${skip.length}   Rs ${money(skip.reduce((s, x) => s + Number(x.z.amount), 0))}`);
+  console.log(`    Zoho holds the same deposit twice ..... ${twins.length}   Rs ${money(twins.reduce((s, x) => s + Number(x.z.amount), 0))}`);
   console.log(`    reached niko by no route — to load ... ${load.length}   Rs ${money(load.reduce((s, x) => s + Number(x.amount), 0))}`);
   console.log(`      of the skipped, ${skip.filter((s) => s.utr).length} share a bank reference with what is here; ` +
     `${skip.filter((s) => !s.utr).length} rest on the party, the amount and the days alone`);
+
+  if (twins.length) {
+    console.log(`
+  not loaded, because Zoho holds the deposit twice and the first copy is here:`);
+    for (const t of twins) {
+      console.log(
+        `    ${t.z.payment_number.padEnd(18)}${t.z.date}  ${(t.z.customer_name ?? "").slice(0, 24).padEnd(25)}` +
+          `${money(Number(t.z.amount)).padStart(12)}   first keyed as ${t.as.payment_number} on ${(t.as.created_time ?? "").slice(0, 10)}`,
+      );
+    }
+  }
 
   if (skip.length) {
     console.log(`\n  skipped, because niko already holds the same deposit:`);
