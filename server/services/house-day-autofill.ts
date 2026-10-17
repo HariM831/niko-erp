@@ -53,6 +53,8 @@ const TANKER_TOLERANCE = 0.03;
 const TANKER_MIN_KG = 1_000;
 /** Today's intake may stray this far from the last week's before it stops. */
 const INTAKE_TOLERANCE = 0.1;
+/** How many days back the silo's own intake is judged against. */
+const INTAKE_DAYS = 7;
 /** How many consecutive silo rises one transfer may arrive as. */
 const LOADS_AT_MOST = 4;
 
@@ -224,6 +226,18 @@ export function likelyTransfers(
   return deliveries.map((delivery, d) => ({ delivery, likely: taken.get(d) ?? null }));
 }
 
+/**
+ * What the silo says was eaten from `dayStart` to `dayEnd`: the level before,
+ * plus every rise it saw, less the level at the end — all the silo's weights.
+ */
+export function siloBalance(silo: Array<{ at: Date; kg: number }>, dayStart: Date, dayEnd: Date): number | null {
+  const s0 = silo.filter((x) => x.at < dayStart).at(-1)?.kg ?? null;
+  const s1 = silo.filter((x) => x.at < dayEnd).at(-1)?.kg ?? null;
+  if (s0 == null || s1 == null) return null;
+  const rose = siloTankers(siloMoves(silo, dayStart, dayEnd)).reduce((sum, m) => sum + m.kg, 0);
+  return Math.round(s0 - s1 + rose);
+}
+
 /** The house's silo and water readings from `from` to `to`. */
 async function readings(houseId: string, from: Date, to: Date) {
   const rows = await db
@@ -283,7 +297,8 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
   const dayEnd = startOf(addDays(day, 1));
   const eggsProduced = await gradedEggsOn(db, houseId, day);
 
-  const rows = await readings(houseId, new Date(dayStart.getTime() - 3_600_000), dayEnd);
+  // The week before too, for the silo's own recent intake.
+  const rows = await readings(houseId, new Date(startOf(addDays(day, -INTAKE_DAYS)).getTime() - 3_600_000), dayEnd);
   const over = day < istDate();
   const coverage = over
     ? dayCoverage(rows.map((r) => ({ at: r.at, waterL: r.waterL })), dayStart, dayEnd)
@@ -327,14 +342,11 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
    * was taken at the mill's weight, and a week whose tankers didn't match the
    * mill within 3% held feed eaten back for a person.
    */
-  const s0 = silo.filter((x) => x.at < dayStart).at(-1)?.kg ?? null;
-  const s1 = silo.filter((x) => x.at < dayEnd).at(-1)?.kg ?? null;
-  const arrivedAll = today.reduce((sum, t) => sum + t.move.kg, 0);
-  const fed = s0 != null && s1 != null ? Math.round(s0 - s1 + arrivedAll) : 0;
+  const fed = siloBalance(silo, dayStart, dayEnd) ?? 0;
   const counters = over ? await countersOf(houseId, day) : null;
   const counter = counters?.feedKg ?? null;
 
-  // The house's own recent intake, from what was saved.
+  // What was saved in the week before — yesterday's closing opens the book.
   const [placement] = await db
     .select({ id: flockPlacements.id })
     .from(flockPlacements)
@@ -357,7 +369,21 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
           ),
         )
     : [];
-  const recent = saved.map((s) => Number(s.consumed)).filter((v) => v > 0).sort((a, b) => a - b);
+  /*
+   * The silo's own last seven whole days, not what was saved: a silo that
+   * reads low every day (L2 from mid-October, against a register of about
+   * 10,750) is judged against itself, and only a day out of line with it —
+   * L3's 3,285 on 10 Oct, L4's 7,089 on 16 Oct — stops for a person.
+   */
+  const recent: number[] = [];
+  for (let d = addDays(day, -INTAKE_DAYS); d < day; d = addDays(d, 1)) {
+    const a = startOf(d);
+    const b = startOf(addDays(d, 1));
+    if (!dayCoverage(rows.map((r) => ({ at: r.at, waterL: r.waterL })), a, b).complete) continue;
+    const v = siloBalance(silo, a, b);
+    if (v != null && v > 0) recent.push(v);
+  }
+  recent.sort((a, b) => a - b);
   const median = recent.length ? recent[Math.floor(recent.length / 2)]! : null;
 
   const counterNote = counter != null ? [{ label: "Controller counter", value: Math.round(counter) }] : [];
@@ -390,7 +416,7 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
       status: "check",
       value: null,
       from: "silo",
-      note: `The silo says ${fmt(fed)} kg — ${Math.abs(pct)}% ${pct > 0 ? "above" : "below"} the last 7 days (${fmt(median)}).`,
+      note: `The silo says ${fmt(fed)} kg — ${Math.abs(pct)}% ${pct > 0 ? "above" : "below"} the silo's last ${recent.length} whole days (${fmt(median)}).`,
       also: [{ label: "Silo", value: fed }, ...counterNote],
     };
   } else {
