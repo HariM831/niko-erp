@@ -24,8 +24,10 @@
  * what it is. It changes no document and no application: it moves the ledger
  * onto them, because they are the record of what happened and it is not.
  *
- * A refund is not drift, so a customer whose only difference is one of the two
- * refunds above is left alone.
+ * The refunds themselves touch advances and the bank, never receivables, so
+ * they are named here but not corrected: the ledger is right about them and
+ * the receipts are simply silent. They are why advances stays 31 lakh below
+ * the receipts' unapplied total once this has run.
  */
 import { sql } from "drizzle-orm";
 import { db, pool } from "../server/db";
@@ -84,10 +86,9 @@ async function main() {
   ).rows as Array<{ id: string; cust: string; posted: number; open: number }>;
 
   /**
-   * The refunds are hand-written entries against advances for money handed
-   * back, and no receipt can show them. They are named so they are not
-   * corrected away: the ledger is right about them and the documents are
-   * silent.
+   * Money handed back. A receipt knows only what it collected, so a refund
+   * leaves the ledger below the receipts for good. Named so the difference it
+   * makes is not mistaken for drift later.
    */
   const refunds = (
     await db.execute(sql`
