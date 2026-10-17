@@ -16,9 +16,23 @@
  *
  * Both Zoho ids point at the merged row in zoho_id_map, so every document still
  * resolves, whichever record it named.
+ *
+ * A party niko already holds is linked, not inserted again. Until October 2026
+ * the only question asked was whether a Zoho id had been seen before, so a
+ * contact that reached niko by another route — the Amino import, hand entry —
+ * had no mapping and got a second row. Six vendors were duplicated that way in
+ * both books on 16 October, two of them carrying the original's own GST number.
+ * The GSTIN settles it where both sides have one; failing that, the name, with
+ * case, punctuation and an M/S prefix disregarded.
+ *
+ * Where the match is not clean — a GSTIN and a name pointing at different
+ * contacts, two niko contacts answering to one Zoho name, or a niko contact of
+ * the same name carrying a different GSTIN — nothing is written at all and the
+ * run says what to settle first. A document filed against the wrong party is
+ * not something a later run can notice.
  */
 import { readFile } from "node:fs/promises";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { contactAddresses, contactPersons, contacts, zohoIdMap } from "@shared/schema";
 import { db, pool } from "../../server/db";
 import { toGstStateCode } from "@shared/gst-states";
@@ -82,6 +96,20 @@ const clean = (v: string | undefined | null, max?: number) => {
 const hasAddress = (a?: ZohoAddress) =>
   !!(a && (a.address || a.city || a.state || a.zip || a.attention));
 
+/** The same party written differently: case, punctuation, an M/S prefix. */
+const squash = (s: string) =>
+  s.toLowerCase().trim().replace(/^(m\/s\.?|ms\.?)\s+/, "").replace(/[^a-z0-9]/g, "");
+
+/** A GSTIN is one party's, so it compares bare. */
+const gstKey = (s: string | null | undefined) => (s ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+
+/** Fields a Zoho record may fill in on a contact niko already holds. */
+const CARRY = [
+  ["companyName", "company_name"], ["email", "email"], ["phone", "phone"],
+  ["mobile", "mobile"], ["website", "website"], ["gstin", "gst_no"], ["pan", "pan_no"],
+  ["notes", "notes"],
+] as const;
+
 async function main() {
   const commit = process.argv.includes("--commit");
   // --dir: read another folder of Zoho detail, the same option the invoice,
@@ -117,9 +145,108 @@ async function main() {
   const todo = [...groups.values()].filter((g) => !g.some((c) => already.has(c.contact_id)));
   const merges = [...groups.values()].filter((g) => g.length > 1);
 
+  // Who niko already holds, by any route.
+  const live = await db
+    .select({
+      id: contacts.id, name: contacts.displayName, type: contacts.type,
+      companyName: contacts.companyName, email: contacts.email, phone: contacts.phone,
+      mobile: contacts.mobile, website: contacts.website, gstin: contacts.gstin,
+      pan: contacts.pan, placeOfSupplyState: contacts.placeOfSupplyState,
+      paymentTermsDays: contacts.paymentTermsDays, notes: contacts.notes,
+    })
+    .from(contacts);
+  type Live = (typeof live)[number];
+  const index = (key: (c: Live) => string) => {
+    const m = new Map<string, Live[]>();
+    for (const c of live) {
+      const k = key(c);
+      if (k) m.set(k, [...(m.get(k) ?? []), c]);
+    }
+    return m;
+  };
+  const byGstin = index((c) => gstKey(c.gstin));
+  const byShape = index((c) => squash(c.name));
+
+  interface Plan {
+    group: ZohoContact[];
+    name: string;
+    type: "customer" | "vendor" | "both";
+    existing?: Live;
+    how?: string;
+    carry: Record<string, string | number>;
+  }
+  const plans: Plan[] = [];
+  const problems: string[] = [];
+  const claimed = new Map<string, string>();
+
+  for (const group of todo) {
+    const kinds = new Set(group.map((g) => g.contact_type));
+    const type = kinds.size > 1 ? "both" : kinds.has("customer") ? "customer" : "vendor";
+    const pick = <K extends keyof ZohoContact>(key: K) =>
+      group.map((g) => g[key]).find((v) => v != null && String(v).trim() !== "");
+    // Longest spelling wins, so "NANDAMURI POULTRIES LLP" does not beat the
+    // properly cased version on a coin toss.
+    const name = group
+      .map((g) => g.contact_name.trim())
+      .sort((a, b) => b.length - a.length || a.localeCompare(b))[0]!;
+
+    const gst = gstKey(pick("gst_no") as string);
+    const onGstin = gst ? (byGstin.get(gst) ?? []) : [];
+    const onName = byShape.get(squash(name)) ?? [];
+    let existing: Live | undefined;
+    let how: string | undefined;
+
+    if (onGstin.length > 1) {
+      problems.push(`${name}: GSTIN ${gst} is on ${onGstin.length} niko contacts (${onGstin.map((c) => c.name).join(", ")})`);
+    } else if (onName.length > 1) {
+      problems.push(`${name}: ${onName.length} niko contacts answer to that name (${onName.map((c) => c.name).join(", ")})`);
+    } else if (onGstin.length && onName.length && onGstin[0]!.id !== onName[0]!.id) {
+      problems.push(`${name}: the GSTIN says "${onGstin[0]!.name}" and the name says "${onName[0]!.name}"`);
+    } else if (onGstin.length) {
+      existing = onGstin[0]; how = `GSTIN ${gst}`;
+    } else if (onName.length) {
+      // Same name, different GSTIN, is a different party — or one of the two
+      // is wrong. Either way it is not for a loader to decide.
+      const held = gstKey(onName[0]!.gstin);
+      if (gst && held && gst !== held) {
+        problems.push(`${name}: niko holds GSTIN ${held} for that name, Zoho says ${gst}`);
+      } else {
+        existing = onName[0]; how = "name";
+      }
+    }
+
+    if (existing) {
+      const twin = claimed.get(existing.id);
+      if (twin) {
+        problems.push(`${name}: "${existing.name}" is also matched by "${twin}"`);
+      } else {
+        claimed.set(existing.id, name);
+      }
+    }
+
+    const carry: Record<string, string | number> = {};
+    if (existing) {
+      for (const [field, zohoField] of CARRY) {
+        const want = clean(pick(zohoField) as string, field === "gstin" ? 15 : field === "pan" ? 10 : undefined);
+        if (want && !String(existing[field] ?? "").trim()) carry[field] = want;
+      }
+      const pos = toGstStateCode(clean(pick("place_of_contact") as string, 4) ?? "");
+      if (pos && !existing.placeOfSupplyState) carry.placeOfSupplyState = pos;
+      const terms = Number(pick("payment_terms") ?? 0);
+      if (terms && !existing.paymentTermsDays) carry.paymentTermsDays = terms;
+      // A party niko holds as a vendor and Zoho holds as a customer trades both
+      // ways: the same reason the `both` type exists.
+      if (existing.type !== type && existing.type !== "both") carry.type = "both";
+    }
+    plans.push({ group, name, type, existing, how, carry });
+  }
+
+  const links = plans.filter((p) => p.existing);
+  const creates = plans.filter((p) => !p.existing);
+
   const customers = all.filter((c) => c.contact_type === "customer").length;
   console.log(`${all.length} Zoho contacts — ${customers} customers, ${all.length - customers} vendors`);
-  console.log(`  ${groups.size} distinct names -> ${todo.length} niko contacts to create`);
+  console.log(`  ${groups.size} distinct names -> ${creates.length} to create, ${links.length} already in niko`);
   console.log(`  ${already.size} Zoho ids already imported`);
   console.log(`  ${all.filter((c) => c.contact_persons?.length).length} have contact persons`);
   console.log(`  ${all.filter((c) => hasAddress(c.billing_address)).length} have a billing address`);
@@ -136,6 +263,20 @@ async function main() {
     }
   }
 
+  if (links.length) {
+    console.log(`\n  ${links.length} already held by niko, linking rather than creating:`);
+    for (const p of links) {
+      console.log(`    ${p.name}  ->  "${p.existing!.name}"  on ${p.how}`);
+      for (const [k, v] of Object.entries(p.carry)) console.log(`         carry ${k} = ${v}`);
+    }
+  }
+
+  if (problems.length) {
+    console.log(`\n  ${problems.length} name(s) nobody can place:`);
+    for (const p of problems) console.log(`    ${p}`);
+    throw new Error("nothing written while a contact is in doubt");
+  }
+
   if (!commit) {
     console.log("\nDry run — nothing written. Re-run with --commit to apply.");
     await pool.end();
@@ -145,10 +286,11 @@ async function main() {
   let people = 0;
   let addresses = 0;
 
+  let linked = 0;
+
   await db.transaction(async (tx) => {
-    for (const group of todo) {
-      const kinds = new Set(group.map((g) => g.contact_type));
-      const type = kinds.size > 1 ? "both" : kinds.has("customer") ? "customer" : "vendor";
+    for (const plan of plans) {
+      const { group, type } = plan;
 
       // Merged records are the same party, so any field only one of them
       // filled in is still true of the whole. Take the first non-empty value
@@ -156,15 +298,24 @@ async function main() {
       const first = <K extends keyof ZohoContact>(key: K) =>
         group.map((g) => g[key]).find((v) => v != null && String(v).trim() !== "");
 
+      let contactId: string;
+      if (plan.existing) {
+        // Already here. Fill in what niko did not know and leave the rest as
+        // the office keyed it; the mapping rows below are the actual repair.
+        if (Object.keys(plan.carry).length) {
+          await tx
+            .update(contacts)
+            .set({ ...plan.carry, updatedAt: new Date() } as Partial<typeof contacts.$inferInsert>)
+            .where(eq(contacts.id, plan.existing.id));
+        }
+        contactId = plan.existing.id;
+        linked += 1;
+      } else {
       const [row] = await tx
         .insert(contacts)
         .values({
           type,
-          // Longest spelling wins, so "NANDAMURI POULTRIES LLP" does not beat
-          // the properly cased version on a coin toss.
-          displayName: group
-            .map((g) => g.contact_name.trim())
-            .sort((a, b) => b.length - a.length || a.localeCompare(b))[0]!,
+          displayName: plan.name,
           companyName: clean(first("company_name") as string),
           email: clean(first("email") as string),
           phone: clean(first("phone") as string),
@@ -185,9 +336,11 @@ async function main() {
         })
         .returning({ id: contacts.id });
 
-      const contactId = row!.id;
-      // Every Zoho id points at the merged row, so a document naming either
-      // half still resolves.
+        contactId = row!.id;
+      }
+
+      // Every Zoho id points at the one niko row, so a document naming either
+      // half — or naming the party niko already held — still resolves.
       for (const g of group) {
         await tx.insert(zohoIdMap).values({
           entity: "contact",
@@ -197,8 +350,19 @@ async function main() {
         });
       }
 
+      // A contact niko already held keeps the people and addresses it has.
+      // Zoho's are taken only where there are none to disagree with.
+      const empty = async (table: typeof contactPersons | typeof contactAddresses) => {
+        if (!plan.existing) return true;
+        const [row] = await tx
+          .select({ n: sql<number>`COUNT(*)::int` })
+          .from(table)
+          .where(eq(table.contactId, contactId));
+        return (row?.n ?? 0) === 0;
+      };
+
       const seenPeople = new Set<string>();
-      for (const p of group.flatMap((g) => g.contact_persons ?? [])) {
+      for (const p of (await empty(contactPersons)) ? group.flatMap((g) => g.contact_persons ?? []) : []) {
         const firstName = clean(p.first_name) ?? clean(p.last_name);
         if (!firstName) continue; // niko requires a first name; a nameless row says nothing.
         // Merged records often list the same person twice.
@@ -220,10 +384,9 @@ async function main() {
       // Only the first record's addresses: two halves of the same party share
       // an address, and a second identical billing address is noise.
       const base = group[0]!;
-      for (const [kind, a] of [
-        ["billing", base.billing_address],
-        ["shipping", base.shipping_address],
-      ] as const) {
+      for (const [kind, a] of (await empty(contactAddresses))
+        ? ([["billing", base.billing_address], ["shipping", base.shipping_address]] as const)
+        : ([] as const)) {
         if (!hasAddress(a)) continue;
         await tx.insert(contactAddresses).values({
           contactId,
