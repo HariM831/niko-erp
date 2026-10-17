@@ -99,16 +99,22 @@ async function main() {
    * already here under its own number is not missing, it is the second copy.
    * The twin is the earlier record — the one keyed when the money arrived.
    */
-  const twinHere = (z: Z) =>
-    zoho.find(
+  const twinHere = (z: Z) => {
+    const zu = utrs(z.reference_number);
+    return zoho.find(
       (o) =>
         o.payment_number !== z.payment_number &&
         byNumber.has(o.payment_number) &&
-        String(o.customer_id ?? "") === String(z.customer_id ?? "") &&
         Math.abs(Number(o.amount) - Number(z.amount)) <= 1 &&
         days(o.date, z.date) <= 2 &&
-        Date.parse(o.created_time ?? o.date) < Date.parse(z.created_time ?? z.date),
+        Date.parse(o.created_time ?? o.date) < Date.parse(z.created_time ?? z.date) &&
+        // The same party, or — where the re-entry was filed under a second
+        // customer record, as CP-2026-27/1346 was against North East Egg
+        // Centre while its twin sits under Pal Egg Center — the same transfer.
+        (String(o.customer_id ?? "") === String(z.customer_id ?? "") ||
+          (zu.size > 0 && sharesUtr(zu, utrs(o.reference_number)))),
     );
+  };
 
   const taken = new Set<string>();
   const load: Z[] = [];
