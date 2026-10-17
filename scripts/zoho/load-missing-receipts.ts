@@ -49,8 +49,8 @@ const sameParty = (a: string, b: string) => {
 const days = (a: string, b: string) => Math.abs((Date.parse(a) - Date.parse(b)) / 86_400_000);
 
 interface Z {
-  payment_number: string; date: string; customer_name?: string; amount: number;
-  reference_number?: string;
+  payment_number: string; date: string; customer_name?: string; customer_id?: string;
+  amount: number; reference_number?: string;
 }
 
 async function main() {
@@ -60,11 +60,27 @@ async function main() {
   const here = (
     await db.execute(sql`
       SELECT p.number, p.payment_date::text AS date, c.display_name AS cust,
+             p.customer_id::text AS cust_id,
              round(p.amount::numeric, 2)::float8 AS amount, p.reference
         FROM customer_payments p JOIN contacts c ON c.id = p.customer_id
     `)
-  ).rows as Array<{ number: string; date: string; cust: string; amount: number;
-                    reference: string | null }>;
+  ).rows as Array<{ number: string; date: string; cust: string; cust_id: string;
+                    amount: number; reference: string | null }>;
+
+  /**
+   * Who a Zoho receipt belongs to is answered by its customer id, not by the
+   * name printed on it. PUYA MARKETING was merged into M/s Puya here on 17
+   * Oct 2026, and every Zoho receipt still says PUYA MARKETING: on the name
+   * alone, 24.5 lakh already in niko would have been loaded a second time and
+   * applied to the two invoices voided that morning.
+   */
+  const party = new Map(
+    ((
+      await db.execute(sql`
+        SELECT zoho_id, eggsy_id::text FROM zoho_id_map WHERE entity = 'contact'
+      `)
+    ).rows as Array<{ zoho_id: string; eggsy_id: string }>).map((r) => [r.zoho_id, r.eggsy_id]),
+  );
   const byNumber = new Set(here.map((r) => r.number));
   // Only receipts raised in niko can stand in for a Zoho one. A receipt that
   // carries a Zoho number IS that receipt, matched already.
@@ -76,12 +92,13 @@ async function main() {
   for (const z of zoho) {
     if (byNumber.has(z.payment_number)) continue;        // already here under its own number
     const zu = utrs(z.reference_number);
+    const mine = party.get(String(z.customer_id ?? ""));
     const candidates = own.filter(
       (k) =>
         !taken.has(k.number) &&
         Math.abs(Number(z.amount) - k.amount) <= 1 &&
         days(z.date, k.date) <= DAYS &&
-        sameParty(z.customer_name ?? "", k.cust),
+        (mine ? k.cust_id === mine : sameParty(z.customer_name ?? "", k.cust)),
     );
     /**
      * The amount and the party and a few days between them is where every
