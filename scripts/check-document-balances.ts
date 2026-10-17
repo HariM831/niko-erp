@@ -100,6 +100,29 @@ async function main() {
     await pool.end();
     return;
   }
+  /**
+   * A derived balance below zero means more has been put against the document
+   * than it is worth, and that is a mistake to look at, not a figure to store.
+   * Two turned up at once, each applied EXACTLY twice its total: Chowdhury n
+   * Sons 8,96,400 against 17,92,800, and the 29 June Pal Egg Center invoice
+   * 6,00,600 against 12,01,200 — the one whose customer the two books disagree
+   * about, its receipt applied once from each version of the sale.
+   */
+  const over = [...invoices, ...bills].filter((r) => r.total - r.paid - r.credited < -1);
+  if (over.length) {
+    console.log(`  OVER-APPLIED — more applied than the document is worth (${over.length}):`);
+    for (const r of over) {
+      console.log(
+        `    ${r.number.padEnd(18)}${r.date}  ${r.party.slice(0, 24).padEnd(25)}` +
+          `total ${money(r.total).padStart(11)}  applied ${money(r.paid + r.credited).padStart(11)}`,
+      );
+    }
+    console.log(`\n  Refusing to write a negative balance. Settle these first.\n`);
+    process.exitCode = 1;
+    await pool.end();
+    return;
+  }
+
   if (!FIX) {
     console.log("  Dry run — nothing written. Re-run with --fix.\n");
     process.exitCode = 1;
