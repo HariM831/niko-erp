@@ -156,14 +156,20 @@ await db
       }
     }
 
-    /* ── The surviving record has to work in both directions ─────────────────
-     * It is now invoiced AND billed; a one-sided type would make half its own
-     * history unreachable from the screens that filter by type.
+    /* ── The surviving record has to work in every direction it is used ──────
+     * Luit was a customer on one record and a vendor on the other, and the
+     * survivor is now invoiced AND billed: a one-sided type would make half
+     * its own history unreachable from the screens that filter by type.
+     *
+     * That is not every merge. PUYA MARKETING and M/s Puya are both customers
+     * — one party entered twice, not two sides of one — and widening that to
+     * "both" would put a trade customer into the vendor lists for no reason.
      */
     const set: Record<string, unknown> = {};
-    if (winner.type !== "both") {
+    const needsBoth = loser.type !== winner.type;
+    if (needsBoth && winner.type !== "both") {
       set.type = "both";
-      console.log(`\n  type          ${winner.type} → both`);
+      console.log(`\n  type          ${winner.type} → both, because ${loser.displayName} is a ${loser.type}`);
     }
     if (NEW_NAME && NEW_NAME !== winner.displayName) {
       set.displayName = NEW_NAME;
