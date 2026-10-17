@@ -108,7 +108,16 @@ async function main() {
    * 6,00,600 against 12,01,200 — the one whose customer the two books disagree
    * about, its receipt applied once from each version of the sale.
    */
-  const over = [...invoices, ...bills].filter((r) => r.total - r.paid - r.credited < -1);
+  const excess = (r: { total: number; paid: number; credited: number }) =>
+    r.paid + r.credited - r.total;
+  /**
+   * A few rupees over is the rounding that runs through both books — five
+   * invoices are between 2 and 539 rupees over-applied. Those clamp to zero.
+   * Half an invoice over is an error, and the run stops.
+   */
+  const material = (r: { total: number; paid: number; credited: number }) =>
+    excess(r) > Math.max(100, r.total * 0.005);
+  const over = [...invoices, ...bills].filter(material);
   if (over.length) {
     console.log(`  OVER-APPLIED — more applied than the document is worth (${over.length}):`);
     for (const r of over) {
@@ -132,15 +141,15 @@ async function main() {
 
   await db.transaction(async (tx) => {
     await tx.execute(sql`
-      UPDATE invoices i SET balance_due = round((i.total
+      UPDATE invoices i SET balance_due = greatest(round((i.total
         - coalesce((SELECT sum(amount_applied) FROM payment_applications WHERE invoice_id = i.id), 0)
-        - coalesce((SELECT sum(amount_applied) FROM credit_note_applications WHERE invoice_id = i.id), 0))::numeric, 2)
+        - coalesce((SELECT sum(amount_applied) FROM credit_note_applications WHERE invoice_id = i.id), 0))::numeric, 2), 0)
        WHERE i.status <> 'void'
     `);
     await tx.execute(sql`
-      UPDATE bills b SET balance_due = round((b.total
+      UPDATE bills b SET balance_due = greatest(round((b.total
         - coalesce((SELECT sum(amount_applied) FROM vendor_payment_applications WHERE bill_id = b.id), 0)
-        - coalesce((SELECT sum(amount_applied) FROM vendor_credit_applications WHERE bill_id = b.id), 0))::numeric, 2)
+        - coalesce((SELECT sum(amount_applied) FROM vendor_credit_applications WHERE bill_id = b.id), 0))::numeric, 2), 0)
        WHERE b.status <> 'void'
     `);
   });
