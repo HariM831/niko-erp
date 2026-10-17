@@ -1,8 +1,8 @@
-import { MonthInput } from "../components/date-input";
+import { DateInput, MonthInput } from "../components/date-input";
 import { useEffect, useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ApiError, api, formatMoney } from "../api";
+import { ApiError, api, formatDate, formatMoney } from "../api";
 import { CommentsTimeline } from "../components/comments";
 import { AttachmentsButton } from "../components/attachments";
 import { SearchSelect } from "../components/search-select";
@@ -159,6 +159,7 @@ export function OwnerBillingPage() {
         payable?: string;
         payableCredits?: string;
         showBoth?: boolean;
+        net?: string | null;
       }>(`/api/contacts/${ownerId}/summary`),
     enabled: !!ownerId,
   });
@@ -207,6 +208,7 @@ export function OwnerBillingPage() {
               Edit
             </button>
             <AttachmentsButton entityType="contact" entityId={contact.id} />
+            <EggSpread ownerId={contact.id} />
             <RaiseMonth ownerId={contact.id} onDone={() => setTab("statement")} />
           </div>
         </div>
@@ -246,6 +248,112 @@ export function OwnerBillingPage() {
         )}
         {tab === "statement" && <StatementTab id={contact.id} />}
       </div>
+    </div>
+  );
+}
+
+interface Agreement {
+  id: string;
+  effectiveFrom: string;
+  eggSpreadPerEgg: string;
+}
+
+/**
+ * The egg spread: what Amino pays over the day's benchmark for each egg.
+ *
+ * Dated, because a spread agreed in March must not restate January — so a new
+ * spread is a new row from a date, and the history stays readable underneath.
+ * Before this there was nowhere to set it, and a month with no spread could not
+ * be closed (17 Oct 2026).
+ */
+function EggSpread({ ownerId }: { ownerId: string }) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [from, setFrom] = useState(`${localYmd(new Date()).slice(0, 7)}-01`);
+  const [spread, setSpread] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const { data } = useQuery({
+    queryKey: ["owner-agreements", ownerId],
+    queryFn: () => api<{ agreements: Agreement[] }>(`/api/owner-billing/agreements/${ownerId}`),
+  });
+  const rows = data?.agreements ?? [];
+  const today = localYmd(new Date());
+  const current = rows.find((r) => r.effectiveFrom <= today) ?? null;
+
+  const save = useMutation({
+    mutationFn: () =>
+      api("/api/owner-billing/agreements", {
+        method: "POST",
+        body: { contactId: ownerId, effectiveFrom: from, eggSpreadPerEgg: Number(spread) },
+      }),
+    onSuccess: () => {
+      setError(null);
+      setSpread("");
+      void qc.invalidateQueries({ queryKey: ["owner-agreements", ownerId] });
+      void qc.invalidateQueries({ queryKey: ["owner-billing", ownerId] });
+    },
+    onError: (e) => setError(e instanceof ApiError ? e.message : "Could not save the spread."),
+  });
+
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen((o) => !o)} className="btn-secondary">
+        Egg spread {current ? formatMoney(current.eggSpreadPerEgg) : "not set"} ▾
+      </button>
+      {open && (
+        <div className="absolute right-0 top-10 z-20 w-80 rounded-lg border bg-white p-4 text-[13px] shadow-lg">
+          <p className="mb-3 text-gray-500">
+            Paid per egg over that day's benchmark. A new spread runs from its date until the next.
+          </p>
+          {rows.length > 0 ? (
+            <table className="mb-3 w-full">
+              <thead className="table-head">
+                <tr>
+                  <th className="px-2 py-1.5">From</th>
+                  <th className="px-2 py-1.5 text-right">Spread / egg</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.id} className="border-b border-[#ece3d5]">
+                    <td className="px-2 py-1.5">{formatDate(r.effectiveFrom)}</td>
+                    <td className="px-2 py-1.5 text-right tabular-nums">{formatMoney(r.eggSpreadPerEgg)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-amber-800">
+              No spread set — eggs cannot be priced until one is.
+            </p>
+          )}
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="label">From</label>
+              <DateInput value={from} onChange={(e) => setFrom(e.target.value)} className="input" />
+            </div>
+            <div>
+              <label className="label">Spread / egg (₹)</label>
+              <input
+                value={spread}
+                onChange={(e) => setSpread(e.target.value)}
+                placeholder="0.50"
+                inputMode="decimal"
+                className="input text-right tabular-nums"
+              />
+            </div>
+          </div>
+          <button
+            onClick={() => save.mutate()}
+            disabled={!from || spread.trim() === "" || Number.isNaN(Number(spread)) || save.isPending}
+            className="btn-primary mt-3 w-full"
+          >
+            {save.isPending ? "Saving…" : "Save spread"}
+          </button>
+          {error && <div className="mt-2 rounded-md bg-red-50 px-3 py-2 text-red-700">{error}</div>}
+        </div>
+      )}
     </div>
   );
 }

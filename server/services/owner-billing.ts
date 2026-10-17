@@ -369,12 +369,35 @@ export async function draftMonth(tx: Conn, contactId: string, period: string): P
     .orderBy(asc(placementDays.day));
 
   const rateFor = await dailyEggRate(tx, contactId, from, to);
-  if (eggDays.some((d) => (d.eggs ?? 0) > 0)) {
-    const anyPriced = eggDays.some((d) => (d.eggs ?? 0) > 0 && rateFor(d.day) != null);
-    if (!anyPriced) {
-      problems.push(`No egg benchmark price is in force during ${from.slice(0, 7)}`);
-      if (!agreement) problems.push(`${owner.name} has no agreement, so the egg spread is unknown`);
-    }
+  /**
+   * Which term left a day unpriced. A rate is benchmark plus spread and both
+   * carry forward from their first entry, so a day lacks one only if it falls
+   * before that entry. Naming the right one matters: a missing spread reported
+   * as "no benchmark" sent the user looking for rates that were there all along
+   * (17 Oct 2026).
+   */
+  const [firstMark] = await tx
+    .select({ on: eggBenchmarkPrices.effectiveFrom })
+    .from(eggBenchmarkPrices)
+    .orderBy(asc(eggBenchmarkPrices.effectiveFrom))
+    .limit(1);
+  const [firstSpread] = await tx
+    .select({ on: ownerAgreements.effectiveFrom })
+    .from(ownerAgreements)
+    .where(eq(ownerAgreements.contactId, contactId))
+    .orderBy(asc(ownerAgreements.effectiveFrom))
+    .limit(1);
+  const missingOn = (day: string): "benchmark" | "spread" =>
+    !firstMark || day < firstMark.on ? "benchmark" : "spread";
+  const firstUnpriced = eggDays.find((d) => (d.eggs ?? 0) > 0 && rateFor(d.day) == null)?.day;
+  if (firstUnpriced) {
+    problems.push(
+      missingOn(firstUnpriced) === "benchmark"
+        ? `No egg benchmark price is in force from ${firstUnpriced}`
+        : firstSpread
+          ? `${owner.name}'s egg spread only starts on ${firstSpread.on}; eggs from ${firstUnpriced} cannot be priced`
+          : `${owner.name} has no egg spread set — set it under Agreement on this page`,
+    );
   }
 
   /**
@@ -418,7 +441,9 @@ export async function draftMonth(tx: Conn, contactId: string, period: string): P
       amount: b.rate == null ? null : b.qty * b.rate,
       problem:
         b.rate == null
-          ? `No benchmark price was in force on ${span} — those eggs cannot be priced`
+          ? missingOn(b.days[0]!) === "benchmark"
+            ? `No benchmark price was in force on ${span} — those eggs cannot be priced`
+            : `No egg spread was in force on ${span} — those eggs cannot be priced`
           : undefined,
     });
   }

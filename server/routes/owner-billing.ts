@@ -11,12 +11,14 @@ import { randomBytes } from "node:crypto";
 import path from "node:path";
 import { Router, type Response } from "express";
 import { z } from "zod";
-import { attachments } from "@shared/schema";
+import { and, desc, eq, gte } from "drizzle-orm";
+import { attachments, ownerAgreements, ownerBillingRuns } from "@shared/schema";
 import { db } from "../db";
 import { nextDocumentNumber } from "../lib/numbering";
 import { requirePermission } from "../lib/rbac";
 import { PostingError } from "../services/posting";
 import {
+  agreementOn,
   buildStatements,
   draftAll,
   draftMonth,
@@ -67,12 +69,82 @@ ownerBillingRouter.get("/drafts/:contactId", requirePermission("sales", "view"),
   }
 });
 
+/** An owner's agreements, newest first: the egg spread and when each took effect. */
+ownerBillingRouter.get("/agreements/:contactId", requirePermission("sales", "view"), async (req, res) => {
+  const rows = await db
+    .select()
+    .from(ownerAgreements)
+    .where(eq(ownerAgreements.contactId, req.params.contactId!))
+    .orderBy(desc(ownerAgreements.effectiveFrom));
+  res.json({ agreements: rows });
+});
+
 /**
- * Raise the invoice and the bill.
+ * Set the egg spread from a date.
  *
- * `sales.create` rather than `view`: this posts to the ledger. The refusals all
- * live in the service, so the route does not get to decide what is billable.
+ * A new dated row rather than an edit, because a spread renegotiated in March
+ * must not restate January. The same date again corrects that row. The feed
+ * rate carries over from the agreement it replaces, since only the spread is
+ * being set here. A month already raised is refused: its bill was priced at the
+ * old spread, and a draft priced at the new one would disagree with it.
  */
+ownerBillingRouter.post("/agreements", requirePermission("sales", "edit"), async (req, res) => {
+  const parsed = z
+    .object({
+      contactId: z.string().uuid(),
+      effectiveFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "A date looks like 2026-09-01"),
+      eggSpreadPerEgg: z.coerce.number().min(-100).max(100),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.errors[0]?.message });
+  const { contactId, effectiveFrom, eggSpreadPerEgg } = parsed.data;
+
+  const [raised] = await db
+    .select({ period: ownerBillingRuns.period })
+    .from(ownerBillingRuns)
+    .where(
+      and(
+        eq(ownerBillingRuns.contactId, contactId),
+        gte(ownerBillingRuns.period, `${effectiveFrom.slice(0, 7)}-01`),
+      ),
+    )
+    .orderBy(desc(ownerBillingRuns.period))
+    .limit(1);
+  if (raised) {
+    return res.status(422).json({
+      error: `${raised.period.slice(0, 7)} is already raised at the old spread — choose a date after it`,
+    });
+  }
+
+  const row = await db.transaction(async (tx) => {
+    const [same] = await tx
+      .select()
+      .from(ownerAgreements)
+      .where(and(eq(ownerAgreements.contactId, contactId), eq(ownerAgreements.effectiveFrom, effectiveFrom)));
+    if (same) {
+      const [updated] = await tx
+        .update(ownerAgreements)
+        .set({ eggSpreadPerEgg: eggSpreadPerEgg.toFixed(4) })
+        .where(eq(ownerAgreements.id, same.id))
+        .returning();
+      return updated;
+    }
+    const prior = await agreementOn(tx, contactId, effectiveFrom);
+    const [inserted] = await tx
+      .insert(ownerAgreements)
+      .values({
+        contactId,
+        effectiveFrom,
+        eggSpreadPerEgg: eggSpreadPerEgg.toFixed(4),
+        feedRatePerKg: prior?.feedRatePerKg ?? null,
+        createdBy: req.session.user!.id,
+      })
+      .returning();
+    return inserted;
+  });
+  res.status(201).json(row);
+});
+
 /**
  * Raise the month's documents.
  *
