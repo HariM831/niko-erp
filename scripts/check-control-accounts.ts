@@ -97,6 +97,28 @@ async function main() {
   for (const s of bySource) {
     console.log(`    ${s.src.padEnd(24)}${String(s.entries).padStart(6)} entries   ${money(s.net).padStart(15)}`);
   }
+  /**
+   * Both sides of the gap, separately: what the invoices are worth against
+   * what they debited, and what has been applied to them against what was
+   * credited back. A control account is only ever wrong on one of those two.
+   */
+  const [sides] = (
+    await db.execute(sql`
+      SELECT (SELECT coalesce(sum(total), 0) FROM invoices WHERE status NOT IN ('void', 'draft'))::float8 AS raised,
+             (SELECT coalesce(sum(amount_applied), 0) FROM payment_applications)::float8 AS paid,
+             (SELECT coalesce(sum(amount_applied), 0) FROM credit_note_applications)::float8 AS credited
+    `)
+  ).rows as Array<{ raised: number; paid: number; credited: number }>;
+  const debits = bySource.filter((s) => s.net > 0).reduce((s, r) => s + r.net, 0);
+  const credits = -bySource.filter((s) => s.net < 0).reduce((s, r) => s + r.net, 0);
+  console.log(
+    `    invoices raised ${money(sides!.raised).padStart(15)}   debited ${money(debits).padStart(15)}   ` +
+      `${Math.abs(sides!.raised - debits) < 1 ? "agree" : `apart by ${money(debits - sides!.raised)}`}`,
+  );
+  console.log(
+    `    applied to them ${money(sides!.paid + sides!.credited).padStart(15)}   credited ${money(credits).padStart(15)}   ` +
+      `${Math.abs(sides!.paid + sides!.credited - credits) < 1 ? "agree" : `apart by ${money(credits - sides!.paid - sides!.credited)}`}`,
+  );
 
   /**
    * Then each customer's own documents beside the postings those documents
