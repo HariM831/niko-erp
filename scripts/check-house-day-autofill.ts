@@ -13,7 +13,7 @@ process.env.DATABASE_URL ??= "postgres://unused@localhost/unused";
 import { judgeStock, sameFigure } from "@shared/house-day";
 import type { DayAutofill } from "@shared/house-day";
 import { dayCoverage, siloFed, siloMoves, siloTankers } from "../server/services/iot/silo-events";
-import { matchTankers, provenance, rejudgeEarlyFeed } from "../server/services/house-day-autofill";
+import { likelyTransfers, matchTankers, provenance, rejudgeEarlyFeed } from "../server/services/house-day-autofill";
 import { PostingError } from "../server/services/posting";
 
 let failures = 0;
@@ -208,6 +208,32 @@ function series(day: string, points: Array<[string, number]>, from = "00:00", to
   ok("…but only notes one a person saved", noted?.value === undefined && !!noted?.source.note);
   const typed = rejudgeEarlyFeed(true, ranLate, 10900, early, false);
   ok("A typed figure is never replaced", typed?.value === undefined);
+}
+
+// ── The unbooked list's likely transfers (17 Oct 2026, from production) ──
+{
+  const at = (s: string) => new Date(`${s}+05:30`);
+  const mv = (s: string, kg: number) => ({ start: at(s), end: at(s), kg });
+  // L2: two loads 90 minutes apart are one lorry, 18% under the mill.
+  const l2 = likelyTransfers(
+    [mv("2026-10-15T15:07", 4058), mv("2026-10-15T16:37", 2069), mv("2026-10-16T09:57", 5998), mv("2026-10-16T20:39", 5689)],
+    [
+      { number: "FT-00133", transferDate: "2026-10-15", quantityKg: 7430 },
+      { number: "FT-00124", transferDate: "2026-10-16", quantityKg: 7430 },
+      { number: "FT-00128", transferDate: "2026-10-16", quantityKg: 7120 },
+    ],
+  );
+  ok("L2: three deliveries, the first in two loads", l2.length === 3 && l2[0]!.delivery.loads === 2 && Math.round(l2[0]!.delivery.kg) === 6127);
+  ok("L2: each gets a transfer, none twice", new Set(l2.map((x) => x.likely?.number)).size === 3 && l2.every((x) => x.likely));
+  ok("L2: the 15th's goes to the 15th", l2[0]!.likely?.number === "FT-00133" && l2[0]!.likely.daysOff === 0 && l2[0]!.likely.gapPct === -17.5);
+  // L4: FT-00127 dated the 16th, arrived 09:28 on the 15th.
+  const l4 = likelyTransfers([mv("2026-10-15T09:28", 11413)], [{ number: "FT-00127", transferDate: "2026-10-16", quantityKg: 11600 }]);
+  ok("L4: a transfer dated a day late is offered, flagged", l4[0]!.likely?.number === "FT-00127" && l4[0]!.likely.daysOff === 1);
+  // L3: 6,359 against 11,650 is not close — Enter it stays.
+  const l3 = likelyTransfers([mv("2026-10-15T10:12", 6359)], [{ number: "FT-00135", transferDate: "2026-10-15", quantityKg: 11650 }]);
+  ok("Nothing within a quarter: no likely transfer", l3[0]!.likely === null);
+  const far = likelyTransfers([mv("2026-10-15T10:00", 7000)], [{ number: "FT-X", transferDate: "2026-10-13", quantityKg: 7000 }]);
+  ok("Two days off: no likely transfer", far[0]!.likely === null);
 }
 
 console.log(failures ? `\n${failures} failure(s)` : "\nAll good");

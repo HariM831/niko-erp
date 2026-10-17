@@ -65,7 +65,7 @@ const fmt = (n: number) => Math.round(n).toLocaleString("en-IN");
 const hhmm = (d: Date) =>
   d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" });
 
-interface Transfer {
+export interface Transfer {
   number: string;
   transferDate: string;
   quantityKg: number;
@@ -147,6 +147,80 @@ export function matchTankers(rises: SiloMove[], transfers: Transfer[]): {
     return { move, transfer: t, bookedKg: total > 0 ? (t.quantityKg * move.kg) / total : 0 };
   });
   return { tankers, unseen: ordered.filter((t) => !matched.has(t)) };
+}
+
+/** Loads this close together are one lorry, for the unbooked list. */
+const ONE_LORRY_MS = 3 * 3_600_000;
+/** A transfer this far off a delivery's weight is not offered as its likely one. */
+const LIKELY_WITHIN = 0.25;
+
+export interface Delivery {
+  at: Date;
+  kg: number;
+  loads: number;
+}
+
+export interface LikelyTransfer extends Transfer {
+  /** Silo less mill: negative when the silo took in less. */
+  gapKg: number;
+  gapPct: number;
+  /** Transfer date less arrival day, in days. */
+  daysOff: number;
+}
+
+/**
+ * The silo's unbooked tankers as deliveries, each with the unmatched transfer
+ * that is most likely its own (17 Oct 2026).
+ *
+ * Most "tankers with no transfer" had one: dated a day off what the silo saw
+ * (L4's FT-00127, dated the 16th, arrived 09:28 on the 15th), or weighed more
+ * than 3% off it (L2's and L3's silos read 14–20% under the mill). Offering
+ * "Enter it" for those invites the same feed entered twice. So each delivery —
+ * loads within three hours run together, as L2's 15:07 and 16:37 on 15 Oct —
+ * is paired with an unmatched transfer to the same house dated within a day
+ * of its arrival and within a quarter of its weight; the date counts as
+ * a tenth of the weight per day off. One transfer goes to one delivery, the
+ * closest pairs first.
+ */
+export function likelyTransfers(
+  unbooked: SiloMove[],
+  unseen: Transfer[],
+): Array<{ delivery: Delivery; likely: LikelyTransfer | null }> {
+  const deliveries: Delivery[] = [];
+  for (const m of [...unbooked].sort((a, b) => a.start.getTime() - b.start.getTime())) {
+    const last = deliveries.at(-1);
+    if (last && m.start.getTime() - last.at.getTime() <= ONE_LORRY_MS) {
+      last.kg += m.kg;
+      last.loads++;
+    } else {
+      deliveries.push({ at: m.start, kg: m.kg, loads: 1 });
+    }
+  }
+  const dayOf = (d: Date) => new Date(d.getTime() + 5.5 * 3_600_000).toISOString().slice(0, 10);
+  const daysBetween = (a: string, b: string) => Math.round((Date.parse(a) - Date.parse(b)) / 86_400_000);
+  const pairs: Array<{ d: number; t: number; score: number; likely: LikelyTransfer }> = [];
+  deliveries.forEach((dv, d) => {
+    unseen.forEach((tr, t) => {
+      const daysOff = daysBetween(tr.transferDate, dayOf(dv.at));
+      const gapKg = dv.kg - tr.quantityKg;
+      const gapPct = gapKg / tr.quantityKg;
+      if (Math.abs(daysOff) > 1 || Math.abs(gapPct) > LIKELY_WITHIN) return;
+      pairs.push({
+        d,
+        t,
+        score: Math.abs(gapPct) + 0.1 * Math.abs(daysOff),
+        likely: { ...tr, gapKg: Math.round(gapKg), gapPct: Math.round(gapPct * 1000) / 10, daysOff },
+      });
+    });
+  });
+  const taken = new Map<number, LikelyTransfer>();
+  const used = new Set<number>();
+  for (const p of pairs.sort((a, b) => a.score - b.score)) {
+    if (taken.has(p.d) || used.has(p.t)) continue;
+    taken.set(p.d, p.likely);
+    used.add(p.t);
+  }
+  return deliveries.map((delivery, d) => ({ delivery, likely: taken.get(d) ?? null }));
 }
 
 /** The house's silo and water readings from `from` to `to`. */

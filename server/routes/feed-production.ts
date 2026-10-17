@@ -50,7 +50,7 @@ import { getPreferences } from "../services/preferences";
 import { materialPrices } from "../services/feed-prices";
 import { refreshHouse } from "../services/rollup";
 import { istDate, istDaysAgo } from "../services/day-resolution";
-import { tankersFor } from "../services/house-day-autofill";
+import { type LikelyTransfer, likelyTransfers, tankersFor } from "../services/house-day-autofill";
 
 export const feedProductionRouter = Router();
 
@@ -1118,12 +1118,31 @@ feedProductionRouter.get(
       .innerJoin(locations, eq(locations.id, houses.locationId))
       .where(and(eq(houses.isActive, true), sql`EXISTS (SELECT 1 FROM iot_house_sample s WHERE s.house_id = ${houses.id} AND s.at > now() - interval '3 days')`))
       .orderBy(asc(houses.displayOrder), asc(houses.code));
-    const out: Array<{ houseId: string; houseCode: string; farmName: string; at: string; kg: number }> = [];
+    const out: Array<{
+      houseId: string;
+      houseCode: string;
+      farmName: string;
+      at: string;
+      kg: number;
+      loads: number;
+      likely: LikelyTransfer | null;
+    }> = [];
+    // Matched from a week back, so a transfer at the window's edge doesn't
+    // take its neighbour's load (see autofillDay); shown from three days.
+    const shownFrom = new Date(`${istDaysAgo(2)}T00:00:00+05:30`);
     for (const h of houseRows) {
-      const { tankers } = await tankersFor(h.id, istDaysAgo(2), istDate());
-      for (const t of tankers) {
-        if (t.transfer || t.move.kg < 1_000) continue;
-        out.push({ houseId: h.id, houseCode: h.code, farmName: h.farmName, at: t.move.start.toISOString(), kg: Math.round(t.move.kg) });
+      const { tankers, unseen } = await tankersFor(h.id, istDaysAgo(9), istDate());
+      const unbooked = tankers.filter((t) => !t.transfer && t.move.kg >= 1_000 && t.move.start >= shownFrom).map((t) => t.move);
+      for (const { delivery, likely } of likelyTransfers(unbooked, unseen)) {
+        out.push({
+          houseId: h.id,
+          houseCode: h.code,
+          farmName: h.farmName,
+          at: delivery.at.toISOString(),
+          kg: Math.round(delivery.kg),
+          loads: delivery.loads,
+          likely,
+        });
       }
     }
     res.json(out);
