@@ -62,13 +62,20 @@ async function main() {
   ).rows as Array<{ held: number }>;
   checks.push({ what: "receipts not yet placed", key: "customer_advances", docs: adv!.held, sign: -1 });
 
+  /**
+   * Payables nets the advances inside itself. A vendor payment debits payables
+   * for the whole of itself whatever it settles — there is no second account
+   * for the unapplied part, the way customer advances holds it on the selling
+   * side — so money paid ahead of a bill sits in payables as a debit, and what
+   * the ledger should say is the open bills LESS that.
+   */
   const [bill] = (
     await db.execute(sql`
-      SELECT coalesce(sum(balance_due), 0)::float8 AS open
-        FROM bills WHERE status NOT IN ('void', 'draft')
+      SELECT (SELECT coalesce(sum(balance_due), 0) FROM bills WHERE status NOT IN ('void', 'draft'))::float8 AS open,
+             (SELECT coalesce(sum(unapplied_amount), 0) FROM vendor_payments)::float8 AS ahead
     `)
-  ).rows as Array<{ open: number }>;
-  checks.push({ what: "open bills", key: "ap", docs: bill!.open, sign: -1 });
+  ).rows as Array<{ open: number; ahead: number }>;
+  checks.push({ what: "open bills less advances", key: "ap", docs: bill!.open - bill!.ahead, sign: -1 });
 
   for (const c of checks) {
     const acct = await balance(c.key);
@@ -154,14 +161,20 @@ async function main() {
   ).rows as Array<{ raised: number; paid: number; credited: number }>;
   const debits = bySource.filter((s) => s.net > 0).reduce((s, r) => s + r.net, 0);
   const credits = -bySource.filter((s) => s.net < 0).reduce((s, r) => s + r.net, 0);
-  console.log(
-    `    ${KEY === "ar" ? "invoices raised" : "bills raised  "} ${money(sides!.raised).padStart(15)}   debited ${money(debits).padStart(15)}   ` +
-      `${Math.abs(sides!.raised - debits) < 1 ? "agree" : `apart by ${money(debits - sides!.raised)}`}`,
-  );
-  console.log(
-    `    applied to them ${money(sides!.paid + sides!.credited).padStart(15)}   credited ${money(credits).padStart(15)}   ` +
-      `${Math.abs(sides!.paid + sides!.credited - credits) < 1 ? "agree" : `apart by ${money(credits - sides!.paid - sides!.credited)}`}`,
-  );
+  // On a liability the directions are the other way round: a bill credits
+  // payables and a payment debits it.
+  const raisedSide = KEY === "ar" ? debits : credits;
+  const appliedSide = KEY === "ar" ? credits : debits;
+  const line = (label: string, doc: number, posted: number) =>
+    console.log(
+      `    ${label.padEnd(16)}${money(doc).padStart(15)}   posted ${money(posted).padStart(15)}   ` +
+        `${Math.abs(doc - posted) < 1 ? "agree" : `apart by ${money(posted - doc)}`}`,
+    );
+  line(KEY === "ar" ? "invoices raised" : "bills raised", sides!.raised, raisedSide);
+  line("applied to them", sides!.paid + sides!.credited, appliedSide);
+  if (KEY === "ap") {
+    console.log(`    ${"paid ahead".padEnd(16)}${money(bill!.ahead).padStart(15)}   (sits inside payables as a debit)`);
+  }
 
   /**
    * Then each customer's own documents beside the postings those documents
