@@ -68,31 +68,14 @@ export interface DayAutofill {
  * Until then it was the book — yesterday's closing, plus what the mill sent,
  * less what was eaten — checked against the silo. With the silos reading
  * under the mill (L2, L3), the mill's transfers stand as feed in and the silo
- * as stock, and the book is shown beside it for the difference to be seen.
- * `consumedKg` only feeds that book.
+ * as stock, and the difference is a report's, not the entry screen's.
+ * `consumedKg` is no longer used; it stays so callers need not change.
  */
-export function judgeStock(p: StockParts, consumedKg: number | null): Figure {
-  const book =
-    p.openingKg != null && consumedKg != null ? Math.round(p.openingKg + p.arrivedKg - consumedKg) : null;
-  const bookLine = book != null ? [{ label: "Book", value: book }] : [];
+export function judgeStock(p: StockParts, _consumedKg?: number | null): Figure {
   if (p.siloKg == null) {
-    return {
-      status: "unavailable",
-      value: null,
-      from: null,
-      note: "The silo wasn't reporting through 18:00.",
-      also: bookLine.length ? bookLine : undefined,
-    };
+    return { status: "unavailable", value: null, from: null, note: "The silo wasn't reporting through 18:00." };
   }
-  return {
-    status: "filled",
-    value: p.siloKg,
-    from: "silo",
-    note:
-      book != null
-        ? `The silo at 18:00. The book (opening ${fmt(p.openingKg!)} + transfers ${fmt(p.arrivedKg)} − eaten ${fmt(consumedKg!)}) says ${fmt(book)} (${p.siloKg - book >= 0 ? "+" : "−"}${fmt(Math.abs(p.siloKg - book))}).`
-        : "The silo at 18:00.",
-  };
+  return { status: "filled", value: p.siloKg, from: "silo", note: "The silo at 18:00." };
 }
 
 /** A saved figure counts as the offer when it is the offer to the kilo (or 50 litres). */

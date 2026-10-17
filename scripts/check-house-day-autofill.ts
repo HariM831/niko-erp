@@ -138,7 +138,7 @@ function series(day: string, points: Array<[string, number]>, from = "00:00", to
   // Since 17 Oct 2026 stock is the silo at midnight; the book is only shown.
   const f = judgeStock(parts, 10695);
   ok("Stock is the silo at midnight", f.status === "filled" && f.value === 12626 && f.from === "silo", `${f.status} ${f.value}`);
-  ok("…with the book beside it", f.note.includes("12,597"));
+  ok("…with no book beside it", !f.note.includes("12,597") && !f.also);
   const g = judgeStock({ ...parts, unbookedKg: 7100 }, 10695);
   ok("An unbooked tanker no longer stops it", g.status === "filled" && g.value === 12626);
   const h = judgeStock({ ...parts, siloKg: 16434 }, 10695);
@@ -164,11 +164,13 @@ function series(day: string, points: Array<[string, number]>, from = "00:00", to
   ok("Proven figures saved as offered need no reason", p.feedConsumedKg?.from === "silo" && p.feedClosingKg?.from === "silo" && p.waterKl?.from === "controller");
   let refused = false;
   try {
-    provenance(auto, { feedConsumedKg: 7412, feedClosingKg: null, waterKl: null }, null, {});
+    provenance(auto, { feedConsumedKg: null, feedClosingKg: null, waterKl: 30 }, null, {});
   } catch (e) {
     refused = e instanceof PostingError;
   }
-  ok("Typing over a proven figure without a reason is refused", refused);
+  ok("Typing over the controller's water without a reason is refused", refused);
+  const typedFeed = provenance(auto, { feedConsumedKg: 7412, feedClosingKg: 9000, waterKl: null }, null, {});
+  ok("Feed typed over the silo needs no reason", typedFeed.feedConsumedKg?.from === "typed" && typedFeed.feedClosingKg?.from === "typed");
   const q = provenance(auto, { feedConsumedKg: 10695, feedClosingKg: null, waterKl: null }, null, { feedConsumedKg: "register" });
   ok("…and saved as typed with the reason", q.feedConsumedKg?.from === "typed" && q.feedConsumedKg.reason === "register");
   const kept = provenance(

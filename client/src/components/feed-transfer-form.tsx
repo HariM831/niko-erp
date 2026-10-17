@@ -47,24 +47,6 @@ const kg = (v: string | number | null | undefined) =>
 const inr = (n: number) => `₹${n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 
-/** A delivery the silo saw with no transfer, and the unmatched transfer most likely its own. */
-interface Unbooked {
-  houseId: string;
-  houseCode: string;
-  farmName: string;
-  at: string;
-  kg: number;
-  loads: number;
-  likely: {
-    number: string;
-    transferDate: string;
-    quantityKg: number;
-    gapKg: number;
-    gapPct: number;
-    daysOff: number;
-  } | null;
-}
-
 export function FeedTransferForm({ term = "", criteria = {} }: { term?: string; criteria?: Criteria }) {
   // What the feed is worth is its production cost — for feed_mill.costs only.
   // The server leaves the figures out for everyone else; this drops the gaps.
@@ -101,13 +83,6 @@ export function FeedTransferForm({ term = "", criteria = {} }: { term?: string; 
   useEffect(() => {
     if (weighedNet != null && weighedNet > 0) setQuantity(String(weighedNet));
   }, [weighedNet]);
-
-  /** Tankers the silos saw arrive that no transfer accounts for. */
-  const { data: unbooked } = useQuery<Unbooked[]>({
-    queryKey: ["feed-transfers-unbooked"],
-    queryFn: () => api("/api/feed/production/transfers/unbooked"),
-    refetchInterval: 5 * 60_000,
-  });
 
   const { data: ctx } = useQuery<Context>({
     queryKey: ["feed-transfer-context"],
@@ -155,7 +130,6 @@ export function FeedTransferForm({ term = "", criteria = {} }: { term?: string; 
       setQuantity("");
       void qc.invalidateQueries({ queryKey: ["feed-transfers"] });
       void qc.invalidateQueries({ queryKey: ["feed-transfer-context"] });
-      void qc.invalidateQueries({ queryKey: ["feed-transfers-unbooked"] });
     },
     onError: (e) => setError(e instanceof ApiError ? e.message : "Could not transfer"),
   });
@@ -171,7 +145,6 @@ export function FeedTransferForm({ term = "", criteria = {} }: { term?: string; 
       setError(null);
       setMoving(null);
       void qc.invalidateQueries({ queryKey: ["feed-transfers"] });
-      void qc.invalidateQueries({ queryKey: ["feed-transfers-unbooked"] });
     },
     onError: (e) => setError(e instanceof ApiError ? e.message : "Could not move it"),
   });
@@ -209,60 +182,6 @@ export function FeedTransferForm({ term = "", criteria = {} }: { term?: string; 
           {error && (
             <div className="mb-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">
               {error}
-            </div>
-          )}
-
-          {unbooked && unbooked.length > 0 && (
-            <div className="card mb-4 border-amber-300 bg-amber-50 p-4 text-[13px]">
-              <div className="mb-1 font-semibold text-amber-900">Tankers at the sheds with no transfer</div>
-              <p className="mb-2 text-[12px] text-amber-800">
-                The silo weighed these in, but no transfer matches them. Where one is close, check its date or weight
-                with the mill — entering another would count the feed twice. Enter only those with nothing close, with
-                the weighbridge's net, dated the day it arrived.
-              </p>
-              {unbooked.map((u) => {
-                const day = localYmd(new Date(u.at));
-                const l = u.likely;
-                return (
-                  <div key={`${u.houseId}-${u.at}`} className="border-t border-amber-200 py-1.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-amber-900">
-                        {u.farmName} · {u.houseCode} — {formatDate(day)}{" "}
-                        {new Date(u.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" })} · about{" "}
-                        <span className="font-medium tabular-nums">{u.kg.toLocaleString("en-IN")} kg</span>
-                        {u.loads > 1 && <span className="text-amber-700"> in {u.loads} loads</span>}
-                      </span>
-                      {!l && (
-                        <button
-                          className="shrink-0 rounded border border-amber-400 px-2 py-0.5 text-[12px] text-amber-900 hover:bg-amber-100"
-                          onClick={() => {
-                            setToId(u.houseId);
-                            setTransferDate(day);
-                          }}
-                        >
-                          Enter it
-                        </button>
-                      )}
-                    </div>
-                    {l && (
-                      <div className="mt-0.5 text-[12px] text-amber-800">
-                        Likely <span className="font-medium">{l.number}</span>, {formatDate(l.transferDate)},{" "}
-                        <span className="tabular-nums">{l.quantityKg.toLocaleString("en-IN")} kg</span>
-                        {" — "}
-                        {[
-                          l.daysOff !== 0 &&
-                            `dated ${Math.abs(l.daysOff) === 1 ? "a day" : `${Math.abs(l.daysOff)} days`} ${l.daysOff > 0 ? "after" : "before"} it arrived`,
-                          Math.abs(l.gapPct) > 3 &&
-                            `the silo took in ${Math.abs(l.gapKg).toLocaleString("en-IN")} kg (${Math.abs(l.gapPct)}%) ${l.gapKg < 0 ? "less" : "more"} than the mill weighed`,
-                        ]
-                          .filter(Boolean)
-                          .join("; ") || "same day and within 3%, but niko couldn't pair it on its own — check it with the mill"}
-                        .
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
             </div>
           )}
 

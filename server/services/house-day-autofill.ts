@@ -12,18 +12,17 @@
  *  - Feed eaten is what the SILO lost, not the controller's feed counter. Over
  *    25 Sep–8 Oct the silo matched the register within 1% on nearly every
  *    whole day; the counter missed runs outright (L2 on 7 Oct counted 7,460 of
- *    about 10,700; L5 was short by a quarter on 5 Oct). It is taken when the
- *    controller covered the whole day and the figure is within 10% of the
- *    house's last seven days.
+ *    about 10,700; L5 was short by a quarter on 5 Oct). It is taken whenever
+ *    the controller covered the silo's day, 18:00 to 18:00.
  *
- *  - Stock is the silo at midnight.
+ *  - Stock is the silo at 18:00.
  *
  *  - Feed IN is the mill's transfers, and nothing else. Until 17 Oct 2026 the
  *    silo's tankers had to match them within 3% before feed eaten filled, and
  *    stock was the book (opening + transfers − eaten) checked against the
  *    silo. With L2's and L3's silos reading 14–23% under the mill, the user
  *    decided the two sides stand apart until the silos are fixed; where they
- *    disagree is a report, not a stop.
+ *    disagree is a report, never a comparison on the entry screen.
  *
  *  - Water is the controller's climb from midnight to midnight.
  */
@@ -52,9 +51,6 @@ const TANKER_TOLERANCE = 0.03;
 /** A rise smaller than this, unmatched, is a top-up of noise, not a tanker. */
 const TANKER_MIN_KG = 1_000;
 /** Today's intake may stray this far from the last week's before it stops. */
-const INTAKE_TOLERANCE = 0.1;
-/** How many days back the silo's own intake is judged against. */
-const INTAKE_DAYS = 7;
 /** How many consecutive silo rises one transfer may arrive as. */
 const LOADS_AT_MOST = 4;
 
@@ -300,8 +296,7 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
   const dayEnd = startOf(addDays(day, 1));
   const eggsProduced = await gradedEggsOn(db, houseId, day);
 
-  // The week before too, for the silo's own recent intake.
-  const rows = await readings(houseId, new Date(startOf(addDays(day, -INTAKE_DAYS - 1)).getTime() - 3_600_000), dayEnd);
+  const rows = await readings(houseId, new Date(startOf(addDays(day, -1)).getTime() - 3_600_000), dayEnd);
   const over = day < istDate();
   const coverage = over
     ? dayCoverage(rows.map((r) => ({ at: r.at, waterL: r.waterL })), dayStart, dayEnd)
@@ -343,10 +338,11 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
    * Decided 17 Oct 2026: until the short silos are fixed (L2's and L3's read
    * 14–23% under the mill on every tanker since mid-October), the mill's
    * transfers are the only record of feed IN, and feed eaten and stock come
-   * from the silo alone. The two no longer have to agree before a figure
-   * fills; where they don't is a report of its own. Until then each tanker
-   * was taken at the mill's weight, and a week whose tankers didn't match the
-   * mill within 3% held feed eaten back for a person.
+   * from the silo alone, with no comparison on screen and nothing held back
+   * for one — "it's blocking the entire feed reporting". Where the two
+   * disagree is a report of its own. Until then each tanker was taken at the
+   * mill's weight, a week whose tankers didn't match the mill within 3% held
+   * feed eaten back for a person, and so did a day 10% off the last week.
    */
   const fed = siloBalance(silo, feedFrom, feedTo) ?? 0;
   const counters = over ? await countersOf(houseId, day) : null;
@@ -375,21 +371,6 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
           ),
         )
     : [];
-  /*
-   * The silo's own last seven whole days, not what was saved: a silo that
-   * reads low every day (L2 from mid-October, against a register of about
-   * 10,750) is judged against itself, and only a day out of line with it —
-   * L3's 3,285 on 10 Oct, L4's 7,089 on 16 Oct — stops for a person.
-   */
-  const recent: number[] = [];
-  for (let d = addDays(day, -INTAKE_DAYS); d < day; d = addDays(d, 1)) {
-    const [a, b] = siloDay(d);
-    if (!dayCoverage(rows.map((r) => ({ at: r.at, waterL: r.waterL })), a, b).complete) continue;
-    const v = siloBalance(silo, a, b);
-    if (v != null && v > 0) recent.push(v);
-  }
-  recent.sort((a, b) => a - b);
-  const median = recent.length ? recent[Math.floor(recent.length / 2)]! : null;
 
   const counterNote = counter != null ? [{ label: "Controller counter", value: Math.round(counter) }] : [];
   let feedConsumedKg: Figure;
@@ -397,24 +378,13 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
     feedConsumedKg = { status: "unavailable", value: null, from: null, note: feedCoverage.reason ?? "" };
   } else if (fed <= 0) {
     feedConsumedKg = { status: "unavailable", value: null, from: null, note: "The silo recorded no feeding runs." };
-  } else if (median != null && Math.abs(fed - median) > INTAKE_TOLERANCE * median) {
-    const pct = Math.round(((fed - median) / median) * 100);
-    feedConsumedKg = {
-      status: "check",
-      value: null,
-      from: "silo",
-      note: `The silo says ${fmt(fed)} kg — ${Math.abs(pct)}% ${pct > 0 ? "above" : "below"} the silo's last ${recent.length} whole days (${fmt(median)}).`,
-      also: [{ label: "Silo", value: fed }, ...counterNote],
-    };
   } else {
     const runs = moves.filter((m) => m.kg < 0).length;
     feedConsumedKg = {
       status: "filled",
       value: fed,
       from: "silo",
-      note: `From the silo, 18:00 to 18:00: ${runs} feeding run${runs === 1 ? "" : "s"}.${
-        counter != null ? ` Counter ${fmt(counter)}.` : ""
-      }`,
+      note: `From the silo, 18:00 to 18:00: ${runs} feeding run${runs === 1 ? "" : "s"}.`,
     };
   }
 
@@ -516,7 +486,9 @@ export function provenance(
     let src: FigureSource;
     if (f.status === "filled" && f.value != null && sameFigure(field, f.value, v)) {
       src = { from: f.from!, offered: f.value };
-    } else if (f.status === "unavailable") {
+    } else if (f.status === "unavailable" || field !== "waterKl") {
+      // Feed typed over the silo's figure needs no reason (17 Oct 2026): the
+      // comparison is a report's, not the entry person's.
       src = { from: "typed", offered: f.value, reason };
     } else {
       if (!reason) {

@@ -295,6 +295,8 @@ export function HouseDetailPage() {
     // A saved day's figure, left as it was, keeps its reason.
     const kept = savedFigures?.[field];
     if (editingRecordId && kept != null && sameFigure(SERVER_FIELD[field], kept, Number(raw))) return false;
+    // Feed typed over the silo needs no reason (17 Oct 2026); water still does.
+    if (field !== 'waterKl') return false;
     if (f.status === 'filled') return f.value != null && !sameFigure(SERVER_FIELD[field], f.value, Number(raw));
     return f.status === 'check';
   };
@@ -1658,31 +1660,6 @@ export function HouseDetailPage() {
                             </div>
                             {figureNote('feedIntakeKg')}
                             {figureNote('feedStockKg')}
-                            {sensor && (sensor.tankers.length > 0 || sensor.unseenTransfers.length > 0) && (
-                              <div className="space-y-1 rounded-lg border border-gray-100 px-3 py-2 text-[12px]">
-                                <div className="font-medium text-gray-600">Tankers at the silo</div>
-                                {sensor.tankers.map((t) => (
-                                  <div key={t.at} className={`flex justify-between gap-2 ${t.transfer ? 'text-gray-600' : 'font-medium text-amber-800'}`}>
-                                    <span>
-                                      {new Date(t.at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' })}
-                                      {' · '}
-                                      {t.kg.toLocaleString('en-IN')} kg
-                                    </span>
-                                    <span>
-                                      {t.transfer
-                                        ? `${t.transfer.number} · ${t.transfer.quantityKg.toLocaleString('en-IN')} kg${t.transfer.transferDate !== recordForm.date ? ` (dated ${format(t.transfer.transferDate, 'dd MMM')})` : ''}`
-                                        : 'No mill transfer — tell the mill'}
-                                    </span>
-                                  </div>
-                                ))}
-                                {sensor.unseenTransfers.map((t) => (
-                                  <div key={t.number} className="flex justify-between gap-2 font-medium text-amber-800">
-                                    <span>{t.number} · {t.quantityKg.toLocaleString('en-IN')} kg</span>
-                                    <span>No tanker seen at the silo</span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
                             <div className="text-sm bg-yolk-50 p-2 rounded-lg">
                               Per Bird: <strong>{feedPerBird.toFixed(1)} grams</strong>
                             </div>
@@ -1822,14 +1799,6 @@ export function HouseDetailPage() {
                                 </div>
                                 <div className="text-sm text-gray-500">
                                   by {record.recordedBy || '—'} {ageRefDate && <span className="text-xs">(Week {recordAgeWeeks})</span>}
-                                  {record.deliveryCheck === 'missing' && (
-                                    <span
-                                      className="ml-2 inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-900"
-                                      title={`Silo says about ${(record.siloImpliedKg ?? 0).toLocaleString('en-IN')} kg arrived; Feed Mill has no transfer for this day`}
-                                    >
-                                      no transfer
-                                    </span>
-                                  )}
                                 </div>
                               </div>
                               <div className="flex items-center gap-4 text-sm flex-wrap justify-end">
@@ -2538,13 +2507,6 @@ export function HouseDetailPage() {
                       <div className="text-lg font-semibold text-yolk-700">{selectedRecord.feedStockKg || 0}</div>
                     </div>
                   </div>
-                  {selectedRecord.deliveryCheck === 'missing' && (
-                    <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-900">
-                      The silo says about{' '}
-                      <strong>{(selectedRecord.siloImpliedKg ?? 0).toLocaleString('en-IN')} kg</strong>{' '}
-                      arrived, and Feed Mill has no transfer to this house for the day. Record it in Feed Mill.
-                    </div>
-                  )}
                 </div>
 
                 <div className="border-t pt-3 text-sm text-gray-500">
