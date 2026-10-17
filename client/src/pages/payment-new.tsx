@@ -10,6 +10,7 @@ import { DateInput } from "../components/date-input";
 interface Contact {
   id: string;
   displayName: string;
+  isGroupCompany?: boolean;
 }
 interface OpenDoc {
   id: string;
@@ -56,8 +57,13 @@ export function PaymentNewPage({ side, editId }: { side: "customer" | "vendor"; 
   const [presetApplied, setPresetApplied] = useState(false);
 
   const { data: contacts } = useQuery({
-    queryKey: ["contacts", side],
-    queryFn: () => api<Contact[]>(`/api/contacts?type=${isCustomer ? "customer" : "vendor"}&isActive=true`),
+    // The group's own LLPs too, marked Group: a payment to or from one has
+    // nowhere else to be entered (the user, 17 Oct 2026).
+    queryKey: ["contacts", side, "with-group"],
+    queryFn: () =>
+      api<Contact[]>(
+        `/api/contacts?type=${isCustomer ? "customer" : "vendor"}&isActive=true&includeGroup=true`,
+      ),
   });
   const { data: banks } = useQuery({
     queryKey: ["bank-accounts"],
@@ -198,7 +204,11 @@ export function PaymentNewPage({ side, editId }: { side: "customer" | "vendor"; 
             <SearchSelect
               value={contactId || null}
               onChange={(id) => setContactId(id ?? "")}
-              options={(contacts ?? []).map((c) => ({ id: c.id, label: c.displayName }))}
+              options={(contacts ?? []).map((c) => ({
+                id: c.id,
+                label: c.displayName,
+                sub: c.isGroupCompany ? "Group" : null,
+              }))}
               placeholder={`Select ${isCustomer ? "customer" : "vendor"}…`}
             />
           </div>

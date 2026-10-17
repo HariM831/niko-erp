@@ -15,6 +15,7 @@ interface Contact {
   displayName: string;
   companyName?: string | null;
   paymentTermsDays: number;
+  isGroupCompany?: boolean;
 }
 interface Item {
   id: string;
@@ -229,9 +230,15 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existing]);
 
+  // An invoice or a bill may go to one of the group's own LLPs, marked Group;
+  // every other list keeps them out (the user, 17 Oct 2026).
+  const withGroup = config.entityType === "invoice" || config.entityType === "bill";
   const { data: contacts } = useQuery({
-    queryKey: ["contacts", config.contactType],
-    queryFn: () => api<Contact[]>(`/api/contacts?type=${config.contactType}&isActive=true`),
+    queryKey: ["contacts", config.contactType, withGroup ? "with-group" : "market"],
+    queryFn: () =>
+      api<Contact[]>(
+        `/api/contacts?type=${config.contactType}&isActive=true${withGroup ? "&includeGroup=true" : ""}`,
+      ),
   });
   const { data: items } = useQuery({
     queryKey: ["items-active"],
@@ -267,7 +274,11 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
       (contacts ?? []).map((c) => ({
         id: c.id,
         label: c.displayName,
-        sub: c.companyName && c.companyName !== c.displayName ? c.companyName : null,
+        sub: c.isGroupCompany
+          ? "Group"
+          : c.companyName && c.companyName !== c.displayName
+            ? c.companyName
+            : null,
       })),
     [contacts],
   );

@@ -152,7 +152,7 @@ contactsRouter.get("/summary", async (req, res) => {
 });
 
 contactsRouter.get("/", async (req, res) => {
-  const { type, search, isActive } = req.query as Record<string, string | undefined>;
+  const { type, search, isActive, includeGroup } = req.query as Record<string, string | undefined>;
   const conditions = [];
   if (type === "customer" || type === "vendor") {
     if (!allowContact(req, res, type, "view")) return;
@@ -160,8 +160,10 @@ contactsRouter.get("/", async (req, res) => {
     // customers has to return it too.
     conditions.push(inArray(contacts.type, [type, "both"]));
     // The group's own companies are neither customers nor vendors to the
-    // market; their ledger has its own page under Accountant.
-    conditions.push(eq(contacts.isGroupCompany, false));
+    // market; their ledger has its own page under Accountant. Only the bill,
+    // invoice and payment forms ask for them, since a one-off document to an
+    // LLP has nowhere else to be raised (the user, 17 Oct 2026).
+    if (includeGroup !== "true") conditions.push(eq(contacts.isGroupCompany, false));
   } else {
     /*
      * No type asked for — a lookup field, or Bulk Update. Either right opens
