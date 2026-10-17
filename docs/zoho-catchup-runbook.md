@@ -248,3 +248,34 @@ refund leaves that difference for good.
 
 Payables is still ₹20,58,813 apart, and stays so until the 224 vendor payments
 come across.
+
+### Done on production, 17 October 2026
+
+In this order, from a checkout of `main` at `/srv/zoho-16oct/niko-main` with
+`EnvironmentFile=/etc/niko/prod.env` — not from `/srv/niko-staging`, whose
+branch another session moves underneath you.
+
+1. `pg_dump` → `/srv/backups/prod-before-duplicates-17oct.dump`
+2. `merge-contacts.ts "PUYA MARKETING" "M/s Puya" --apply`
+3. `void-invoices.ts 0508 0811 0932 0968 --commit` — ₹33,16,856 of sale written
+   twice, once in each book. **Which copy survives is settled by the dispatch**,
+   not by the number: `1034` keeps the 2 October sale although it sits out of
+   date order, because the eggs left the farm against it and voiding it would
+   have pulled ₹12.4 lakh of stock back.
+4. `unload-selected.ts customer_payment <9 numbers> --yes`
+5. `move-application.ts` — `PMT-00136` off `0668` onto `0810`, then
+   `CP-2026-27/1001` from `0659` onto `0668`. **Move before allocating.** Run it
+   the other way round and the pass has already filled the invoice the Zoho
+   receipt belongs on.
+6. `allocate-receipts.ts --commit` — 136 receipts into 161 applications,
+   ₹3.89 crore. Open for those customers: ₹9.37 crore → ₹5.48 crore.
+7. `check-document-balances.ts --fix`
+8. `fix-control-drift.ts --commit` — 21 customers, ₹64,59,916.
+
+Afterwards: **receivables agrees to the rupee**, ₹36,27,29,148 on both sides.
+Advances is ₹30,95,420 below the receipts, which is the two refunds less
+rounding. Payables is ₹27,75,013 apart and stays so until the vendor payments
+come across.
+
+**Production still lacks the 177 post-cutoff Zoho receipts, ₹4.96 crore.** That
+is most of why it shows ₹5.48 crore owed where staging shows ₹2.13 crore.
