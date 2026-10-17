@@ -1,0 +1,153 @@
+/**
+ * Find the same deposit sitting in niko twice.
+ *
+ *   npx tsx scripts/zoho/find-duplicate-receipts.ts --dump <dir>
+ *
+ * Twenty-two invoices carry more applied to them than they are worth, fifteen
+ * of those exactly twice over. The money is not wrong — the same deposit is
+ * recorded twice, and there are two ways it got there:
+ *
+ *   ZOHO ENTERED IT TWICE. Between 6 and 8 October somebody re-keyed old
+ *   receipts into Zoho: CP-2026-27/1346 of 6 October carries the identical UTR
+ *   as CP-2026-27/569 of 29 June, PUNBR52026062919129747, under a different
+ *   customer name. Five July receipts for DG Egg Point were re-entered the same
+ *   evening against a second contact record, and an April cash receipt in
+ *   October. Zoho applied both copies to the same invoice, so Zoho's own books
+ *   are over-applied there too, and the catch-up inherited it.
+ *
+ *   BOTH BOOKS HOLD IT. A deposit keyed from the bank statement as PMT-00019
+ *   and the same deposit loaded from Zoho as CP-2026-27/1206. This is the
+ *   double-posting the 16 September rule existed to prevent, and the presence
+ *   test that replaced it misses whenever the two books split the deposit
+ *   differently — Zoho has 20,000 on the 14th and 5,53,000 on the 15th where
+ *   niko has one 5,73,000 on the 18th.
+ *
+ * The evidence, strongest first: a shared UTR is proof, since a bank reference
+ * belongs to one transfer. Beyond that it is the same customer and the same
+ * amount close together in time, which is suspicion, not proof — a customer
+ * who pays the same round sum twice in a week is ordinary. A Zoho record
+ * created weeks after the day it is dated, when an earlier record of the same
+ * money already exists, is near proof.
+ *
+ * This only reports. Nothing is unloaded here: see unload-selected.ts.
+ */
+import { readFileSync } from "node:fs";
+import { sql } from "drizzle-orm";
+import { db, pool } from "../../server/db";
+
+const dumpAt = process.argv.indexOf("--dump");
+const DIR = dumpAt > -1 ? process.argv[dumpAt + 1]! : ".zoho-dump/detail";
+/** Same customer, same amount, no further apart than this — worth a look. */
+const DAYS = 7;
+
+const money = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
+const days = (a: string, b: string) => Math.abs((Date.parse(a) - Date.parse(b)) / 86_400_000);
+
+/**
+ * A bank reference belongs to one transfer. Zoho and the statement spell it
+ * differently — spaces, a trailing customer name, an IMPS/NEFT prefix — so
+ * compare the long alphanumeric runs inside it and ignore everything else.
+ * Short runs are account-number fragments and bank codes that repeat across
+ * transfers, so they are not identifying on their own.
+ */
+const utrs = (s: string | null) =>
+  new Set(
+    (s ?? "")
+      .toUpperCase()
+      .split(/[^A-Z0-9]+/)
+      .filter((t) => t.length >= 12 && /\d{6}/.test(t)),
+  );
+const sharesUtr = (a: Set<string>, b: Set<string>) => [...a].some((t) => b.has(t));
+
+interface Z {
+  payment_number: string;
+  date: string;
+  created_time: string;
+  customer_name?: string;
+  amount: number;
+  reference_number?: string;
+  invoices?: Array<{ invoice_number: string; amount_applied: number }>;
+}
+
+async function main() {
+  const zoho = new Map<string, Z>();
+  for (const line of readFileSync(`${DIR}/customerpayments.jsonl`, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    const z = JSON.parse(line) as Z;
+    zoho.set(z.payment_number, z);
+  }
+
+  const here = (
+    await db.execute(sql`
+      SELECT p.number, p.payment_date::text AS date, c.display_name AS cust,
+             p.customer_id::text AS cust_id,
+             round(p.amount::numeric, 2)::float8 AS amount, p.reference,
+             coalesce((SELECT string_agg(i.number || ' ' || round(pa.amount_applied::numeric)::text, '; ' ORDER BY i.number)
+                         FROM payment_applications pa JOIN invoices i ON i.id = pa.invoice_id
+                        WHERE pa.payment_id = p.id), '(unapplied)') AS applied
+        FROM customer_payments p JOIN contacts c ON c.id = p.customer_id
+       ORDER BY p.payment_date, p.number
+    `)
+  ).rows as Array<{ number: string; date: string; cust: string; cust_id: string;
+                    amount: number; reference: string | null; applied: string }>;
+
+  console.log(`\n  ${here.length} receipts in niko, ${zoho.size} in the dump\n`);
+
+  type Pair = { a: typeof here[number]; b: typeof here[number]; why: string[] };
+  const pairs: Pair[] = [];
+  for (let i = 0; i < here.length; i++) {
+    for (let j = i + 1; j < here.length; j++) {
+      const [a, b] = [here[i]!, here[j]!];
+      const za = zoho.get(a.number);
+      const zb = zoho.get(b.number);
+      const ua = utrs(a.reference ?? za?.reference_number ?? null);
+      const ub = utrs(b.reference ?? zb?.reference_number ?? null);
+      const utr = ua.size > 0 && ub.size > 0 && sharesUtr(ua, ub);
+      const alike =
+        a.cust_id === b.cust_id &&
+        Math.abs(a.amount - b.amount) <= 1 &&
+        days(a.date, b.date) <= DAYS;
+      if (!utr && !alike) continue;
+
+      const why: string[] = [];
+      if (utr) why.push("same UTR");
+      if (a.amount === b.amount && a.date === b.date) why.push("same day, same amount");
+      else if (alike) why.push(`same amount, ${days(a.date, b.date)} day(s) apart`);
+      for (const [n, z] of [[a.number, za], [b.number, zb]] as const) {
+        if (z && days(z.created_time.slice(0, 10), z.date) > 14)
+          why.push(`${n} keyed into Zoho on ${z.created_time.slice(0, 10)} for ${z.date}`);
+      }
+      if (!za !== !zb) why.push("one from Zoho, one keyed here");
+      pairs.push({ a, b, why });
+    }
+  }
+
+  const proof = pairs.filter((p) => p.why.some((w) => w === "same UTR" || w.includes("keyed into Zoho")));
+  const look = pairs.filter((p) => !proof.includes(p));
+
+  for (const [label, set] of [
+    ["THE SAME MONEY TWICE", proof],
+    ["WORTH A LOOK — same customer, same amount, days apart", look],
+  ] as const) {
+    const sum = set.reduce((s, p) => s + Math.min(p.a.amount, p.b.amount), 0);
+    console.log(`  ${label}: ${set.length} pair(s), Rs ${money(sum)} counted twice if they are\n`);
+    for (const p of set) {
+      console.log(`    ${p.why.join("; ")}`);
+      for (const r of [p.a, p.b]) {
+        console.log(
+          `      ${r.number.padEnd(20)}${r.date}  ${r.cust.slice(0, 24).padEnd(25)}${money(r.amount).padStart(11)}` +
+            `   ${(r.reference ?? zoho.get(r.number)?.reference_number ?? "-").slice(0, 44)}`,
+        );
+        console.log(`        -> ${r.applied}`);
+      }
+      console.log();
+    }
+  }
+  await pool.end();
+}
+
+main().catch(async (e) => {
+  console.error(`\n  ${e.message}\n`);
+  await pool.end().catch(() => {});
+  process.exitCode = 1;
+});
