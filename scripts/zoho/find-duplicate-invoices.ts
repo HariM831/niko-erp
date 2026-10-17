@@ -35,11 +35,23 @@ interface Inv {
   receipts: string | null;
 }
 
-/** Two names are the same party when one's words are inside the other's. */
+/**
+ * Two names are the same party when they share a word that names somebody.
+ * Half this trade is called Traders, Store, Egg Point or Enterprise, and NB
+ * Traders is not Kamakhya Traders: on the first run that one word alone
+ * paired eighty sales that were nothing of the sort.
+ */
+const GENERIC = new Set([
+  "the", "and", "mrs", "shri", "sri", "ltd", "llp", "pvt", "private", "limited",
+  "traders", "trader", "trading", "store", "stores", "shop", "egg", "eggs",
+  "point", "center", "centre", "enterprise", "enterprises", "marketing",
+  "agency", "agencies", "bakery", "farm", "farms", "food", "foods", "poultry",
+  "sons", "brothers", "company", "distributors", "suppliers", "general",
+]);
 const words = (s: string) =>
   new Set(
     s.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/)
-      .filter((w) => w.length > 2 && !["the", "and", "m/s", "mrs"].includes(w)),
+      .filter((w) => w.length > 2 && !GENERIC.has(w)),
   );
 const related = (a: string, b: string) => {
   const [x, y] = [words(a), words(b)];
@@ -65,7 +77,7 @@ async function main() {
     `)
   ).rows as Inv[];
 
-  const pairs: Array<{ a: Inv; b: Inv; why: string }> = [];
+  const pairs: Array<{ a: Inv; b: Inv; why: string; both: boolean }> = [];
   for (let i = 0; i < rows.length; i++) {
     for (let j = i + 1; j < rows.length; j++) {
       const [a, b] = [rows[i]!, rows[j]!];
@@ -77,8 +89,16 @@ async function main() {
       if (!sameParty && !related(a.cust, b.cust)) continue;
       pairs.push({
         a, b,
+        /**
+         * One copy carrying a Zoho link and the other carrying none is the
+         * two-books signature. Two copies from one book are a different
+         * question — a customer can take two loads of the same value in a day,
+         * and several did — so those are listed apart, and nothing here says
+         * they are wrong.
+         */
+        both: books,
         why: [
-          sameParty ? "same customer" : "two records for one party",
+          sameParty ? "same customer" : `two records for one party — ${a.cust} / ${b.cust}`,
           books ? "one from Zoho, one raised here" : a.zoho ? "both from Zoho" : "both raised here",
           apart ? `${apart} day apart` : "same day",
         ].join("; "),
@@ -86,18 +106,23 @@ async function main() {
     }
   }
 
-  const value = pairs.reduce((s, p) => s + Math.min(p.a.total, p.b.total), 0);
-  console.log(`  ${pairs.length} pair(s), Rs ${money(value)} of sale counted twice if they are\n`);
-  for (const p of pairs) {
-    console.log(`    ${p.why}`);
-    for (const r of [p.a, p.b]) {
-      console.log(
-        `      ${r.number.padEnd(20)}${r.date}  ${r.cust.slice(0, 22).padEnd(23)}${money(r.total).padStart(12)}` +
-          `  ${r.status.padEnd(15)}${r.zoho ? "from Zoho" : "raised here"}`,
-      );
-      console.log(`        ${r.receipts ?? "(nothing applied)"}`);
+  for (const [label, set] of [
+    ["ONE IN EACH BOOK", pairs.filter((p) => p.both)],
+    ["BOTH IN ONE BOOK — a customer may take two loads of a value in a day", pairs.filter((p) => !p.both)],
+  ] as const) {
+    const value = set.reduce((s, p) => s + Math.min(p.a.total, p.b.total), 0);
+    console.log(`  ${label}: ${set.length} pair(s), Rs ${money(value)} counted twice if they are\n`);
+    for (const p of set) {
+      console.log(`    ${p.why}`);
+      for (const r of [p.a, p.b]) {
+        console.log(
+          `      ${r.number.padEnd(20)}${r.date}  ${r.cust.slice(0, 22).padEnd(23)}${money(r.total).padStart(12)}` +
+            `  ${r.status.padEnd(15)}${r.zoho ? "from Zoho" : "raised here"}`,
+        );
+        console.log(`        ${r.receipts ?? "(nothing applied)"}`);
+      }
+      console.log();
     }
-    console.log();
   }
   await pool.end();
 }
