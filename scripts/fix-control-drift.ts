@@ -40,8 +40,36 @@ const ON = onAt > -1 ? process.argv[onAt + 1]! : "2026-10-16";
 
 const money = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
 
+/**
+ * Its own corrections are hand-written entries with no customer on them, so
+ * the attribution below walks straight past them: run this twice and the
+ * second run sees the same shortfall again and posts it again. On production
+ * on 17 Oct 2026 that put 64.6 lakh into receivables that nothing owed.
+ *
+ * So each run starts by clearing what the last one wrote and works out the
+ * correction afresh. The figure is derived from the documents as they stand;
+ * an old one is not history worth keeping, it is a stale answer.
+ */
+const NARRATION = "Advance application corrected";
+
 async function main() {
   console.log(`\n  Receivables drift per customer, corrected as at ${ON} — ${COMMIT ? "POSTING" : "dry run"}\n`);
+
+  const prior = (
+    await db.execute(sql`
+      SELECT count(*)::int AS n FROM journal_entries
+       WHERE source_type = 'manual' AND narration LIKE ${`${NARRATION}%`}
+    `)
+  ).rows[0] as { n: number };
+  if (prior.n) {
+    console.log(`  ${prior.n} correcting entr(ies) from an earlier run ${COMMIT ? "will be" : "would be"} replaced\n`);
+    if (COMMIT) {
+      await db.execute(sql`
+        DELETE FROM journal_entries
+         WHERE source_type = 'manual' AND narration LIKE ${`${NARRATION}%`}
+      `);
+    }
+  }
 
   const rows = (
     await db.execute(sql`
@@ -141,7 +169,7 @@ async function main() {
       const drift = Math.round((r.open - r.posted) * 100) / 100;
       await postJournal(tx, {
         entryDate: ON,
-        narration: `Advance application corrected — ${r.cust}`,
+        narration: `${NARRATION} — ${r.cust}`,
         sourceType: "manual",
         postedBy: user.id,
         lines:
