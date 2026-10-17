@@ -126,7 +126,7 @@ async function main() {
     }
   }
 
-  if (KEY !== "ar") {
+  if (KEY !== "ar" && KEY !== "ap") {
     console.log();
     await pool.end();
     return;
@@ -138,16 +138,24 @@ async function main() {
    * credited back. A control account is only ever wrong on one of those two.
    */
   const [sides] = (
-    await db.execute(sql`
+    await db.execute(
+      KEY === "ar"
+        ? sql`
       SELECT (SELECT coalesce(sum(total), 0) FROM invoices WHERE status NOT IN ('void', 'draft'))::float8 AS raised,
              (SELECT coalesce(sum(amount_applied), 0) FROM payment_applications)::float8 AS paid,
              (SELECT coalesce(sum(amount_applied), 0) FROM credit_note_applications)::float8 AS credited
-    `)
+    `
+        : sql`
+      SELECT (SELECT coalesce(sum(total), 0) FROM bills WHERE status NOT IN ('void', 'draft'))::float8 AS raised,
+             (SELECT coalesce(sum(amount_applied), 0) FROM vendor_payment_applications)::float8 AS paid,
+             (SELECT coalesce(sum(amount_applied), 0) FROM vendor_credit_applications)::float8 AS credited
+    `,
+    )
   ).rows as Array<{ raised: number; paid: number; credited: number }>;
   const debits = bySource.filter((s) => s.net > 0).reduce((s, r) => s + r.net, 0);
   const credits = -bySource.filter((s) => s.net < 0).reduce((s, r) => s + r.net, 0);
   console.log(
-    `    invoices raised ${money(sides!.raised).padStart(15)}   debited ${money(debits).padStart(15)}   ` +
+    `    ${KEY === "ar" ? "invoices raised" : "bills raised  "} ${money(sides!.raised).padStart(15)}   debited ${money(debits).padStart(15)}   ` +
       `${Math.abs(sides!.raised - debits) < 1 ? "agree" : `apart by ${money(debits - sides!.raised)}`}`,
   );
   console.log(
