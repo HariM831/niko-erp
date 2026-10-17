@@ -78,9 +78,31 @@ async function main() {
   }
 
   /**
-   * Where a difference lives. Receivables is posted per document but carries no
-   * customer of its own, so the only way to attribute it is to put each
-   * customer's own documents beside the postings their documents made.
+   * Where the movement comes from. Receivables carries no customer of its own,
+   * so before attributing a difference it is worth seeing which kind of
+   * document moved it at all — an entry nobody can attribute is the first
+   * thing to look at.
+   */
+  const bySource = (
+    await db.execute(sql`
+      SELECT j.source_type::text AS src, count(DISTINCT j.id)::int AS entries,
+             coalesce(sum(l.debit - l.credit), 0)::float8 AS net
+        FROM journal_entries j
+        JOIN journal_entry_lines l ON l.entry_id = j.id
+       WHERE l.account_id = (SELECT id FROM accounts WHERE system_key = 'ar')
+       GROUP BY 1 ORDER BY 3 DESC
+    `)
+  ).rows as Array<{ src: string; entries: number; net: number }>;
+  console.log(`\n  what moves receivables:`);
+  for (const s of bySource) {
+    console.log(`    ${s.src.padEnd(24)}${String(s.entries).padStart(6)} entries   ${money(s.net).padStart(15)}`);
+  }
+
+  /**
+   * Then each customer's own documents beside the postings those documents
+   * made. An advance applied posts an entry of its own, and it is raised
+   * against an invoice from the sales screens and against the receipt by the
+   * re-allocation, so both shapes have to be followed to find the customer.
    */
   const rows = (
     await db.execute(sql`
