@@ -120,32 +120,45 @@ async function main() {
   const load: Z[] = [];
   const skip: Array<{ z: Z; as: typeof own[number]; utr: boolean }> = [];
   const twins: Array<{ z: Z; as: Z }> = [];
-  for (const z of zoho) {
-    if (byNumber.has(z.payment_number)) continue;        // already here under its own number
-    const zu = utrs(z.reference_number);
+  const candidatesFor = (z: Z) => {
     const mine = party.get(String(z.customer_id ?? ""));
-    const candidates = own.filter(
+    return own.filter(
       (k) =>
         !taken.has(k.number) &&
         Math.abs(Number(z.amount) - k.amount) <= 1 &&
         days(z.date, k.date) <= DAYS &&
         (mine ? k.cust_id === mine : sameParty(z.customer_name ?? "", k.cust)),
     );
+  };
+
+  const unmatched = zoho.filter((z) => !byNumber.has(z.payment_number));
+  /**
+   * The amount and the party and a few days between them is where every
+   * double-post lives, but it is not proof — a customer who pays the same
+   * round sum twice in a week is ordinary here. A shared bank reference is
+   * proof, so every one of those is paired FIRST, before a likeness can take
+   * the receipt it belongs to.
+   *
+   * CP-2026-27/1393 is why. PMT-00085 carries its exact reference, but a
+   * receipt three days later for the same round 2,68,800 reached it first,
+   * and 1393 was loaded as missing against a deposit niko already had.
+   */
+  for (const z of unmatched) {
+    const zu = utrs(z.reference_number);
+    if (!zu.size) continue;
+    const hit = candidatesFor(z).find((k) => sharesUtr(zu, utrs(k.reference)));
+    if (hit) { taken.add(hit.number); skip.push({ z, as: hit, utr: true }); }
+  }
+  const done = new Set(skip.map((s) => s.z.payment_number));
+  for (const z of unmatched) {
+    if (done.has(z.payment_number)) continue;
+    const zu = utrs(z.reference_number);
     /**
-     * The amount and the party and a few days between them is where every
-     * double-post lives, but it is not proof — a customer who pays the same
-     * round sum twice in a week is ordinary here. So when both records carry
-     * a bank reference, that settles it either way: the same reference is one
-     * deposit, and two different references are two deposits however alike
-     * they look. Only where one side has no usable reference does the
-     * likeness alone decide.
+     * Two different references are two deposits however alike they look, so
+     * likeness only decides where one side has no usable reference at all.
      */
-    const byUtr = zu.size
-      ? candidates.find((k) => sharesUtr(zu, utrs(k.reference)))
-      : undefined;
-    const loose = candidates.find((k) => !zu.size || !utrs(k.reference).size);
-    const hit = byUtr ?? loose;
-    if (hit) { taken.add(hit.number); skip.push({ z, as: hit, utr: hit === byUtr }); continue; }
+    const hit = candidatesFor(z).find((k) => !zu.size || !utrs(k.reference).size);
+    if (hit) { taken.add(hit.number); skip.push({ z, as: hit, utr: false }); continue; }
     const twin = twinHere(z);
     if (twin) { twins.push({ z, as: twin }); continue; }
     load.push(z);
