@@ -21,6 +21,10 @@
 import { sql } from "drizzle-orm";
 import { db, pool } from "../server/db";
 
+const keyAt = process.argv.indexOf("--account");
+/** Which control account to take apart; receivables unless asked otherwise. */
+const KEY = keyAt > -1 ? process.argv[keyAt + 1]! : "ar";
+
 const money = (n: number) =>
   n.toLocaleString("en-IN", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 
@@ -89,7 +93,7 @@ async function main() {
              coalesce(sum(l.debit - l.credit), 0)::float8 AS net
         FROM journal_entries j
         JOIN journal_entry_lines l ON l.entry_id = j.id
-       WHERE l.account_id = (SELECT id FROM accounts WHERE system_key = 'ar')
+       WHERE l.account_id = (SELECT id FROM accounts WHERE system_key = ${KEY})
        GROUP BY 1 ORDER BY 3 DESC
     `)
   ).rows as Array<{ src: string; entries: number; net: number }>;
