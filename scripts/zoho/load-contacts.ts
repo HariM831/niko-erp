@@ -96,9 +96,22 @@ const clean = (v: string | undefined | null, max?: number) => {
 const hasAddress = (a?: ZohoAddress) =>
   !!(a && (a.address || a.city || a.state || a.zip || a.attention));
 
-/** The same party written differently: case, punctuation, an M/S prefix. */
+/**
+ * The same party written differently: case, punctuation, an M/S prefix, & for
+ * and. A trailing "(Customer)" or "(Vendor)" goes too — that is Zoho's own
+ * bookkeeping on the halves of a party that trades both ways, not part of
+ * anybody's name, and taking it at face value is what would file the LLPs'
+ * receivable against a second contact from their payable. Any other bracket
+ * stays: "Bijoy Bhandar (F/S)" really is a different vendor from Bijoy Bhandar.
+ */
 const squash = (s: string) =>
-  s.toLowerCase().trim().replace(/^(m\/s\.?|ms\.?)\s+/, "").replace(/[^a-z0-9]/g, "");
+  s
+    .toLowerCase()
+    .trim()
+    .replace(/\s*\((customer|vendor)\)\s*$/, "")
+    .replace(/^(m\/s\.?|ms\.?)\s+/, "")
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]/g, "");
 
 /** A GSTIN is one party's, so it compares bare. */
 const gstKey = (s: string | null | undefined) => (s ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
@@ -174,12 +187,15 @@ async function main() {
     existing?: Live;
     how?: string;
     carry: Record<string, string | number>;
+    /** Something about this one is unsettled, so it is neither made nor linked. */
+    blocked: boolean;
   }
   const plans: Plan[] = [];
   const problems: string[] = [];
   const claimed = new Map<string, string>();
 
   for (const group of todo) {
+    const before = problems.length;
     const kinds = new Set(group.map((g) => g.contact_type));
     const type = kinds.size > 1 ? "both" : kinds.has("customer") ? "customer" : "vendor";
     const pick = <K extends keyof ZohoContact>(key: K) =>
@@ -238,11 +254,11 @@ async function main() {
       // ways: the same reason the `both` type exists.
       if (existing.type !== type && existing.type !== "both") carry.type = "both";
     }
-    plans.push({ group, name, type, existing, how, carry });
+    plans.push({ group, name, type, existing, how, carry, blocked: problems.length > before });
   }
 
-  const links = plans.filter((p) => p.existing);
-  const creates = plans.filter((p) => !p.existing);
+  const links = plans.filter((p) => p.existing && !p.blocked);
+  const creates = plans.filter((p) => !p.existing && !p.blocked);
 
   const customers = all.filter((c) => c.contact_type === "customer").length;
   console.log(`${all.length} Zoho contacts — ${customers} customers, ${all.length - customers} vendors`);
@@ -271,6 +287,11 @@ async function main() {
     }
   }
 
+  if (creates.length) {
+    console.log(`\n  ${creates.length} niko has never held, creating:`);
+    for (const p of creates) console.log(`    ${p.name}  (${p.type})`);
+  }
+
   if (problems.length) {
     console.log(`\n  ${problems.length} name(s) nobody can place:`);
     for (const p of problems) console.log(`    ${p}`);
@@ -290,6 +311,8 @@ async function main() {
 
   await db.transaction(async (tx) => {
     for (const plan of plans) {
+      // Nothing reaches here while anything is unsettled, but say it anyway.
+      if (plan.blocked) continue;
       const { group, type } = plan;
 
       // Merged records are the same party, so any field only one of them

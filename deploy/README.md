@@ -172,6 +172,18 @@ actually answer — systemd calls a start successful the moment the process
 spawns, which proves nothing. It refuses to run if the server's working tree
 is dirty, rather than discarding a hand-edit someone made in an emergency.
 
+If it fails after the pull, it says so explicitly: the checkout is at the new
+commit while the database, `dist/` and the running process may not be, and the
+message names the commit it started from and the command to go back. A failure
+there leaves the site up — the old process keeps serving from memory until
+something restarts it — so it is not an emergency, but it is also not nothing.
+
+There is no way to skip the build. `SKIP_BUILD=1` used to look like one and
+never worked: it installed without the dev dependencies, which the migration
+needs for `tsx`. It is refused now, because `dist/` is gitignored and never
+arrives with the checkout, so skipping the build would restart the service on
+the previous commit's bundle against the new commit's database.
+
 **Refresh staging:** `./scripts/refresh-staging.sh`
 
 Rebuilds `niko_staging` from production with every bank account, IFSC and

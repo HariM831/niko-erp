@@ -20,9 +20,36 @@ set -euo pipefail
 export APP_DIR="${APP_DIR:-/srv/niko}"
 export SERVICE="${SERVICE:-niko}"
 export BRANCH="${BRANCH:-main}"
-export SKIP_BUILD="${SKIP_BUILD:-0}"
 
 die() { echo "deploy: $*" >&2; exit 1; }
+
+# SKIP_BUILD used to mean "a prebuilt dist is being shipped, so skip the build".
+# It never once worked: that path installed with --omit=dev, and the migration
+# two steps later runs through tsx, which is a dev dependency, so every such
+# deploy died on "sh: 1: tsx: not found" — after `git reset --hard` had already
+# advanced the checkout, leaving the new code on disk, the database unmigrated
+# and the old process still serving from memory. That is how it was found, on
+# staging, on 14 Oct 2026.
+#
+# Installing the dev dependencies would have fixed the symptom and left the
+# mode unsafe. `dist/` is gitignored, so no prebuilt bundle ever arrives with
+# the checkout: skipping the build would restart the service on the bundle from
+# a *previous* commit against a database just migrated to this one — the
+# version skew the note at the top of this file exists to prevent. Nothing
+# passed it and the README never documented it, so it is gone rather than
+# mended.
+#
+# Refused, not ignored: silently doing a full deploy would mean somebody
+# expecting a shortcut waits through a build wondering why.
+#
+# An `x && y` statement would be the last command in the script's eyes, and a
+# false test makes it return 1 — which under `set -e` exits the deploy.
+if [ "${SKIP_BUILD:-0}" = "1" ]; then
+  die "SKIP_BUILD is not supported. The migration runs through tsx, a dev
+  dependency, and dist/ never ships with the checkout — a deploy that skipped
+  the build would run the previous commit's bundle against this commit's
+  database. Re-run without it."
+fi
 
 # The service reads its environment from here via systemd. The migration runs
 # in this shell instead, which systemd never touches, so it has to be loaded by
@@ -89,12 +116,41 @@ if [ -n "$DIRTY" ]; then
   die "working tree has local changes — commit, stash or revert on the server first"
 fi
 
+# Read by the trap below, which runs for the restart too and must not claim the
+# service is untouched once it has been bounced.
+RESTARTED=0
+
 BEFORE="$(git rev-parse --short HEAD)"
+# Exported so the re-exec below still knows where this deploy started. Its
+# second pass resets an already-reset checkout, so its own BEFORE is the new
+# commit and would have nothing to report.
+export NIKO_DEPLOY_BEFORE="${NIKO_DEPLOY_BEFORE:-$BEFORE}"
 git fetch origin "$BRANCH"
 git checkout "$BRANCH"
 git reset --hard "origin/$BRANCH"
 AFTER="$(git rev-parse --short HEAD)"
 echo "    $BEFORE -> $AFTER"
+
+# The checkout is now at the new commit while the database, the bundle in dist/
+# and the running process are all still at the old one. A failure from here to
+# the restart is not a no-op, and nothing else says so: the deploy that found
+# the SKIP_BUILD bug printed npm's "tsx: not found" and stopped, which reads
+# like nothing happened. The next restart — a reboot, or somebody's
+# `systemctl restart` — would bring up whatever the half-finished state left.
+trap 'code=$?; if [ "$code" -ne 0 ]; then
+  echo >&2
+  echo "deploy: FAILED with the checkout already moved to $AFTER." >&2
+  echo "  Started at $NIKO_DEPLOY_BEFORE. The database may not have migrated," >&2
+  echo "  and dist/ may still hold the bundle built from an earlier commit." >&2
+  if [ "$RESTARTED" -eq 0 ]; then
+    echo "  $SERVICE was NOT restarted — it is still serving the old code from" >&2
+    echo "  memory, so the site is up and stays up until something restarts it." >&2
+  else
+    echo "  $SERVICE HAS been restarted onto this state." >&2
+  fi
+  echo "  Fix the cause and re-run this script, or go back with:" >&2
+  echo "    cd $APP_DIR && git reset --hard $NIKO_DEPLOY_BEFORE && npm ci && npm run build" >&2
+fi' EXIT
 
 # This script is inside the checkout it just replaced. bash reads a script
 # lazily, by byte offset, so when the reset above rewrites deploy.sh the running
@@ -114,25 +170,20 @@ fi
 # every npm call in this script.
 NPM_FLAGS=(--no-audit --no-fund)
 
-# `npm ci` empties node_modules before it installs. So a prod-only install
-# followed by a full one is not two steps of one job — the second throws the
-# first away and does the work again. Install once, for the case at hand:
-# everything when a build follows, runtime-only when a prebuilt dist is being
-# shipped and the dev toolchain would never be touched.
-if [ "${SKIP_BUILD:-0}" != "1" ]; then
-  echo "==> installing"
-  npm ci "${NPM_FLAGS[@]}"
-  echo "==> building"
-  npm run build
-else
-  # The server bundle leaves every dependency external, so runtime deps must
-  # be present — but nothing here needs vite, esbuild or typescript.
-  echo "==> installing"
-  npm ci --omit=dev "${NPM_FLAGS[@]}"
-fi
+# Everything, including the dev toolchain: the build needs vite and esbuild,
+# and the migration a few lines down needs tsx. The prune after the migration
+# is what takes node_modules back down to the runtime set.
+#
+# `npm ci` empties node_modules before it installs, so a prod-only install
+# followed by a full one would not be two steps of one job — the second throws
+# the first away and does the work again. Install once, completely.
+echo "==> installing"
+npm ci "${NPM_FLAGS[@]}"
+echo "==> building"
+npm run build
 
 # Before the prune, not after: db:migrate runs through tsx, which is a dev
-# dependency. Pruning first left every build-and-deploy failing on
+# dependency. Pruning first left every deploy failing on
 # "sh: 1: tsx: not found" — after the new code was already on disk.
 echo "==> migrating"
 [ -r "$ENV_FILE" ] || die "cannot read $ENV_FILE — the migration needs DATABASE_URL"
@@ -159,12 +210,11 @@ done < "$ENV_FILE"
 [ -n "${DATABASE_URL:-}" ] || die "no DATABASE_URL in $ENV_FILE"
 npm run db:migrate
 
-if [ "${SKIP_BUILD:-0}" != "1" ]; then
-  npm prune --omit=dev "${NPM_FLAGS[@]}"
-fi
+npm prune --omit=dev "${NPM_FLAGS[@]}"
 
 echo "==> restarting $SERVICE"
 sudo systemctl restart "$SERVICE"
+RESTARTED=1
 
 # systemd reports a start as successful the moment the process is spawned, so
 # "restarted" on its own proves nothing. Wait for the port to actually answer.
