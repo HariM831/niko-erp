@@ -1,0 +1,11 @@
+# The same sale written twice, once in each book. 17 Oct 2026.
+# The copy that keeps its place in the series is kept; this is the other one.
+#
+# 25 Jul, North East Egg Centre, 5,91,400 — kept 0507, which CP-2026-27/779 paid
+A-INV-EG-27-0508
+# 15 Sep, Kamakhya Traders, 2,73,000 — kept 0807, which CP-2026-27/1204 paid
+A-INV-EG-27-0811
+# 2 Oct, Puya, 12,41,856 — kept 0932, in date order; PMT-00108 and PMT-00137 moved onto it
+A-INV-EG-27-1034
+# 7 Oct, Puya, 12,10,600 — kept 0970, which PMT-00108 and PMT-00137 paid
+A-INV-EG-27-0968

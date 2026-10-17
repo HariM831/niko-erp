@@ -29,9 +29,12 @@ import { reverseJournal } from "../server/services/posting";
 import { db, pool } from "../server/db";
 
 const COMMIT = process.argv.includes("--commit");
-const file = process.argv.slice(2).find((a) => !a.startsWith("--"));
 const onAt = process.argv.indexOf("--on");
 const ON = onAt > -1 ? process.argv[onAt + 1]! : undefined;
+/** Either a file of numbers, or the numbers themselves — four is not a file. */
+const bare = process.argv.slice(2).filter((a, i, all) => !a.startsWith("--") && all[i - 1] !== "--on");
+const named = bare.filter((a) => /^[A-Z]+-/.test(a));
+const file = named.length ? undefined : bare[0];
 
 const money = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
 
