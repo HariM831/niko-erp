@@ -82,7 +82,25 @@ async function main() {
   );
   const badUnapplied = rows.filter((r) => Math.abs(r.amount - r.applied - r.unapplied) > 1);
 
+  /**
+   * Applying an advance posts its own entry — DR advances, CR receivables —
+   * from the invoice screen, from the egg sale, and from the re-allocation.
+   * Those carry the same money a receipt's own split would, so a receipt that
+   * looks mis-split may simply have been settled that way instead.
+   */
+  const [moved] = (
+    await db.execute(sql`
+      SELECT count(*)::int AS n,
+             coalesce(sum(l.credit - l.debit), 0)::float8 AS ar
+        FROM journal_entries j
+        JOIN journal_entry_lines l ON l.entry_id = j.id
+       WHERE j.source_type = 'advance_application'
+         AND l.account_id = (SELECT id FROM accounts WHERE system_key = 'ar')
+    `)
+  ).rows as Array<{ n: number; ar: number }>;
+
   console.log(`  ${rows.length} receipts`);
+  console.log(`    advances moved into receivables by their own entries: ${moved!.n}   Rs ${money(moved!.ar)}`);
   console.log(`    split receivables and advances wrongly ..... ${wrongSplit.length}   Rs ${money(wrongSplit.reduce((s, r) => s + Math.abs(r.ar - r.applied), 0))}`);
   console.log(`    carry a second entry from a later apply date  ${rows.filter((r) => r.entries > 1).length}`);
   console.log(`    their own unapplied figure is wrong ........ ${badUnapplied.length}`);
