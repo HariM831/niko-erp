@@ -126,6 +126,29 @@ async function main() {
           `total ${money(r.total).padStart(11)}  applied ${money(r.paid + r.credited).padStart(11)}`,
       );
     }
+    const detail = (
+      await db.execute(sql`
+        SELECT i.number AS doc, p.number AS receipt, p.payment_date::text AS date,
+               p.amount::float8 AS amount, pa.amount_applied::float8 AS applied,
+               (SELECT z.zoho_id FROM zoho_id_map z
+                 WHERE z.entity = 'customer_payment' AND z.eggsy_id = p.id) AS zoho
+          FROM invoices i
+          JOIN payment_applications pa ON pa.invoice_id = i.id
+          JOIN customer_payments p ON p.id = pa.payment_id
+         WHERE i.number = ANY(${over.map((r) => r.number)})
+         ORDER BY i.number, p.payment_date, p.number
+      `)
+    ).rows as Array<{ doc: string; receipt: string; date: string; amount: number;
+                      applied: number; zoho: string | null }>;
+    console.log(`\n  what is applied to each:`);
+    let last = "";
+    for (const d of detail) {
+      if (d.doc !== last) { console.log(`    ${d.doc}`); last = d.doc; }
+      console.log(
+        `      ${d.receipt.padEnd(22)}${d.date}  receipt ${money(d.amount).padStart(11)}` +
+          `  applied here ${money(d.applied).padStart(11)}   ${d.zoho ? `zoho ${d.zoho}` : "raised in niko"}`,
+      );
+    }
     console.log(`\n  Refusing to write a negative balance. Settle these first.\n`);
     process.exitCode = 1;
     await pool.end();
