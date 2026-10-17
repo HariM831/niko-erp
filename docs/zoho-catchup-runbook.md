@@ -172,3 +172,79 @@ it in one line — *if they are paid there are real invoices*.
 **A link can be made wrong by an edit at the other end.** Zoho's `0801` was
 re-dated and re-priced on 10 October, and a mapping that had been correct since
 September was wrong from that moment with nothing to announce it.
+
+---
+
+## 6. Receivables: from two books to one figure
+
+Run after the invoices, bills and receipts are in. Rehearsed on staging on
+17 October 2026; the figures below are that rehearsal's.
+
+```bash
+npx tsx scripts/zoho/find-duplicate-receipts.ts --dump <current dump>
+npx tsx scripts/zoho/unload-selected.ts customer_payment .zoho-fix/duplicate-receipts.txt --yes
+npx tsx scripts/zoho/move-application.ts CP-2026-27/1001 A-INV-EG-27-0659 A-INV-EG-27-0668 --commit
+npx tsx scripts/allocate-receipts.ts                  # read it, then --commit
+npx tsx scripts/check-document-balances.ts --fix
+npx tsx scripts/check-control-accounts.ts
+npx tsx scripts/fix-control-drift.ts                  # read it, then --commit
+npx tsx scripts/check-control-accounts.ts             # receivables must agree
+```
+
+**Eleven receipts are the same deposit twice.** Eight were re-keyed into Zoho
+between 6 and 8 October against receipts Zoho already held —
+`CP-2026-27/1346` carries the same UTR as `CP-2026-27/569` under a different
+customer's name, and five July receipts for DG Egg Point were re-entered
+against a second contact record. Zoho applied both copies to the same invoice,
+so Zoho's own `A-INV-EG-27-0439` calls itself paid while carrying ₹7,04,026
+against a total of ₹3,52,013. Three more were loaded although the bank
+statement had already been keyed for the same UTR, same day, same customer;
+the statement-keyed one is kept.
+
+**The 2,43,600 cash on A-INV-EG-27-0659 is not that invoice's.** Zoho deleted
+the 22 August sale to Tapan Saha and left its receipt on the invoice before it.
+niko keeps that sale — it is `0668` after the renumber, open for exactly the
+receipt.
+
+**Then the allocation.** Zoho's receipts keep Zoho's allocation, by the
+decision of 16 October. Only niko's own receipts move, forward: same day, next
+day, the day after, an exact balance taken first, and then whatever the
+customer still owes from before, oldest first. On staging that placed 124
+receipts into 145 applications, ₹3.65 crore, and took the open figure for
+those customers from ₹5.78 crore to ₹2.13 crore with ₹4.87 lakh left as
+advances.
+
+**What is left owing is a real gap, not credit.** ₹2.13 crore across 16
+customers, nearly all of it October invoices raised after the last receipt
+came across. There are no credit sales here, so each one is money to find.
+
+### Nine invoices are over-applied by rounding
+
+Between ₹2 and ₹2,541, on both books. Their balance is written as zero, which
+is as true as a negative balance can be stored, and the check ignores an excess
+under ₹100 or half a percent. `A-INV-EG-27-0188` is the largest: niko holds
+₹6,37,791 where Zoho holds ₹6,40,332 for the same sale.
+
+### The ledger moves onto the documents, never the other way
+
+Receivables is a control account: its balance is the open invoices or it is
+wrong. The invoices agreed to the rupee; the credit side had put ₹64.80 lakh
+more into receivables than the applications could account for, because
+applying an advance posts an entry of its own and two books of loading and
+re-allocating left some standing after the application was deleted.
+`fix-control-drift.ts` posts one correcting entry per customer, dated at the
+cutoff.
+
+A per-receipt version of that test is wrong and was deleted: ₹4.34 crore has
+moved out of advances by its own entries, more than the ₹3.69 crore of receipts
+whose own split "looks" wrong, so rewriting those splits would count the same
+money into receivables twice.
+
+Afterwards, on staging: receivables agrees to the rupee. Customer advances sits
+₹30,95,320 below the receipts' unapplied total, which is the two refunds —
+₹28 lakh to Luit Valley on 30 March, ₹3 lakh to Zakir Egg Store on 22 April —
+less the ₹4,678 of rounding. A receipt knows only what it collected, so a
+refund leaves that difference for good.
+
+Payables is still ₹20,58,813 apart, and stays so until the 224 vendor payments
+come across.
