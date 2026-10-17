@@ -27,6 +27,11 @@
  *
  * It writes a file and posts nothing itself. The matches it skipped are
  * printed so a wrong pairing can be seen before the loader runs.
+ *
+ * --vendor asks the same question of the money going out. Nothing about the
+ * reasoning changes: a payment can reach niko by the statement or by the
+ * catch-up, and the 224 vendor payments still in Zoho are why payables does
+ * not agree with the bills behind it.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { sql } from "drizzle-orm";
@@ -37,6 +42,11 @@ const dumpAt = process.argv.indexOf("--dump");
 const DIR = dumpAt > -1 ? process.argv[dumpAt + 1]! : ".zoho-dump/detail";
 const writeAt = process.argv.indexOf("--write");
 const OUT = writeAt > -1 ? process.argv[writeAt + 1] : undefined;
+/** The money going out instead of the money coming in. */
+const VENDOR = process.argv.includes("--vendor");
+const SIDE = VENDOR
+  ? { file: "vendorpayments", table: sql`vendor_payments`, who: sql`vendor_id`, word: "payment" }
+  : { file: "customerpayments", table: sql`customer_payments`, who: sql`customer_id`, word: "receipt" };
 
 /** A deposit is the same deposit if the money and the party agree this closely. */
 const DAYS = 3;
@@ -54,15 +64,20 @@ interface Z {
 }
 
 async function main() {
-  const zoho: Z[] = readFileSync(`${DIR}/customerpayments.jsonl`, "utf8")
-    .trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  const zoho: Z[] = readFileSync(`${DIR}/${SIDE.file}.jsonl`, "utf8")
+    .trim().split("\n").filter(Boolean)
+    .map((l) => JSON.parse(l) as Z & { vendor_id?: string; vendor_name?: string })
+    // Zoho names the other party vendor_ on the paying side. Everything below
+    // asks the same question, so it is asked of one shape.
+    .map((z) => ({ ...z, customer_id: z.customer_id ?? z.vendor_id,
+                   customer_name: z.customer_name ?? z.vendor_name }));
 
   const here = (
     await db.execute(sql`
       SELECT p.number, p.payment_date::text AS date, c.display_name AS cust,
-             p.customer_id::text AS cust_id,
+             p.${SIDE.who}::text AS cust_id,
              round(p.amount::numeric, 2)::float8 AS amount, p.reference
-        FROM customer_payments p JOIN contacts c ON c.id = p.customer_id
+        FROM ${SIDE.table} p JOIN contacts c ON c.id = p.${SIDE.who}
     `)
   ).rows as Array<{ number: string; date: string; cust: string; cust_id: string;
                     amount: number; reference: string | null }>;
