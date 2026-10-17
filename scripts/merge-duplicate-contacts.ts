@@ -18,6 +18,10 @@
  * document references is reported and left alone. Moving documents between
  * parties is a decision, not a tidy-up.
  *
+ * Its addresses and contact persons are not documents — they belong to the
+ * contact and cascade with it. Where the keeper has none, they move across;
+ * where it has its own, the duplicate's go with the duplicate.
+ *
  * Anything the duplicate knows and the keeper does not is carried across first:
  * the Zoho copy often has the GSTIN or the phone number that the hand-made row
  * never got. A field already filled on the keeper is never overwritten.
@@ -30,6 +34,15 @@ const COMMIT = process.argv.includes("--commit");
 const only = process.argv.includes("--name")
   ? process.argv[process.argv.indexOf("--name") + 1]
   : undefined;
+
+/**
+ * Children of the contact rather than documents against it: they cascade on
+ * delete, so they are never a reason to refuse a merge.
+ */
+const OWNED = [
+  { tbl: "contact_addresses", col: "contact_id", one: "address", many: "addresses" },
+  { tbl: "contact_persons", col: "contact_id", one: "contact person", many: "contact people" },
+] as const;
 
 /** Worth carrying from the duplicate when the keeper has nothing there. */
 const CARRY = [
@@ -83,7 +96,7 @@ async function main() {
       // Count the duplicate's references everywhere, in one go.
       const counted = (
         await db.execute(sql.join(
-          refs.map((r) =>
+          documents.map((r) =>
             sql`SELECT ${`${r.tbl}.${r.col}`}::text AS ref, count(*)::int AS n FROM ${sql.identifier(r.tbl)} WHERE ${sql.identifier(r.col)} = ${d.id}`),
           sql` UNION ALL `,
         ))
@@ -93,6 +106,20 @@ async function main() {
         console.log(`    REFUSED ${d.id}: ${used.map((u) => `${u.ref} x${u.n}`).join(", ")}`);
         refused++;
         continue;
+      }
+
+      // Addresses and people move only into a keeper that has none of its own.
+      const moves: Array<{ tbl: string; col: string; one: string; many: string; n: number }> = [];
+      for (const o of OWNED) {
+        const [mineRow] = (
+          await db.execute(sql`SELECT count(*)::int AS n FROM ${sql.identifier(o.tbl)} WHERE ${sql.identifier(o.col)} = ${d.id}`)
+        ).rows as Array<{ n: number }>;
+        const [keepRow] = (
+          await db.execute(sql`SELECT count(*)::int AS n FROM ${sql.identifier(o.tbl)} WHERE ${sql.identifier(o.col)} = ${keeper.id}`)
+        ).rows as Array<{ n: number }>;
+        if ((mineRow?.n ?? 0) > 0 && (keepRow?.n ?? 0) === 0) {
+          moves.push({ ...o, n: mineRow!.n });
+        }
       }
 
       const [dup] = await db.select().from(contacts).where(eq(contacts.id, d.id));
@@ -124,6 +151,7 @@ async function main() {
       console.log(`    drop ${d.id}  made ${d.made.toISOString().slice(0, 10)}`
         + (mine.length ? `  moving Zoho ${mine.map((m) => m.zohoId).join(", ")}` : "  no Zoho mapping"));
       for (const [k, v] of Object.entries(carry)) console.log(`         carry ${k} = ${v}`);
+      for (const m of moves) console.log(`         move ${m.n} ${m.n === 1 ? m.one : m.many}`);
 
       if (COMMIT) {
         await db.transaction(async (tx) => {
@@ -133,6 +161,9 @@ async function main() {
               sql.join(Object.entries(carry).map(([k, v]) => sql`${sql.identifier(k)} = ${v}`), sql`, `),
               sql`, updated_at = now() WHERE id = ${keeper.id}`,
             ], sql``));
+          }
+          for (const m of moves) {
+            await tx.execute(sql`UPDATE ${sql.identifier(m.tbl)} SET ${sql.identifier(m.col)} = ${keeper.id} WHERE ${sql.identifier(m.col)} = ${d.id}`);
           }
           await tx
             .update(zohoIdMap)
