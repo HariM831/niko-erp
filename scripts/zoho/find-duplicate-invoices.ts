@@ -32,7 +32,7 @@ const money = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 
 interface Inv {
   id: string; number: string; date: string; cust: string; cust_id: string;
   total: number; status: string; zoho: string | null; created: string;
-  receipts: string | null;
+  dispatches: number; receipts: string | null;
 }
 
 /**
@@ -67,6 +67,10 @@ async function main() {
              i.customer_id::text AS cust_id, i.total::float8 AS total, i.status::text,
              i.created_at::text AS created,
              (SELECT z.zoho_id FROM zoho_id_map z WHERE z.entity = 'invoice' AND z.eggsy_id = i.id) AS zoho,
+             -- Which copy to keep is decided by this: the eggs left the farm
+             -- once, and the invoice carrying the dispatch is the one that
+             -- moved them. The other is paper.
+             (SELECT count(*)::int FROM egg_dispatches d WHERE d.invoice_id = i.id) AS dispatches,
              (SELECT string_agg(p.number || ' ' || to_char(p.payment_date, 'DD Mon') || ' ' ||
                                 round(pa.amount_applied::numeric)::text, ', ' ORDER BY p.payment_date)
                 FROM payment_applications pa JOIN customer_payments p ON p.id = pa.payment_id
@@ -117,7 +121,8 @@ async function main() {
       for (const r of [p.a, p.b]) {
         console.log(
           `      ${r.number.padEnd(20)}${r.date}  ${r.cust.slice(0, 22).padEnd(23)}${money(r.total).padStart(12)}` +
-            `  ${r.status.padEnd(15)}${r.zoho ? "from Zoho" : "raised here"}`,
+            `  ${r.status.padEnd(15)}${(r.zoho ? "from Zoho" : "raised here").padEnd(13)}` +
+            `${r.dispatches ? `${r.dispatches} dispatch` : "no dispatch"}`,
         );
         console.log(`        ${r.receipts ?? "(nothing applied)"}`);
       }
