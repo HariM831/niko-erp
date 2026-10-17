@@ -45,7 +45,7 @@ export interface StockParts {
   /** Yesterday's closing figure, or the silo at midnight when there is none. */
   openingKg: number | null;
   openingFrom: "saved" | "silo" | null;
-  /** Mill transfers whose tankers reached the silo this day, by the mill's weight. */
+  /** The mill's transfers into the house dated this day — feed in (17 Oct 2026). */
   arrivedKg: number;
   /** Tankers that reached the silo this day with no mill transfer behind them. */
   unbookedKg: number;
@@ -69,69 +69,36 @@ export interface DayAutofill {
   lastRunEnd?: string | null;
 }
 
-/** The book and the silo may differ by this much before stock stops for a person. */
-export const STOCK_TOLERANCE_KG = 500;
-
 /**
- * Closing stock, judged from whatever feed-consumed figure is in the box.
+ * Closing stock: the silo at midnight (decided 17 Oct 2026).
  *
- * The book — yesterday's closing, plus what the mill sent that arrived, less
- * what was eaten — is the figure, because it balances with the mill's
- * transfers. The silo at midnight is the check on it.
+ * Until then it was the book — yesterday's closing, plus what the mill sent,
+ * less what was eaten — checked against the silo. With the silos reading
+ * under the mill (L2, L3), the mill's transfers stand as feed in and the silo
+ * as stock, and the book is shown beside it for the difference to be seen.
+ * `consumedKg` only feeds that book.
  */
 export function judgeStock(p: StockParts, consumedKg: number | null): Figure {
-  if (p.openingKg == null || consumedKg == null) {
-    return {
-      status: "unavailable",
-      value: null,
-      from: null,
-      note:
-        p.openingKg == null
-          ? "No opening stock — yesterday has no closing figure and the silo wasn't reporting."
-          : "Enter feed consumed first; stock follows from it.",
-      also: p.siloKg != null ? [{ label: "Silo at midnight", value: p.siloKg }] : undefined,
-    };
-  }
-  const book = Math.round(p.openingKg + p.arrivedKg - consumedKg);
-  if (p.unbookedKg > 0) {
-    return {
-      status: "check",
-      value: null,
-      from: "book",
-      note: `A tanker of ${fmt(p.unbookedKg)} kg arrived with no mill transfer, so the book is short — get the mill to enter it first.`,
-      also: [
-        { label: "Book", value: book },
-        ...(p.siloKg != null ? [{ label: "Silo at midnight", value: p.siloKg }] : []),
-      ],
-    };
-  }
+  const book =
+    p.openingKg != null && consumedKg != null ? Math.round(p.openingKg + p.arrivedKg - consumedKg) : null;
+  const bookLine = book != null ? [{ label: "Book", value: book }] : [];
   if (p.siloKg == null) {
     return {
       status: "unavailable",
       value: null,
       from: null,
-      note: "The silo wasn't reporting, so the book can't be checked.",
-      also: [{ label: "Book", value: book }],
-    };
-  }
-  const gap = p.siloKg - book;
-  if (Math.abs(gap) > STOCK_TOLERANCE_KG) {
-    return {
-      status: "check",
-      value: null,
-      from: "book",
-      note: `The book and the silo differ by ${fmt(Math.abs(gap))} kg.`,
-      also: [
-        { label: "Book", value: book },
-        { label: "Silo at midnight", value: p.siloKg },
-      ],
+      note: "The silo wasn't reporting through midnight.",
+      also: bookLine.length ? bookLine : undefined,
     };
   }
   return {
     status: "filled",
-    value: book,
-    from: "book",
-    note: `Opening ${fmt(p.openingKg)} + arrived ${fmt(p.arrivedKg)} − eaten ${fmt(consumedKg)}; silo ${fmt(p.siloKg)} (${gap >= 0 ? "+" : "−"}${fmt(Math.abs(gap))}).`,
+    value: p.siloKg,
+    from: "silo",
+    note:
+      book != null
+        ? `The silo at midnight. The book (opening ${fmt(p.openingKg!)} + transfers ${fmt(p.arrivedKg)} − eaten ${fmt(consumedKg!)}) says ${fmt(book)} (${p.siloKg - book >= 0 ? "+" : "−"}${fmt(Math.abs(p.siloKg - book))}).`
+        : "The silo at midnight.",
   };
 }
 

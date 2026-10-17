@@ -281,7 +281,7 @@ export function HouseDetailPage() {
       />
     ) : null;
 
-  /** Stock follows whatever is in the consumed box. */
+  /** Stock is the silo at midnight; the consumed box only feeds the book shown beside it. */
   const stockFigure: Figure | null = sensor
     ? judgeStock(sensor.stock, recordForm.feedIntakeKg === '' ? null : Number(recordForm.feedIntakeKg))
     : null;
@@ -347,7 +347,7 @@ export function HouseDetailPage() {
     );
   };
 
-  /* While stock is still the shed's, it follows the consumed box. */
+  /* While stock is still the shed's, it is the silo's figure. */
   useEffect(() => {
     if (!fromSensor.has('feedStockKg') && recordForm.feedStockKg !== '') return;
     const v = stockFigure?.status === 'filled' ? String(stockFigure.value) : '';
@@ -404,7 +404,7 @@ export function HouseDetailPage() {
         /*
          * Only ever fills a box that is empty. Editing a saved day must keep
          * what the person wrote, and a suggestion that overwrites an entry is
-         * not a suggestion. Only proven figures fill; stock follows consumed.
+         * not a suggestion. Only proven figures fill; stock is the silo at midnight.
          */
         const marks = new Set<string>();
         setRecordForm((prev) => {

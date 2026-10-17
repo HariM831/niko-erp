@@ -135,12 +135,16 @@ function series(day: string, points: Array<[string, number]>, from = "00:00", to
 // ── Stock ──
 {
   const parts = { openingKg: 7749, openingFrom: "saved" as const, arrivedKg: 15543, unbookedKg: 0, siloKg: 12626 };
+  // Since 17 Oct 2026 stock is the silo at midnight; the book is only shown.
   const f = judgeStock(parts, 10695);
-  ok("Book within 500 kg of the silo fills", f.status === "filled" && f.value === 12597, `${f.status} ${f.value}`);
+  ok("Stock is the silo at midnight", f.status === "filled" && f.value === 12626 && f.from === "silo", `${f.status} ${f.value}`);
+  ok("…with the book beside it", f.note.includes("12,597"));
   const g = judgeStock({ ...parts, unbookedKg: 7100 }, 10695);
-  ok("An unbooked tanker stops the stock", g.status === "check" && g.value === null);
+  ok("An unbooked tanker no longer stops it", g.status === "filled" && g.value === 12626);
   const h = judgeStock({ ...parts, siloKg: 16434 }, 10695);
-  ok("A 3.8 t gap stops the stock", h.status === "check");
+  ok("Nor does a 3.8 t gap from the book", h.status === "filled" && h.value === 16434);
+  const i = judgeStock({ ...parts, siloKg: null }, 10695);
+  ok("No silo at midnight: nothing to offer", i.status === "unavailable");
 }
 
 // ── Reasons ──
@@ -156,8 +160,8 @@ function series(day: string, points: Array<[string, number]>, from = "00:00", to
     unseenTransfers: [],
     eggsProduced: null,
   };
-  const p = provenance(auto, { feedConsumedKg: 10682, feedClosingKg: 12610, waterKl: 36.4 }, null, {});
-  ok("Proven figures saved as offered need no reason", p.feedConsumedKg?.from === "silo" && p.feedClosingKg?.from === "book" && p.waterKl?.from === "controller");
+  const p = provenance(auto, { feedConsumedKg: 10682, feedClosingKg: 12626, waterKl: 36.4 }, null, {});
+  ok("Proven figures saved as offered need no reason", p.feedConsumedKg?.from === "silo" && p.feedClosingKg?.from === "silo" && p.waterKl?.from === "controller");
   let refused = false;
   try {
     provenance(auto, { feedConsumedKg: 7412, feedClosingKg: null, waterKl: null }, null, {});

@@ -12,17 +12,18 @@
  *  - Feed eaten is what the SILO lost, not the controller's feed counter. Over
  *    25 Sep–8 Oct the silo matched the register within 1% on nearly every
  *    whole day; the counter missed runs outright (L2 on 7 Oct counted 7,460 of
- *    about 10,700; L5 was short by a quarter on 5 Oct). The silo is trusted on
- *    a day only when the controller covered all of it, its own tanker weights
- *    agreed with the mill's transfers within 3% in the week before (which
- *    proves the load cells), and the figure is within 10% of the house's last
- *    seven days. L3's misaligned silo fails the tanker test on its own.
+ *    about 10,700; L5 was short by a quarter on 5 Oct). It is taken when the
+ *    controller covered the whole day and the figure is within 10% of the
+ *    house's last seven days.
  *
- *  - Stock is the book — yesterday's closing plus what arrived less what was
- *    eaten — checked against the silo at midnight. A tanker the silo saw with
- *    no mill transfer behind it stops the stock: that is the mill's record
- *    missing, as on 8 Oct, when L4 took 21,769 kg and L5 14,282 kg the mill
- *    had not recorded.
+ *  - Stock is the silo at midnight.
+ *
+ *  - Feed IN is the mill's transfers, and nothing else. Until 17 Oct 2026 the
+ *    silo's tankers had to match them within 3% before feed eaten filled, and
+ *    stock was the book (opening + transfers − eaten) checked against the
+ *    silo. With L2's and L3's silos reading 14–23% under the mill, the user
+ *    decided the two sides stand apart until the silos are fixed; where they
+ *    disagree is a report, not a stop.
  *
  *  - Water is the controller's climb from midnight to midnight.
  */
@@ -300,9 +301,9 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
     ? dayCoverage(rows.map((r) => ({ at: r.at, waterL: r.waterL })), dayStart, now)
     : coverage;
 
-  // A week of tankers before the day, to prove the silo's weights — and the
-  // day after, so a transfer whose first load came this evening finds the
-  // rest of it. Matched from three days earlier still: a transfer at the
+  // The day's tankers, matched to the mill's transfers for the form to show —
+  // with the day after, so a transfer whose first load came this evening
+  // finds the rest of it. Matched from nine days back: a transfer at the
   // window's edge whose first load fell before it takes its neighbour's load
   // instead, and the theft runs on down the week (L5 on 12 Oct 2026: FT-00095
   // took FT-00099's, FT-00099 took FT-00102's, and FT-00102 read as unseen).
@@ -311,28 +312,24 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
   // A transfer whose arrival window has not closed yet is pending, not unseen.
   const closed = (t: Transfer) =>
     new Date(startOf(addDays(t.transferDate, 1)).getTime() + 12 * 3_600_000) <= now;
-  // A transfer that could only have arrived while the controller was blind
-  // cannot count against the silo.
-  const seeable = (t: Transfer) =>
-    ![addDays(t.transferDate, -1), t.transferDate, addDays(t.transferDate, 1)].some((d) => week.blind.has(d));
-  const weekUnseen = week.unseen.filter(
-    (t) => t.transferDate >= addDays(day, -6) && t.transferDate <= day && closed(t) && seeable(t),
-  );
-  const proven = week.tankers.some((t) => t.transfer) && weekUnseen.length === 0;
 
   const silo = rows.filter((r) => r.siloKg != null && r.siloKg >= 0).map((r) => ({ at: r.at, kg: r.siloKg! }));
   const moves = siloMoves(silo, dayStart, dayEnd);
   /*
-   * What was eaten is a balance, not a sum of the falls: the silo at midnight,
-   * plus what arrived, less the silo at the next midnight. Adding up the falls
-   * also adds up the settling while a lorry unloads — L2 on 8 Oct read 10,777
-   * that way against the register's 10,422; the balance, taking each tanker at
-   * the mill's weight, reads 10,510. A tanker with no transfer counts at the
-   * silo's weight.
+   * What was eaten is the silo's own balance: the silo at midnight, plus what
+   * it took in, less the silo at the next midnight — every weight the silo's.
+   *
+   * Decided 17 Oct 2026: until the short silos are fixed (L2's and L3's read
+   * 14–23% under the mill on every tanker since mid-October), the mill's
+   * transfers are the only record of feed IN, and feed eaten and stock come
+   * from the silo alone. The two no longer have to agree before a figure
+   * fills; where they don't is a report of its own. Until then each tanker
+   * was taken at the mill's weight, and a week whose tankers didn't match the
+   * mill within 3% held feed eaten back for a person.
    */
   const s0 = silo.filter((x) => x.at < dayStart).at(-1)?.kg ?? null;
   const s1 = silo.filter((x) => x.at < dayEnd).at(-1)?.kg ?? null;
-  const arrivedAll = today.reduce((sum, t) => sum + (t.transfer ? t.bookedKg : t.move.kg), 0);
+  const arrivedAll = today.reduce((sum, t) => sum + t.move.kg, 0);
   const fed = s0 != null && s1 != null ? Math.round(s0 - s1 + arrivedAll) : 0;
   const counters = over ? await countersOf(houseId, day) : null;
   const counter = counters?.feedKg ?? null;
@@ -387,16 +384,6 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
     };
   } else if (fed <= 0) {
     feedConsumedKg = { status: "unavailable", value: null, from: null, note: "The silo recorded no feeding runs." };
-  } else if (!proven) {
-    feedConsumedKg = {
-      status: "check",
-      value: null,
-      from: "silo",
-      note: weekUnseen.length
-        ? `The silo's tankers didn't match the mill's transfers this week (${weekUnseen.map((t) => t.number).join(", ")}), so its weights can't be trusted — enter the register's figure.`
-        : "No tanker this week matched a mill transfer, so the silo's weights are unproven — enter the register's figure.",
-      also: [{ label: "Silo", value: fed }, ...counterNote],
-    };
   } else if (median != null && Math.abs(fed - median) > INTAKE_TOLERANCE * median) {
     const pct = Math.round(((fed - median) / median) * 100);
     feedConsumedKg = {
@@ -412,7 +399,7 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
       status: "filled",
       value: fed,
       from: "silo",
-      note: `From the silo: ${runs} feeding run${runs === 1 ? "" : "s"}, tankers at the mill's weight; its tankers matched the mill this week.${
+      note: `From the silo: ${runs} feeding run${runs === 1 ? "" : "s"}.${
         counter != null ? ` Counter ${fmt(counter)}.` : ""
       }${early && lastRun ? ` The last run ended at ${hhmm(lastRun.end)}; checked again after midnight.` : ""}`,
       ...(early ? { upTo: silo.at(-1)!.at.toISOString() } : {}),
@@ -444,7 +431,10 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
   const stock = {
     openingKg: openingSaved ?? (coverage.complete ? openingSilo : null),
     openingFrom: openingSaved != null ? ("saved" as const) : coverage.complete && openingSilo != null ? ("silo" as const) : null,
-    arrivedKg: Math.round(today.reduce((s, t) => s + t.bookedKg, 0)),
+    // Feed in is the mill's transfers dated this day, whatever the silo saw.
+    arrivedKg: Math.round(
+      (await transfersBetween(houseId, day, day)).reduce((s, t) => s + t.quantityKg, 0),
+    ),
     unbookedKg: Math.round(
       today.filter((t) => !t.transfer && t.move.kg >= TANKER_MIN_KG).reduce((s, t) => s + t.move.kg, 0),
     ),
@@ -718,7 +708,7 @@ export async function autoSaveDay(day: string): Promise<string[]> {
     }
     if (row?.feedClosingKg == null && stock.status === "filled") {
       set.feedClosingKg = stock.value!.toFixed(2);
-      sources.feedClosingKg = { from: "book", offered: stock.value };
+      sources.feedClosingKg = { from: "silo", offered: stock.value };
     }
     if (row?.waterKl == null && auto.waterKl.status === "filled") {
       set.waterKl = auto.waterKl.value!.toFixed(2);
