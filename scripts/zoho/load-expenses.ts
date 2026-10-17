@@ -24,6 +24,7 @@ import { bankAccounts, expenses, users, zohoIdMap } from "@shared/schema";
 import { db, pool } from "../../server/db";
 import { buildExpenseJeLines } from "../../server/routes/purchases";
 import { postJournal } from "../../server/services/posting";
+import { advanceSeriesPast } from "../../server/lib/numbering";
 
 interface ZohoExpense {
   expense_id: string;
@@ -156,6 +157,7 @@ async function main() {
         label: `${number} ${e.account_name ?? ""}`.trim(),
       });
     }
+    await advanceSeriesPast(tx, "expense", "EXP-", seq);
   });
 
   console.log(`\nCommitted ${todo.length} expenses, all posted, numbered EXP-* in date order.`);

@@ -127,6 +127,26 @@ export async function resyncDocumentNumber(tx: Tx, entity: string): Promise<void
   }
 }
 
+/**
+ * Move a counter past numbers written directly, without going through
+ * nextDocumentNumber — the Zoho loaders number in bulk. Without this the next
+ * document created in the app is handed a number the load already used, and the
+ * unique index refuses it (BILL-002272, 17 Oct 2026).
+ *
+ * Only the series issuing `prefix`, and only ever forwards.
+ */
+export async function advanceSeriesPast(
+  tx: Tx,
+  entity: string,
+  prefix: string,
+  nextNumber: number,
+): Promise<void> {
+  await tx
+    .update(documentSeries)
+    .set({ nextNumber: sql`GREATEST(${documentSeries.nextNumber}, ${nextNumber})` })
+    .where(and(eq(documentSeries.entity, entity), eq(documentSeries.prefix, prefix)));
+}
+
 async function defaultSeriesId(tx: Tx): Promise<string> {
   const [row] = await tx
     .select({ id: numberSeries.id })

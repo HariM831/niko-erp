@@ -30,6 +30,7 @@ import {
 } from "@shared/schema";
 import { db, pool } from "../../server/db";
 import { postJournal } from "../../server/services/posting";
+import { advanceSeriesPast } from "../../server/lib/numbering";
 
 interface ZohoLine {
   item_id?: string;
@@ -254,6 +255,7 @@ async function main() {
         label: `${number} (${c.vendor_credit_number})`,
       });
     }
+    await advanceSeriesPast(tx, "vendor_credit", "VC-", seq);
   });
 
   console.log(`\nCommitted ${todo.length} vendor credits, all posted.`);

@@ -26,6 +26,7 @@ import { billLines, bills, contacts, journalEntries, users, zohoIdMap } from "@s
 import { db, pool } from "../../server/db";
 import { postStoredBillJournal } from "../../server/routes/purchases";
 import { postJournal } from "../../server/services/posting";
+import { advanceSeriesPast } from "../../server/lib/numbering";
 
 interface ZohoLine {
   item_id?: string;
@@ -243,6 +244,7 @@ async function main() {
         label: `${number} (${b.bill_number})`,
       });
     }
+    await advanceSeriesPast(tx, "bill", "BILL-", seq);
   });
 
   /*
