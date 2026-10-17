@@ -317,3 +317,54 @@ Afterwards, on production: **receivables agrees**, ₹32,62,01,695 against
 ₹16,48,753 left as advances. No deposit is in the book twice. Advances stays
 ₹30,95,320 below the receipts (the refunds), and payables ₹27,75,013 apart
 until the vendor payments come across.
+
+## 7. The purchase side, 17 October 2026
+
+```bash
+match-missing-bills.ts --dump <dump>            # read it, then --link
+load-bills.ts --dir <dump> --commit
+load-missing-receipts.ts --vendor --dump <dump> # read it, then --write, then load-payments
+compare-vendor-allocation.ts --dump <dump>      # then --list
+unload-selected.ts vendor_payment <those> --yes
+load-missing-receipts.ts --vendor ... --write   # the loader puts them back from Zoho
+load-payments.ts --dir <that folder> --commit
+unapply-excess.ts --commit
+check-document-balances.ts --fix
+check-control-accounts.ts --account ap
+```
+
+**Never point load-payments at the whole dump.** It would import 122 receipts
+and 155 vendor payments that are already here, keyed from the bank statement —
+₹8.80 crore of double posting. Always go through the picker.
+
+**73 Zoho bills looked missing; 71 were already here.** niko raises its own
+bills from goods receipts, so a bill for the same delivery exists in both
+books with no link between them. They are LINKED, never imported: the document
+niko has is the one the receipt and the stock hang off. Matching is by the
+vendor's Zoho id, the vendor's own bill number, then the nearer day — taking
+the first candidate rather than the best crossed two pairs of small bills a
+few days and a few rupees apart.
+
+**26 vendor payments were allocated differently from Zoho**, which wins, as it
+does on the selling side. Unloaded and reloaded. Afterwards all 2,085 that
+carry a Zoho number match it exactly.
+
+### Payables nets its advances inside itself
+
+A vendor payment raised in niko debits payables for the whole of itself; the
+Zoho loader puts the unapplied part in vendor advances (1095) instead. Two
+conventions, each internally consistent, and measuring one rule against both
+made ₹8.24 crore look like a hole. The check now asks for both:
+
+| | |
+|---|---|
+| Payables | ledger ₹24,93,43,191 against open bills less own advances ₹24,89,36,303 — ₹4,06,888 apart |
+| Vendor advances | ₹8,02,10,838 against ₹8,19,69,058 of imported advances — ₹17,58,220 apart |
+
+Both residuals are the same drift the selling side had, and the same
+per-party correction would close them. Not done yet.
+
+**Where it leaves the vendors** (`report-vendor-balances.ts`, 187 of them):
+trade vendors are **net in advance by ₹1,78,71,828** — we are ahead with them,
+not behind. Nearly everything owed is intra-group: Nandamuri ₹9,37,86,967 and
+Luit ₹8,42,33,001.
