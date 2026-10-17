@@ -64,7 +64,8 @@ async function main() {
       WHERE c.contype = 'f' AND c.confrelid = 'contacts'::regclass
       ORDER BY 1, 2`)
   ).rows as Array<{ tbl: string; col: string }>;
-  console.log(`  ${refs.length} column(s) in the database point at a contact\n`);
+  const documents = refs.filter((r) => !OWNED.some((o) => o.tbl === r.tbl && o.col === r.col));
+  console.log(`  ${refs.length} column(s) point at a contact; ${documents.length} of them are documents\n`);
 
   const groups = (
     await db.execute(sql`
