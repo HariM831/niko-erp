@@ -271,6 +271,11 @@ async function main() {
     }
   }
 
+  if (creates.length) {
+    console.log(`\n  ${creates.length} niko has never held, creating:`);
+    for (const p of creates) console.log(`    ${p.name}  (${p.type})`);
+  }
+
   if (problems.length) {
     console.log(`\n  ${problems.length} name(s) nobody can place:`);
     for (const p of problems) console.log(`    ${p}`);
