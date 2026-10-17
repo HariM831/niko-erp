@@ -55,7 +55,15 @@ const utrs = (s: string | null) =>
     (s ?? "")
       .toUpperCase()
       .split(/[^A-Z0-9]+/)
-      .filter((t) => t.length >= 12 && /\d{6}/.test(t)),
+      .filter((t) => {
+        const letters = (t.match(/[A-Z]/g) ?? []).length;
+        const digits = (t.match(/\d/g) ?? []).length;
+        // A bank reference carries its bank's letters: PUNBR5..., SBIY226...,
+        // HDFCR5... A bare thirteen-digit run is the payer's account number,
+        // which repeats across every transfer they ever make and matched four
+        // unrelated receipts on the first run. A bare twelve is an IMPS id.
+        return (letters >= 3 && digits >= 8) || /^\d{12}$/.test(t);
+      }),
   );
 const sharesUtr = (a: Set<string>, b: Set<string>) => [...a].some((t) => b.has(t));
 
@@ -93,7 +101,7 @@ async function main() {
 
   console.log(`\n  ${here.length} receipts in niko, ${zoho.size} in the dump\n`);
 
-  type Pair = { a: typeof here[number]; b: typeof here[number]; why: string[] };
+  type Pair = { a: typeof here[number]; b: typeof here[number]; why: string[]; bucket: number };
   const pairs: Pair[] = [];
   for (let i = 0; i < here.length; i++) {
     for (let j = i + 1; j < here.length; j++) {
@@ -103,31 +111,43 @@ async function main() {
       const ua = utrs(a.reference ?? za?.reference_number ?? null);
       const ub = utrs(b.reference ?? zb?.reference_number ?? null);
       const utr = ua.size > 0 && ub.size > 0 && sharesUtr(ua, ub);
-      const alike =
-        a.cust_id === b.cust_id &&
-        Math.abs(a.amount - b.amount) <= 1 &&
-        days(a.date, b.date) <= DAYS;
-      if (!utr && !alike) continue;
+      const sameSum = Math.abs(a.amount - b.amount) <= 1;
+      const apart = days(a.date, b.date);
+      const sameParty = a.cust_id === b.cust_id;
+      if (!utr && !(sameParty && sameSum && apart <= DAYS)) continue;
 
       const why: string[] = [];
       if (utr) why.push("same UTR");
-      if (a.amount === b.amount && a.date === b.date) why.push("same day, same amount");
-      else if (alike) why.push(`same amount, ${days(a.date, b.date)} day(s) apart`);
+      if (sameSum && a.date === b.date) why.push("same day, same amount");
+      else if (sameSum) why.push(`same amount, ${apart} day(s) apart`);
+      if (!sameParty) why.push("different customers");
+      let late = false;
       for (const [n, z] of [[a.number, za], [b.number, zb]] as const) {
-        if (z && days(z.created_time.slice(0, 10), z.date) > 14)
+        if (z && days(z.created_time.slice(0, 10), z.date) > 14) {
           why.push(`${n} keyed into Zoho on ${z.created_time.slice(0, 10)} for ${z.date}`);
+          late = true;
+        }
       }
-      if (!za !== !zb) why.push("one from Zoho, one keyed here");
-      pairs.push({ a, b, why });
+      const books = !za !== !zb;
+      if (books) why.push("one from Zoho, one keyed from the statement");
+      /**
+       * Close in time and identical in amount is where every duplicate lives,
+       * but it is not enough on its own: two customers paid 3,23,400 on the
+       * same 17 July and the SBI counter put the same narration on both. What
+       * settles it is a record keyed into Zoho weeks after the day it is dated
+       * while an earlier record of the same money already existed, or the same
+       * bank reference on the same customer.
+       */
+      const near = sameSum && apart <= 2;
+      const bucket = near && (late || (utr && sameParty)) ? 0 : books && sameParty && sameSum ? 1 : 2;
+      pairs.push({ a, b, why, bucket });
     }
   }
 
-  const proof = pairs.filter((p) => p.why.some((w) => w === "same UTR" || w.includes("keyed into Zoho")));
-  const look = pairs.filter((p) => !proof.includes(p));
-
   for (const [label, set] of [
-    ["THE SAME MONEY TWICE", proof],
-    ["WORTH A LOOK — same customer, same amount, days apart", look],
+    ["THE SAME MONEY TWICE", pairs.filter((p) => p.bucket === 0)],
+    ["ZOHO AND THE STATEMENT — one deposit or two?", pairs.filter((p) => p.bucket === 1)],
+    ["WORTH A LOOK", pairs.filter((p) => p.bucket === 2)],
   ] as const) {
     const sum = set.reduce((s, p) => s + Math.min(p.a.amount, p.b.amount), 0);
     console.log(`  ${label}: ${set.length} pair(s), Rs ${money(sum)} counted twice if they are\n`);
