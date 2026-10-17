@@ -93,13 +93,15 @@ async function main() {
     `\n    ${"TOTAL".padEnd(34)}${String(t((r) => r.bills)).padStart(5)}${money(t((r) => r.owed)).padStart(15)}` +
       `${money(t((r) => r.advance)).padStart(14)}${money(t((r) => r.owed - r.advance)).padStart(15)}`,
   );
-  const group = rows.filter((r) => r.group);
-  if (group.length) {
-    console.log(`      of which the group (*): ${money(group.reduce((s, r) => s + r.owed - r.advance, 0))}`);
-  }
+  const net = (set: Row[]) => set.reduce((s, r) => s + r.owed - r.advance, 0);
   console.log(
-    `\n  The 224 vendor payments still in Zoho are not here, so this is overstated\n` +
-      `  until they are brought across. See docs/zoho-catchup-runbook.md.\n`,
+    `      the group (*) ${money(net(rows.filter((r) => r.group))).padStart(14)}` +
+      `      everyone else ${money(net(rows.filter((r) => !r.group))).padStart(14)}`,
+  );
+  console.log(
+    `\n  From the documents: a bill is owed what its applications leave on it. The\n` +
+      `  purchase side came across from Zoho on 17 Oct 2026 and every vendor payment\n` +
+      `  is allocated as Zoho has it. See docs/zoho-catchup-runbook.md.\n`,
   );
   await pool.end();
 }
