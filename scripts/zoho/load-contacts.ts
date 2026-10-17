@@ -406,7 +406,10 @@ async function main() {
     }
   });
 
-  console.log(`\nCommitted ${todo.length} contacts, ${people} contact persons, ${addresses} addresses.`);
+  console.log(
+    `\nCommitted ${creates.length} new contact(s), ${linked} linked to one niko already held,` +
+      ` ${people} contact person(s), ${addresses} address(es).`,
+  );
   await pool.end();
 }
 
