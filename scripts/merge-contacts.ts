@@ -118,6 +118,23 @@ await db
     }
     if (!total) console.log("  move       0  nothing pointed at the loser");
 
+    /* ── What the catalogue cannot see ─────────────────────────────────────
+     * zoho_id_map holds a uuid for whatever entity it names, with no foreign
+     * key to follow, so the loop above walks past it. It is how every loader
+     * decides which contact a Zoho document belongs to: leave it pointing at
+     * the retired record and the next receipt that arrives is created against
+     * a contact nobody can see. It is also how the catch-up tells whether a
+     * deposit is already here, which on 17 Oct 2026 would have loaded 24.5
+     * lakh of Puya's receipts a second time.
+     */
+    const map = (
+      await tx.execute(
+        sql`UPDATE zoho_id_map SET eggsy_id = ${winner.id}
+             WHERE entity = 'contact' AND eggsy_id = ${loser.id} RETURNING zoho_id`,
+      )
+    ).rows as Array<{ zoho_id: string }>;
+    if (map.length) console.log(`  move    ${String(map.length).padStart(4)}  zoho_id_map.eggsy_id (contact)`);
+
     /* ── The addresses, which are now doubled ──────────────────────────────
      * Both halves were entered from the same letterhead, so the survivor ends
      * up with two billing and two shipping addresses saying the same thing.
