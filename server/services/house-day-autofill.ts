@@ -58,12 +58,15 @@ const INTAKE_DAYS = 7;
 /** How many consecutive silo rises one transfer may arrive as. */
 const LOADS_AT_MOST = 4;
 
-/** From this hour (IST) today's feed eaten is offered and saved. */
-const EARLY_FROM_HOUR = 18;
-/** How long the silo must have been still before today's figure is read. */
-const QUIET_BEFORE_EARLY_MS = 30 * 60_000;
+/** The silo's day — feed eaten and stock — closes at this hour (IST). */
+export const SILO_DAY_HOUR = 18;
 
 const startOf = (day: string) => new Date(`${day}T00:00:00+05:30`);
+/** The silo's day for `day`: 18:00 the day before to 18:00. */
+export const siloDay = (day: string): [Date, Date] => [
+  new Date(startOf(day).getTime() - (24 - SILO_DAY_HOUR) * 3_600_000),
+  new Date(startOf(day).getTime() + SILO_DAY_HOUR * 3_600_000),
+];
 const fmt = (n: number) => Math.round(n).toLocaleString("en-IN");
 const hhmm = (d: Date) =>
   d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" });
@@ -298,23 +301,25 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
   const eggsProduced = await gradedEggsOn(db, houseId, day);
 
   // The week before too, for the silo's own recent intake.
-  const rows = await readings(houseId, new Date(startOf(addDays(day, -INTAKE_DAYS)).getTime() - 3_600_000), dayEnd);
+  const rows = await readings(houseId, new Date(startOf(addDays(day, -INTAKE_DAYS - 1)).getTime() - 3_600_000), dayEnd);
   const over = day < istDate();
   const coverage = over
     ? dayCoverage(rows.map((r) => ({ at: r.at, waterL: r.waterL })), dayStart, dayEnd)
     : { complete: false, reason: "The day isn't over — its figures fill in after midnight." };
   /*
-   * Feed eaten is in before the day is over. Over 3–15 Oct 2026 the last run
-   * in every laying house started 15:30–16:35 and ended by 17:33, and nothing
-   * left a silo after it — so from 18:00 the silo already holds the day's
-   * figure. Water and stock still wait for midnight; the midnight save judges
-   * feed again and replaces it if a run came later.
+   * The silo's day runs 18:00 to 18:00 (decided 17 Oct 2026). Over 3–15 Oct
+   * the last run in every laying house started 15:30–16:35 and ended by
+   * 17:33, and the first began after 03:40 — so the window holds each day's
+   * runs whole, and stock is the silo at 18:00, before the evening tanker, as
+   * the farm's register writes it. Feed eaten and stock are final at 18:00;
+   * water and mortality still run midnight to midnight.
    */
   const now = new Date();
-  const early = !over && day === istDate() && now.getTime() >= dayStart.getTime() + EARLY_FROM_HOUR * 3_600_000;
-  const feedCoverage = early
-    ? dayCoverage(rows.map((r) => ({ at: r.at, waterL: r.waterL })), dayStart, now)
-    : coverage;
+  const [feedFrom, feedTo] = siloDay(day);
+  const feedReady = now >= feedTo;
+  const feedCoverage = feedReady
+    ? dayCoverage(rows.map((r) => ({ at: r.at, waterL: r.waterL })), feedFrom, feedTo)
+    : { complete: false, reason: `Feed eaten and stock fill in at ${SILO_DAY_HOUR}:00.` };
 
   // The day's tankers, matched to the mill's transfers for the form to show —
   // with the day after, so a transfer whose first load came this evening
@@ -329,10 +334,11 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
     new Date(startOf(addDays(t.transferDate, 1)).getTime() + 12 * 3_600_000) <= now;
 
   const silo = rows.filter((r) => r.siloKg != null && r.siloKg >= 0).map((r) => ({ at: r.at, kg: r.siloKg! }));
-  const moves = siloMoves(silo, dayStart, dayEnd);
+  const moves = siloMoves(silo, feedFrom, feedTo);
   /*
-   * What was eaten is the silo's own balance: the silo at midnight, plus what
-   * it took in, less the silo at the next midnight — every weight the silo's.
+   * What was eaten is the silo's own balance: the silo at 18:00 the day
+   * before, plus what it took in, less the silo at 18:00 — every weight the
+   * silo's.
    *
    * Decided 17 Oct 2026: until the short silos are fixed (L2's and L3's read
    * 14–23% under the mill on every tanker since mid-October), the mill's
@@ -342,7 +348,7 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
    * was taken at the mill's weight, and a week whose tankers didn't match the
    * mill within 3% held feed eaten back for a person.
    */
-  const fed = siloBalance(silo, dayStart, dayEnd) ?? 0;
+  const fed = siloBalance(silo, feedFrom, feedTo) ?? 0;
   const counters = over ? await countersOf(houseId, day) : null;
   const counter = counters?.feedKg ?? null;
 
@@ -377,8 +383,7 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
    */
   const recent: number[] = [];
   for (let d = addDays(day, -INTAKE_DAYS); d < day; d = addDays(d, 1)) {
-    const a = startOf(d);
-    const b = startOf(addDays(d, 1));
+    const [a, b] = siloDay(d);
     if (!dayCoverage(rows.map((r) => ({ at: r.at, waterL: r.waterL })), a, b).complete) continue;
     const v = siloBalance(silo, a, b);
     if (v != null && v > 0) recent.push(v);
@@ -387,27 +392,9 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
   const median = recent.length ? recent[Math.floor(recent.length / 2)]! : null;
 
   const counterNote = counter != null ? [{ label: "Controller counter", value: Math.round(counter) }] : [];
-  const lastRun = moves.filter((m) => m.kg < 0).at(-1) ?? null;
-  // Before midnight, the silo must have been still for half an hour — a run
-  // or a tanker part-way through would be read half done.
-  const moving = early ? moves.find((m) => now.getTime() - m.end.getTime() < QUIET_BEFORE_EARLY_MS) : undefined;
   let feedConsumedKg: Figure;
-  if (!over && !early) {
-    feedConsumedKg = {
-      status: "unavailable",
-      value: null,
-      from: null,
-      note: `Feed eaten fills in from ${EARLY_FROM_HOUR}:00, once the day's last run is over.`,
-    };
-  } else if (!feedCoverage.complete) {
+  if (!feedCoverage.complete) {
     feedConsumedKg = { status: "unavailable", value: null, from: null, note: feedCoverage.reason ?? "" };
-  } else if (moving) {
-    feedConsumedKg = {
-      status: "unavailable",
-      value: null,
-      from: null,
-      note: `The silo has been ${moving.kg < 0 ? "falling" : "filling"} since ${hhmm(moving.start)} — feed eaten fills in once it has been still for half an hour.`,
-    };
   } else if (fed <= 0) {
     feedConsumedKg = { status: "unavailable", value: null, from: null, note: "The silo recorded no feeding runs." };
   } else if (median != null && Math.abs(fed - median) > INTAKE_TOLERANCE * median) {
@@ -425,10 +412,9 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
       status: "filled",
       value: fed,
       from: "silo",
-      note: `From the silo: ${runs} feeding run${runs === 1 ? "" : "s"}.${
+      note: `From the silo, 18:00 to 18:00: ${runs} feeding run${runs === 1 ? "" : "s"}.${
         counter != null ? ` Counter ${fmt(counter)}.` : ""
-      }${early && lastRun ? ` The last run ended at ${hhmm(lastRun.end)}; checked again after midnight.` : ""}`,
-      ...(early ? { upTo: silo.at(-1)!.at.toISOString() } : {}),
+      }`,
     };
   }
 
@@ -448,15 +434,14 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
     };
   }
 
-  // Stock parts: opening, what arrived, and the silo at midnight.
+  // Stock parts: opening, the mill's transfers, and the silo at 18:00.
   const yesterday = saved.find((s) => s.day === addDays(day, -1));
-  const before = silo.filter((s) => s.at < dayStart);
   const openingSaved = yesterday?.closing != null ? Number(yesterday.closing) : null;
-  const openingSilo = before.length ? before[before.length - 1]!.kg : null;
-  const lastIn = silo.filter((s) => s.at < dayEnd && s.at >= dayStart);
+  const openingSilo = silo.filter((s) => s.at < feedFrom).at(-1)?.kg ?? null;
+  const atClose = silo.filter((s) => s.at < feedTo && s.at >= feedFrom).at(-1)?.kg ?? null;
   const stock = {
-    openingKg: openingSaved ?? (coverage.complete ? openingSilo : null),
-    openingFrom: openingSaved != null ? ("saved" as const) : coverage.complete && openingSilo != null ? ("silo" as const) : null,
+    openingKg: openingSaved ?? (feedCoverage.complete ? openingSilo : null),
+    openingFrom: openingSaved != null ? ("saved" as const) : feedCoverage.complete && openingSilo != null ? ("silo" as const) : null,
     // Feed in is the mill's transfers dated this day, whatever the silo saw.
     arrivedKg: Math.round(
       (await transfersBetween(houseId, day, day)).reduce((s, t) => s + t.quantityKg, 0),
@@ -464,7 +449,7 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
     unbookedKg: Math.round(
       today.filter((t) => !t.transfer && t.move.kg >= TANKER_MIN_KG).reduce((s, t) => s + t.move.kg, 0),
     ),
-    siloKg: coverage.complete && lastIn.length ? Math.round(lastIn[lastIn.length - 1]!.kg) : null,
+    siloKg: feedCoverage.complete && atClose != null ? Math.round(atClose) : null,
   };
 
   const tankers: TankerLine[] = today
@@ -480,10 +465,9 @@ export async function autofillDay(houseId: string, day: string): Promise<DayAuto
     day,
     complete: coverage.complete,
     reason:
-      early && feedConsumedKg.status === "filled"
-        ? "Feed eaten is in from the silo; water and stock fill in after midnight."
+      !over && feedReady && feedConsumedKg.status === "filled"
+        ? "Feed eaten and stock are in from the silo at 18:00; water fills in after midnight."
         : coverage.reason,
-    lastRunEnd: lastRun ? lastRun.end.toISOString() : null,
     feedConsumedKg,
     waterKl,
     stock,
@@ -531,7 +515,7 @@ export function provenance(
     const reason = reasons[field]?.trim() || null;
     let src: FigureSource;
     if (f.status === "filled" && f.value != null && sameFigure(field, f.value, v)) {
-      src = { from: f.from!, offered: f.value, ...(f.upTo ? { upTo: f.upTo } : {}) };
+      src = { from: f.from!, offered: f.value };
     } else if (f.status === "unavailable") {
       src = { from: "typed", offered: f.value, reason };
     } else {
@@ -627,50 +611,6 @@ export async function panelMortality(
   return { qty: fall };
 }
 
-/**
- * Feed eaten saved before midnight, judged again once the day is over.
- *
- * Only a figure still as niko offered it — saved by niko, or accepted
- * untouched by a person — is judged; one a person typed is theirs. The whole
- * day's figure replaces it when the checks pass. When they don't, the early
- * figure stands if no run came after it; if one did, it is cleared from a day
- * nobody has saved, and left with a note on a day somebody has. Nothing
- * happens while the night's readings are still missing — the hourly retry
- * comes back to it.
- */
-export function rejudgeEarlyFeed(
-  over: boolean,
-  auto: Pick<DayAutofill, "complete" | "feedConsumedKg" | "lastRunEnd">,
-  saved: number | null,
-  src: FigureSource | undefined,
-  untouched: boolean,
-): { source: FigureSource; value?: number | null; log: string } | null {
-  if (!over || !src?.upTo || saved == null) return null;
-  const { upTo, ...settled } = src;
-  if (src.offered == null || !sameFigure("feedConsumedKg", saved, src.offered)) {
-    return { source: settled, log: `kept a typed ${fmt(saved)}` };
-  }
-  if (!auto.complete) return null;
-  const runAfter = auto.lastRunEnd != null && new Date(auto.lastRunEnd) > new Date(upTo);
-  // No run after it: the early figure IS the day's. (The whole day would also
-  // count the evening tanker at the mill's weight against the silo's rise —
-  // a few hundred kilos of weighing, not feed.)
-  if (!runAfter) return { source: settled, log: `kept ${fmt(saved)}; no run after ${hhmm(new Date(upTo))}` };
-  const f = auto.feedConsumedKg;
-  if (f.status === "filled" && f.value != null) {
-    return {
-      source: { from: "silo", offered: f.value, was: saved },
-      value: f.value,
-      log: `${fmt(saved)} → ${fmt(f.value)} with the run after ${hhmm(new Date(upTo))}`,
-    };
-  }
-  const note = `A feeding run ending ${hhmm(new Date(auto.lastRunEnd!))} came after niko's ${fmt(saved)} kg (read at ${hhmm(new Date(upTo))}), and the whole day couldn't be proven: ${f.note}`;
-  if (untouched) {
-    return { source: { from: "silo", offered: null, note, was: saved }, value: null, log: `cleared ${fmt(saved)} — run after the cut` };
-  }
-  return { source: { ...settled, note }, log: `left ${fmt(saved)} with a note — run after the cut, a person saved the day` };
-}
-
 export async function autoSaveDay(day: string): Promise<string[]> {
   const notes: string[] = [];
   const open = await db
@@ -713,24 +653,12 @@ export async function autoSaveDay(day: string): Promise<string[]> {
     const n = (v: string | null | undefined) => (v == null ? null : Number(v));
     const set: Partial<typeof placementDays.$inferInsert> = {};
     const sources: DaySources = { ...(row?.sources ?? {}) };
-    let savedFeed = n(row?.feedConsumedKg);
-    const rejudged = rejudgeEarlyFeed(day < istDate(), auto, savedFeed, sources.feedConsumedKg, row?.source === "iot");
-    if (rejudged) {
-      sources.feedConsumedKg = rejudged.source;
-      if (rejudged.value !== undefined) {
-        set.feedConsumedKg = rejudged.value == null ? null : rejudged.value.toFixed(2);
-        savedFeed = rejudged.value;
-      }
-    }
+    const savedFeed = n(row?.feedConsumedKg);
     const consumed = savedFeed ?? (auto.feedConsumedKg.status === "filled" ? auto.feedConsumedKg.value : null);
     const stock = judgeStock(auto.stock, consumed);
     if (savedFeed == null && auto.feedConsumedKg.status === "filled") {
       set.feedConsumedKg = auto.feedConsumedKg.value!.toFixed(2);
-      sources.feedConsumedKg = {
-        from: "silo",
-        offered: auto.feedConsumedKg.value,
-        ...(auto.feedConsumedKg.upTo ? { upTo: auto.feedConsumedKg.upTo } : {}),
-      };
+      sources.feedConsumedKg = { from: "silo", offered: auto.feedConsumedKg.value };
     }
     if (row?.feedClosingKg == null && stock.status === "filled") {
       set.feedClosingKg = stock.value!.toFixed(2);
@@ -763,7 +691,7 @@ export async function autoSaveDay(day: string): Promise<string[]> {
       }
     }
     const mortalityNew = judged && !!sources.mortality;
-    if (!Object.keys(set).length && !mortalityNew && !rejudged) continue;
+    if (!Object.keys(set).length && !mortalityNew) continue;
     await db.transaction(async (tx) => {
       if (row) {
         await tx
@@ -786,7 +714,7 @@ export async function autoSaveDay(day: string): Promise<string[]> {
       await refreshFromPlacement(tx, p.placementId);
     });
     notes.push(
-      `${p.houseId}: ${[...Object.keys(set), ...(rejudged ? [`feed rejudged — ${rejudged.log}`] : []),...(sources.mortality ? [deaths != null ? `mortality ${deaths}` : `mortality held — ${sources.mortality.note}`] : [])].join(", ")}`,
+      `${p.houseId}: ${[...Object.keys(set), ...(sources.mortality ? [deaths != null ? `mortality ${deaths}` : `mortality held — ${sources.mortality.note}`] : [])].join(", ")}`,
     );
   }
   return notes;

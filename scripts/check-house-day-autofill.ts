@@ -13,7 +13,7 @@ process.env.DATABASE_URL ??= "postgres://unused@localhost/unused";
 import { judgeStock, sameFigure } from "@shared/house-day";
 import type { DayAutofill } from "@shared/house-day";
 import { dayCoverage, siloFed, siloMoves, siloTankers } from "../server/services/iot/silo-events";
-import { likelyTransfers, matchTankers, provenance, rejudgeEarlyFeed } from "../server/services/house-day-autofill";
+import { likelyTransfers, matchTankers, provenance, siloBalance, siloDay } from "../server/services/house-day-autofill";
 import { PostingError } from "../server/services/posting";
 
 let failures = 0;
@@ -181,37 +181,36 @@ function series(day: string, points: Array<[string, number]>, from = "00:00", to
   ok("Water agrees to 50 litres", sameFigure("waterKl", 36.4, 36.44) && !sameFigure("waterKl", 36.4, 36.5));
 }
 
-// ── Feed eaten from 18:00, judged again after midnight ──
+// ── The silo's day: 18:00 to 18:00 (17 Oct 2026) ──
 {
-  const upTo = "2026-10-15T12:35:00.000Z"; // 18:05 IST
-  const early = { from: "silo" as const, offered: 11731, upTo };
-  const filled = (value: number) => ({
-    complete: true,
-    feedConsumedKg: { status: "filled" as const, value, from: "silo" as const, note: "" },
-    lastRunEnd: "2026-10-15T11:18:00.000Z",
-  });
-  const stopped = (lastRunEnd: string, complete = true) => ({
-    complete,
-    feedConsumedKg: { status: "check" as const, value: null, from: "silo" as const, note: "unproven" },
-    lastRunEnd,
-  });
-  ok("Not judged before the day is over", rejudgeEarlyFeed(false, filled(11731), 11731, early, true) === null);
-  ok("A figure without upTo is left alone", rejudgeEarlyFeed(true, filled(9000), 11731, { from: "silo", offered: 11731 }, true) === null);
-  const same = rejudgeEarlyFeed(true, filled(11900), 11731, early, true);
-  ok("No run after the cut: it stands, evening tanker or not", same?.value === undefined && same?.source.upTo === undefined && same?.source.offered === 11731);
-  const ranLate = { ...filled(14100), lastRunEnd: "2026-10-15T15:30:00.000Z" };
-  const more = rejudgeEarlyFeed(true, ranLate, 11731, early, false);
-  ok("A run after the cut: the whole day replaces it, keeping the old", more?.value === 14100 && more.source.was === 11731);
-  ok("Waits while the night's readings are missing", rejudgeEarlyFeed(true, stopped("2026-10-15T11:18:00.000Z", false), 11731, early, true) === null);
-  const quiet = rejudgeEarlyFeed(true, stopped("2026-10-15T11:18:00.000Z"), 11731, early, true);
-  ok("Stopped, but no run after the cut: it stands", quiet?.value === undefined && quiet?.source.upTo === undefined);
-  const late = "2026-10-15T15:30:00.000Z"; // 21:00 IST
-  const cleared = rejudgeEarlyFeed(true, stopped(late), 11731, early, true);
-  ok("A run after the cut clears niko's own figure", cleared?.value === null && cleared.source.was === 11731 && !!cleared.source.note);
-  const noted = rejudgeEarlyFeed(true, stopped(late), 11731, early, false);
-  ok("…but only notes one a person saved", noted?.value === undefined && !!noted?.source.note);
-  const typed = rejudgeEarlyFeed(true, ranLate, 10900, early, false);
-  ok("A typed figure is never replaced", typed?.value === undefined);
+  const [from, to] = siloDay("2026-10-16");
+  ok("The silo's day for 16 Oct is 15 Oct 18:00 to 16 Oct 18:00",
+    from.toISOString() === "2026-10-15T12:30:00.000Z" && to.toISOString() === "2026-10-16T12:30:00.000Z");
+  // L4, shaped like 16 Oct: 20:08 tanker the evening before, runs at 05:43,
+  // 10:28 and 16:13, a 14:36 tanker, and an evening tanker after the close.
+  const at = (s: string) => new Date(`${s}+05:30`);
+  const silo: Array<{ at: Date; kg: number }> = [];
+  let kg = 9000;
+  const step = (when: string, to: number, minutes: number) => {
+    const t0 = at(when).getTime();
+    const n = Math.max(1, Math.round(minutes / 5));
+    const k0 = kg;
+    for (let i = 1; i <= n; i++) silo.push({ at: new Date(t0 + i * 5 * 60_000), kg: Math.round(k0 + ((to - k0) * i) / n) });
+    kg = to;
+  };
+  const fill = (from: string, until: string) => {
+    for (let t = at(from).getTime(); t < at(until).getTime(); t += 5 * 60_000) silo.push({ at: new Date(t), kg });
+  };
+  fill("2026-10-15T17:00", "2026-10-15T20:08"); step("2026-10-15T20:08", 16000, 30);
+  fill("2026-10-15T20:40", "2026-10-16T05:43"); step("2026-10-16T05:43", 12000, 45);
+  fill("2026-10-16T06:30", "2026-10-16T10:28"); step("2026-10-16T10:28", 8000, 45);
+  fill("2026-10-16T11:15", "2026-10-16T14:36"); step("2026-10-16T14:36", 15000, 30);
+  fill("2026-10-16T15:10", "2026-10-16T16:13"); step("2026-10-16T16:13", 11000, 45);
+  fill("2026-10-16T17:00", "2026-10-16T19:00"); step("2026-10-16T19:00", 18000, 30);
+  fill("2026-10-16T19:35", "2026-10-16T23:55");
+  silo.sort((a, b) => a.at.getTime() - b.at.getTime());
+  ok("Eaten is the three runs, 4,000 each", siloBalance(silo, from, to) === 12000, String(siloBalance(silo, from, to)));
+  ok("…and the 19:00 tanker after the close is the next day's, eating nothing", siloBalance(silo, ...siloDay("2026-10-17")) === 0);
 }
 
 // ── The unbooked list's likely transfers (17 Oct 2026, from production) ──

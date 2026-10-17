@@ -25,11 +25,6 @@ export interface Figure {
   note: string;
   /** Other readings worth seeing beside it. */
   also?: Array<{ label: string; value: number }>;
-  /**
-   * For a figure offered before the day is over (feed eaten, from 18:00): the
-   * last reading it runs to. The midnight save judges the day again.
-   */
-  upTo?: string | null;
 }
 
 export interface TankerLine {
@@ -42,14 +37,14 @@ export interface TankerLine {
 }
 
 export interface StockParts {
-  /** Yesterday's closing figure, or the silo at midnight when there is none. */
+  /** Yesterday's closing figure, or the silo at 18:00 the day before when there is none. */
   openingKg: number | null;
   openingFrom: "saved" | "silo" | null;
   /** The mill's transfers into the house dated this day — feed in (17 Oct 2026). */
   arrivedKg: number;
   /** Tankers that reached the silo this day with no mill transfer behind them. */
   unbookedKg: number;
-  /** The silo at midnight, when the controller covered the day. */
+  /** The silo at 18:00, when the controller covered the silo's day. */
   siloKg: number | null;
 }
 
@@ -65,12 +60,10 @@ export interface DayAutofill {
   /** Transfers dated around this day that no tanker has matched. */
   unseenTransfers: Array<{ number: string; quantityKg: number; transferDate: string }>;
   eggsProduced: number | null;
-  /** When the day's last feeding run ended, if the silo saw one. */
-  lastRunEnd?: string | null;
 }
 
 /**
- * Closing stock: the silo at midnight (decided 17 Oct 2026).
+ * Closing stock: the silo at 18:00 (decided 17 Oct 2026).
  *
  * Until then it was the book — yesterday's closing, plus what the mill sent,
  * less what was eaten — checked against the silo. With the silos reading
@@ -87,7 +80,7 @@ export function judgeStock(p: StockParts, consumedKg: number | null): Figure {
       status: "unavailable",
       value: null,
       from: null,
-      note: "The silo wasn't reporting through midnight.",
+      note: "The silo wasn't reporting through 18:00.",
       also: bookLine.length ? bookLine : undefined,
     };
   }
@@ -97,8 +90,8 @@ export function judgeStock(p: StockParts, consumedKg: number | null): Figure {
     from: "silo",
     note:
       book != null
-        ? `The silo at midnight. The book (opening ${fmt(p.openingKg!)} + transfers ${fmt(p.arrivedKg)} − eaten ${fmt(consumedKg!)}) says ${fmt(book)} (${p.siloKg - book >= 0 ? "+" : "−"}${fmt(Math.abs(p.siloKg - book))}).`
-        : "The silo at midnight.",
+        ? `The silo at 18:00. The book (opening ${fmt(p.openingKg!)} + transfers ${fmt(p.arrivedKg)} − eaten ${fmt(consumedKg!)}) says ${fmt(book)} (${p.siloKg - book >= 0 ? "+" : "−"}${fmt(Math.abs(p.siloKg - book))}).`
+        : "The silo at 18:00.",
   };
 }
 

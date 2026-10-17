@@ -19,7 +19,7 @@ import { nightFloorTick } from "./night-floor";
 import { db } from "../../db";
 import { controllerSnapshots } from "@shared/schema";
 import { desc } from "drizzle-orm";
-import { autoSaveDay } from "../house-day-autofill";
+import { SILO_DAY_HOUR, autoSaveDay } from "../house-day-autofill";
 import { addDays, istDate } from "../day-resolution";
 
 const INTERVAL = () => Number(process.env.BH_POLL_MS ?? 300_000);
@@ -140,11 +140,12 @@ async function loopsTick(): Promise<void> {
  * they are in, the silo's tankers can't be matched and the day stops. Each
  * day's stock opens on the one before, hence the order.
  *
- * From 18:00, today too: its feed eaten is in by then (16 Oct 2026), and the
+ * From 18:00, today too: the silo's day closes then and its feed eaten and
+ * stock are final (16–17 Oct 2026), and the
  * first tick after 18:00 runs at once rather than waiting out the hour.
  */
 const RETRY_DAYS = 7;
-const TODAY_FROM_HOUR = 18;
+const TODAY_FROM_HOUR = SILO_DAY_HOUR;
 let saving = false;
 let lastSave = { key: "", at: 0 };
 async function autoSaveTick(): Promise<void> {

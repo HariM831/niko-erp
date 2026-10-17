@@ -243,8 +243,6 @@ export interface FigureSource {
   reason?: string | null;
   /** The number before a correction script replaced it. */
   was?: number | null;
-  /** Offered before the day was over, up to this reading; judged again at midnight. */
-  upTo?: string | null;
 }
 export interface DaySources {
   feedConsumedKg?: FigureSource;
