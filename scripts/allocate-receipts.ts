@@ -78,6 +78,7 @@ async function main() {
   const before = { owedP: 0, advanceP: 0 };
   const after = { owedP: 0, advanceP: 0 };
   const changes: Array<{ cust: string; recs: Rec[] }> = [];
+  const perCust: Array<{ name: string; wasP: number; nowP: number; advP: number; openInvs: Inv[] }> = [];
 
   for (const cust of owners) {
     const invs = (
@@ -150,6 +151,13 @@ async function main() {
       }
     }
 
+    perCust.push({
+      name: cust.name,
+      wasP: pool_.reduce((s, i) => s + Math.max(0, i.totalP - i.fixedP), 0),
+      nowP: pool_.reduce((s, i) => s + i.openP, 0),
+      advP: free.reduce((s, r) => s + left(r), 0),
+      openInvs: pool_.filter((i) => i.openP > 0),
+    });
     after.owedP += pool_.reduce((s, i) => s + i.openP, 0);
     after.advanceP += free.reduce((s, r) => s + left(r), 0);
     const changed = free.filter(
@@ -167,6 +175,14 @@ async function main() {
   console.log(`    owed before .... Rs ${money(before.owedP).padStart(12)}      advances before  Rs ${money(before.advanceP)}`);
   console.log(`    owed after ..... Rs ${money(after.owedP).padStart(12)}      advances after   Rs ${money(after.advanceP)}`);
   console.log(`    ${touched} receipt(s) re-placed into ${moves} application(s), Rs ${money(movedRupees)}\n`);
+
+  console.log(`  what each customer still owes once their own receipts are placed:`);
+  for (const c of [...perCust].sort((a, b) => b.nowP - a.nowP)) {
+    if (!c.nowP && !c.advP) continue;
+    console.log(`    ${c.name.slice(0, 28).padEnd(29)}owed ${money(c.wasP).padStart(11)} -> ${money(c.nowP).padStart(11)}` +
+      `   advance left ${money(c.advP).padStart(10)}   ${c.openInvs.slice(0, 4).map((i) => `${i.number.slice(-4)} ${money(i.openP)}`).join(", ")}`);
+  }
+  console.log();
 
   if (VERBOSE) {
     for (const c of changes) {
