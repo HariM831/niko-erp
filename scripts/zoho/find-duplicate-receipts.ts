@@ -34,6 +34,7 @@
 import { readFileSync } from "node:fs";
 import { sql } from "drizzle-orm";
 import { db, pool } from "../../server/db";
+import { sharesUtr, utrs } from "./utr";
 
 const dumpAt = process.argv.indexOf("--dump");
 const DIR = dumpAt > -1 ? process.argv[dumpAt + 1]! : ".zoho-dump/detail";
@@ -43,29 +44,6 @@ const DAYS = 7;
 const money = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
 const days = (a: string, b: string) => Math.abs((Date.parse(a) - Date.parse(b)) / 86_400_000);
 
-/**
- * A bank reference belongs to one transfer. Zoho and the statement spell it
- * differently — spaces, a trailing customer name, an IMPS/NEFT prefix — so
- * compare the long alphanumeric runs inside it and ignore everything else.
- * Short runs are account-number fragments and bank codes that repeat across
- * transfers, so they are not identifying on their own.
- */
-const utrs = (s: string | null) =>
-  new Set(
-    (s ?? "")
-      .toUpperCase()
-      .split(/[^A-Z0-9]+/)
-      .filter((t) => {
-        const letters = (t.match(/[A-Z]/g) ?? []).length;
-        const digits = (t.match(/\d/g) ?? []).length;
-        // A bank reference carries its bank's letters: PUNBR5..., SBIY226...,
-        // HDFCR5... A bare thirteen-digit run is the payer's account number,
-        // which repeats across every transfer they ever make and matched four
-        // unrelated receipts on the first run. A bare twelve is an IMPS id.
-        return (letters >= 3 && digits >= 8) || /^\d{12}$/.test(t);
-      }),
-  );
-const sharesUtr = (a: Set<string>, b: Set<string>) => [...a].some((t) => b.has(t));
 
 interface Z {
   payment_number: string;

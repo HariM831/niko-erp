@@ -31,6 +31,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { sql } from "drizzle-orm";
 import { db, pool } from "../../server/db";
+import { sharesUtr, utrs } from "./utr";
 
 const dumpAt = process.argv.indexOf("--dump");
 const DIR = dumpAt > -1 ? process.argv[dumpAt + 1]! : ".zoho-dump/detail";
@@ -47,7 +48,10 @@ const sameParty = (a: string, b: string) => {
 };
 const days = (a: string, b: string) => Math.abs((Date.parse(a) - Date.parse(b)) / 86_400_000);
 
-interface Z { payment_number: string; date: string; customer_name?: string; amount: number }
+interface Z {
+  payment_number: string; date: string; customer_name?: string; amount: number;
+  reference_number?: string;
+}
 
 async function main() {
   const zoho: Z[] = readFileSync(`${DIR}/customerpayments.jsonl`, "utf8")
@@ -56,10 +60,11 @@ async function main() {
   const here = (
     await db.execute(sql`
       SELECT p.number, p.payment_date::text AS date, c.display_name AS cust,
-             round(p.amount::numeric, 2)::float8 AS amount
+             round(p.amount::numeric, 2)::float8 AS amount, p.reference
         FROM customer_payments p JOIN contacts c ON c.id = p.customer_id
     `)
-  ).rows as Array<{ number: string; date: string; cust: string; amount: number }>;
+  ).rows as Array<{ number: string; date: string; cust: string; amount: number;
+                    reference: string | null }>;
   const byNumber = new Set(here.map((r) => r.number));
   // Only receipts raised in niko can stand in for a Zoho one. A receipt that
   // carries a Zoho number IS that receipt, matched already.
@@ -67,17 +72,32 @@ async function main() {
 
   const taken = new Set<string>();
   const load: Z[] = [];
-  const skip: Array<{ z: Z; as: typeof own[number] }> = [];
+  const skip: Array<{ z: Z; as: typeof own[number]; utr: boolean }> = [];
   for (const z of zoho) {
     if (byNumber.has(z.payment_number)) continue;        // already here under its own number
-    const hit = own.find(
+    const zu = utrs(z.reference_number);
+    const candidates = own.filter(
       (k) =>
         !taken.has(k.number) &&
         Math.abs(Number(z.amount) - k.amount) <= 1 &&
         days(z.date, k.date) <= DAYS &&
         sameParty(z.customer_name ?? "", k.cust),
     );
-    if (hit) { taken.add(hit.number); skip.push({ z, as: hit }); }
+    /**
+     * The amount and the party and a few days between them is where every
+     * double-post lives, but it is not proof — a customer who pays the same
+     * round sum twice in a week is ordinary here. So when both records carry
+     * a bank reference, that settles it either way: the same reference is one
+     * deposit, and two different references are two deposits however alike
+     * they look. Only where one side has no usable reference does the
+     * likeness alone decide.
+     */
+    const byUtr = zu.size
+      ? candidates.find((k) => sharesUtr(zu, utrs(k.reference)))
+      : undefined;
+    const loose = candidates.find((k) => !zu.size || !utrs(k.reference).size);
+    const hit = byUtr ?? loose;
+    if (hit) { taken.add(hit.number); skip.push({ z, as: hit, utr: hit === byUtr }); }
     else load.push(z);
   }
 
@@ -92,7 +112,8 @@ async function main() {
     for (const s of skip.slice(0, 20)) {
       console.log(
         `    ${s.z.payment_number.padEnd(18)}${s.z.date}  ${(s.z.customer_name ?? "").slice(0, 24).padEnd(25)}` +
-          `${money(Number(s.z.amount)).padStart(12)}   here as ${s.as.number} (${s.as.date})`,
+          `${money(Number(s.z.amount)).padStart(12)}   here as ${s.as.number} (${s.as.date})` +
+            `${s.utr ? ", same UTR" : ""}`,
       );
     }
     if (skip.length > 20) console.log(`    ... and ${skip.length - 20} more`);
