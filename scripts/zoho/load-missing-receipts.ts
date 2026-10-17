@@ -106,6 +106,8 @@ async function main() {
   console.log(`    already here under their own number .. ${zoho.length - load.length - skip.length}`);
   console.log(`    already here, keyed from the statement ${skip.length}   Rs ${money(skip.reduce((s, x) => s + Number(x.z.amount), 0))}`);
   console.log(`    reached niko by no route — to load ... ${load.length}   Rs ${money(load.reduce((s, x) => s + Number(x.amount), 0))}`);
+  console.log(`      of the skipped, ${skip.filter((s) => s.utr).length} share a bank reference with what is here; ` +
+    `${skip.filter((s) => !s.utr).length} rest on the party, the amount and the days alone`);
 
   if (skip.length) {
     console.log(`\n  skipped, because niko already holds the same deposit:`);
