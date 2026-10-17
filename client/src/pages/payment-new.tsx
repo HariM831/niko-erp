@@ -136,7 +136,15 @@ export function PaymentNewPage({ side, editId }: { side: "customer" | "vendor"; 
     }
   }, [contactId]);
 
-  const totalApplied = Object.values(applied).reduce((s, v) => s + Number(v || 0), 0);
+  /**
+   * The group's LLPs run on one net figure and a payment never goes against a
+   * particular bill or invoice (the user, 17 Oct 2026). So no table to apply
+   * from. Editing an older payment that does carry applications leaves them
+   * exactly as they were rather than quietly stripping them.
+   */
+  const isGroup = !!contacts?.find((c) => c.id === contactId)?.isGroupCompany;
+
+  const totalApplied = isGroup ? 0 : Object.values(applied).reduce((s, v) => s + Number(v || 0), 0);
   const unapplied = Number(amount || 0) - totalApplied;
 
   /** Auto-allocate the amount oldest-first, Zoho's "pay in full" behaviour. */
@@ -157,7 +165,7 @@ export function PaymentNewPage({ side, editId }: { side: "customer" | "vendor"; 
     setBusy(true);
     setError(null);
     try {
-      const applications = Object.entries(applied)
+      const applications = Object.entries(isGroup && !editId ? {} : applied)
         .filter(([, v]) => Number(v) > 0)
         .map(([id, v]) => ({ [isCustomer ? "invoiceId" : "billId"]: id, amount: Number(v).toFixed(2) }));
       const body: Record<string, unknown> = {
@@ -253,7 +261,14 @@ export function PaymentNewPage({ side, editId }: { side: "customer" | "vendor"; 
           </div>
         </div>
 
-        {contactId && (
+        {contactId && isGroup && (
+          <p className="max-w-3xl rounded border border-dashed p-4 text-sm text-gray-500">
+            Group account — the payment goes on the account and moves its net balance. Nothing is
+            put against a particular {isCustomer ? "invoice" : "bill"}.
+          </p>
+        )}
+
+        {contactId && !isGroup && (
           <div className="max-w-3xl">
             <div className="mb-2 flex items-center justify-between">
               <h2 className="text-sm font-semibold">

@@ -118,6 +118,18 @@ contactInsightsRouter.get(
       payable,
       payableCredits,
       showBoth: contact.type === "both",
+      /**
+       * A group account is one net figure and nothing is applied document by
+       * document (the user, 17 Oct 2026), so the balances above mean nothing
+       * there. The net is the Statement's own closing balance: positive, they
+       * owe Amino; negative, Amino owes them.
+       */
+      net: contact.isGroupCompany
+        ? (
+            Number(contact.openingBalance ?? 0) +
+            (await statementRows(contact)).reduce((t, r) => t + r.debit - r.credit, 0)
+          ).toFixed(2)
+        : null,
     });
   },
 );
@@ -145,6 +157,8 @@ contactInsightsRouter.get(
         invoices: inv,
         payments: pay,
         creditNotes: cn,
+        // Group accounts run on one net figure, so the screen drops per-document balances.
+        isGroup: !!contact.isGroupCompany,
         counts: { invoices: n.invoices, payments: n.customerPayments, creditNotes: n.creditNotes },
       });
     }
@@ -179,6 +193,8 @@ contactInsightsRouter.get(
         payments: pay,
         vendorCredits: vc,
         expenses: expRows,
+        // Group accounts run on one net figure, so the screen drops per-document balances.
+        isGroup: !!contact.isGroupCompany,
         counts: { bills: n.bills, payments: n.vendorPayments, vendorCredits: n.vendorCredits, expenses: n.expenses },
       });
     }
@@ -200,6 +216,8 @@ contactInsightsRouter.get(
       expenses: expRows,
       // Kept so a caller reading `payments` on a vendor still finds them.
       payments: pay,
+      // Group accounts run on one net figure, so the screen drops per-document balances.
+      isGroup: !!contact.isGroupCompany,
       counts: { ...n, payments: n.vendorPayments },
     });
   },
@@ -308,6 +326,54 @@ interface StatementRow {
   credit: number;
 }
 
+/**
+ * Every document on the account, both directions, oldest first — the
+ * Statement's rows. Also the source of a group account's net figure, so the
+ * overview and the Statement's closing balance cannot disagree.
+ */
+async function statementRows(contact: NonNullable<Awaited<ReturnType<typeof loadContact>>>) {
+  const rows: StatementRow[] = [];
+  const sales = contact.type === "customer" || contact.type === "both";
+  const purchases = contact.type === "vendor" || contact.type === "both";
+
+  if (sales) {
+    const inv = await db
+      .select()
+      .from(invoices)
+      .where(and(eq(invoices.customerId, contact.id), inArray(invoices.status, ["sent", "partially_paid", "paid"])))
+      .orderBy(asc(invoices.invoiceDate));
+    for (const r of inv) rows.push({ id: r.id, date: r.invoiceDate, type: "Invoice", number: r.number, debit: Number(r.total), credit: 0 });
+    const pay = await db.select().from(customerPayments).where(eq(customerPayments.customerId, contact.id));
+    for (const r of pay) rows.push({ id: r.id, date: r.paymentDate, type: "Payment Received", number: r.number, debit: 0, credit: Number(r.amount) });
+    const cn = await db
+      .select()
+      .from(creditNotes)
+      .where(and(eq(creditNotes.customerId, contact.id), inArray(creditNotes.status, ["open", "closed"])))
+      .orderBy(asc(creditNotes.creditNoteDate));
+    for (const r of cn) rows.push({ id: r.id, date: r.creditNoteDate, type: "Credit Note", number: r.number, debit: 0, credit: Number(r.total) });
+  }
+
+  if (purchases) {
+    const billRows = await db
+      .select()
+      .from(bills)
+      .where(and(eq(bills.vendorId, contact.id), inArray(bills.status, ["open", "partially_paid", "paid"])))
+      .orderBy(asc(bills.billDate));
+    for (const r of billRows) rows.push({ id: r.id, date: r.billDate, type: "Bill", number: r.vendorBillNumber?.trim() || r.number, credit: Number(r.total), debit: 0 });
+    const pay = await db.select().from(vendorPayments).where(eq(vendorPayments.vendorId, contact.id));
+    for (const r of pay) rows.push({ id: r.id, date: r.paymentDate, type: "Payment Made", number: r.number, credit: 0, debit: Number(r.amount) });
+    const vc = await db
+      .select()
+      .from(vendorCredits)
+      .where(and(eq(vendorCredits.vendorId, contact.id), inArray(vendorCredits.status, ["open", "closed"])))
+      .orderBy(asc(vendorCredits.creditDate));
+    for (const r of vc) rows.push({ id: r.id, date: r.creditDate, type: "Vendor Credit", number: r.number, credit: 0, debit: Number(r.total) });
+  }
+
+  rows.sort((a, b) => a.date.localeCompare(b.date));
+  return rows;
+}
+
 /** Statement of account: chronological documents with a running balance. */
 contactInsightsRouter.get(
   "/:id/statement",
@@ -330,45 +396,7 @@ contactInsightsRouter.get(
      * a credit increases what Amino owes them. So an invoice and a payment made
      * both debit; a bill and a payment received both credit.
      */
-    const rows: StatementRow[] = [];
-    const sales = contact.type === "customer" || contact.type === "both";
-    const purchases = contact.type === "vendor" || contact.type === "both";
-
-    if (sales) {
-      const inv = await db
-        .select()
-        .from(invoices)
-        .where(and(eq(invoices.customerId, contact.id), inArray(invoices.status, ["sent", "partially_paid", "paid"])))
-        .orderBy(asc(invoices.invoiceDate));
-      for (const r of inv) rows.push({ id: r.id, date: r.invoiceDate, type: "Invoice", number: r.number, debit: Number(r.total), credit: 0 });
-      const pay = await db.select().from(customerPayments).where(eq(customerPayments.customerId, contact.id));
-      for (const r of pay) rows.push({ id: r.id, date: r.paymentDate, type: "Payment Received", number: r.number, debit: 0, credit: Number(r.amount) });
-      const cn = await db
-        .select()
-        .from(creditNotes)
-        .where(and(eq(creditNotes.customerId, contact.id), inArray(creditNotes.status, ["open", "closed"])))
-        .orderBy(asc(creditNotes.creditNoteDate));
-      for (const r of cn) rows.push({ id: r.id, date: r.creditNoteDate, type: "Credit Note", number: r.number, debit: 0, credit: Number(r.total) });
-    }
-
-    if (purchases) {
-      const billRows = await db
-        .select()
-        .from(bills)
-        .where(and(eq(bills.vendorId, contact.id), inArray(bills.status, ["open", "partially_paid", "paid"])))
-        .orderBy(asc(bills.billDate));
-      for (const r of billRows) rows.push({ id: r.id, date: r.billDate, type: "Bill", number: r.vendorBillNumber?.trim() || r.number, credit: Number(r.total), debit: 0 });
-      const pay = await db.select().from(vendorPayments).where(eq(vendorPayments.vendorId, contact.id));
-      for (const r of pay) rows.push({ id: r.id, date: r.paymentDate, type: "Payment Made", number: r.number, credit: 0, debit: Number(r.amount) });
-      const vc = await db
-        .select()
-        .from(vendorCredits)
-        .where(and(eq(vendorCredits.vendorId, contact.id), inArray(vendorCredits.status, ["open", "closed"])))
-        .orderBy(asc(vendorCredits.creditDate));
-      for (const r of vc) rows.push({ id: r.id, date: r.creditDate, type: "Vendor Credit", number: r.number, credit: 0, debit: Number(r.total) });
-    }
-
-    rows.sort((a, b) => a.date.localeCompare(b.date));
+    const rows = await statementRows(contact);
 
     // Opening balance = net of rows before `from`; window rows keep running total.
     let opening = Number(contact.openingBalance ?? 0);

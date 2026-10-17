@@ -389,6 +389,7 @@ export function OverviewTab({
     payable?: string;
     payableCredits?: string;
     showBoth?: boolean;
+    net?: string | null;
   };
   isCustomer: boolean;
   navigate: (p: string) => void;
@@ -526,7 +527,26 @@ export function OverviewTab({
         {/* A contact that trades both ways gets both tables. One heading would
             have to pick a side, and the side it picked would be wrong half the
             time — a shed owner owes Amino for feed AND is owed for eggs. */}
-        {(summary?.showBoth
+        {/* A group account is one net figure — nothing is applied against a
+            particular document there (the user, 17 Oct 2026). */}
+        {summary?.net != null && (
+          <div className="mb-5">
+            <h3 className="mb-2 text-sm font-semibold">Net Outstanding</h3>
+            <div className="max-w-lg rounded border border-[#ece3d5] px-4 py-3">
+              <div className="text-xl font-semibold tabular-nums">
+                {formatMoney(Math.abs(Number(summary.net)).toFixed(2))}
+              </div>
+              <div className="mt-0.5 text-[13px] text-gray-500">
+                {Number(summary.net) > 0.004
+                  ? `${contact.displayName} owes Amino`
+                  : Number(summary.net) < -0.004
+                    ? `Amino owes ${contact.displayName}`
+                    : "Settled — nothing owed either way"}
+              </div>
+            </div>
+          </div>
+        )}
+        {summary?.net == null && (summary?.showBoth
           ? ([
               ["Receivables", summary.receivable, summary.receivableCredits],
               ["Payables", summary.payable, summary.payableCredits],
@@ -809,13 +829,20 @@ export function TransactionsTab({
   const { data } = useQuery({
     queryKey: ["contact-txns", id],
     queryFn: () =>
-      api<Record<string, DocRow[]> & { counts?: Record<string, number> }>(`/api/contacts/${id}/transactions`),
+      api<Record<string, DocRow[]> & { counts?: Record<string, number>; isGroup?: boolean }>(
+        `/api/contacts/${id}/transactions`,
+      ),
   });
   const sections = TXN_SECTIONS[kind] ?? TXN_SECTIONS.vendor!;
+  // A group account is one net figure — nothing is paid against a particular
+  // document — so a balance per bill or an unused amount per payment means
+  // nothing there (the user, 17 Oct 2026). The Statement carries the net.
+  const isGroup = !!data?.isGroup;
 
   return (
     <div className="p-6">
-      {sections.map((s) => {
+      {sections.map((section) => {
+        const s = isGroup ? { ...section, balanceKey: undefined, unusedKey: undefined } : section;
         const rows = (data?.[s.key] as DocRow[] | undefined) ?? [];
         const total = data?.counts?.[s.key] ?? rows.length;
         // What the whole section still has spare: the figure somebody is
