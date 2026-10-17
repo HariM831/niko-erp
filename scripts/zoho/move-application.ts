@@ -54,8 +54,21 @@ async function main() {
     throw new Error(`${receiptNo}, ${fromNo} and ${toNo} are not all ${row.cust}'s`);
   if (row.to_status === "void") throw new Error(`${toNo} is void`);
   const room = row.to_total - row.to_applied;
-  if (row.applied > room + 1)
+  if (row.applied > room + 1) {
+    // Say what is in the way. Usually it is the allocation pass, which filled
+    // the invoice while this receipt was still sitting on the wrong one.
+    const on = (
+      await db.execute(sql`
+        SELECT p.number, p.payment_date::text AS date, pa.amount_applied::float8 AS applied
+          FROM payment_applications pa JOIN customer_payments p ON p.id = pa.payment_id
+         WHERE pa.invoice_id = ${row.to_id}::uuid
+         ORDER BY p.payment_date
+      `)
+    ).rows as Array<{ number: string; date: string; applied: number }>;
+    console.log(`\n  ${toNo} already carries:`);
+    for (const a of on) console.log(`    ${a.number.padEnd(20)}${a.date}  ${money(a.applied).padStart(11)}`);
     throw new Error(`${toNo} has room for ${money(room)}, not ${money(row.applied)}`);
+  }
 
   console.log(
     `\n  ${receiptNo} — ${row.cust}\n` +
