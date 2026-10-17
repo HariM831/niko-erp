@@ -21,6 +21,33 @@ async function loadContact(id: string) {
   return db.query.contacts.findFirst({ where: eq(contacts.id, id) });
 }
 
+/**
+ * How many of each document the contact has, in full. The lists stop at 100,
+ * so counting the rows shown would understate a big vendor. Same rows as the
+ * lists: voids included, as they are listed.
+ */
+async function documentCounts(id: string) {
+  const r = await db.execute(sql`
+    SELECT
+      (SELECT COUNT(*) FROM ${invoices} WHERE customer_id = ${id})::int AS invoices,
+      (SELECT COUNT(*) FROM ${customerPayments} WHERE customer_id = ${id})::int AS customer_payments,
+      (SELECT COUNT(*) FROM ${creditNotes} WHERE customer_id = ${id})::int AS credit_notes,
+      (SELECT COUNT(*) FROM ${bills} WHERE vendor_id = ${id})::int AS bills,
+      (SELECT COUNT(*) FROM ${vendorPayments} WHERE vendor_id = ${id})::int AS vendor_payments,
+      (SELECT COUNT(*) FROM ${vendorCredits} WHERE vendor_id = ${id})::int AS vendor_credits,
+      (SELECT COUNT(*) FROM ${expenses} WHERE vendor_id = ${id})::int AS expenses`);
+  const c = r.rows[0] as Record<string, number>;
+  return {
+    invoices: c.invoices!,
+    customerPayments: c.customer_payments!,
+    creditNotes: c.credit_notes!,
+    bills: c.bills!,
+    vendorPayments: c.vendor_payments!,
+    vendorCredits: c.vendor_credits!,
+    expenses: c.expenses!,
+  };
+}
+
 /** Outstanding + unused credits, Zoho's Receivables/Payables card. */
 contactInsightsRouter.get(
   "/:id/summary",
@@ -107,13 +134,19 @@ contactInsightsRouter.get(
     // sections to show.
     const wantsSales = contact.type === "customer" || contact.type === "both";
     const wantsPurchases = contact.type === "vendor" || contact.type === "both";
+    const n = await documentCounts(contact.id);
     if (wantsSales && !wantsPurchases) {
       const [inv, pay, cn] = await Promise.all([
         db.select().from(invoices).where(eq(invoices.customerId, contact.id)).orderBy(desc(invoices.invoiceDate)).limit(100),
         db.select().from(customerPayments).where(eq(customerPayments.customerId, contact.id)).orderBy(desc(customerPayments.paymentDate)).limit(100),
         db.select().from(creditNotes).where(eq(creditNotes.customerId, contact.id)).orderBy(desc(creditNotes.creditNoteDate)).limit(100),
       ]);
-      return res.json({ invoices: inv, payments: pay, creditNotes: cn });
+      return res.json({
+        invoices: inv,
+        payments: pay,
+        creditNotes: cn,
+        counts: { invoices: n.invoices, payments: n.customerPayments, creditNotes: n.creditNotes },
+      });
     }
 
     const [billRows, pay, vc, exp] = await Promise.all([
@@ -141,7 +174,13 @@ contactInsightsRouter.get(
     // An expense has no status column: no paid-through account means still owed.
     const expRows = exp.map((e) => ({ ...e, status: e.paidThroughId ? "paid" : "unpaid" }));
     if (!wantsSales) {
-      return res.json({ bills: billRows, payments: pay, vendorCredits: vc, expenses: expRows });
+      return res.json({
+        bills: billRows,
+        payments: pay,
+        vendorCredits: vc,
+        expenses: expRows,
+        counts: { bills: n.bills, payments: n.vendorPayments, vendorCredits: n.vendorCredits, expenses: n.expenses },
+      });
     }
 
     // Trades both ways: the sales side as well, under its own keys so the two
@@ -161,6 +200,7 @@ contactInsightsRouter.get(
       expenses: expRows,
       // Kept so a caller reading `payments` on a vendor still finds them.
       payments: pay,
+      counts: { ...n, payments: n.vendorPayments },
     });
   },
 );

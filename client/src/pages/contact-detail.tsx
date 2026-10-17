@@ -808,14 +808,16 @@ export function TransactionsTab({
 }) {
   const { data } = useQuery({
     queryKey: ["contact-txns", id],
-    queryFn: () => api<Record<string, DocRow[]>>(`/api/contacts/${id}/transactions`),
+    queryFn: () =>
+      api<Record<string, DocRow[]> & { counts?: Record<string, number> }>(`/api/contacts/${id}/transactions`),
   });
   const sections = TXN_SECTIONS[kind] ?? TXN_SECTIONS.vendor!;
 
   return (
     <div className="p-6">
       {sections.map((s) => {
-        const rows = data?.[s.key] ?? [];
+        const rows = (data?.[s.key] as DocRow[] | undefined) ?? [];
+        const total = data?.counts?.[s.key] ?? rows.length;
         // What the whole section still has spare: the figure somebody is
         // actually after when they ask "is there money sitting with them".
         const spare = s.unusedKey
@@ -886,6 +888,16 @@ export function TransactionsTab({
                   ))}
                 </tbody>
               </table>
+            )}
+            {rows.length > 0 && (
+              // The whole count from the server, as Zoho shows under each list;
+              // the list itself stops at the latest 100.
+              <p className="mt-2 max-w-4xl px-3 text-[13px] text-gray-600">
+                Total Count: <span className="font-semibold tabular-nums">{total}</span>
+                {total > rows.length && (
+                  <span className="text-gray-400"> · latest {rows.length} shown</span>
+                )}
+              </p>
             )}
           </div>
         );
