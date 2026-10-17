@@ -43,17 +43,27 @@ type Entity = (typeof ENTITIES)[number];
 async function main() {
   const args = process.argv.slice(2);
   const entity = args[0] as Entity | undefined;
-  const file = args[1];
   const yes = args.includes("--yes");
-  if (!entity || !ENTITIES.includes(entity) || !file || file.startsWith("--")) {
-    console.error(`Usage: unload-selected.ts <${ENTITIES.join("|")}> <file of niko numbers> [--yes]`);
+  /**
+   * Either a file of numbers or the numbers themselves. The same list rarely
+   * fits two databases — production never received the two September receipts
+   * staging holds — and a file that has to be right for both is a file that
+   * gets edited under pressure.
+   */
+  const rest = args.slice(1).filter((a) => !a.startsWith("--"));
+  const named = rest.filter((a) => /^[A-Z]+-/.test(a));
+  const file = named.length ? undefined : rest[0];
+  if (!entity || !ENTITIES.includes(entity) || (!file && !named.length)) {
+    console.error(`Usage: unload-selected.ts <${ENTITIES.join("|")}> <numbers | file of numbers> [--yes]`);
     process.exitCode = 1;
     return;
   }
   const numbers = [...new Set(
-    readFileSync(file, "utf8").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#")),
+    file
+      ? readFileSync(file, "utf8").split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"))
+      : named,
   )];
-  console.log(`\n  ${numbers.length} ${entity}(s) from ${file} — ${yes ? "REMOVING" : "dry run"}\n`);
+  console.log(`\n  ${numbers.length} ${entity}(s)${file ? ` from ${file}` : ""} — ${yes ? "REMOVING" : "dry run"}\n`);
 
   const table = entity === "invoice" ? invoices : customerPayments;
   const rows = await db
