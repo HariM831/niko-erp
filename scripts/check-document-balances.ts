@@ -57,6 +57,11 @@ async function main() {
                ON n.invoice_id = i.id
        WHERE i.status <> 'void'
          AND abs(i.total - coalesce(p.applied,0) - coalesce(n.applied,0) - i.balance_due) > 1
+         -- A document over-applied by a few rupees holds a balance of zero,
+         -- which is as true as it can be: the derived figure is below zero and
+         -- nothing below zero is storable. Only a material excess is a finding.
+         AND (i.total - coalesce(p.applied,0) - coalesce(n.applied,0) >= 0
+              OR coalesce(p.applied,0) + coalesce(n.applied,0) - i.total > greatest(100, i.total * 0.005))
        ORDER BY abs(i.total - coalesce(p.applied,0) - coalesce(n.applied,0) - i.balance_due) DESC
     `)
   ).rows as Array<{ id: string; number: string; date: string; party: string;
@@ -76,6 +81,8 @@ async function main() {
                ON n.bill_id = b.id
        WHERE b.status <> 'void'
          AND abs(b.total - coalesce(p.applied,0) - coalesce(n.applied,0) - b.balance_due) > 1
+         AND (b.total - coalesce(p.applied,0) - coalesce(n.applied,0) >= 0
+              OR coalesce(p.applied,0) + coalesce(n.applied,0) - b.total > greatest(100, b.total * 0.005))
        ORDER BY abs(b.total - coalesce(p.applied,0) - coalesce(n.applied,0) - b.balance_due) DESC
     `)
   ).rows as typeof invoices;
