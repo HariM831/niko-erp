@@ -125,6 +125,7 @@ async function main() {
         FROM journal_entries j
         JOIN journal_entry_lines l ON l.entry_id = j.id
        WHERE j.source_type = 'manual'
+         AND j.narration NOT LIKE ${`${NARRATION}%`}
          AND l.account_id IN (SELECT id FROM accounts WHERE system_key IN ('ar', 'customer_advances'))
        GROUP BY j.id, j.entry_date, j.narration
     `)
