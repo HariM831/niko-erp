@@ -32,7 +32,7 @@ import { nonBlank, validateBody } from "../lib/validate";
 import { addDays, istDate } from "../services/day-resolution";
 import { PostingError, assertPeriodOpen, postJournal } from "../services/posting";
 import { toPaise } from "../services/documents";
-import { assertLineFits, linkStatementLine, suggestParties } from "../services/bank-links";
+import { assertLineFits, linkStatementLine, pickConfident, sharesBankRef, suggestParties } from "../services/bank-links";
 import { deleteCustomerPayment } from "./sales";
 import { deleteVendorPayment } from "./purchases";
 
@@ -706,6 +706,39 @@ function partyVerdict(label: string | null | undefined, names: Set<string> | und
  * usually the week before's, not this one), not
  * matched to anything yet.
  */
+/**
+ * For each line, the posted transactions on its bank that fit it exactly:
+ * the very amount on the same side, within `days` of it, not matched on this
+ * bank yet. One query for the lot, however many lines.
+ */
+async function exactFits(lineIds: string[], days: number) {
+  if (!lineIds.length) return [];
+  const rows = await db.execute(sql`
+    SELECT t.id AS line_id, je.id AS entry_id, je.entry_number, je.entry_date::text AS entry_date,
+           je.reference, je.source_type, je.source_id
+      FROM bank_transactions t
+      JOIN bank_accounts b ON b.id = t.bank_account_id
+      JOIN journal_entries je ON je.status = 'posted' AND NOT je.is_reversal
+        AND je.entry_date BETWEEN t.txn_date - ${days}::int AND t.txn_date + ${days}::int
+      JOIN journal_entry_lines l ON l.entry_id = je.id AND l.account_id = b.gl_account_id
+      WHERE t.id IN (${sql.join(lineIds.map((id) => sql`${id}::uuid`), sql`, `)})
+        AND NOT EXISTS (SELECT 1 FROM bank_transaction_links k WHERE k.journal_entry_id = je.id AND k.bank_account_id = b.id)
+      GROUP BY t.id, t.direction, t.amount, je.id
+      HAVING SUM(l.debit - l.credit) = CASE WHEN t.direction = 'credit' THEN t.amount ELSE -t.amount END`);
+  return rows.rows as Array<{
+    line_id: string;
+    entry_id: string;
+    entry_number: string;
+    entry_date: string;
+    reference: string | null;
+    source_type: string;
+    source_id: string | null;
+  }>;
+}
+
+const lineText = (l: { description: string | null; utr: string | null; counterparty: string | null }) =>
+  `${l.description ?? ""} ${l.utr ?? ""} ${l.counterparty ?? ""}`;
+
 async function withLinkInfo(lines: Array<typeof bankTransactions.$inferSelect>) {
   if (!lines.length) return [];
   const ids = lines.map((l) => l.id);
@@ -713,23 +746,12 @@ async function withLinkInfo(lines: Array<typeof bankTransactions.$inferSelect>) 
     .select({ lineId: bankTransactionLinks.bankTransactionId, journalEntryId: bankTransactionLinks.journalEntryId, kind: bankTransactionLinks.kind })
     .from(bankTransactionLinks)
     .where(inArray(bankTransactionLinks.bankTransactionId, ids));
-  const open = lines.filter((l) => l.matchStatus === "unmatched").map((l) => l.id);
+  const openLines = lines.filter((l) => l.matchStatus === "unmatched");
   const fits = new Map<string, number>();
-  if (open.length) {
-    const rows = await db.execute(sql`
-      SELECT t.id AS line_id, je.id AS entry_id, je.source_type, je.source_id
-        FROM bank_transactions t
-        JOIN bank_accounts b ON b.id = t.bank_account_id
-        JOIN journal_entries je ON je.status = 'posted' AND NOT je.is_reversal
-          AND je.entry_date BETWEEN t.txn_date - 3 AND t.txn_date + 3
-        JOIN journal_entry_lines l ON l.entry_id = je.id AND l.account_id = b.gl_account_id
-        WHERE t.id IN (${sql.join(open.map((id) => sql`${id}::uuid`), sql`, `)})
-          AND NOT EXISTS (SELECT 1 FROM bank_transaction_links k WHERE k.journal_entry_id = je.id AND k.bank_account_id = b.id)
-        GROUP BY t.id, t.direction, t.amount, je.id
-        HAVING SUM(l.debit - l.credit) = CASE WHEN t.direction = 'credit' THEN t.amount ELSE -t.amount END`);
-    const exact = rows.rows as Array<{ line_id: string; entry_id: string; source_type: string; source_id: string | null }>;
+  if (openLines.length) {
+    const exact = await exactFits(openLines.map((l) => l.id), 3);
     const labels = await loadPartyLabels(exact.map((r) => ({ sourceType: r.source_type, sourceId: r.source_id })));
-    const named = await linePartyNames(lines.filter((l) => l.matchStatus === "unmatched"));
+    const named = await linePartyNames(openLines);
     // Two customers paid ₹2,62,013 on the same day: the amount alone would
     // tag both lines with the one receipt. A line that names its payer only
     // fits a receipt from that payer.
@@ -744,6 +766,85 @@ async function withLinkInfo(lines: Array<typeof bankTransactions.$inferSelect>) 
     matchFound: fits.get(l.id) === 1,
   }));
 }
+
+// ---------- Auto-match ----------
+
+/**
+ * Auto-match, the preview: every uncategorized line on this account that has
+ * exactly one confident fit (see pickConfident), with the transaction it
+ * would be matched to and why. Nothing is matched until the person confirms.
+ */
+bankingRouter.get("/accounts/:id/auto-match", requirePermission("banking", "view"), async (req, res) => {
+  const lines = await db
+    .select()
+    .from(bankTransactions)
+    .where(and(eq(bankTransactions.bankAccountId, req.params.id!), eq(bankTransactions.matchStatus, "unmatched")))
+    .orderBy(asc(bankTransactions.txnDate));
+  const exact = await exactFits(lines.map((l) => l.id), 3);
+  const labels = await loadPartyLabels(exact.map((r) => ({ sourceType: r.source_type, sourceId: r.source_id })));
+  const named = await linePartyNames(lines);
+  const byLine = new Map(lines.map((l) => [l.id, l]));
+  const signals = exact.map((r) => ({
+    lineId: r.line_id,
+    entryId: r.entry_id,
+    party: partyVerdict(labels.get(`${r.source_type}:${r.source_id}`), named.get(r.line_id)),
+    sharedRef: sharesBankRef(r.reference, lineText(byLine.get(r.line_id)!)),
+  }));
+  const entry = new Map(exact.map((r) => [`${r.line_id}:${r.entry_id}`, r]));
+  const proposals = pickConfident(signals).map((p) => {
+    const l = byLine.get(p.lineId)!;
+    const e = entry.get(`${p.lineId}:${p.entryId}`)!;
+    const base = SOURCE_DOC_BASE[e.source_type];
+    return {
+      line: { id: l.id, date: l.txnDate, direction: l.direction, amount: l.amount, description: l.description, utr: l.utr },
+      match: {
+        journalEntryId: e.entry_id,
+        entryNumber: e.entry_number,
+        date: e.entry_date,
+        typeLabel: SOURCE_LABEL[e.source_type] ?? e.source_type,
+        party: labels.get(`${e.source_type}:${e.source_id}`) ?? null,
+        reference: e.reference,
+        docPath: base && e.source_id ? `${base}/${e.source_id}` : `/accountant/journals/${e.entry_id}`,
+      },
+      sameRef: p.sameRef,
+      samePayer: p.samePayer,
+    };
+  });
+  res.json({ uncategorized: lines.length, proposals });
+});
+
+/**
+ * Auto-match, confirmed: the pairs the person ticked. Each is matched on its
+ * own, with the same checks as matching by hand, so one that no longer fits
+ * (matched meanwhile, or edited) is reported and the rest still go through.
+ */
+bankingRouter.post(
+  "/accounts/:id/auto-match",
+  requirePermission("banking", "edit"),
+  validateBody(
+    z.object({
+      pairs: z.array(z.object({ bankTransactionId: z.string().uuid(), journalEntryId: z.string().uuid() })).min(1).max(2000),
+    }),
+  ),
+  async (req, res) => {
+    let matched = 0;
+    const failed: Array<{ bankTransactionId: string; error: string }> = [];
+    for (const p of req.body.pairs as Array<{ bankTransactionId: string; journalEntryId: string }>) {
+      try {
+        await db.transaction(async (tx) => {
+          const line = await tx.query.bankTransactions.findFirst({ where: eq(bankTransactions.id, p.bankTransactionId) });
+          if (!line || line.bankAccountId !== req.params.id) throw new PostingError("Statement line is not on this account");
+          await linkStatementLine(tx, { bankTransactionId: p.bankTransactionId, journalEntryIds: [p.journalEntryId], kind: "matched" });
+        });
+        matched++;
+      } catch (err) {
+        if (!(err instanceof PostingError)) throw err;
+        failed.push({ bankTransactionId: p.bankTransactionId, error: err.message });
+      }
+    }
+    res.json({ matched, failed });
+  },
+);
 
 // ---------- Categorize, match, unmatch (Zoho's statement-line pane) ----------
 
@@ -881,15 +982,12 @@ bankingRouter.get("/transactions/:id/possible-matches", requirePermission("banki
 
   const labels = await loadPartyLabels(rows);
   const named = (await linePartyNames([line])).get(line.id);
-  const utr = (line.utr ?? "").replace(/\s+/g, "").toLowerCase();
-  const desc = (line.description ?? "").replace(/\s+/g, "").toLowerCase();
   const text = (q.contact ?? "").trim().toLowerCase();
   const ref = (q.reference ?? "").trim().toLowerCase();
   const candidates = rows
     .map((r) => {
       const p = toPaise(r.net);
       const party = labels.get(`${r.sourceType}:${r.sourceId}`) ?? null;
-      const refKey = (r.reference ?? "").replace(/\s+/g, "").toLowerCase();
       const base = SOURCE_DOC_BASE[r.sourceType];
       return {
         journalEntryId: r.entryId,
@@ -904,7 +1002,7 @@ bankingRouter.get("/transactions/:id/possible-matches", requirePermission("banki
         direction: p > 0 ? ("credit" as const) : ("debit" as const),
         amount: fromPaiseStr(Math.abs(p)),
         exact: Math.abs(p) === lineP && p > 0 === wantDebit,
-        sharedRef: refKey.length >= 6 && (utr.includes(refKey) || desc.includes(refKey) || (utr.length >= 6 && refKey.includes(utr))),
+        sharedRef: sharesBankRef(r.reference, lineText(line)),
         party_: partyVerdict(party, named),
         days: Math.abs(dayDiff(r.entryDate, line.txnDate)),
         p,

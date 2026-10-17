@@ -12,6 +12,7 @@ import { filterRows, useAdvancedSearch, type SearchField } from "../components/a
 import { DateInput } from "../components/date-input";
 import { readPdfStatement } from "../lib/pdf-statement";
 import { StatementLinePane, type StatementLine } from "../components/statement-line-pane";
+import { AutoMatchReview } from "../components/auto-match";
 
 interface BankTxn {
   id: string;
@@ -1116,6 +1117,7 @@ function UncategorizedTab({
   const qc = useQueryClient();
   const [subTab, setSubTab] = useState<"unmatched" | "excluded">("unmatched");
   const [openLine, setOpenLine] = useState<StatementLine | null>(null);
+  const [autoMatch, setAutoMatch] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -1152,13 +1154,32 @@ function UncategorizedTab({
             </button>
           ))}
         </div>
-        <button onClick={onToggleImport} className="btn-secondary">
-          Import Statement
-        </button>
+        <div className="flex gap-2">
+          {subTab === "unmatched" && (
+            <button onClick={() => setAutoMatch((a) => !a)} className="btn-secondary">
+              Auto-match
+            </button>
+          )}
+          <button onClick={onToggleImport} className="btn-secondary">
+            Import Statement
+          </button>
+        </div>
       </div>
 
       {notice && <p className="border-b bg-green-50 px-6 py-2 text-sm text-green-700">{notice}</p>}
       {error && <p className="border-b bg-red-50 px-6 py-2 text-sm text-red-700">{error}</p>}
+
+      {autoMatch && subTab === "unmatched" && (
+        <AutoMatchReview
+          bankAccountId={bankAccountId}
+          onClose={() => setAutoMatch(false)}
+          onDone={(message) => {
+            setNotice(message);
+            setAutoMatch(false);
+            void refresh();
+          }}
+        />
+      )}
 
       {showImport && (
         <ImportStatementWizard

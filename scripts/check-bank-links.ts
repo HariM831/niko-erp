@@ -14,7 +14,10 @@ import { db, type Tx } from "../server/db";
 import { postJournal, reverseJournal, PostingError } from "../server/services/posting";
 import {
   assertLineFits,
+  bankRefTokens,
   carryLinks,
+  pickConfident,
+  sharesBankRef,
   linkStatementLine,
   linkedStatementLine,
   squeezeName,
@@ -56,6 +59,25 @@ async function main() {
   check("short names ignored", !s1.some((s) => s.id === "c"));
   const s2 = suggestParties("TO TRANSFER- CMPIFT/0710 · TRANSFER TO 31704866695 Mr. SOMEONE ELSE /", people);
   check("account number wins", s2[0]?.id === "b" && s2[0]?.reason === "bank account number", JSON.stringify(s2));
+
+  console.log("Bank references");
+  check("RTGS UTR the PDF wrapped", sharesBankRef("PSIBR22026100700876935", "BY TRANSFER- RTGS UTR NO: PSIBR22026100700 876935- CHOWDHURY"));
+  check("IMPS number inside Zoho's reference", sharesBankRef("IMPS/628012734673/iob", "BY TRANSFER- IMPS/628012734673 /CNB-XX097- DEBAJEET"));
+  check("an IFSC alone ties nothing", !sharesBankRef("NEFT*CBIN0281346*CBINH26", "BY TRANSFER- NEFT*CBIN0281346 *CBINH2699999999 2*MS PROTIEN"));
+  check("short codes ignored", bankRefTokens("RE1 iob 12345").length === 0, JSON.stringify(bankRefTokens("RE1 iob 12345")));
+
+  console.log("Auto-match picks");
+  const picks = pickConfident([
+    { lineId: "L1", entryId: "E1", party: "same", sharedRef: false }, // payer only: yes
+    { lineId: "L2", entryId: "E2", party: undefined, sharedRef: true }, // reference only: yes
+    { lineId: "L3", entryId: "E3", party: undefined, sharedRef: false }, // amount only: no
+    { lineId: "L4", entryId: "E4", party: "other", sharedRef: true }, // someone else's: no
+    { lineId: "L5", entryId: "E5", party: "same", sharedRef: false }, // two fits: no
+    { lineId: "L5", entryId: "E6", party: "same", sharedRef: true },
+    { lineId: "L6", entryId: "E7", party: "same", sharedRef: false }, // one document, two lines: neither
+    { lineId: "L7", entryId: "E7", party: "same", sharedRef: false },
+  ]);
+  check("payer or reference, alone and unique", JSON.stringify(picks.map((p) => p.lineId)) === JSON.stringify(["L1", "L2"]), JSON.stringify(picks));
 
   const [actor] = await db.select({ id: users.id }).from(users).limit(1);
   if (!actor) throw new Error("No user to attribute the documents to");

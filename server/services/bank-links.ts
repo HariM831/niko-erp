@@ -197,3 +197,55 @@ export function suggestParties(
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, 5).map(({ score: _s, ...rest }) => rest);
 }
+
+/**
+ * The bank's own reference inside a document's reference: the UTR, the IMPS
+ * or UPI number, the bank's transfer code. Codes of eight or more letters and
+ * digits that hold a digit, without IFSCs ("CBIN0281346"), which name the
+ * payer's branch and recur on every payment from it.
+ */
+export function bankRefTokens(reference: string | null | undefined) {
+  return (reference ?? "")
+    .toUpperCase()
+    .split(/[^A-Z0-9]+/)
+    .filter((t) => t.length >= 8 && /\d/.test(t) && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(t));
+}
+
+/**
+ * Does a statement line carry the document's bank reference? Compared with
+ * spaces and punctuation gone, so a UTR the PDF wrapped
+ * ("PSIBR22026100700 876935") still reads as one.
+ */
+export function sharesBankRef(reference: string | null | undefined, lineText: string) {
+  const hay = lineText.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return bankRefTokens(reference).some((t) => hay.includes(t));
+}
+
+export interface FitSignal {
+  lineId: string;
+  entryId: string;
+  /** The line names this document's party, or someone else, or nobody. */
+  party: "same" | "other" | undefined;
+  sharedRef: boolean;
+}
+
+/**
+ * Auto-match picks only what a person would not stop to think about: each
+ * line with exactly one fit (same amount, side and days) that shares the
+ * bank's reference or names the same payer, and nobody else's. A document
+ * that is the one fit for two lines is left to the person: that is two
+ * receipts of one sum, and only the statement order can tell them apart.
+ */
+export function pickConfident(signals: FitSignal[]) {
+  const byLine = new Map<string, FitSignal[]>();
+  for (const s of signals) {
+    if (s.party === "other" || !(s.sharedRef || s.party === "same")) continue;
+    byLine.set(s.lineId, [...(byLine.get(s.lineId) ?? []), s]);
+  }
+  const picks = [...byLine.values()].filter((c) => c.length === 1).map((c) => c[0]!);
+  const uses = new Map<string, number>();
+  for (const p of picks) uses.set(p.entryId, (uses.get(p.entryId) ?? 0) + 1);
+  return picks
+    .filter((p) => uses.get(p.entryId) === 1)
+    .map((p) => ({ lineId: p.lineId, entryId: p.entryId, sameRef: p.sharedRef, samePayer: p.party === "same" }));
+}
