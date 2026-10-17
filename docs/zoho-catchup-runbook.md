@@ -277,5 +277,43 @@ Advances is ₹30,95,420 below the receipts, which is the two refunds less
 rounding. Payables is ₹27,75,013 apart and stays so until the vendor payments
 come across.
 
-**Production still lacks the 177 post-cutoff Zoho receipts, ₹4.96 crore.** That
-is most of why it shows ₹5.48 crore owed where staging shows ₹2.13 crore.
+### Then the receipts Zoho had and niko did not, the same day
+
+```bash
+load-missing-receipts.ts --dump <dump>                       # read it
+load-missing-receipts.ts --dump <dump> --write <dir>/customerpayments.jsonl
+load-payments.ts --dir <dir> --commit
+find-duplicate-receipts.ts --dump <dump>                     # then check
+allocate-receipts.ts --commit
+check-document-balances.ts --fix
+fix-control-drift.ts --commit
+```
+
+186 receipts, ₹4.86 crore. Three things it taught, each now in the scripts:
+
+**A removed duplicate looks exactly like a missing receipt.** The eight Zoho
+re-entries taken out that morning were offered straight back, loaded, and had
+to be removed again. A receipt whose own earlier twin is already here under its
+own number is the second copy, not a missing one — and the twin may be filed
+under a second customer record, so the transfer reference has to join them.
+
+**Who a receipt belongs to is its Zoho id, not the name on it.** Every Zoho
+receipt still said PUYA MARKETING after the merge. On the name alone, ₹24.5
+lakh already in niko would have loaded again, onto invoices voided an hour
+earlier. `merge-contacts.ts` now carries `zoho_id_map` across with the rest —
+it has no foreign key, so the catalogue walk went straight past it.
+
+**Pair the proven before the likely.** PMT-00085 carries `CP-2026-27/1393`'s
+exact reference, but a receipt three days later for the same round ₹2,68,800
+reached it first and 1393 was loaded against a deposit niko already had.
+
+And one about the correction itself: **`fix-control-drift` clears what the last
+run wrote and works the figure out afresh.** Its own entries carry no customer,
+so the attribution walked past them, and running it twice put ₹64.6 lakh into
+receivables that nothing owed.
+
+Afterwards, on production: **receivables agrees**, ₹32,62,01,695 against
+₹32,62,01,696. Open for those 23 customers: ₹5.79 crore → **₹1.94 crore**, with
+₹16,48,753 left as advances. No deposit is in the book twice. Advances stays
+₹30,95,320 below the receipts (the refunds), and payables ₹27,75,013 apart
+until the vendor payments come across.
