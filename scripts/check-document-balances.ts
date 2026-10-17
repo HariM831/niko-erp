@@ -135,7 +135,7 @@ async function main() {
           FROM invoices i
           JOIN payment_applications pa ON pa.invoice_id = i.id
           JOIN customer_payments p ON p.id = pa.payment_id
-         WHERE i.number = ANY(${over.map((r) => r.number)})
+         WHERE i.number IN (${sql.join(over.map((r) => sql`${r.number}`), sql`, `)})
          ORDER BY i.number, p.payment_date, p.number
       `)
     ).rows as Array<{ doc: string; receipt: string; date: string; amount: number;
