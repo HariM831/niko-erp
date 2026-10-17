@@ -686,7 +686,7 @@ export async function autoSaveDay(day: string): Promise<string[]> {
       await refreshFromPlacement(tx, p.placementId);
     });
     notes.push(
-      `${p.houseId}: ${[...Object.keys(set), ...(mortalityNew ? [deaths != null ? `mortality ${deaths}` : `mortality held — ${sources.mortality.note}`] : [])].join(", ")}`,
+      `${p.houseId}: ${[...Object.keys(set), ...(mortalityNew && sources.mortality ? [deaths != null ? `mortality ${deaths}` : `mortality held — ${sources.mortality.note}`] : [])].join(", ")}`,
     );
   }
   return notes;
