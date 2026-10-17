@@ -81,13 +81,29 @@ async function main() {
   for (const z of missing) {
     const mine = party.get(String(z.vendor_id));
     if (!mine) { unknown.push(z); continue; }
-    const hit = own.find(
-      (k) =>
-        !taken.has(k.id) &&
-        k.vendor_id === mine &&
-        Math.abs(k.total - Number(z.total)) <= Math.max(50, Number(z.total) * 0.005) &&
-        days(k.date, z.date) <= DAYS,
-    );
+    /**
+     * Take the best candidate, not the first. A vendor who bills small
+     * amounts often has several within a few days of each other, and first
+     * past the post crossed two pairs on the first run: Zoho's JIOBP/26-27/392
+     * of the 16th went to the bill of the 20th and /420 of the 20th to the
+     * bill of the 16th, each a rupee or two out. The vendor's own bill number
+     * settles it where both books carry it; failing that, the nearer day and
+     * then the closer amount.
+     */
+    const hit = own
+      .filter(
+        (k) =>
+          !taken.has(k.id) &&
+          k.vendor_id === mine &&
+          Math.abs(k.total - Number(z.total)) <= Math.max(50, Number(z.total) * 0.005) &&
+          days(k.date, z.date) <= DAYS,
+      )
+      .sort(
+        (a, b) =>
+          Number(b.their_number === z.bill_number) - Number(a.their_number === z.bill_number) ||
+          days(a.date, z.date) - days(b.date, z.date) ||
+          Math.abs(a.total - Number(z.total)) - Math.abs(b.total - Number(z.total)),
+      )[0];
     if (hit) {
       taken.add(hit.id);
       pairs.push({
