@@ -51,8 +51,15 @@ async function main() {
    * gets edited under pressure.
    */
   const rest = args.slice(1).filter((a) => !a.startsWith("--"));
-  const named = rest.filter((a) => /^[A-Z]+-/.test(a));
-  const file = named.length ? undefined : rest[0];
+  /**
+   * A document number is whatever its series made it — Zoho numbered its older
+   * payments 381 and 671, with no letters at all. So what marks a filename is
+   * that it looks like a path, not that the alternative looks like a number:
+   * demanding a letter prefix silently dropped seven of twenty-six payments
+   * named on the command line, and the run reported success on the rest.
+   */
+  const file = rest.find((a) => /[\\/]/.test(a) || /\.(txt|csv|jsonl?)$/i.test(a));
+  const named = file ? [] : rest;
   if (!entity || !ENTITIES.includes(entity) || (!file && !named.length)) {
     console.error(`Usage: unload-selected.ts <${ENTITIES.join("|")}> <numbers | file of numbers> [--yes]`);
     process.exitCode = 1;
