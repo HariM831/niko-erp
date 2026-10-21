@@ -199,6 +199,93 @@ export function suggestParties(
 }
 
 /**
+ * Words a bank narration is made of whoever sent the money: the rails, the
+ * instrument, the pleasantries. What is left is the only part that names a
+ * person.
+ */
+const BANK_NOISE = new Set([
+  "by", "to", "from", "transfer", "transfered", "trf", "neft", "rtgs", "imps", "upi", "utr",
+  "no", "ref", "cr", "dr", "sent", "received", "receive", "cash", "deposit", "deposite",
+  "dep", "csh", "cdm", "self", "bill", "payment", "pay", "inb", "ac", "acc", "account",
+  "bank", "branch", "chq", "cheque", "clg", "fund", "funds", "txn", "charges", "sbi",
+  "hdfc", "icici", "idfc", "axis", "pnb", "punb", "ucba", "cnrb", "bkid", "iob", "bdbl",
+  "psib", "cbin", "ybl", "ybp", "ptm", "paytm", "gpay", "phonepe", "large", "small",
+]);
+
+/**
+ * The name-ish words in a narration: letters only, three or more, none of the
+ * rails above, and nothing that is really a code with digits in it.
+ *
+ * "BY TRANSFER- IMPS/629254237391 /RE1-XX766- SANKET S/200 large-" gives back
+ * "sanket", which is the whole point: the payer's own name is in there and it
+ * is not the name on the account we invoice.
+ */
+export function nameWords(text: string | null | undefined) {
+  return [
+    ...new Set(
+      (text ?? "")
+        .toLowerCase()
+        .split(/[^a-z]+/)
+        .filter((w) => w.length >= 3 && !BANK_NOISE.has(w)),
+    ),
+  ];
+}
+
+/**
+ * Who this line is probably from, going by who money described like this has
+ * been from before.
+ *
+ * The suggester above knows a party by the name we invoice them under, their
+ * company name, their beneficiary name or their account number. None of those
+ * is what a bank narration carries: Sanket Saraf pays for SS Food, Biju Das
+ * and Debajeet pay for shops in their own names, and the line says so while
+ * the contact record does not.
+ *
+ * So the names are learned from what has already been decided — every
+ * statement line somebody categorized, and every receipt's reference, both of
+ * which carry a narration and a party. A word counts for a party in
+ * proportion to how exclusively it belongs to them: "sanket" naming one party
+ * and nobody else is strong, a word seen against five parties is worth
+ * nothing. Nothing is remembered that a person did not first decide.
+ */
+export function suggestLearned(
+  lineText: string,
+  seen: Array<{ partyId: string; displayName: string; text: string }>,
+) {
+  const byWord = new Map<string, Map<string, number>>();
+  const names = new Map<string, string>();
+  for (const s of seen) {
+    names.set(s.partyId, s.displayName);
+    for (const w of nameWords(s.text)) {
+      const parties = byWord.get(w) ?? new Map<string, number>();
+      parties.set(s.partyId, (parties.get(s.partyId) ?? 0) + 1);
+      byWord.set(w, parties);
+    }
+  }
+  const score = new Map<string, { score: number; words: string[] }>();
+  for (const w of nameWords(lineText)) {
+    const parties = byWord.get(w);
+    // A word that has named more than two different parties is a word about
+    // banking, not about anybody.
+    if (!parties || parties.size > 2) continue;
+    for (const [id, times] of parties) {
+      const cur = score.get(id) ?? { score: 0, words: [] };
+      cur.score += (w.length * times) / parties.size;
+      cur.words.push(w);
+      score.set(id, cur);
+    }
+  }
+  return [...score]
+    .sort((a, b) => b[1].score - a[1].score)
+    .slice(0, 5)
+    .map(([id, v]) => ({
+      id,
+      displayName: names.get(id)!,
+      reason: `paid under "${v.words.join(" ")}" before`,
+    }));
+}
+
+/**
  * The bank's own reference inside a document's reference: the UTR, the IMPS
  * or UPI number, the bank's transfer code. Codes of eight or more letters and
  * digits that hold a digit, without IFSCs ("CBIN0281346"), which name the

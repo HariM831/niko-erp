@@ -32,7 +32,7 @@ import { nonBlank, validateBody } from "../lib/validate";
 import { addDays, istDate } from "../services/day-resolution";
 import { PostingError, assertPeriodOpen, postJournal } from "../services/posting";
 import { toPaise } from "../services/documents";
-import { assertLineFits, linkStatementLine, pickConfident, sharesBankRef, suggestParties } from "../services/bank-links";
+import { assertLineFits, linkStatementLine, pickConfident, sharesBankRef, suggestLearned, suggestParties } from "../services/bank-links";
 import { deleteCustomerPayment } from "./sales";
 import { deleteVendorPayment } from "./purchases";
 
@@ -667,6 +667,44 @@ bankingRouter.get(
   },
 );
 
+/**
+ * Every narration already tied to a party, which is what the learned names
+ * are read from: the statement lines somebody categorized, and the reference
+ * on every receipt and payment. Both say "this text was this party".
+ *
+ * Kept for a minute. It only changes when somebody categorizes something, and
+ * rebuilding it per keystroke on the Categorize screen would read four
+ * thousand rows to answer one question.
+ */
+let corpusAt = 0;
+let corpusRows: Array<{ partyId: string; displayName: string; text: string; side: string }> = [];
+async function learnedCorpus() {
+  if (Date.now() - corpusAt < 60_000 && corpusRows.length) return corpusRows;
+  corpusRows = (
+    await db.execute(sql`
+      SELECT c.id::text AS party_id, c.display_name, p.reference AS text, 'customer' AS side
+        FROM customer_payments p JOIN contacts c ON c.id = p.customer_id
+       WHERE p.reference IS NOT NULL
+      UNION ALL
+      SELECT c.id::text, c.display_name, p.reference, 'vendor'
+        FROM vendor_payments p JOIN contacts c ON c.id = p.vendor_id
+       WHERE p.reference IS NOT NULL
+      UNION ALL
+      SELECT c.id::text, c.display_name, t.description,
+             CASE WHEN j.source_type = 'vendor_payment' THEN 'vendor' ELSE 'customer' END
+        FROM bank_transactions t
+        JOIN bank_transaction_links l ON l.bank_transaction_id = t.id
+        JOIN journal_entries j ON j.id = l.journal_entry_id
+        LEFT JOIN customer_payments cp ON cp.id = j.source_id AND j.source_type = 'customer_payment'
+        LEFT JOIN vendor_payments vp ON vp.id = j.source_id AND j.source_type = 'vendor_payment'
+        JOIN contacts c ON c.id = coalesce(cp.customer_id, vp.vendor_id)
+       WHERE t.description IS NOT NULL
+    `)
+  ).rows as typeof corpusRows;
+  corpusAt = Date.now();
+  return corpusRows;
+}
+
 /** The names of the customers and vendors each line spells out or carries the account number of. */
 async function linePartyNames(lines: Array<{ id: string; description: string | null; utr: string | null; counterparty: string | null }>) {
   const out = new Map<string, Set<string>>();
@@ -681,8 +719,10 @@ async function linePartyNames(lines: Array<{ id: string; description: string | n
     })
     .from(contacts)
     .where(and(eq(contacts.isActive, true), eq(contacts.isGroupCompany, false)));
+  const seen = await learnedCorpus();
   for (const l of lines) {
-    const found = suggestParties(`${l.description ?? ""} ${l.utr ?? ""} ${l.counterparty ?? ""}`, people);
+    const text = `${l.description ?? ""} ${l.utr ?? ""} ${l.counterparty ?? ""}`;
+    const found = [...suggestParties(text, people), ...suggestLearned(text, seen)];
     out.set(l.id, new Set(found.map((f) => f.displayName)));
   }
   return out;
@@ -1046,7 +1086,18 @@ bankingRouter.get("/transactions/:id/party-suggestions", requirePermission("bank
     })
     .from(contacts)
     .where(and(inArray(contacts.type, [side, "both"]), eq(contacts.isActive, true), eq(contacts.isGroupCompany, false)));
-  res.json(suggestParties(`${line.description ?? ""} ${line.utr ?? ""} ${line.counterparty ?? ""}`, people));
+  const text = `${line.description ?? ""} ${line.utr ?? ""} ${line.counterparty ?? ""}`;
+  const named = suggestParties(text, people);
+  /**
+   * The name on the account comes first — it is what we invoice them under —
+   * and the names they have actually paid under follow, which is how SANKET S
+   * reaches SS Food. A party already suggested is not suggested twice.
+   */
+  const known = new Set(named.map((n) => n.id));
+  const allowed = new Set(people.map((p) => p.id));
+  const learned = suggestLearned(text, (await learnedCorpus()).filter((r) => r.side === side))
+    .filter((l) => !known.has(l.id) && allowed.has(l.id));
+  res.json([...named, ...learned].slice(0, 6));
 });
 
 // ---------- Salary Payment (a payslip paid from the bank) ----------
