@@ -255,17 +255,20 @@ export function nameWords(text: string | null | undefined) {
  * nothing. Nothing is remembered that a person did not first decide.
  */
 /**
- * The digits worth learning: a ten-figure mobile, or a long account number.
+ * The digits worth learning: a ten-figure mobile, and nothing else.
+ *
  * A cash machine tells you nothing but the number of whoever stood at it —
  * "CSH DEP (CDM)- 8638180673 978-" — and that number is as good a name as any
- * once it has been seen against a party.
+ * once it has been seen against a party. Longer runs are not: they are UPI
+ * and merchant references that recur across unrelated payers, and one of them
+ * made every UPI deposit look like DG Egg Point. A party's real account
+ * number is matched by suggestParties from the contact record, where it is
+ * known rather than guessed.
  */
 export function idNumbers(text: string | null | undefined) {
-  return [
-    ...new Set(
-      (text ?? "").match(/\d{10,18}/g)?.map((d) => d.replace(/^0+/, "")) ?? [],
-    ),
-  ].filter((d) => d.length >= 10);
+  return [...new Set((text ?? "").match(/\d{10}/g) ?? [])].filter(
+    (d) => !/^0/.test(d) && /^[6-9]/.test(d),
+  );
 }
 
 export function suggestLearned(
