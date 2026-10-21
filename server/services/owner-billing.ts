@@ -1042,45 +1042,44 @@ export async function feedStatement(tx: Conn, contactId: string, period: string)
         .orderBy(asc(feedTransfers.transferDate), asc(feedTransfers.number))
     : [];
 
-  const byDay = new Map<
+  // A row per day, shed and feed: one real rate per row, and the transfer
+  // beside it readable. A row per day alone blended Layer 1 and Layer 2 into a
+  // rate neither was charged at, and its transfer list did not fit (17 Oct 2026).
+  const byKey = new Map<
     string,
-    { kg: number; value: number; refs: string[]; houses: Set<string>; items: Set<string> }
+    { day: string; shed: string; item: string; kg: number; value: number; refs: string[] }
   >();
   for (const r of rows) {
-    const d = byDay.get(r.day) ?? {
-      kg: 0,
-      value: 0,
-      refs: [],
-      houses: new Set<string>(),
-      items: new Set<string>(),
-    };
+    const shed = h.codeOf.get(r.house ?? "") ?? "";
+    const key = `${r.day}|${shed}|${r.item}`;
+    const d = byKey.get(key) ?? { day: r.day, shed, item: r.item, kg: 0, value: 0, refs: [] };
     d.kg += n(r.kg);
     d.value += n(r.value);
     d.refs.push(r.number);
-    d.houses.add(h.codeOf.get(r.house ?? "") ?? "");
-    d.items.add(r.item);
-    byDay.set(r.day, d);
+    byKey.set(key, d);
   }
 
-  const out = [...byDay.entries()].sort(([a], [b]) => a.localeCompare(b));
-  const totalKg = out.reduce((s, [, d]) => s + d.kg, 0);
-  const totalValue = out.reduce((s, [, d]) => s + d.value, 0);
+  const out = [...byKey.values()].sort(
+    (a, b) => a.day.localeCompare(b.day) || a.shed.localeCompare(b.shed) || a.item.localeCompare(b.item),
+  );
+  const totalKg = out.reduce((s, d) => s + d.kg, 0);
+  const totalValue = out.reduce((s, d) => s + d.value, 0);
 
   return {
     header: h,
-    rows: out.map(([day, d]) => [
-      day,
-      [...d.houses].sort().join(" "),
-      [...d.items].sort().join(", "),
-      d.refs.join(" "),
+    rows: out.map((d) => [
+      d.day,
+      d.shed,
+      d.item,
+      d.refs.length > 1 ? `${d.refs[0]} +${d.refs.length - 1}` : (d.refs[0] ?? ""),
       d.kg,
       d.kg > 0 ? d.value / d.kg : 0,
       d.value,
     ]),
     totalKg,
     totalValue,
-    /** True when any day blended two rates — worth saying rather than hiding. */
-    blended: out.some(([, d]) => d.refs.length > 1),
+    /** True when a row still joins two deliveries — worth saying rather than hiding. */
+    blended: out.some((d) => d.refs.length > 1),
   };
 }
 
@@ -1173,29 +1172,56 @@ export async function eggStatement(tx: Conn, contactId: string, period: string) 
         .orderBy(asc(placementDays.day), asc(flockPlacements.houseId))
     : [];
 
-  const rateFor = await dailyEggRate(tx, contactId, h.from, h.to);
+  // The two terms of the rate, shown apart so a reader can see the benchmark
+  // move and the spread hold. One rate column hid the spread inside it, and
+  // the note then called those combined figures the benchmark (17 Oct 2026).
+  const marks = await tx
+    .select({ on: eggBenchmarkPrices.effectiveFrom, rate: eggBenchmarkPrices.ratePerEgg })
+    .from(eggBenchmarkPrices)
+    .where(lte(eggBenchmarkPrices.effectiveFrom, h.to))
+    .orderBy(desc(eggBenchmarkPrices.effectiveFrom));
+  const spreads = await tx
+    .select({ on: ownerAgreements.effectiveFrom, spread: ownerAgreements.eggSpreadPerEgg })
+    .from(ownerAgreements)
+    .where(and(eq(ownerAgreements.contactId, contactId), lte(ownerAgreements.effectiveFrom, h.to)))
+    .orderBy(desc(ownerAgreements.effectiveFrom));
+
   const rows: Array<Array<string | number>> = [];
   let totalEggs = 0;
   let totalValue = 0;
-  const ratesSeen = new Set<number>();
+  const benchmarksSeen = new Set<number>();
+  const spreadsSeen = new Set<number>();
   for (const d of days) {
     const eggs = d.eggs ?? 0;
     if (!eggs) continue;
-    const rate = rateFor(d.day);
+    const mark = marks.find((m) => m.on <= d.day);
+    const sp = spreads.find((s) => s.on <= d.day);
+    const benchmark = mark ? n(mark.rate) : null;
+    const spread = sp ? n(sp.spread) : null;
+    const rate = benchmark == null || spread == null ? null : benchmark + spread;
     totalEggs += eggs;
     totalValue += rate == null ? 0 : eggs * rate;
-    if (rate != null) ratesSeen.add(rate);
+    if (benchmark != null) benchmarksSeen.add(benchmark);
+    if (spread != null) spreadsSeen.add(spread);
     rows.push([
       d.day,
       h.codeOf.get(d.house) ?? "",
       d.flock,
       eggs,
-      d.cracked ?? "",
+      benchmark ?? "",
+      spread ?? "",
       rate ?? "",
       rate == null ? "" : eggs * rate,
     ]);
   }
-  return { header: h, rows, totalEggs, totalValue, ratesSeen: [...ratesSeen].sort((a, b) => a - b) };
+  return {
+    header: h,
+    rows,
+    totalEggs,
+    totalValue,
+    benchmarksSeen: [...benchmarksSeen].sort((a, b) => a - b),
+    spreadsSeen: [...spreadsSeen].sort((a, b) => a - b),
+  };
 }
 
 /* ── Rendering the three statements ───────────────────────────────────────── */
@@ -1241,9 +1267,9 @@ export async function buildStatements(
         sheds: shedList(feed.header.houses),
         columns: [
           { label: "Date", width: 58 },
-          { label: "Shed", width: 40 },
-          { label: "Feed", width: 150 },
-          { label: "Transfer", width: 78 },
+          { label: "Shed", width: 36 },
+          { label: "Feed", width: 104 },
+          { label: "Transfer", width: 120 },
           { label: "Kg", width: 62, align: "right" },
           { label: "Rate/kg", width: 55, align: "right" },
           { label: "Value INR", width: 72, align: "right" },
@@ -1261,7 +1287,7 @@ export async function buildStatements(
         notes: [
           "Charged at what the mill made the feed for: raw material plus the milling charge, over the yield that leaves the mill.",
           ...(feed.blended
-            ? ["A day with more than one delivery shows the weighted rate; the transfer numbers are listed to take it apart."]
+            ? ["A row ending +N joins N more deliveries of the same feed to the same shed that day, at their weighted rate."]
             : []),
         ],
       }),
@@ -1319,29 +1345,36 @@ export async function buildStatements(
         to: eggs.header.to,
         sheds: shedList(eggs.header.houses),
         columns: [
-          { label: "Date", width: 64 },
-          { label: "Shed", width: 44 },
-          { label: "Batch", width: 96 },
-          { label: "Eggs", width: 70, align: "right" },
-          { label: "Cracked", width: 58, align: "right" },
-          { label: "Rate/egg", width: 62, align: "right" },
-          { label: "Value INR", width: 78, align: "right" },
+          { label: "Date", width: 60 },
+          { label: "Shed", width: 36 },
+          { label: "Batch", width: 70 },
+          { label: "Eggs", width: 66, align: "right" },
+          { label: "Benchmark", width: 62, align: "right" },
+          { label: "Spread", width: 48, align: "right" },
+          { label: "Rate/egg", width: 56, align: "right" },
+          { label: "Value INR", width: 80, align: "right" },
         ],
         rows: eggs.rows.map((r) => [
           asDmy(String(r[0])),
           String(r[1]),
           String(r[2]),
           qtyOf(Number(r[3])),
-          r[4] === "" ? "" : qtyOf(Number(r[4])),
-          r[5] === "" ? "-" : qtyOf(Number(r[5]), 4),
-          r[6] === "" ? "-" : inr(Number(r[6])),
+          r[4] === "" ? "-" : qtyOf(Number(r[4]), 2),
+          r[5] === "" ? "-" : qtyOf(Number(r[5]), 2),
+          r[6] === "" ? "-" : qtyOf(Number(r[6]), 2),
+          r[7] === "" ? "-" : inr(Number(r[7])),
         ]),
-        total: ["Total", "", "", qtyOf(eggs.totalEggs), "", "", inr(eggs.totalValue)],
+        total: ["Total", "", "", qtyOf(eggs.totalEggs), "", "", "", inr(eggs.totalValue)],
         notes: [
-          "Each day at that day's benchmark price plus the agreed spread — the rate is the one in force on the day the eggs were laid.",
-          eggs.ratesSeen.length > 1
-            ? `The benchmark moved during the month: ${eggs.ratesSeen.map((r) => qtyOf(r, 2)).join(", ")} per egg.`
-            : `Rate held at ${qtyOf(eggs.ratesSeen[0] ?? 0, 2)} per egg all month.`,
+          "Rate per egg = that day's benchmark + the agreed spread, on the day the eggs were laid.",
+          eggs.benchmarksSeen.length > 1
+            ? `The benchmark moved during the month: ${eggs.benchmarksSeen.map((r) => qtyOf(r, 2)).join(", ")} per egg.`
+            : `The benchmark held at ${qtyOf(eggs.benchmarksSeen[0] ?? 0, 2)} per egg all month.`,
+          ...(eggs.spreadsSeen.length === 1
+            ? [`Spread ${qtyOf(eggs.spreadsSeen[0]!, 2)} per egg throughout.`]
+            : eggs.spreadsSeen.length > 1
+              ? [`The spread changed during the month: ${eggs.spreadsSeen.map((r) => qtyOf(r, 2)).join(", ")} per egg.`]
+              : []),
         ],
       }),
     };

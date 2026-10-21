@@ -6,7 +6,6 @@ import { ApiError, api, formatDate, formatMoney } from "../api";
 import { CommentsTimeline } from "../components/comments";
 import { AttachmentsButton } from "../components/attachments";
 import { SearchSelect } from "../components/search-select";
-import { Modal } from "../components/settings-ui";
 import { OverviewTab, StatementTab, TransactionsTab } from "./contact-detail";
 import { localYmd } from "../lib/utils";
 
@@ -375,7 +374,6 @@ function RaiseMonth({ ownerId, onDone }: { ownerId: string; onDone: () => void }
   const [open, setOpen] = useState(false);
   const [period, setPeriod] = useState(lastMonth());
   const [error, setError] = useState<string | null>(null);
-  const [working, setWorking] = useState<"feed" | "birds" | "eggs" | null>(null);
 
   const { data: d, isLoading } = useQuery({
     queryKey: ["owner-billing", ownerId, period],
@@ -407,7 +405,7 @@ function RaiseMonth({ ownerId, onDone }: { ownerId: string; onDone: () => void }
         Close a month ▾
       </button>
       {open && (
-        <div className="absolute right-0 top-10 z-20 w-[560px] max-w-[calc(100vw-2rem)] rounded-lg border bg-white p-4 text-[13px] shadow-lg">
+        <div className="absolute right-0 top-10 z-20 w-96 rounded-lg border bg-white p-4 text-[13px] shadow-lg">
           <label className="label">Month</label>
           <MonthInput
             value={period}
@@ -419,51 +417,30 @@ function RaiseMonth({ ownerId, onDone }: { ownerId: string; onDone: () => void }
 
           {d && (
             <>
-              {/* Each figure with its working: the document's lines beneath it,
-                  and the total itself opens the day-by-day rows the attached
-                  statement is printed from (the user, 17 Oct 2026). */}
-              <div className="mb-3 max-h-[55vh] space-y-3 overflow-y-auto">
+              {/* The totals only; each opens that document's statement as a PDF,
+                  the same one attached when the month is raised (17 Oct 2026). */}
+              <div className="mb-3 space-y-1">
                 {(
                   [
-                    ["feed", "Feed", d.feedTotal, "invoice", d.feedLines],
-                    ["birds", "Pullets", d.birdTotal, "invoice", d.birdLines],
-                    ["eggs", "Eggs", d.eggTotal, "bill", d.eggLines],
+                    ["feed", "Feed", d.feedTotal, "invoice"],
+                    ["birds", "Pullets", d.birdTotal, "invoice"],
+                    ["eggs", "Eggs", d.eggTotal, "bill"],
                   ] as const
-                ).map(([kind, label, value, doc, lines]) => (
-                  <div key={label}>
-                    <div className="flex justify-between gap-3">
-                      <span className="text-gray-500">
-                        {label} <span className="text-gray-400">· {doc}</span>
-                      </span>
-                      {value > 0 ? (
-                        <button
-                          onClick={() => setWorking(kind)}
-                          className="s-link font-medium tabular-nums"
-                          title="Day-by-day working"
-                        >
-                          {formatMoney(value)}
-                        </button>
-                      ) : (
-                        <span className="tabular-nums text-gray-300">—</span>
-                      )}
-                    </div>
-                    {lines.length > 0 && (
-                      <table className="mt-1 w-full text-[12px] text-gray-600">
-                        <tbody>
-                          {lines.map((l, i) => (
-                            <tr key={i} className={l.problem ? "text-amber-700" : ""}>
-                              <td className="py-0.5 pr-2">{l.description}</td>
-                              <td className="whitespace-nowrap py-0.5 text-right tabular-nums">
-                                {l.qty.toLocaleString("en-IN")} {l.unit} ×{" "}
-                                {l.rate == null ? "—" : formatMoney(l.rate)}
-                              </td>
-                              <td className="whitespace-nowrap py-0.5 pl-2 text-right tabular-nums">
-                                {l.amount == null ? "unpriced" : formatMoney(l.amount)}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                ).map(([kind, label, value, doc]) => (
+                  <div key={label} className="flex justify-between gap-3">
+                    <span className="text-gray-500">
+                      {label} <span className="text-gray-400">· {doc}</span>
+                    </span>
+                    {value > 0 ? (
+                      <a
+                        href={`/api/owner-billing/statements/${ownerId}?period=${period}&kind=${kind}`}
+                        className="s-link font-medium tabular-nums"
+                        title="Download the statement (PDF)"
+                      >
+                        {formatMoney(value)} ↓
+                      </a>
+                    ) : (
+                      <span className="tabular-nums text-gray-300">—</span>
                     )}
                   </div>
                 ))}
@@ -520,110 +497,6 @@ function RaiseMonth({ ownerId, onDone }: { ownerId: string; onDone: () => void }
           )}
         </div>
       )}
-      {working && (
-        <DayWorking ownerId={ownerId} period={period} kind={working} onClose={() => setWorking(null)} />
-      )}
     </div>
-  );
-}
-
-const WORKING_TITLE = { feed: "Feed supplied", birds: "Pullets supplied", eggs: "Eggs bought" } as const;
-/** Where the quantity sits, and where the right-aligned figures start, in each kind's rows. */
-const QTY_COL = { feed: 4, birds: 4, eggs: 3 } as const;
-const FIGURES_FROM = { feed: 4, birds: 3, eggs: 3 } as const;
-
-/**
- * The month's figure taken apart, a row per day: the statement that will be
- * attached to the document, shown before anything is raised. Its total is the
- * figure in the popover, so a row that looks wrong can be found here first.
- */
-function DayWorking({
-  ownerId,
-  period,
-  kind,
-  onClose,
-}: {
-  ownerId: string;
-  period: string;
-  kind: "feed" | "birds" | "eggs";
-  onClose: () => void;
-}) {
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["owner-working", ownerId, period, kind],
-    queryFn: () =>
-      api<{
-        columns: string[];
-        rows: Array<Array<string | number>>;
-        totals: { qty: number; value: number };
-        note: string | null;
-      }>(`/api/owner-billing/statements/${ownerId}?period=${period}&kind=${kind}`),
-  });
-  // Columns: date first, rate and value always the last two.
-  const n = data?.columns.length ?? 0;
-  const cell = (v: string | number, i: number) => {
-    if (i === 0) return formatDate(String(v));
-    if (v === "") return "—";
-    if (i === n - 1) return formatMoney(Number(v));
-    if (i === n - 2) return `₹${Number(v).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
-    if (typeof v === "number") return v.toLocaleString("en-IN", { maximumFractionDigits: 2 });
-    return v;
-  };
-
-  return (
-    <Modal
-      title={`${WORKING_TITLE[kind]} — ${monthLabel(period)}`}
-      onClose={onClose}
-      width="w-[860px] max-w-[calc(100vw-2rem)]"
-      footer={
-        <button onClick={onClose} className="btn-secondary">
-          Close
-        </button>
-      }
-    >
-      {isLoading && <p className="text-[13px] text-gray-500">Reading the month…</p>}
-      {error && <p className="text-[13px] text-red-600">{(error as Error).message}</p>}
-      {data && (
-        <>
-          {data.note && <p className="mb-2 text-[12px] text-gray-500">{data.note}</p>}
-          <table className="w-full text-[13px]">
-            <thead className="table-head sticky top-0">
-              <tr>
-                {data.columns.map((c, i) => (
-                  <th key={c} className={`border-b border-[#ece3d5] px-2 py-1.5 ${i >= FIGURES_FROM[kind] ? "text-right" : ""}`}>
-                    {c}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {data.rows.map((r, ri) => (
-                <tr key={ri} className="border-b border-[#ece3d5]">
-                  {r.map((v, i) => (
-                    <td
-                      key={i}
-                      className={`px-2 py-1 ${i >= FIGURES_FROM[kind] ? "text-right tabular-nums" : ""} ${i === 0 ? "whitespace-nowrap" : ""}`}
-                    >
-                      {cell(v, i)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="font-semibold">
-                <td className="px-2 py-2" colSpan={QTY_COL[kind]}>
-                  Total · {data.rows.length} rows
-                </td>
-                <td className="px-2 py-2 text-right tabular-nums">
-                  {data.totals.qty.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
-                </td>
-                <td colSpan={n - QTY_COL[kind] - 2} />
-                <td className="px-2 py-2 text-right tabular-nums">{formatMoney(data.totals.value)}</td>
-              </tr>
-            </tfoot>
-          </table>
-        </>
-      )}
-    </Modal>
   );
 }
