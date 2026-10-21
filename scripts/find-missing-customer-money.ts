@@ -109,18 +109,38 @@ async function main() {
     if (!lines.length && !held.length) console.log(`      nothing of that size nearby`);
   }
 
+  /**
+   * The check to make before anybody keys these in. A deposit that is already
+   * in the book under some number is not missing money — it is a statement
+   * line nobody matched — and categorizing it would post the same money a
+   * second time. That is how the catch-up nearly doubled Rs 8.80 crore.
+   */
+  const already = (
+    await db.execute(sql`
+      SELECT p.number, p.payment_date::text AS date, c.display_name AS cust,
+             round(p.amount::numeric, 2)::float8 AS amount
+        FROM customer_payments p JOIN contacts c ON c.id = p.customer_id
+    `)
+  ).rows as Array<{ number: string; date: string; cust: string; amount: number }>;
+
   console.log(
     `\n  Deposits nobody has categorized, whatever their size:` +
       ` ${loose.length}, Rs ${money(loose.reduce((s, r) => s + r.amount, 0))}`,
   );
-  for (const l of loose.slice(0, 30)) {
+  let risky = 0;
+  for (const l of loose) {
+    const twin = already.find((p) => Math.abs(p.amount - l.amount) <= 1 && near(p.date, l.date));
+    if (twin) risky += 1;
     console.log(
-      `    ${l.date}  ${money(l.amount).padStart(12)}  ${l.status.padEnd(11)}${l.bank.slice(0, 20).padEnd(21)}` +
-        `${(l.counterparty ?? l.description ?? "").slice(0, 44)}`,
+      `    ${l.date}  ${money(l.amount).padStart(12)}  ${l.bank.slice(0, 20).padEnd(21)}` +
+        `${(l.counterparty ?? l.description ?? "").slice(0, 40).padEnd(41)}` +
+        `${twin ? `ALREADY IN as ${twin.number} (${twin.cust})` : ""}`,
     );
   }
-  if (loose.length > 30) console.log(`    ... and ${loose.length - 30} more`);
-  console.log();
+  console.log(
+    `\n  ${loose.length - risky} of them are money this book has never seen.` +
+      `${risky ? ` ${risky} already exist under a receipt number — those are lines to MATCH, not to key again.` : ""}\n`,
+  );
   await pool.end();
 }
 
