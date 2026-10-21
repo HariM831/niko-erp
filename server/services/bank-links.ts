@@ -210,6 +210,8 @@ const BANK_NOISE = new Set([
   "bank", "branch", "chq", "cheque", "clg", "fund", "funds", "txn", "charges", "sbi",
   "hdfc", "icici", "idfc", "axis", "pnb", "punb", "ucba", "cnrb", "bkid", "iob", "bdbl",
   "psib", "cbin", "ybl", "ybp", "ptm", "paytm", "gpay", "phonepe", "large", "small",
+  "sbin", "cnb", "canb", "bdbl", "idib", "kkbk", "utib", "amino", "farms", "tran",
+  "trans", "mob", "net", "nft", "rtg", "col", "dep", "sal", "misc",
 ]);
 
 /**
@@ -225,7 +227,11 @@ export function nameWords(text: string | null | undefined) {
     ...new Set(
       (text ?? "")
         .toLowerCase()
-        .split(/[^a-z]+/)
+        .split(/[^a-z0-9]+/)
+        // A run with a digit in it is a code — UCBAR5202610170, CBINH2628002558,
+        // RE1 — and splitting on letters alone would keep its bank's initials
+        // and hand them to whichever customer banks there.
+        .filter((w) => !/\d/.test(w))
         .filter((w) => w.length >= 3 && !BANK_NOISE.has(w)),
     ),
   ];
