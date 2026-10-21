@@ -1679,6 +1679,7 @@ function AgingSummary({ reportKey, data }: { reportKey: string; data: Record<str
     return <p className="text-center text-[13px] text-gray-500">Nothing outstanding on this date.</p>;
   }
 
+  const unused = (data.unusedCredits ?? {}) as Record<string, string>;
   const byContact = new Map<
     string,
     { name: string; isGroup: boolean; buckets: Record<string, number>; total: number }
@@ -1691,6 +1692,18 @@ function AgingSummary({ reportKey, data }: { reportKey: string; data: Record<str
     row.total += Number(d.balanceDue);
     byContact.set(id, row);
   }
+  // A party holding a credit and owing nothing still belongs on a report about
+  // who owes what: it is the same fact with the sign the other way round.
+  for (const c of (data.creditsOnly ?? []) as Array<{
+    customerId?: string; customerName?: string; vendorId?: string; vendorName?: string; isGroup?: boolean;
+  }>) {
+    const id = (isAr ? c.customerId : c.vendorId)!;
+    if (byContact.has(id)) continue;
+    byContact.set(id, {
+      name: (isAr ? c.customerName : c.vendorName) ?? "—",
+      isGroup: !!c.isGroup, buckets: {}, total: 0,
+    });
+  }
   // The group sits at the bottom, under the market it is not part of.
   const rows = [...byContact.entries()].sort(
     (a, b) =>
@@ -1698,6 +1711,7 @@ function AgingSummary({ reportKey, data }: { reportKey: string; data: Record<str
   );
   const totals = data.totals as Record<string, string>;
   const groupTotal = Number((data.groupTotal as string) ?? 0);
+  const groupUnused = Number((data.groupUnused as string) ?? 0);
   const groupBuckets: Record<string, number> = {};
   for (const d of docs) {
     if (!d.isGroup) continue;
@@ -1718,6 +1732,7 @@ function AgingSummary({ reportKey, data }: { reportKey: string; data: Record<str
               </th>
             ))}
             <th className={`${HEAD_CELL} text-right`}>Total</th>
+            <th className={`${HEAD_CELL} text-right`}>Unused Credits</th>
           </tr>
         </thead>
         <tbody>
@@ -1742,6 +1757,9 @@ function AgingSummary({ reportKey, data }: { reportKey: string; data: Record<str
                 </td>
               ))}
               <td className="px-2 py-2 text-right font-medium tabular-nums">{num(r.total)}</td>
+              <td className="px-2 py-2 text-right tabular-nums text-gray-600">
+                {Number(unused[id] ?? 0) ? num(unused[id]!) : "-"}
+              </td>
             </tr>
           ))}
           <tr className="border-t-[0.7px] border-[#eee] font-bold">
@@ -1752,6 +1770,7 @@ function AgingSummary({ reportKey, data }: { reportKey: string; data: Record<str
               </td>
             ))}
             <td className="px-2 py-2.5 text-right tabular-nums">{num(data.grandTotal as string)}</td>
+            <td className="px-2 py-2.5 text-right tabular-nums">{num((data.unusedTotal as string) ?? "0")}</td>
           </tr>
           {groupTotal !== 0 && (
             <>
@@ -1763,6 +1782,7 @@ function AgingSummary({ reportKey, data }: { reportKey: string; data: Record<str
                   </td>
                 ))}
                 <td className="px-2 py-1.5 text-right tabular-nums">{num(groupTotal)}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums">{num(groupUnused)}</td>
               </tr>
               <tr className="text-[13px] font-medium text-gray-700">
                 <td className="px-2 py-1.5 pl-5">{isAr ? "Owed by the market" : "Owed to the market"}</td>
@@ -1773,6 +1793,9 @@ function AgingSummary({ reportKey, data }: { reportKey: string; data: Record<str
                 ))}
                 <td className="px-2 py-1.5 text-right tabular-nums">
                   {num(Number(data.grandTotal as string) - groupTotal)}
+                </td>
+                <td className="px-2 py-1.5 text-right tabular-nums">
+                  {num(Number((data.unusedTotal as string) ?? 0) - groupUnused)}
                 </td>
               </tr>
             </>

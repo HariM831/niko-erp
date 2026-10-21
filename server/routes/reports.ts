@@ -512,6 +512,43 @@ function bucketFor(daysOverdue: number): string {
   return "45+";
 }
 
+/**
+ * What the party is holding that no document has used yet: money paid ahead of
+ * an invoice, and credit notes nothing has been set against.
+ *
+ * An ageing of invoices alone reads worse than the position is wherever a
+ * customer pays before being billed, which is how this trade works. The group
+ * is the extreme case — ₹34 crore of invoices aged past 45 days against ₹20
+ * crore of advances sitting with us, settled net rather than invoice by
+ * invoice — but Protein Shop and Surjya Store are in credit on the same
+ * principle. Zoho carries the column for the same reason.
+ */
+async function unusedCredits(side: "customer" | "vendor") {
+  const rows =
+    side === "customer"
+      ? await db.execute(sql`
+          SELECT c.id::text AS party,
+                 (coalesce((SELECT sum(p.unapplied_amount) FROM customer_payments p
+                             WHERE p.customer_id = c.id), 0)
+                + coalesce((SELECT sum(n.balance) FROM credit_notes n
+                             WHERE n.customer_id = c.id AND n.status NOT IN ('draft', 'void')), 0))::float8 AS unused
+            FROM contacts c
+        `)
+      : await db.execute(sql`
+          SELECT c.id::text AS party,
+                 (coalesce((SELECT sum(p.unapplied_amount) FROM vendor_payments p
+                             WHERE p.vendor_id = c.id), 0)
+                + coalesce((SELECT sum(v.balance) FROM vendor_credits v
+                             WHERE v.vendor_id = c.id AND v.status NOT IN ('draft', 'void')), 0))::float8 AS unused
+            FROM contacts c
+        `);
+  return new Map(
+    (rows.rows as Array<{ party: string; unused: number }>)
+      .filter((r) => Math.abs(r.unused) > 0.5)
+      .map((r) => [r.party, r.unused]),
+  );
+}
+
 reportsRouter.get("/ar-aging", requirePermission("reports", "view"), async (req, res) => {
   const asOf = (req.query.asOf as string | undefined) ?? istDate();
   const open = await db
@@ -550,14 +587,36 @@ reportsRouter.get("/ar-aging", requirePermission("reports", "view"), async (req,
   const buckets: Record<string, number> = { current: 0, "1-15": 0, "16-30": 0, "31-45": 0, "45+": 0 };
   for (const r of detailed) buckets[r.bucket] = (buckets[r.bucket] ?? 0) + Number(r.balanceDue);
 
+  /**
+   * Every customer holding something unused is reported, even one with no
+   * open invoice at all: twelve of them are purely in credit today, and a
+   * receivables report that cannot see them is the same blindness this column
+   * was added to cure.
+   */
+  const unused = await unusedCredits("customer");
+  const named = new Map(detailed.map((r) => [r.customerId, { name: r.customerName, isGroup: r.isGroup }]));
+  const extra = (
+    await db
+      .select({ id: contacts.id, name: contacts.displayName, isGroup: contacts.isGroupCompany })
+      .from(contacts)
+      .where(inArray(contacts.id, [...unused.keys()].filter((id) => !named.has(id))))
+  ).map((c) => ({ customerId: c.id, customerName: c.name, isGroup: c.isGroup }));
+
   res.json({
     asOf,
     invoices: detailed,
+    creditsOnly: extra,
+    unusedCredits: Object.fromEntries([...unused].map(([k, v]) => [k, v.toFixed(2)])),
     totals: Object.fromEntries(Object.entries(buckets).map(([k, v]) => [k, v.toFixed(2)])),
     grandTotal: detailed.reduce((s, r) => s + Number(r.balanceDue), 0).toFixed(2),
+    unusedTotal: [...unused.values()].reduce((s, v) => s + v, 0).toFixed(2),
     groupTotal: detailed
       .filter((r) => r.isGroup)
       .reduce((s, r) => s + Number(r.balanceDue), 0)
+      .toFixed(2),
+    groupUnused: [...unused]
+      .filter(([id]) => named.get(id)?.isGroup || extra.find((e) => e.customerId === id)?.isGroup)
+      .reduce((s, [, v]) => s + v, 0)
       .toFixed(2),
   });
 });
@@ -594,14 +653,30 @@ reportsRouter.get("/ap-aging", requirePermission("reports", "view"), async (req,
   const buckets: Record<string, number> = { current: 0, "1-15": 0, "16-30": 0, "31-45": 0, "45+": 0 };
   for (const r of detailed) buckets[r.bucket] = (buckets[r.bucket] ?? 0) + Number(r.balanceDue);
 
+  const unused = await unusedCredits("vendor");
+  const named = new Map(detailed.map((r) => [r.vendorId, { name: r.vendorName, isGroup: r.isGroup }]));
+  const extra = (
+    await db
+      .select({ id: contacts.id, name: contacts.displayName, isGroup: contacts.isGroupCompany })
+      .from(contacts)
+      .where(inArray(contacts.id, [...unused.keys()].filter((id) => !named.has(id))))
+  ).map((c) => ({ vendorId: c.id, vendorName: c.name, isGroup: c.isGroup }));
+
   res.json({
     asOf,
     bills: detailed,
+    creditsOnly: extra,
+    unusedCredits: Object.fromEntries([...unused].map(([k, v]) => [k, v.toFixed(2)])),
     totals: Object.fromEntries(Object.entries(buckets).map(([k, v]) => [k, v.toFixed(2)])),
     grandTotal: detailed.reduce((s, r) => s + Number(r.balanceDue), 0).toFixed(2),
+    unusedTotal: [...unused.values()].reduce((s, v) => s + v, 0).toFixed(2),
     groupTotal: detailed
       .filter((r) => r.isGroup)
       .reduce((s, r) => s + Number(r.balanceDue), 0)
+      .toFixed(2),
+    groupUnused: [...unused]
+      .filter(([id]) => named.get(id)?.isGroup || extra.find((e) => e.vendorId === id)?.isGroup)
+      .reduce((s, [, v]) => s + v, 0)
       .toFixed(2),
   });
 });
