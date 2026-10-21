@@ -517,15 +517,21 @@ interface Section {
 }
 
 /** 850px centred, the width Zoho gives a financial statement. */
-function Sheet({ children }: { children: React.ReactNode }) {
+function Sheet({ children, full = false }: { children: React.ReactNode; full?: boolean }) {
   /*
    * Scrolls sideways rather than cutting a column off. Hiding the account
    * code buys most reports enough room, but a wide one — sales by customer
    * carries six money columns — will still exceed a phone, and a figure you
    * cannot reach is worse than one you have to swipe to.
+   *
+   * 850px is the measure a statement reads best at: a profit and loss is two
+   * columns of figures and stretching them across a monitor puts a hand's
+   * width between the name and its amount. A table of many columns is the
+   * opposite case — capped at 850 it scrolls sideways while the screen sits
+   * empty on both sides — so those ask for `full` and take the room.
    */
   return (
-    <div className="mx-auto max-w-[850px] overflow-x-auto">{children}</div>
+    <div className={full ? "overflow-x-auto" : "mx-auto max-w-[850px] overflow-x-auto"}>{children}</div>
   );
 }
 
@@ -943,15 +949,15 @@ function ItemTable({ data }: { data: Record<string, unknown> }) {
                 {Number(r.quantity).toLocaleString("en-IN")} {r.unit}
               </td>
               <td className="px-2 py-2 text-right tabular-nums">{num(r.amount)}</td>
-              <td className="col-portrait-hide px-2 py-2 text-right tabular-nums">{num(r.averagePrice)}</td>
+              <td className="col-portrait-hide whitespace-nowrap px-3 py-2 text-right tabular-nums">{num(r.averagePrice)}</td>
             </tr>
           ))}
           <tr className="border-t-[0.7px] border-[#eee] font-bold">
             <td className="px-2 py-2.5 pl-5">Total</td>
-            <td className="px-2 py-2.5 text-right tabular-nums">
+            <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">
               {Number(data.totalQuantity as string).toLocaleString("en-IN")}
             </td>
-            <td className="px-2 py-2.5 text-right tabular-nums">{num(data.totalAmount as string)}</td>
+            <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{num(data.totalAmount as string)}</td>
             <td />
           </tr>
         </tbody>
@@ -997,16 +1003,16 @@ function SalesByCustomer({ data }: { data: Record<string, unknown> }) {
                   {r.name}
                 </Link>
               </td>
-              <td className="col-portrait-hide px-2 py-2 text-right tabular-nums">{r.invoiceCount}</td>
-              <td className="col-portrait-hide px-2 py-2 text-right tabular-nums">{num(r.sales)}</td>
+              <td className="col-portrait-hide whitespace-nowrap px-3 py-2 text-right tabular-nums">{r.invoiceCount}</td>
+              <td className="col-portrait-hide whitespace-nowrap px-3 py-2 text-right tabular-nums">{num(r.sales)}</td>
               <td className="px-2 py-2 text-right tabular-nums">{num(r.salesWithTax)}</td>
             </tr>
           ))}
           <tr className="border-t-[0.7px] border-[#eee] font-bold">
             <td className="px-2 py-2.5 pl-5">Total</td>
-            <td className="col-portrait-hide px-2 py-2.5 text-right tabular-nums">{data.totalCount as number}</td>
-            <td className="col-portrait-hide px-2 py-2.5 text-right tabular-nums">{num(data.totalSales as string)}</td>
-            <td className="px-2 py-2.5 text-right tabular-nums">
+            <td className="col-portrait-hide whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{data.totalCount as number}</td>
+            <td className="col-portrait-hide whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{num(data.totalSales as string)}</td>
+            <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">
               {num(data.totalSalesWithTax as string)}
             </td>
           </tr>
@@ -1517,24 +1523,24 @@ function PurchasesByVendor({ data }: { data: Record<string, unknown> }) {
                   <span title="Expenses recorded without a vendor">Others</span>
                 )}
               </td>
-              <td className="col-portrait-hide px-2 py-2 text-right tabular-nums">{r.expenseCount}</td>
-              <td className="col-portrait-hide px-2 py-2 text-right tabular-nums">{r.billCount}</td>
-              <td className="col-portrait-hide px-2 py-2 text-right tabular-nums">{r.vendorCreditCount}</td>
-              <td className="col-portrait-hide px-2 py-2 text-right tabular-nums">{num(r.amount)}</td>
+              <td className="col-portrait-hide whitespace-nowrap px-3 py-2 text-right tabular-nums">{r.expenseCount}</td>
+              <td className="col-portrait-hide whitespace-nowrap px-3 py-2 text-right tabular-nums">{r.billCount}</td>
+              <td className="col-portrait-hide whitespace-nowrap px-3 py-2 text-right tabular-nums">{r.vendorCreditCount}</td>
+              <td className="col-portrait-hide whitespace-nowrap px-3 py-2 text-right tabular-nums">{num(r.amount)}</td>
               <td className="px-2 py-2 text-right tabular-nums">{num(r.amountWithTax)}</td>
             </tr>
           ))}
           <tr className="border-t-[0.7px] border-[#eee] font-bold">
             <td className="px-2 py-2.5 pl-5">Total</td>
-            <td className="col-portrait-hide px-2 py-2.5 text-right tabular-nums">
+            <td className="col-portrait-hide whitespace-nowrap px-3 py-2.5 text-right tabular-nums">
               {data.totalExpenseCount as number}
             </td>
-            <td className="col-portrait-hide px-2 py-2.5 text-right tabular-nums">{data.totalBillCount as number}</td>
-            <td className="col-portrait-hide px-2 py-2.5 text-right tabular-nums">
+            <td className="col-portrait-hide whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{data.totalBillCount as number}</td>
+            <td className="col-portrait-hide whitespace-nowrap px-3 py-2.5 text-right tabular-nums">
               {data.totalVendorCreditCount as number}
             </td>
-            <td className="col-portrait-hide px-2 py-2.5 text-right tabular-nums">{num(data.totalAmount as string)}</td>
-            <td className="px-2 py-2.5 text-right tabular-nums">
+            <td className="col-portrait-hide whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{num(data.totalAmount as string)}</td>
+            <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">
               {num(data.totalAmountWithTax as string)}
             </td>
           </tr>
@@ -1617,7 +1623,7 @@ function ExpenseByCategory({ data }: { data: Record<string, unknown> }) {
                 <td className="px-2 py-2 text-right tabular-nums text-gray-500">
                   {c.percentOfTotal === null ? "—" : `${c.percentOfTotal}%`}
                 </td>
-                <td className="px-2 py-2 text-right font-medium tabular-nums">{num(c.total)}</td>
+                <td className="whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums">{num(c.total)}</td>
               </tr>
               {open.has(c.accountId) &&
                 c.children.map((ch) => (
@@ -1637,7 +1643,7 @@ function ExpenseByCategory({ data }: { data: Record<string, unknown> }) {
           <tr className="border-t-[0.7px] border-[#eee] font-bold">
             <td className="px-2 py-2.5 pl-5">Total</td>
             <td />
-            <td className="px-2 py-2.5 text-right tabular-nums">{num(data.total as string)}</td>
+            <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{num(data.total as string)}</td>
           </tr>
         </tbody>
       </table>
@@ -1719,20 +1725,26 @@ function AgingSummary({ reportKey, data }: { reportKey: string; data: Record<str
   }
 
   return (
-    <Sheet>
+    <Sheet full>
       <table className="w-full text-[14px]">
         <thead>
           <tr>
-            <th className={`${HEAD_CELL} pl-5 text-left`}>
+            {/*
+              * The name column takes all the slack, so the figures stay in one
+              * block on the right where they can be compared down and across.
+              * Spread evenly instead, a 1600px screen puts a hand's width
+              * between 1-15 Days and 16-30 Days.
+              */}
+            <th className={`${HEAD_CELL} w-full pl-5 text-left`}>
               {isAr ? "Customer Name" : "Vendor Name"}
             </th>
             {BUCKETS.map((b) => (
-              <th key={b} className={`col-portrait-hide ${HEAD_CELL} text-right`}>
+              <th key={b} className={`col-portrait-hide ${HEAD_CELL} whitespace-nowrap px-3 text-right`}>
                 {BUCKET_LABEL[b]}
               </th>
             ))}
-            <th className={`${HEAD_CELL} text-right`}>Total</th>
-            <th className={`${HEAD_CELL} text-right`}>Unused Credits</th>
+            <th className={`${HEAD_CELL} whitespace-nowrap px-3 text-right`}>Total</th>
+            <th className={`${HEAD_CELL} whitespace-nowrap px-3 text-right`}>Unused Credits</th>
           </tr>
         </thead>
         <tbody>
@@ -1752,12 +1764,12 @@ function AgingSummary({ reportKey, data }: { reportKey: string; data: Record<str
                 )}
               </td>
               {BUCKETS.map((b) => (
-                <td key={b} className="col-portrait-hide px-2 py-2 text-right tabular-nums">
+                <td key={b} className="col-portrait-hide whitespace-nowrap px-3 py-2 text-right tabular-nums">
                   {r.buckets[b] ? num(r.buckets[b]!) : "-"}
                 </td>
               ))}
-              <td className="px-2 py-2 text-right font-medium tabular-nums">{num(r.total)}</td>
-              <td className="px-2 py-2 text-right tabular-nums text-gray-600">
+              <td className="whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums">{num(r.total)}</td>
+              <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-gray-600">
                 {Number(unused[id] ?? 0) ? num(unused[id]!) : "-"}
               </td>
             </tr>
@@ -1765,36 +1777,36 @@ function AgingSummary({ reportKey, data }: { reportKey: string; data: Record<str
           <tr className="border-t-[0.7px] border-[#eee] font-bold">
             <td className="px-2 py-2.5 pl-5">Total</td>
             {BUCKETS.map((b) => (
-              <td key={b} className="col-portrait-hide px-2 py-2.5 text-right tabular-nums">
+              <td key={b} className="col-portrait-hide whitespace-nowrap px-3 py-2.5 text-right tabular-nums">
                 {num(totals[b] ?? "0")}
               </td>
             ))}
-            <td className="px-2 py-2.5 text-right tabular-nums">{num(data.grandTotal as string)}</td>
-            <td className="px-2 py-2.5 text-right tabular-nums">{num((data.unusedTotal as string) ?? "0")}</td>
+            <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{num(data.grandTotal as string)}</td>
+            <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">{num((data.unusedTotal as string) ?? "0")}</td>
           </tr>
           {groupTotal !== 0 && (
             <>
               <tr className="text-[13px] text-gray-500">
                 <td className="px-2 py-1.5 pl-5">of which group companies</td>
                 {BUCKETS.map((b) => (
-                  <td key={b} className="col-portrait-hide px-2 py-1.5 text-right tabular-nums">
+                  <td key={b} className="col-portrait-hide whitespace-nowrap px-3 py-1.5 text-right tabular-nums">
                     {groupBuckets[b] ? num(groupBuckets[b]!) : "-"}
                   </td>
                 ))}
-                <td className="px-2 py-1.5 text-right tabular-nums">{num(groupTotal)}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{num(groupUnused)}</td>
+                <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{num(groupTotal)}</td>
+                <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{num(groupUnused)}</td>
               </tr>
               <tr className="text-[13px] font-medium text-gray-700">
                 <td className="px-2 py-1.5 pl-5">{isAr ? "Owed by the market" : "Owed to the market"}</td>
                 {BUCKETS.map((b) => (
-                  <td key={b} className="col-portrait-hide px-2 py-1.5 text-right tabular-nums">
+                  <td key={b} className="col-portrait-hide whitespace-nowrap px-3 py-1.5 text-right tabular-nums">
                     {num(Number(totals[b] ?? 0) - (groupBuckets[b] ?? 0))}
                   </td>
                 ))}
-                <td className="px-2 py-1.5 text-right tabular-nums">
+                <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">
                   {num(Number(data.grandTotal as string) - groupTotal)}
                 </td>
-                <td className="px-2 py-1.5 text-right tabular-nums">
+                <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">
                   {num(Number((data.unusedTotal as string) ?? 0) - groupUnused)}
                 </td>
               </tr>
@@ -1848,7 +1860,7 @@ function LegacyBody({ reportKey, data }: { reportKey: string; data: Record<strin
               {block("Outflows", data.outflows as Rows, data.totalOutflows as string)}
               <tr className="border-b-[0.7px] border-[#eee] font-bold">
                 <td className="px-2 py-2.5 pl-5">Closing Cash</td>
-                <td className="px-2 py-2.5 text-right tabular-nums">
+                <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">
                   {num(data.closing as string)}
                 </td>
               </tr>
@@ -1966,7 +1978,7 @@ function LegacyBody({ reportKey, data }: { reportKey: string; data: Record<strin
                 <td />
                 <td />
                 <td />
-                <td className="px-2 py-2.5 text-right tabular-nums">
+                <td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums">
                   {num(data.netPayable as string)}
                 </td>
               </tr>
@@ -2200,11 +2212,11 @@ function CostAnalysis({ data }: { data: CostAnalysisData }) {
               {data.feed.byHouse.map((h) => (
                 <tr key={h.code}>
                   <td className="px-2 py-1.5 pl-5">{h.code}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums">{h.eggs.toLocaleString("en-IN")}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums">{num(h.kg)}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums">{num(h.amount)}</td>
+                  <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{h.eggs.toLocaleString("en-IN")}</td>
+                  <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{num(h.kg)}</td>
+                  <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">{num(h.amount)}</td>
                   {/* A house into lay has fed birds and laid nothing: a dash, not 0.000. */}
-                  <td className="px-2 py-1.5 text-right tabular-nums">
+                  <td className="whitespace-nowrap px-3 py-1.5 text-right tabular-nums">
                     {h.perEgg == null ? "—" : perEgg(h.perEgg)}
                   </td>
                 </tr>
