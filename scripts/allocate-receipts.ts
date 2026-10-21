@@ -54,8 +54,14 @@ const money = (p: number) => (p / 100).toLocaleString("en-IN", { maximumFraction
 const day = (s: string) => Date.parse(s) / 86_400_000;
 
 interface Inv { id: string; number: string; date: string; totalP: number; fixedP: number; openP: number }
-interface Rec { id: string; number: string; date: string; amountP: number; wasP: number;
-                now: Array<{ invoiceId: string; p: number }> }
+/**
+ * `own` is a receipt keyed here, which is re-placed from scratch. `advance` is
+ * the part of a Zoho receipt that Zoho never put against anything: its own
+ * applications stand, because Zoho wins on allocation, but what it left loose
+ * is loose. The two are written differently and allocated the same.
+ */
+interface Rec { id: string; number: string; date: string; kind: "own" | "advance";
+                amountP: number; wasP: number; now: Array<{ invoiceId: string; p: number }> }
 
 async function main() {
   console.log(`\n  Allocating niko's own receipts — ${COMMIT ? "COMMITTING" : "dry run"}\n`);
@@ -67,8 +73,9 @@ async function main() {
        WHERE c.is_group_company = false
          AND EXISTS (SELECT 1 FROM customer_payments p
                       WHERE p.customer_id = c.id
-                        AND NOT EXISTS (SELECT 1 FROM zoho_id_map z
-                                         WHERE z.entity = 'customer_payment' AND z.eggsy_id = p.id))
+                        AND (p.unapplied_amount::numeric > 0
+                             OR NOT EXISTS (SELECT 1 FROM zoho_id_map z
+                                             WHERE z.entity = 'customer_payment' AND z.eggsy_id = p.id)))
          ${ONLY ? sql`AND c.display_name = ${ONLY}` : sql``}
        ORDER BY c.display_name
     `)
@@ -109,17 +116,41 @@ async function main() {
          ORDER BY p.payment_date, p.number
       `)
     ).rows as Array<{ id: string; number: string; date: string; amount: string; applied: string }>;
-    if (!recs.length) continue;
+
+    /**
+     * The money Zoho took and never put against a sale. On 17 Oct 2026 that
+     * was Rs 1.31 crore of the trade's own advances sitting against Rs 1.98
+     * crore of open invoices — the same customers, both sides. Zoho's
+     * applications are left exactly as they are; only the remainder moves.
+     */
+    const loose = (
+      await db.execute(sql`
+        SELECT p.id::text, p.number, p.payment_date::text AS date, p.unapplied_amount::text AS spare
+          FROM customer_payments p
+         WHERE p.customer_id = ${cust.id}
+           AND p.unapplied_amount::numeric > 0
+           AND EXISTS (SELECT 1 FROM zoho_id_map z
+                        WHERE z.entity = 'customer_payment' AND z.eggsy_id = p.id)
+         ORDER BY p.payment_date, p.number
+      `)
+    ).rows as Array<{ id: string; number: string; date: string; spare: string }>;
+    if (!recs.length && !loose.length) continue;
 
     const pool_: Inv[] = invs.map((i) => {
       const totalP = P(i.total);
       const fixedP = P(i.zoho_applied) + P(i.credited);
       return { id: i.id, number: i.number, date: i.date, totalP, fixedP, openP: Math.max(0, totalP - fixedP) };
     });
-    const free: Rec[] = recs.map((r) => ({
-      id: r.id, number: r.number, date: r.date,
-      amountP: P(r.amount), wasP: P(r.applied), now: [],
-    }));
+    const free: Rec[] = [
+      ...recs.map((r) => ({
+        id: r.id, number: r.number, date: r.date, kind: "own" as const,
+        amountP: P(r.amount), wasP: P(r.applied), now: [],
+      })),
+      ...loose.map((r) => ({
+        id: r.id, number: r.number, date: r.date, kind: "advance" as const,
+        amountP: P(r.spare), wasP: 0, now: [],
+      })),
+    ].sort((a, b) => a.date.localeCompare(b.date) || a.number.localeCompare(b.number));
 
     before.owedP += pool_.reduce((s, i) => s + i.openP, 0);
     before.advanceP += free.reduce((s, r) => s + (r.amountP - r.wasP), 0);
@@ -171,12 +202,12 @@ async function main() {
     }
   }
 
-  console.log(`  ${owners.length} customer(s) with receipts of their own`);
+  console.log(`  ${owners.length} customer(s) with a receipt of their own or money sitting loose`);
   console.log(`    owed before .... Rs ${money(before.owedP).padStart(12)}      advances before  Rs ${money(before.advanceP)}`);
   console.log(`    owed after ..... Rs ${money(after.owedP).padStart(12)}      advances after   Rs ${money(after.advanceP)}`);
   console.log(`    ${touched} receipt(s) re-placed into ${moves} application(s), Rs ${money(movedRupees)}\n`);
 
-  console.log(`  what each customer still owes once their own receipts are placed:`);
+  console.log(`  what each customer still owes once their money is placed:`);
   for (const c of [...perCust].sort((a, b) => b.nowP - a.nowP)) {
     if (!c.nowP && !c.advP) continue;
     console.log(`    ${c.name.slice(0, 28).padEnd(29)}owed ${money(c.wasP).padStart(11)} -> ${money(c.nowP).padStart(11)}` +
@@ -213,16 +244,28 @@ async function main() {
     for (const c of changes) {
       for (const r of c.recs) {
         const nowP = r.now.reduce((s, a) => s + a.p, 0);
-        await tx.delete(paymentApplications).where(eq(paymentApplications.paymentId, r.id));
+        if (r.kind === "own") {
+          await tx.delete(paymentApplications).where(eq(paymentApplications.paymentId, r.id));
+        } else if (!nowP) {
+          continue;                       // a Zoho receipt whose spare money found nothing
+        }
         for (const a of r.now) {
           await tx.insert(paymentApplications).values({
             paymentId: r.id, invoiceId: a.invoiceId, amountApplied: R(a.p),
           });
         }
-        await tx
-          .update(customerPayments)
-          .set({ unappliedAmount: R(r.amountP - nowP) })
-          .where(eq(customerPayments.id, r.id));
+        if (r.kind === "own") {
+          await tx
+            .update(customerPayments)
+            .set({ unappliedAmount: R(r.amountP - nowP) })
+            .where(eq(customerPayments.id, r.id));
+        } else {
+          // Its applications were left alone, so only the loose part shrinks.
+          await tx.execute(sql`
+            UPDATE customer_payments SET unapplied_amount = unapplied_amount - ${R(nowP)}::numeric
+             WHERE id = ${r.id}::uuid
+          `);
+        }
         /**
          * Only the total matters to the ledger: moving an application from one
          * invoice to another of the same customer leaves receivables where it
