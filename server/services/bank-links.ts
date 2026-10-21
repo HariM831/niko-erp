@@ -254,6 +254,20 @@ export function nameWords(text: string | null | undefined) {
  * and nobody else is strong, a word seen against five parties is worth
  * nothing. Nothing is remembered that a person did not first decide.
  */
+/**
+ * The digits worth learning: a ten-figure mobile, or a long account number.
+ * A cash machine tells you nothing but the number of whoever stood at it —
+ * "CSH DEP (CDM)- 8638180673 978-" — and that number is as good a name as any
+ * once it has been seen against a party.
+ */
+export function idNumbers(text: string | null | undefined) {
+  return [
+    ...new Set(
+      (text ?? "").match(/\d{10,18}/g)?.map((d) => d.replace(/^0+/, "")) ?? [],
+    ),
+  ].filter((d) => d.length >= 10);
+}
+
 export function suggestLearned(
   lineText: string,
   seen: Array<{ partyId: string; displayName: string; text: string }>,
@@ -262,14 +276,14 @@ export function suggestLearned(
   const names = new Map<string, string>();
   for (const s of seen) {
     names.set(s.partyId, s.displayName);
-    for (const w of nameWords(s.text)) {
+    for (const w of [...nameWords(s.text), ...idNumbers(s.text)]) {
       const parties = byWord.get(w) ?? new Map<string, number>();
       parties.set(s.partyId, (parties.get(s.partyId) ?? 0) + 1);
       byWord.set(w, parties);
     }
   }
   const score = new Map<string, { score: number; words: string[] }>();
-  for (const w of nameWords(lineText)) {
+  for (const w of [...nameWords(lineText), ...idNumbers(lineText)]) {
     const parties = byWord.get(w);
     // A word that has named more than two different parties is a word about
     // banking, not about anybody.
