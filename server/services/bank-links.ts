@@ -271,19 +271,27 @@ export function idNumbers(text: string | null | undefined) {
 export function suggestLearned(
   lineText: string,
   seen: Array<{ partyId: string; displayName: string; text: string }>,
+  /**
+   * Our own account numbers. They appear in half the narrations on the
+   * statement — the payer's bank prints the account the money went TO — so
+   * without this the house account becomes the distinguishing mark of
+   * whichever customer happened to be learned against it first.
+   */
+  house: Iterable<string> = [],
 ) {
+  const ours = new Set([...house].map((d) => (d ?? "").replace(/\D/g, "").replace(/^0+/, "")));
   const byWord = new Map<string, Map<string, number>>();
   const names = new Map<string, string>();
   for (const s of seen) {
     names.set(s.partyId, s.displayName);
-    for (const w of [...nameWords(s.text), ...idNumbers(s.text)]) {
+    for (const w of [...nameWords(s.text), ...idNumbers(s.text).filter((d) => !ours.has(d))]) {
       const parties = byWord.get(w) ?? new Map<string, number>();
       parties.set(s.partyId, (parties.get(s.partyId) ?? 0) + 1);
       byWord.set(w, parties);
     }
   }
   const score = new Map<string, { score: number; words: string[] }>();
-  for (const w of [...nameWords(lineText), ...idNumbers(lineText)]) {
+  for (const w of [...nameWords(lineText), ...idNumbers(lineText).filter((d) => !ours.has(d))]) {
     const parties = byWord.get(w);
     // A word that has named more than two different parties is a word about
     // banking, not about anybody.

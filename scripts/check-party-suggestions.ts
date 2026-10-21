@@ -48,6 +48,10 @@ async function main() {
     `)
   ).rows as Array<{ partyId: string; displayName: string; text: string }>;
 
+  const house = (
+    await db.execute(sql`SELECT account_number FROM bank_accounts WHERE account_number IS NOT NULL`)
+  ).rows.map((r) => (r as { account_number: string }).account_number);
+
   const lines = (
     await db.execute(sql`
       SELECT t.txn_date::text AS date, t.amount::float8 AS amount, t.description, t.utr, t.counterparty
@@ -66,7 +70,7 @@ async function main() {
     const text = `${l.description ?? ""} ${l.utr ?? ""} ${l.counterparty ?? ""}`;
     const named = suggestParties(text, people);
     const known = new Set(named.map((n) => n.id));
-    const learned = suggestLearned(text, seen).filter((s) => !known.has(s.id));
+    const learned = suggestLearned(text, seen, house).filter((s) => !known.has(s.id));
     const all = [...named, ...learned].slice(0, 6);
     if (all.length) offered += 1;
     console.log(`  ${l.date}  ${money(l.amount).padStart(12)}  ${(l.description ?? "").slice(0, 62)}`);

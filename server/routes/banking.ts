@@ -678,6 +678,7 @@ bankingRouter.get(
  */
 let corpusAt = 0;
 let corpusRows: Array<{ partyId: string; displayName: string; text: string; side: string }> = [];
+let houseAccounts: string[] = [];
 async function learnedCorpus() {
   if (Date.now() - corpusAt < 60_000 && corpusRows.length) return corpusRows;
   corpusRows = (
@@ -701,6 +702,9 @@ async function learnedCorpus() {
        WHERE t.description IS NOT NULL
     `)
   ).rows as typeof corpusRows;
+  houseAccounts = (
+    await db.select({ n: bankAccounts.accountNumber }).from(bankAccounts)
+  ).map((r) => r.n ?? "");
   corpusAt = Date.now();
   return corpusRows;
 }
@@ -722,7 +726,7 @@ async function linePartyNames(lines: Array<{ id: string; description: string | n
   const seen = await learnedCorpus();
   for (const l of lines) {
     const text = `${l.description ?? ""} ${l.utr ?? ""} ${l.counterparty ?? ""}`;
-    const found = [...suggestParties(text, people), ...suggestLearned(text, seen)];
+    const found = [...suggestParties(text, people), ...suggestLearned(text, seen, houseAccounts)];
     out.set(l.id, new Set(found.map((f) => f.displayName)));
   }
   return out;
@@ -1095,7 +1099,7 @@ bankingRouter.get("/transactions/:id/party-suggestions", requirePermission("bank
    */
   const known = new Set(named.map((n) => n.id));
   const allowed = new Set(people.map((p) => p.id));
-  const learned = suggestLearned(text, (await learnedCorpus()).filter((r) => r.side === side))
+  const learned = suggestLearned(text, (await learnedCorpus()).filter((r) => r.side === side), houseAccounts)
     .filter((l) => !known.has(l.id) && allowed.has(l.id));
   res.json([...named, ...learned].slice(0, 6));
 });
