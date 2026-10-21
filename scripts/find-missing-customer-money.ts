@@ -137,6 +137,41 @@ async function main() {
         `${twin ? `ALREADY IN as ${twin.number} (${twin.cust})` : ""}`,
     );
   }
+  /**
+   * The decisive figure. Which invoice a rupee settles is bookkeeping; whether
+   * the customer has paid at all is not. If everything they have sent matches
+   * everything they have been billed, an open invoice is only the allocation
+   * standing one sale behind — the money is here. A real shortfall is money
+   * that never arrived, or arrived under a name that is not theirs.
+   */
+  const ledger = (
+    await db.execute(sql`
+      SELECT c.display_name AS cust,
+             coalesce((SELECT sum(i.total) FROM invoices i
+                        WHERE i.customer_id = c.id AND i.status NOT IN ('void', 'draft')), 0)::float8 AS billed,
+             coalesce((SELECT sum(n.total) FROM credit_notes n WHERE n.customer_id = c.id), 0)::float8 AS credited,
+             coalesce((SELECT sum(p.amount) FROM customer_payments p WHERE p.customer_id = c.id), 0)::float8 AS got
+        FROM contacts c
+       WHERE c.is_group_company = false
+         AND EXISTS (SELECT 1 FROM invoices i WHERE i.customer_id = c.id AND i.status NOT IN ('void', 'draft'))
+       ORDER BY 2 DESC
+    `)
+  ).rows as Array<{ cust: string; billed: number; credited: number; got: number }>;
+  const short = ledger.filter((l) => l.billed - l.credited - l.got > 1);
+  console.log(
+    `\n  Everything billed against everything received, all time:` +
+      `\n    ${ledger.length - short.length} customer(s) have sent at least as much as they were billed` +
+      `\n    ${short.length} have not, by Rs ${money(short.reduce((s, l) => s + l.billed - l.credited - l.got, 0))}\n`,
+  );
+  for (const l of short) {
+    console.log(
+      `    ${l.cust.slice(0, 26).padEnd(27)}billed ${money(l.billed).padStart(13)}` +
+        `   received ${money(l.got).padStart(13)}` +
+        `${l.credited ? `   credit notes ${money(l.credited)}` : ""}` +
+        `   short ${money(l.billed - l.credited - l.got).padStart(12)}`,
+    );
+  }
+
   console.log(
     `\n  ${loose.length - risky} of them are money this book has never seen.` +
       `${risky ? ` ${risky} already exist under a receipt number — those are lines to MATCH, not to key again.` : ""}\n`,
