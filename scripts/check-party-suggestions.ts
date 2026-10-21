@@ -78,6 +78,21 @@ async function main() {
     if (!all.length) console.log(`      → nobody yet`);
   }
   console.log(`\n  ${offered} of ${lines.length} would open with a customer suggested.\n`);
+
+  /**
+   * Where a learned name came from. A habit is only as good as the decision
+   * that taught it, and five cash deposits in a day resting on one earlier
+   * click is worth reading before it is trusted.
+   */
+  const at = process.argv.indexOf("--word");
+  const word = at > -1 ? process.argv[at + 1]! : undefined;
+  if (word) {
+    console.log(`  what taught "${word}":`);
+    for (const r of seen.filter((x) => (x.text ?? "").toLowerCase().includes(word.toLowerCase()))) {
+      console.log(`    ${r.displayName.slice(0, 26).padEnd(27)}${r.text.slice(0, 70)}`);
+    }
+    console.log();
+  }
   await pool.end();
 }
 
