@@ -102,7 +102,38 @@ async function main() {
     console.log();
   }
 
-  if (!invoices.length && !bills.length) {
+  /**
+   * A balance and a status have to say the same thing. The AR Aging Summary
+   * asks for invoices that are 'sent' or 'partially_paid', so an invoice that
+   * owes money while still calling itself paid is invisible there — and that
+   * is precisely what the loaders left behind for the group, whose advances
+   * Zoho applied and niko holds back by decision: 18 invoices owing 34.22
+   * crore, none of them in the ageing.
+   */
+  const mislabelled = (
+    await db.execute(sql`
+      SELECT i.number, c.display_name AS party, i.status::text, i.balance_due::float8 AS says,
+             i.total::float8 AS total
+        FROM invoices i JOIN contacts c ON c.id = i.customer_id
+       WHERE i.status NOT IN ('void', 'draft')
+         AND ((i.balance_due > 1 AND i.status NOT IN ('sent', 'partially_paid'))
+              OR (i.balance_due <= 1 AND i.status <> 'paid'))
+       ORDER BY i.balance_due DESC
+    `)
+  ).rows as Array<{ number: string; party: string; status: string; says: number; total: number }>;
+  if (mislabelled.length) {
+    console.log(`  STATUS DISAGREES WITH THE BALANCE (${mislabelled.length}) — these are missing from the ageing:`);
+    for (const m of mislabelled.slice(0, 12)) {
+      console.log(
+        `    ${m.number.padEnd(18)}${m.party.slice(0, 26).padEnd(27)}says ${m.status.padEnd(16)}` +
+          `owes ${money(m.says).padStart(13)} of ${money(m.total)}`,
+      );
+    }
+    if (mislabelled.length > 12) console.log(`    ... and ${mislabelled.length - 12} more`);
+    console.log();
+  }
+
+  if (!invoices.length && !bills.length && !mislabelled.length) {
     console.log("  Every document's balance is what its applications make it.\n");
     await pool.end();
     return;
@@ -184,6 +215,16 @@ async function main() {
         - coalesce((SELECT sum(amount_applied) FROM payment_applications WHERE invoice_id = i.id), 0)
         - coalesce((SELECT sum(amount_applied) FROM credit_note_applications WHERE invoice_id = i.id), 0))::numeric, 2), 0)
        WHERE i.status <> 'void'
+    `);
+    /** The status follows the balance, or the ageing cannot see the document. */
+    await tx.execute(sql`
+      UPDATE invoices i
+         SET status = CASE WHEN i.balance_due <= 1 THEN 'paid'
+                           WHEN i.balance_due >= i.total THEN 'sent'
+                           ELSE 'partially_paid' END::invoice_status
+       WHERE i.status NOT IN ('void', 'draft')
+         AND ((i.balance_due > 1 AND i.status NOT IN ('sent', 'partially_paid'))
+              OR (i.balance_due <= 1 AND i.status <> 'paid'))
     `);
     await tx.execute(sql`
       UPDATE bills b SET balance_due = greatest(round((b.total
