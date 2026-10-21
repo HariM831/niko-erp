@@ -83,6 +83,29 @@ async function main() {
   ).rows as Array<{ number: string; date: string; cust: string; cust_id: string;
                     spare: number; reference: string | null }>;
 
+  /**
+   * A statement that stops is a hole shaped exactly like missing money. If an
+   * account was last imported in September, every deposit into it since is
+   * invisible and the customers who paid into it look like debtors.
+   */
+  const banks = (
+    await db.execute(sql`
+      SELECT a.name, count(t.id)::int AS lines,
+             max(t.txn_date)::text AS last_line,
+             count(t.id) FILTER (WHERE t.direction = 'credit' AND t.match_status <> 'matched')::int AS loose
+        FROM bank_accounts a LEFT JOIN bank_transactions t ON t.bank_account_id = a.id
+       GROUP BY a.id, a.name ORDER BY 3 DESC NULLS LAST
+    `)
+  ).rows as Array<{ name: string; lines: number; last_line: string | null; loose: number }>;
+  console.log(`  statements, and how far each one runs:`);
+  for (const b of banks) {
+    console.log(
+      `    ${b.name.slice(0, 32).padEnd(33)}${String(b.lines).padStart(6)} lines` +
+        `   last ${b.last_line ?? "never imported"}${b.loose ? `   ${b.loose} credit(s) not matched` : ""}`,
+    );
+  }
+  console.log();
+
   const near = (a: string, b: string) => Math.abs((Date.parse(a) - Date.parse(b)) / 86_400_000) <= DAYS;
   const close = (a: number, b: number) => Math.abs(a - b) <= Math.max(100, b * 0.01);
 
