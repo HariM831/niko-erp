@@ -83,6 +83,34 @@ async function main() {
   line("  of which the group (*)", grp.b, grp.total);
   line("  everyone else", trade.b, trade.total);
 
+  /** The same column the screen now carries, from the same two sources. */
+  const credits = (
+    await db.execute(sql`
+      SELECT c.display_name AS party, c.is_group_company AS grp,
+             (coalesce((SELECT sum(p.unapplied_amount) FROM customer_payments p
+                         WHERE p.customer_id = c.id), 0)
+            + coalesce((SELECT sum(n.balance) FROM credit_notes n
+                         WHERE n.customer_id = c.id AND n.status NOT IN ('draft', 'void')), 0))::float8 AS unused
+        FROM contacts c
+    `)
+  ).rows as Array<{ party: string; grp: boolean; unused: number }>;
+  const held = credits.filter((c) => c.unused > 0.5);
+  console.log(`
+  Unused credits — money held against no document:`);
+  for (const c of [...held].sort((a, b) => Number(a.grp) - Number(b.grp) || b.unused - a.unused)) {
+    console.log(`    ${(c.party + (c.grp ? " *" : "")).slice(0, 29).padEnd(30)}${money(c.unused).padStart(14)}`);
+  }
+  const heldGroup = held.filter((c) => c.grp).reduce((s, c) => s + c.unused, 0);
+  const heldTrade = held.filter((c) => !c.grp).reduce((s, c) => s + c.unused, 0);
+  console.log(
+    `    ${"TOTAL".padEnd(30)}${money(heldGroup + heldTrade).padStart(14)}` +
+      `   group ${money(heldGroup)}   everyone else ${money(heldTrade)}`,
+  );
+  console.log(
+    `
+  Net of it: the group ${money(grp.total - heldGroup)}, everyone else ${money(trade.total - heldTrade)}`,
+  );
+
   const [tie] = (
     await db.execute(sql`
       SELECT coalesce(sum(balance_due), 0)::float8 AS open
