@@ -199,7 +199,9 @@ export function PayrollFaceEnrollmentPage() {
     if (!file) return;
     setRow(id, { status: "working" });
     try {
-      const photoUrl = await resizePhotoFile(file, 512);
+      // The default 1024 px: at 512 a face in an ordinary portrait drops to
+      // ~120 px and the detector loses it — "No face found" on a clear photo.
+      const photoUrl = await resizePhotoFile(file);
       const img = await loadImage(photoUrl);
       const face = await getFaceEmbedding(img);
       if (!face.ok || !face.embedding) { setRow(id, { status: "error", message: "No face found in that photo" }); return; }
