@@ -11,7 +11,9 @@
  *
  * The pairing is the user's, decided 22 Oct 2026, not worked out here:
  *   JE-09585  Zakir Egg Store, Rs 3,00,000, 22 Apr 2026  →  CP-2026-27/106 (16 Apr, Rs 3,00,000 unused)
- *   JE-09546  Luit Valley Farms LLP, Rs 28,00,000, 30 Mar 2026  →  receipt 33 (30 Mar, Rs 60,00,000)
+ *
+ * Luit Valley's Rs 28 lakh (JE-09546, 30 Mar 2026) is left as it is: the user
+ * said not to touch Luit Valley. The group is settled as one net figure.
  *
  * Each becomes a customer_payment_refunds row, the receipt's unapplied amount
  * comes down by it, and the journal is re-sourced to the receipt. No amount in
@@ -23,7 +25,6 @@ import { db, pool } from "../server/db";
 const COMMIT = process.argv.includes("--commit");
 const PAIRS = [
   { entry: "JE-09585", customer: "Zakir Egg Store", receipt: "CP-2026-27/106" },
-  { entry: "JE-09546", customer: "Luit Valley Farms LLP", receipt: "33" },
 ];
 
 async function main() {
