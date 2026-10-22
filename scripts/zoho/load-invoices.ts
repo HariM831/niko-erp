@@ -14,9 +14,10 @@
  */
 import { zohoActor } from "./actor";
 import { readFile } from "node:fs/promises";
-import { eq } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { contacts, invoiceLines, invoices, users, zohoIdMap } from "@shared/schema";
 import { db, pool } from "../../server/db";
+import { nextDocumentNumber } from "../../server/lib/numbering";
 import { toGstStateCode } from "@shared/gst-states";
 import { postInvoiceJournal } from "../../server/routes/sales";
 
@@ -310,15 +311,40 @@ async function main() {
   const admin = await zohoActor();
   if (!admin) throw new Error("No user to attribute the import to");
 
+  /**
+   * Zoho's number, where it is still free here.
+   *
+   * It was always free until 16 Oct 2026, when the egg series was relaid in
+   * dispatch-date order: niko's A-INV-EG-27-1006 is now a different sale from
+   * Zoho's, so writing Zoho's number verbatim collides. The document keeps
+   * Zoho's number in zoho_id_map either way, which is what the reconciliation
+   * reads, so nothing is lost but the coincidence of the two series.
+   */
+  const taken = new Set(
+    (
+      await db
+        .select({ number: invoices.number })
+        .from(invoices)
+        .where(inArray(invoices.number, todo.map((i) => i.invoice_number)))
+    ).map((r) => r.number),
+  );
+  if (taken.size) {
+    console.log(`
+  ${taken.size} of Zoho's numbers already belong to a different sale here; those take the next in our series.`);
+  }
+
   let posted = 0;
   await db.transaction(async (tx) => {
     for (const inv of todo) {
+      const number = taken.has(inv.invoice_number)
+        ? await nextDocumentNumber(tx, "invoice")
+        : inv.invoice_number;
       const customerId = contactFor.get(inv.customer_id)!;
       const adj = discountAsAdjustment(inv);
       const [row] = await tx
         .insert(invoices)
         .values({
-          number: inv.invoice_number,
+          number,
           customerId,
           status: STATUS[inv.status]!,
           invoiceDate: inv.date,
