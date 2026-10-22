@@ -23,6 +23,12 @@
 import { sql } from "drizzle-orm";
 import { db, pool } from "../../server/db";
 
+/** The same question of what we bought. Complaints of duplicates, 22 Oct 2026. */
+const BILLS = process.argv.includes("--bills");
+const SIDE = BILLS
+  ? { doc: "bills", party: "vendor_id", name: "Vendor Name", word: "bill", dispatch: false }
+  : { doc: "invoices", party: "customer_id", name: "Customer Name", word: "invoice", dispatch: true };
+
 const daysAt = process.argv.indexOf("--days");
 /** The same sale may be dated a day apart between the books. */
 const DAYS = daysAt > -1 ? Number(process.argv[daysAt + 1]) : 0;
@@ -63,21 +69,34 @@ async function main() {
 
   const rows = (
     await db.execute(sql`
-      SELECT i.id::text, i.number, i.invoice_date::text AS date, c.display_name AS cust,
-             i.customer_id::text AS cust_id, i.total::float8 AS total, i.status::text,
+      SELECT i.id::text, i.number,
+             ${BILLS ? sql`i.bill_date` : sql`i.invoice_date`}::text AS date,
+             c.display_name AS cust,
+             i.${BILLS ? sql`vendor_id` : sql`customer_id`}::text AS cust_id,
+             i.total::float8 AS total, i.status::text,
              i.created_at::text AS created,
-             (SELECT z.zoho_id FROM zoho_id_map z WHERE z.entity = 'invoice' AND z.eggsy_id = i.id) AS zoho,
+             (SELECT z.zoho_id FROM zoho_id_map z
+               WHERE z.entity = ${BILLS ? "bill" : "invoice"} AND z.eggsy_id = i.id) AS zoho,
              -- Which copy to keep is decided by this: the eggs left the farm
              -- once, and the invoice carrying the dispatch is the one that
-             -- moved them. The other is paper.
-             (SELECT count(*)::int FROM egg_dispatches d WHERE d.invoice_id = i.id) AS dispatches,
-             (SELECT string_agg(p.number || ' ' || to_char(p.payment_date, 'DD Mon') || ' ' ||
+             -- moved them. The other is paper. A bill has its own version of
+             -- that question — the goods receipt — which is read separately.
+             ${BILLS ? sql`0` : sql`(SELECT count(*)::int FROM egg_dispatches d WHERE d.invoice_id = i.id)`} AS dispatches,
+             ${
+               BILLS
+                 ? sql`(SELECT string_agg(p.number || ' ' || to_char(p.payment_date, 'DD Mon') || ' ' ||
+                                round(pa.amount_applied::numeric)::text, ', ' ORDER BY p.payment_date)
+                FROM vendor_payment_applications pa JOIN vendor_payments p ON p.id = pa.payment_id
+               WHERE pa.bill_id = i.id)`
+                 : sql`(SELECT string_agg(p.number || ' ' || to_char(p.payment_date, 'DD Mon') || ' ' ||
                                 round(pa.amount_applied::numeric)::text, ', ' ORDER BY p.payment_date)
                 FROM payment_applications pa JOIN customer_payments p ON p.id = pa.payment_id
-               WHERE pa.invoice_id = i.id) AS receipts
-        FROM invoices i JOIN contacts c ON c.id = i.customer_id
+               WHERE pa.invoice_id = i.id)`
+             } AS receipts
+        FROM ${BILLS ? sql`bills` : sql`invoices`} i
+        JOIN contacts c ON c.id = i.${BILLS ? sql`vendor_id` : sql`customer_id`}
        WHERE i.status NOT IN ('void', 'draft')
-       ORDER BY i.invoice_date, i.number
+       ORDER BY 3, i.number
     `)
   ).rows as Inv[];
 
