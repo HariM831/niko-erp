@@ -45,8 +45,22 @@ const COMMIT = process.argv.includes("--commit");
 const VERBOSE = process.argv.includes("--verbose");
 const custAt = process.argv.indexOf("--customer");
 const ONLY = custAt > -1 ? process.argv[custAt + 1]! : undefined;
-/** A receipt looks this many days forward for the sale it paid for. */
-const WINDOW = 2;
+/**
+ * How far forward a receipt looks for the sale it paid for. The user,
+ * 22 Oct 2026: every payment usually comes the day before the invoice or on
+ * the day itself. So a receipt of the 7th may settle an invoice of the 7th or
+ * the 8th, and nothing else.
+ *
+ * It was two days, with a second pass that put whatever was left against the
+ * oldest invoice still open. That pass is what went wrong: it reached
+ * backwards for months — a receipt of 16 April settled a sale of 17 September
+ * on A-INV-EG-27-0826 — and an allocation that can reach any distance will
+ * always find something to settle, whether or not it is the right thing.
+ * Money with no sale beside it stays where it is, as the customer's advance.
+ */
+const WINDOW = Number(process.env.ALLOCATE_WINDOW ?? 1);
+/** The old mop-up, kept behind a flag for the day somebody wants it. */
+const SETTLE_OLDER = process.argv.includes("--settle-older");
 
 const P = (n: string | number) => Math.round(Number(n) * 100);
 const R = (p: number) => (p / 100).toFixed(2);
@@ -174,11 +188,13 @@ async function main() {
         take(r, inv, Math.min(inv.openP, left(r)));
       }
     }
-    // Then whatever the customer still owes, oldest first. No credit sales.
-    for (const r of free) {
-      for (const inv of pool_) {
-        if (left(r) <= 0) break;
-        if (inv.openP > 0) take(r, inv, Math.min(inv.openP, left(r)));
+    // Then, only if asked, whatever the customer still owes, oldest first.
+    if (SETTLE_OLDER) {
+      for (const r of free) {
+        for (const inv of pool_) {
+          if (left(r) <= 0) break;
+          if (inv.openP > 0) take(r, inv, Math.min(inv.openP, left(r)));
+        }
       }
     }
 
