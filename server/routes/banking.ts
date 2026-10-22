@@ -293,7 +293,7 @@ const PARTY_LOOKUPS: Record<
 };
 
 /** Batch-resolve "Customer: X" / "Vendor: X" subtitles for a set of (sourceType, sourceId) rows in a handful of queries. */
-async function loadPartyLabels(rows: Array<{ sourceType: string; sourceId: string | null }>) {
+export async function loadPartyLabels(rows: Array<{ sourceType: string; sourceId: string | null }>) {
   const byType = new Map<string, string[]>();
   for (const r of rows) {
     if (!r.sourceId || !PARTY_LOOKUPS[r.sourceType]) continue;
@@ -710,7 +710,7 @@ async function learnedCorpus() {
 }
 
 /** The names of the customers and vendors each line spells out or carries the account number of. */
-async function linePartyNames(lines: Array<{ id: string; description: string | null; utr: string | null; counterparty: string | null }>) {
+export async function linePartyNames(lines: Array<{ id: string; description: string | null; utr: string | null; counterparty: string | null }>) {
   const out = new Map<string, Set<string>>();
   if (!lines.length) return out;
   const people = await db
@@ -737,7 +737,7 @@ async function linePartyNames(lines: Array<{ id: string; description: string | n
  * line carries? "same" when it is one of them, "other" when the line names
  * someone else, undefined when either side names nobody.
  */
-function partyVerdict(label: string | null | undefined, names: Set<string> | undefined) {
+export function partyVerdict(label: string | null | undefined, names: Set<string> | undefined) {
   if (!label || !names?.size) return undefined;
   const name = label.slice(label.indexOf(": ") + 2);
   return names.has(name) ? ("same" as const) : ("other" as const);
@@ -755,7 +755,7 @@ function partyVerdict(label: string | null | undefined, names: Set<string> | und
  * the very amount on the same side, within `days` of it, not matched on this
  * bank yet. One query for the lot, however many lines.
  */
-async function exactFits(lineIds: string[], days: number) {
+export async function exactFits(lineIds: string[], days: number) {
   if (!lineIds.length) return [];
   const rows = await db.execute(sql`
     SELECT t.id AS line_id, je.id AS entry_id, je.entry_number, je.entry_date::text AS entry_date,
@@ -780,7 +780,7 @@ async function exactFits(lineIds: string[], days: number) {
   }>;
 }
 
-const lineText = (l: { description: string | null; utr: string | null; counterparty: string | null }) =>
+export const lineText = (l: { description: string | null; utr: string | null; counterparty: string | null }) =>
   `${l.description ?? ""} ${l.utr ?? ""} ${l.counterparty ?? ""}`;
 
 async function withLinkInfo(lines: Array<typeof bankTransactions.$inferSelect>) {

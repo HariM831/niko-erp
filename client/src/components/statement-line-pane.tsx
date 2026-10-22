@@ -195,7 +195,12 @@ export function StatementLinePane({
           {tab === "match" ? (
             <MatchTab line={line} onDone={onDone} />
           ) : (
-            <CategorizeTab line={line} bankAccountId={bankAccountId} onDone={onDone} />
+            <CategorizeTab
+              line={line}
+              bankAccountId={bankAccountId}
+              onDone={onDone}
+              onMatchInstead={() => setTab("match")}
+            />
           )}
         </div>
         <footer className="flex justify-end border-t px-5 py-2.5">
@@ -417,10 +422,12 @@ function CategorizeTab({
   line,
   bankAccountId,
   onDone,
+  onMatchInstead,
 }: {
   line: StatementLine;
   bankAccountId: string;
   onDone: (m: string) => void;
+  onMatchInstead: () => void;
 }) {
   const isIn = line.direction === "credit";
   const types = isIn ? MONEY_IN : MONEY_OUT;
@@ -515,6 +522,23 @@ function CategorizeTab({
   const otherBanks = (banks ?? []).filter(
     (b) => b.id !== bankAccountId && b.isActive !== false && (type.kind !== "card_payment" || b.kind === "card"),
   );
+
+  /**
+   * The money may already be in the books under a document nobody linked to
+   * the statement — every receipt the Zoho catch-up loaded is like that, since
+   * it never touched the bank lines. Such a line looks untouched here, and
+   * categorizing it writes the deposit a second time: PMT-00161 of 22 Oct 2026
+   * over CP-2026-27/1453, one cash deposit debiting SBI twice.
+   *
+   * The same query the Match tab runs, so the two share one answer. Only an
+   * exact fit is worth a warning, and not one the line names somebody else
+   * for: two customers paid 2,62,013 on 7 October.
+   */
+  const { data: matches } = useQuery({
+    queryKey: ["possible-matches", line.id, ""],
+    queryFn: () => api<{ candidates: Candidate[] }>(`/api/banking/transactions/${line.id}/possible-matches?`),
+  });
+  const alreadyHeld = (matches?.candidates ?? []).filter((c) => c.exact && !c.otherParty);
 
   // A vendor payment is gross of TDS: the bank paid the line, the vendor is settled for the line plus the tax held back.
   const tdsP = side === "vendor" ? paise(tds) : 0;
@@ -638,6 +662,31 @@ function CategorizeTab({
 
   return (
     <div className="space-y-3 px-5 py-4 text-[13px]">
+      {!!alreadyHeld.length && (
+        <div className="rounded border border-amber-300 bg-amber-50 px-3 py-2.5">
+          <p className="text-[12px] font-medium text-amber-900">
+            {alreadyHeld.length === 1
+              ? "The books already hold this money."
+              : `The books already hold ${alreadyHeld.length} transactions for this amount.`}
+          </p>
+          <ul className="mt-1 space-y-0.5 text-[11px] text-amber-800">
+            {alreadyHeld.slice(0, 3).map((c) => (
+              <li key={c.journalEntryId}>
+                {c.typeLabel} {c.entryNumber} · {formatDate(c.date)}
+                {c.party ? ` · ${c.party}` : ""}
+                {c.sharedRef ? " · same bank reference" : c.sameParty ? " · same party" : ""}
+              </li>
+            ))}
+            {alreadyHeld.length > 3 && <li>… and {alreadyHeld.length - 3} more</li>}
+          </ul>
+          <p className="mt-1.5 text-[11px] text-amber-800">
+            Categorizing here writes a second one and the deposit counts twice.
+          </p>
+          <button onClick={onMatchInstead} className="mt-1.5 text-[12px] font-medium text-amber-900 underline">
+            Match it instead
+          </button>
+        </div>
+      )}
       <div>
         <label className="label-required">Category *</label>
         <SearchSelect
