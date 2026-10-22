@@ -240,8 +240,23 @@ export function VendorSheetPage() {
    * question the sheet answers is "how much goes to this vendor today", and
    * four of the same vendor's bills scattered down a list did not answer it.
    * Vendors sort by name; within a vendor the server's order stands.
+   *
+   * To pay opens folded: one line per vendor with what they are owed, and a
+   * click on the vendor shows their bills to tick (22 Oct 2026). Advances are
+   * few, so they open unfolded. What has been opened or folded is kept per tab.
    */
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [toggled, setToggled] = useState<Set<string>>(new Set());
+  const foldKey = (vendorId: string) => `${tab}:${vendorId}`;
+  const isOpen = (vendorId: string) =>
+    tab === "advances" ? !toggled.has(foldKey(vendorId)) : toggled.has(foldKey(vendorId));
+  const flip = (vendorId: string) =>
+    setToggled((c) => {
+      const next = new Set(c);
+      const k = foldKey(vendorId);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
   /*
    * The sheet is grouped by vendor because that is how it is paid — one
    * beneficiary, one block, one subtotal. So a header sorts BOTH levels: the
@@ -339,6 +354,23 @@ export function VendorSheetPage() {
         </div>
         {tab !== "sent" && (
           <div className="flex items-center gap-2">
+            {groups.length > 0 && (
+              <button
+                onClick={() => {
+                  const allOpen = groups.every((g) => isOpen(g.vendorId));
+                  setToggled((c) => {
+                    const next = new Set([...c].filter((k) => !k.startsWith(`${tab}:`)));
+                    // Folded by default on To pay, open by default on Advances.
+                    const wantMarked = tab === "advances" ? allOpen : !allOpen;
+                    if (wantMarked) for (const g of groups) next.add(foldKey(g.vendorId));
+                    return next;
+                  });
+                }}
+                className="btn-ghost px-2 py-1 text-[12.5px]"
+              >
+                {groups.every((g) => isOpen(g.vendorId)) ? "Collapse all" : "Expand all"}
+              </button>
+            )}
             {adv.button}
             {selected.size > 0 && (
               <span className="text-[13px] text-gray-500">
@@ -426,11 +458,16 @@ export function VendorSheetPage() {
                 </thead>
                 <tbody>
                   {groups.flatMap(({ vendorId, vendorName, rows: vendorRows, subtotal, bank }) => {
-                    const open = !collapsed.has(vendorId);
+                    const open = isOpen(vendorId);
+                    const tickedHere = vendorRows.filter((r) => selected.has(rowKey(r)));
                     const groupPayable = vendorRows.filter(canTick);
                     const groupAllOn = groupPayable.length > 0 && groupPayable.every((r) => selected.has(rowKey(r)));
                     const header = (
-                      <tr key={`v:${vendorId}`} className="bg-gray-50 text-[12px]">
+                      <tr
+                        key={`v:${vendorId}`}
+                        onClick={() => flip(vendorId)}
+                        className="cursor-pointer bg-gray-50 text-[12px] hover:bg-gray-100"
+                      >
                         <td className="border-b border-[#ece3d5] px-3 py-1.5" onClick={(e) => e.stopPropagation()}>
                           <input
                             type="checkbox"
@@ -454,20 +491,15 @@ export function VendorSheetPage() {
                             className="accent-brand-500 disabled:opacity-40"
                           />
                         </td>
-                        <td
-                          className="cursor-pointer select-none whitespace-nowrap border-b border-[#ece3d5] px-3 py-1.5 font-semibold text-gray-700"
-                          onClick={() =>
-                            setCollapsed((c) => {
-                              const next = new Set(c);
-                              if (next.has(vendorId)) next.delete(vendorId);
-                              else next.add(vendorId);
-                              return next;
-                            })
-                          }
-                        >
+                        <td className="select-none whitespace-nowrap border-b border-[#ece3d5] px-3 py-1.5 font-semibold text-gray-700">
                           <span className="mr-1.5 inline-block w-3 text-gray-400">{open ? "▾" : "▸"}</span>
                           {vendorName}
-                          <span className="ml-2 font-normal text-gray-400">{vendorRows.length}</span>
+                          <span className="ml-2 font-normal text-gray-400">
+                            {vendorRows.length} {onAdvances ? (vendorRows.length === 1 ? "advance" : "advances") : vendorRows.length === 1 ? "bill" : "bills"}
+                          </span>
+                          {tickedHere.length > 0 && (
+                            <span className="ml-2 font-normal text-brand-600">{tickedHere.length} ticked</span>
+                          )}
                           {!bank && <span className="ml-2 font-normal text-amber-600">no bank details</span>}
                         </td>
                         <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-1.5" />
