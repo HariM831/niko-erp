@@ -57,9 +57,11 @@ export const attendanceSource = pgEnum("attendance_source", [
   "manual",
   "import",
 ]);
-export const leaveType = pgEnum("leave_type", ["CL", "SL", "CompOff"]);
+/** OH: an optional holiday, taken on one of the company's optional-holiday dates (salaried only). */
+export const leaveType = pgEnum("leave_type", ["CL", "SL", "CompOff", "OH"]);
 export const approvalStatus = pgEnum("approval_status", ["pending", "approved", "rejected"]);
-export const holidayType = pgEnum("holiday_type", ["national", "regional", "company"]);
+/** optional: not a day off for anyone — only a date an OH leave may be taken on. */
+export const holidayType = pgEnum("holiday_type", ["national", "regional", "company", "optional"]);
 export const advanceType = pgEnum("advance_type", ["salary_advance", "loan"]);
 export const advanceStatus = pgEnum("advance_status", ["active", "closed", "cancelled"]);
 export const payInputKind = pgEnum("pay_input_kind", ["bonus", "overtime", "reimbursement", "deduction", "arrears"]);
@@ -217,6 +219,8 @@ export const payrollSettings = pgTable("payroll_settings", {
   clMaxConsecutive: integer("cl_max_consecutive").notNull().default(6),
   slPerMonth: real("sl_per_month").notNull().default(0.5),
   compOffValidityDays: integer("comp_off_validity_days").notNull().default(30),
+  /** How many optional holidays (leave type OH) a salaried employee may take in a calendar year. */
+  optionalHolidaysPerYear: integer("optional_holidays_per_year").notNull().default(2),
   /** A face match under this score keeps its photo for review. */
   reviewBelowScore: real("review_below_score").notNull().default(0.72),
   /**

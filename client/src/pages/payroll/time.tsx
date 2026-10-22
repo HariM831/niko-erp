@@ -55,14 +55,18 @@ interface MonthGrid {
 }
 interface Leave {
   id: string; employeeId: string; name?: string; empCode?: string;
-  leaveType: "CL" | "SL" | "CompOff"; fromDate: string; toDate: string; days: number; reason: string;
+  leaveType: "CL" | "SL" | "CompOff" | "OH"; fromDate: string; toDate: string; days: number; reason: string;
   status: string; compOffWorkDate: string | null; remarks: string | null; appliedAt: string;
 }
 interface Balance {
   CL: { earned: number; used: number; balance: number };
   SL: { earned: number; used: number; balance: number };
   CompOff: { earned: number; used: number; balance: number; expiring: { workDate: string; expiresOn: string }[] };
+  OH: { earned: number; used: number; balance: number };
 }
+interface Holiday { id: string; name: string; date: string; type: string }
+/** The balances shown beside a leave: OH only for those allowed any (salaried staff). */
+const balanceKinds = (b: Balance): (keyof Balance)[] => (b.OH?.earned ? ["CL", "SL", "CompOff", "OH"] : ["CL", "SL", "CompOff"]);
 interface OpenPunch { id: string; employeeId: string; name?: string; empCode?: string; punchDate: string; punchedAt: string }
 interface Assignment { id: string; employeeId: string; name?: string; empCode?: string; shiftId: string; shiftName?: string; shift?: { name: string }; effectiveFrom: string; effectiveTo: string | null; weeklyOffDays: number[] | null }
 interface Shift { id: string; name: string; startTime: string; endTime: string; weeklyOffDays: number[]; isActive: boolean; color: string }
@@ -100,6 +104,7 @@ const LEAVE_SEARCH: SearchField[] = [
       { value: "CL", label: "Casual leave" },
       { value: "SL", label: "Sick leave" },
       { value: "CompOff", label: "Comp-off" },
+      { value: "OH", label: "Optional holiday" },
     ],
   },
   { key: "date", label: "Date Range", kind: "dateRange" },
@@ -843,8 +848,8 @@ function LeaveTab({ term, criteria }: { term: string; criteria: Criteria }) {
               {dmy(decide.leave.fromDate)} – {dmy(decide.leave.toDate)} · {num(decide.leave.days, 1)} day{decide.leave.days === 1 ? "" : "s"}
             </div>
             {balQ.data && (
-              <div className="mt-2 grid grid-cols-3 gap-2 rounded-md bg-gray-50 p-2 text-center text-[12px]">
-                {(["CL", "SL", "CompOff"] as const).map((k) => (
+              <div className="mt-2 grid grid-cols-4 gap-2 rounded-md bg-gray-50 p-2 text-center text-[12px]">
+                {balanceKinds(balQ.data).map((k) => (
                   <div key={k} className={decide.leave.leaveType === k ? "font-semibold" : ""}>
                     <div className="text-gray-400">{k}</div>
                     <div className="tabular-nums">{num(balQ.data[k].balance, 1)} left</div>
@@ -893,6 +898,14 @@ function ApplyLeaveDialog({ onClose, onSaved, preset }: {
     queryFn: () => api<Balance>(`/api/payroll/leave/balance/${form.employeeId}?year=${year}`),
     enabled: !!form.employeeId,
   });
+  // An optional holiday is taken on one of the listed dates, so it is picked from the list.
+  const ohYear = form.fromDate ? Number(form.fromDate.slice(0, 4)) : year;
+  const optionalQ = useQuery({
+    queryKey: ["payroll", "holidays", ohYear],
+    queryFn: () => api<Holiday[]>(`/api/payroll/holidays?year=${ohYear}`),
+    enabled: form.leaveType === "OH",
+  });
+  const optionalDays = (optionalQ.data ?? []).filter((h) => h.type === "optional").sort((a, b) => a.date.localeCompare(b.date));
   const days = useMemo(() => {
     if (!form.fromDate || !form.toDate) return 0;
     const a = new Date(`${form.fromDate}T00:00:00Z`).getTime();
@@ -927,8 +940,8 @@ function ApplyLeaveDialog({ onClose, onSaved, preset }: {
             <EmployeeSelect value={form.employeeId} onChange={(v) => setForm({ ...form, employeeId: v })} />
           </Field>
           {balQ.data && (
-            <div className="grid grid-cols-3 gap-2 rounded-md bg-gray-50 p-2 text-center text-[12px]">
-              {(["CL", "SL", "CompOff"] as const).map((k) => (
+            <div className="grid grid-cols-4 gap-2 rounded-md bg-gray-50 p-2 text-center text-[12px]">
+              {balanceKinds(balQ.data).map((k) => (
                 <div key={k}>
                   <div className="text-gray-400">{k}</div>
                   <div className="tabular-nums">{num(balQ.data[k].balance, 1)} left</div>
@@ -946,6 +959,7 @@ function ApplyLeaveDialog({ onClose, onSaved, preset }: {
                 { id: "CL", label: "Casual leave" },
                 { id: "SL", label: "Sick leave" },
                 { id: "CompOff", label: "Comp-off" },
+                { id: "OH", label: "Optional holiday" },
               ]}
             />
           </Field>
@@ -954,6 +968,17 @@ function ApplyLeaveDialog({ onClose, onSaved, preset }: {
               <DateInput className="input" value={form.compOffWorkDate} onChange={(e) => setForm({ ...form, compOffWorkDate: e.target.value })} />
             </Field>
           )}
+          {form.leaveType === "OH" ? (
+            <Field label="Optional holiday" required hint="Salaried staff, any 2 a year from the company list">
+              <SearchSelect
+                keepOrder
+                value={form.fromDate || null}
+                onChange={(v) => setForm({ ...form, fromDate: v ?? "", toDate: v ?? "" })}
+                placeholder={optionalQ.isLoading ? "Loading…" : optionalDays.length ? "Choose a date" : "No optional holidays listed"}
+                options={optionalDays.map((h) => ({ id: h.date, label: `${dmy(h.date)} · ${h.name}` }))}
+              />
+            </Field>
+          ) : (
           <div className="grid grid-cols-2 gap-2">
             <Field label="From" required>
               <DateInput className="input" value={form.fromDate} onChange={(e) => setForm({ ...form, fromDate: e.target.value })} />
@@ -962,6 +987,7 @@ function ApplyLeaveDialog({ onClose, onSaved, preset }: {
               <DateInput className="input" value={form.toDate} onChange={(e) => setForm({ ...form, toDate: e.target.value })} />
             </Field>
           </div>
+          )}
           {days > 0 && <div className="text-[12px] text-gray-500">{days} day{days === 1 ? "" : "s"}</div>}
           <Field label="Reason" required>
             <input className="input" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} />

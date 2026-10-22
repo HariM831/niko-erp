@@ -376,7 +376,7 @@ payrollRouter.get("/holidays", view, async (req, res) => {
 const holidayBody = z.object({
   name: nonBlank(120),
   date: dateStr,
-  type: z.enum(["national", "regional", "company"]).optional(),
+  type: z.enum(["national", "regional", "company", "optional"]).optional(),
   isRecurring: z.boolean().optional(),
 });
 
@@ -415,6 +415,7 @@ const settingsPatch = z.object({
   clMaxConsecutive: looseNumber(z.number().int().min(1).max(31)).optional(),
   slPerMonth: looseNumber(z.number().min(0).max(10)).optional(),
   compOffValidityDays: looseNumber(z.number().int().min(1).max(365)).optional(),
+  optionalHolidaysPerYear: looseNumber(z.number().int().min(0).max(20)).optional(),
   reviewBelowScore: looseNumber(z.number().min(0).max(1)).optional(),
   keepAllPunchPhotos: z.boolean().optional(),
 });
@@ -1832,7 +1833,7 @@ payrollRouter.post(
   validateBody(
     z.object({
       employeeId: z.string().uuid(),
-      leaveType: z.enum(["CL", "SL", "CompOff"]),
+      leaveType: z.enum(["CL", "SL", "CompOff", "OH"]),
       fromDate: dateStr,
       toDate: dateStr,
       reason: z.string().min(1).max(500),

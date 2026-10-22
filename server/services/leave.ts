@@ -24,6 +24,8 @@ export interface LeaveBalance {
   CL: { earned: number; used: number; balance: number };
   SL: { earned: number; used: number; balance: number };
   CompOff: { earned: number; used: number; balance: number; expiring: { workDate: string; expiresOn: string }[] };
+  /** Optional holidays: salaried staff only; zero allowed for anyone else. */
+  OH: { earned: number; used: number; balance: number };
 }
 
 /** Calendar days inclusive between two YYYY-MM-DD strings. */
@@ -49,7 +51,7 @@ export async function leaveBalance(tx: Conn, employeeId: string, year: number): 
   const [emp] = await tx.select().from(employees).where(eq(employees.id, employeeId));
   if (!emp) throw new PostingError("No such employee");
   const [settings] = await tx.select().from(payrollSettings);
-  const s = settings ?? { clPerMonth: 1, slPerMonth: 0.5, compOffValidityDays: 30 };
+  const s = settings ?? { clPerMonth: 1, slPerMonth: 0.5, compOffValidityDays: 30, optionalHolidaysPerYear: 2 };
   const today = istDate();
   // A past year accrued in full; a future year has accrued nothing yet.
   const asOf = today.slice(0, 4) === String(year) ? today : today > `${year}-12-31` ? `${year}-12-31` : `${year}-01-01`;
@@ -84,6 +86,10 @@ export async function leaveBalance(tx: Conn, employeeId: string, year: number): 
     CL: { earned: clEarned, used: used("CL"), balance: clEarned - used("CL") },
     SL: { earned: slEarned, used: used("SL"), balance: slEarned - used("SL") },
     CompOff: { earned: earnedDays.length, used: used("CompOff"), balance: valid.length, expiring },
+    OH: (() => {
+      const allowed = emp.payType === "salaried" ? s.optionalHolidaysPerYear : 0;
+      return { earned: allowed, used: used("OH"), balance: allowed - used("OH") };
+    })(),
   };
 }
 
@@ -119,7 +125,7 @@ async function compOffEarnedDays(tx: Conn, emp: typeof employees.$inferSelect, y
 
 export interface ApplyInput {
   employeeId: string;
-  leaveType: "CL" | "SL" | "CompOff";
+  leaveType: "CL" | "SL" | "CompOff" | "OH";
   fromDate: string;
   toDate: string;
   reason: string;
@@ -160,6 +166,8 @@ export async function applyLeave(tx: Conn, input: ApplyInput) {
     if (days > bal.CL.balance) throw new PostingError(`CL balance is ${bal.CL.balance} day(s); asking for ${days}`);
   } else if (input.leaveType === "SL") {
     if (days > bal.SL.balance) throw new PostingError(`SL balance is ${bal.SL.balance} day(s); asking for ${days}`);
+  } else if (input.leaveType === "OH") {
+    await checkOptionalHoliday(tx, input, days, year, settings?.optionalHolidaysPerYear ?? 2);
   } else {
     const work = input.compOffWorkDate;
     if (!work) throw new PostingError("A comp-off needs the date that was worked");
@@ -200,6 +208,40 @@ export async function applyLeave(tx: Conn, input: ApplyInput) {
     })
     .returning();
   return row!;
+}
+
+/**
+ * An optional holiday (the user, 22 Oct 2026): salaried staff only, one day,
+ * on a date from the company's optional-holiday list, and no more than the
+ * year's allowance — pending applications count, so two can't be queued for
+ * the last one.
+ */
+async function checkOptionalHoliday(tx: Conn, input: ApplyInput, days: number, year: number, allowed: number) {
+  const [emp] = await tx.select({ payType: employees.payType }).from(employees).where(eq(employees.id, input.employeeId));
+  if (emp?.payType !== "salaried") throw new PostingError("Optional holidays are for salaried staff only");
+  if (days !== 1) throw new PostingError("An optional holiday is one day — apply for each date separately");
+  const all = await tx.select().from(holidays);
+  const day = input.fromDate;
+  const onDay = (h: (typeof all)[number]) => (h.isRecurring ? h.date.slice(5) === day.slice(5) : h.date === day);
+  const optional = all.find((h) => h.type === "optional" && onDay(h));
+  if (!optional) throw new PostingError(`${day} is not on the optional-holiday list`);
+  const full = all.find((h) => h.type !== "optional" && onDay(h));
+  if (full) throw new PostingError(`${day} is already a holiday for everyone (${full.name})`);
+  const taken = await tx
+    .select({ fromDate: leaveApplications.fromDate })
+    .from(leaveApplications)
+    .where(
+      and(
+        eq(leaveApplications.employeeId, input.employeeId),
+        eq(leaveApplications.leaveType, "OH"),
+        inArray(leaveApplications.status, ["pending", "approved"]),
+        gte(leaveApplications.fromDate, `${year}-01-01`),
+        lte(leaveApplications.fromDate, `${year}-12-31`),
+      ),
+    );
+  if (taken.length >= allowed) {
+    throw new PostingError(`Already ${taken.length} optional holiday(s) in ${year} (${taken.map((t) => t.fromDate).sort().join(", ")}); the limit is ${allowed}`);
+  }
 }
 
 /**

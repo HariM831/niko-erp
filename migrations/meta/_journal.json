@@ -939,6 +939,13 @@
       "when": 1792700000000,
       "tag": "0129_salary_slip_paid",
       "breakpoints": true
+    },
+    {
+      "idx": 131,
+      "version": "7",
+      "when": 1792800000000,
+      "tag": "0130_optional_holidays",
+      "breakpoints": true
     }
   ]
 }

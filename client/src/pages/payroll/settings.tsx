@@ -25,7 +25,7 @@ interface Designation { id: string; name: string; displayOrder: number; isActive
 interface Department { id: string; name: string; isActive: boolean; designations: Designation[] }
 interface WageRole { id: string; name: string; dailyRate: number | string; isActive: boolean; headcount?: number }
 interface Shift { id: string; name: string; startTime: string; endTime: string; workingHours: number; weeklyOffDays: number[]; color: string; isActive: boolean }
-interface Holiday { id: string; name: string; date: string; type: "national" | "regional" | "company"; isRecurring: boolean }
+interface Holiday { id: string; name: string; date: string; type: "national" | "regional" | "company" | "optional"; isRecurring: boolean }
 interface Settings {
   pfEmployeePct: number;
   pfEmployerPct: number;
@@ -40,6 +40,7 @@ interface Settings {
   clMaxConsecutive: number;
   slPerMonth: number;
   compOffValidityDays: number;
+  optionalHolidaysPerYear: number;
   reviewBelowScore: number;
   keepAllPunchPhotos: boolean;
 }
@@ -304,6 +305,7 @@ export function HolidaysTab() {
               { id: "national", label: "National" },
               { id: "regional", label: "Regional" },
               { id: "company", label: "Company" },
+              { id: "optional", label: "Optional" },
             ]}
           />
         </Field>
@@ -513,6 +515,7 @@ export function PolicyTab() {
             <Field label="CL max consecutive">{numInput("clMaxConsecutive", "1")}</Field>
             <Field label="SL per month">{numInput("slPerMonth", "0.5")}</Field>
             <Field label="Comp-off validity (days)">{numInput("compOffValidityDays", "1")}</Field>
+            <Field label="Optional holidays a year">{numInput("optionalHolidaysPerYear", "1")}</Field>
           </div>
         </div>
         <div className="card p-4 md:col-span-2">

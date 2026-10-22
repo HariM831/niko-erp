@@ -190,7 +190,7 @@ export function PayrollOverviewPage() {
             <div className="space-y-1 text-[13px]">
               {upcoming.map((h) => (
                 <div key={h.id} className="flex justify-between">
-                  <span>{h.name}</span>
+                  <span>{h.name}{h.type === "optional" && <span className="ml-1 text-[11px] text-gray-400">optional</span>}</span>
                   <span className="tabular-nums text-gray-500">{dmy(h.date)}</span>
                 </div>
               ))}

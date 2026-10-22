@@ -241,7 +241,7 @@ export function isWeeklyOff(day: string, shift: ShiftLike | undefined, override?
 
 /** Holiday lookup keyed by date, recurring ones re-dated onto every year in [from, to]. */
 export function buildHolidayMap(
-  rows: { name: string; date: string; isRecurring: boolean }[],
+  rows: { name: string; date: string; isRecurring: boolean; type?: string }[],
   from: string,
   to: string,
 ): Map<string, string> {
@@ -249,6 +249,9 @@ export function buildHolidayMap(
   const y0 = Number(from.slice(0, 4));
   const y1 = Number(to.slice(0, 4));
   for (const h of rows) {
+    // An optional holiday is a working day for everyone who has not taken it
+    // as OH leave; the leave, not the holiday, makes their day.
+    if (h.type === "optional") continue;
     if (!h.isRecurring) {
       map.set(h.date, h.name);
       continue;
