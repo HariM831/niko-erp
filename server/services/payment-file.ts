@@ -7,16 +7,23 @@ import { buildXlsx, type Cell, type Sheet } from "../lib/xlsx";
  *
  * Two things sit unpaid in niko: a bill, which is a vendor's invoice for goods
  * we received, and an expense with no paid-through account, which is a charge
- * nobody has settled yet. They reach the bank the same way, so the Payments
- * screen reads them as one list and the file writes them as one batch.
+ * nobody has settled yet. A third goes to the bank the same way without being
+ * owed yet: an advance asked for against a purchase order, on the vendor's
+ * proforma. All three reach the bank alike, so the Vendor Sheet reads them as
+ * one list and the file writes them as one batch.
  */
 
+export type PayableKind = "bill" | "expense" | "advance";
+
 export interface PayableRow {
-  kind: "bill" | "expense";
+  kind: PayableKind;
   id: string;
-  /** Our own document number — BILL-00012, EXP-00043. */
+  /** Our own document number — BILL-00012, EXP-00043, ADV-00003. */
   number: string;
-  /** What the vendor calls it: their bill number, falling back to ours. */
+  /**
+   * What the vendor calls it: their bill number, falling back to ours. For an
+   * advance, the proforma's number, falling back to the PO's.
+   */
   billNumber: string;
   vendorId: string;
   vendorName: string;
@@ -42,6 +49,11 @@ export interface PayableRow {
   sentBatchNumber: string | null;
   sentBatchDate: string | null;
   sentAmount: string | null;
+  /** An advance's order and proforma; null on a bill or expense. */
+  purchaseOrderId: string | null;
+  purchaseOrderNumber: string | null;
+  proformaNumber: string | null;
+  proformaDate: string | null;
 }
 
 /**
@@ -113,6 +125,23 @@ export async function listPayables(
       JOIN accounts a ON a.id = e.expense_account_id
       -- No paid-through account means the money has not left yet.
       WHERE e.paid_through_id IS NULL AND e.vendor_id IS NOT NULL
+
+      UNION ALL
+
+      SELECT
+        'advance'::text                                AS kind,
+        r.id,
+        r.number,
+        COALESCE(NULLIF(r.proforma_number, ''), po.number) AS bill_number,
+        r.vendor_id,
+        'Advance on ' || po.number || COALESCE(' · ' || NULLIF(r.notes, ''), '') AS description,
+        r.amount,
+        po.expected_delivery_date                      AS delivery_date,
+        NULL::date                                     AS due_date,
+        r.notes
+      FROM vendor_advance_requests r
+      JOIN purchase_orders po ON po.id = r.purchase_order_id
+      WHERE r.status = 'open'
     )
     SELECT
       p.*,
@@ -126,16 +155,27 @@ export async function listPayables(
       sent.line_id,
       sent.batch_number,
       sent.batch_date,
-      sent.sent_amount
+      sent.sent_amount,
+      adv.purchase_order_id,
+      adv.po_number,
+      adv.proforma_number,
+      adv.proforma_date
     FROM payable p
     JOIN contacts c ON c.id = p.vendor_id
+    LEFT JOIN LATERAL (
+      SELECT r.purchase_order_id, po.number AS po_number, r.proforma_number, r.proforma_date
+      FROM vendor_advance_requests r
+      JOIN purchase_orders po ON po.id = r.purchase_order_id
+      WHERE p.kind = 'advance' AND r.id = p.id
+    ) adv ON TRUE
     LEFT JOIN LATERAL (
       SELECT pb.id AS batch_id, pbl.id AS line_id, pb.number AS batch_number, pb.batch_date,
              pbl.amount AS sent_amount
       FROM payment_batch_lines pbl
       JOIN payment_batches pb ON pb.id = pbl.batch_id
       WHERE ((p.kind = 'bill' AND pbl.bill_id = p.id)
-          OR (p.kind = 'expense' AND pbl.expense_id = p.id))
+          OR (p.kind = 'expense' AND pbl.expense_id = p.id)
+          OR (p.kind = 'advance' AND pbl.advance_request_id = p.id))
         AND pbl.cancelled_at IS NULL
       ORDER BY pb.batch_date DESC, pb.created_at DESC
       LIMIT 1
@@ -147,7 +187,7 @@ export async function listPayables(
   `);
 
   return (result.rows as Array<Record<string, unknown>>).map((r) => ({
-    kind: r.kind as "bill" | "expense",
+    kind: r.kind as PayableKind,
     id: String(r.id),
     number: String(r.number),
     billNumber: String(r.bill_number),
@@ -168,6 +208,10 @@ export async function listPayables(
     sentBatchNumber: (r.batch_number as string | null) ?? null,
     sentBatchDate: (r.batch_date as string | null) ?? null,
     sentAmount: r.sent_amount === null || r.sent_amount === undefined ? null : String(r.sent_amount),
+    purchaseOrderId: (r.purchase_order_id as string | null) ?? null,
+    purchaseOrderNumber: (r.po_number as string | null) ?? null,
+    proformaNumber: (r.proforma_number as string | null) ?? null,
+    proformaDate: (r.proforma_date as string | null) ?? null,
   }));
 }
 

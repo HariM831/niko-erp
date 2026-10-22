@@ -147,6 +147,8 @@ async function main() {
       const own = await payout("V1", "700.00");
       const imported = await payout("V2", "300.00");
       await tx.insert(zohoIdMap).values({ entity: "vendor_payment", zohoId: `${tag}-zoho`, eggsyId: imported.id });
+      // What migration 0131 set on every imported payment.
+      await tx.update(vendorPayments).set({ advancesInLedger: true }).where(eq(vendorPayments.id, imported.id));
 
       await dissociatePayment(tx, "vendor", bill!.id, own.id, actor.id);
       const b1 = (await tx.select().from(bills).where(eq(bills.id, bill!.id)))[0]!;

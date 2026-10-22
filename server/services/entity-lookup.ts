@@ -17,6 +17,7 @@ import {
   purchaseOrders,
   vendorCredits,
   vendorPayments,
+  vendorAdvanceRequests,
   contacts,
 } from "@shared/schema";
 import type { Db, Tx } from "../db";
@@ -40,6 +41,7 @@ const TABLE_OF: Record<string, PgTable> = {
   purchase_order: purchaseOrders,
   vendor_credit: vendorCredits,
   vendor_payment: vendorPayments,
+  vendor_advance_request: vendorAdvanceRequests,
   expense: expenses,
   journal_entry: journalEntries,
   fixed_asset: fixedAssets,

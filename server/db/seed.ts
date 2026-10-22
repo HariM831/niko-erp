@@ -220,6 +220,7 @@ const SERIES: Array<[string, string]> = [
   ["bill", "BILL-"],
   ["vendor_payment", "VPMT-"],
   ["payment_batch", "PB-"],
+  ["vendor_advance_request", "ADV-"],
   ["vendor_credit", "VCN-"],
   ["expense", "EXP-"],
   ["fixed_asset", "FA-"],

@@ -63,25 +63,22 @@ async function main() {
   checks.push({ what: "receipts not yet placed", key: "customer_advances", docs: adv!.held, sign: -1 });
 
   /**
-   * Payables nets the advances inside itself. A vendor payment debits payables
-   * for the whole of itself whatever it settles — there is no second account
-   * for the unapplied part, the way customer advances holds it on the selling
-   * side — so money paid ahead of a bill sits in payables as a debit, and what
-   * the ledger should say is the open bills LESS that.
+   * Payables and Vendor Advances split money paid ahead of a bill by where each
+   * payment holds it. Zoho's payments, and niko's since 22 Oct 2026, keep it in
+   * vendor advances (advances_in_ledger); niko's older ones debited payables in
+   * full, so theirs sits inside payables as a debit, and what payables should
+   * say is the open bills LESS that — until scripts/move-vendor-advances.ts
+   * brings them across and the figure is nil.
    */
   const [bill] = (
     await db.execute(sql`
       SELECT (SELECT coalesce(sum(balance_due), 0) FROM bills WHERE status NOT IN ('void', 'draft'))::float8 AS open,
-             (SELECT coalesce(sum(p.unapplied_amount), 0) FROM vendor_payments p
-               WHERE EXISTS (SELECT 1 FROM zoho_id_map z
-                              WHERE z.entity = 'vendor_payment' AND z.eggsy_id = p.id))::float8 AS imported,
-             (SELECT coalesce(sum(p.unapplied_amount), 0) FROM vendor_payments p
-               WHERE NOT EXISTS (SELECT 1 FROM zoho_id_map z
-                                  WHERE z.entity = 'vendor_payment' AND z.eggsy_id = p.id))::float8 AS own
+             (SELECT coalesce(sum(unapplied_amount), 0) FROM vendor_payments WHERE advances_in_ledger)::float8 AS imported,
+             (SELECT coalesce(sum(unapplied_amount), 0) FROM vendor_payments WHERE NOT advances_in_ledger)::float8 AS own
     `)
   ).rows as Array<{ open: number; imported: number; own: number }>;
-  checks.push({ what: "open bills less own advances", key: "ap", docs: bill!.open - bill!.own, sign: -1 });
-  checks.push({ what: "advances on imported payments", key: "vendor_advances", docs: bill!.imported, sign: 1 });
+  checks.push({ what: "open bills less old advances", key: "ap", docs: bill!.open - bill!.own, sign: -1 });
+  checks.push({ what: "advances held as advances", key: "vendor_advances", docs: bill!.imported, sign: 1 });
 
   for (const c of checks) {
     const acct = await balance(c.key);
@@ -180,14 +177,11 @@ async function main() {
   line("applied to them", sides!.paid + sides!.credited, appliedSide);
   if (KEY === "ap") {
     /**
-     * Two conventions meet here. A vendor payment raised in niko debits
-     * payables for the whole of itself, so money paid ahead of a bill sits
-     * inside payables; the Zoho loader puts that part in vendor advances
-     * instead. Both are internally consistent and the two figures below are
-     * where each convention's advances went, not a difference to chase.
+     * Where money paid ahead of a bill sits: inside payables for a niko payment
+     * older than 22 Oct 2026 not yet moved, in vendor advances for the rest.
      */
-    console.log(`    ${"paid ahead".padEnd(16)}${money(bill!.own).padStart(15)}   raised here — sits inside payables`);
-    console.log(`    ${"".padEnd(16)}${money(bill!.imported).padStart(15)}   imported — sits in vendor advances`);
+    console.log(`    ${"paid ahead".padEnd(16)}${money(bill!.own).padStart(15)}   old niko payments — inside payables`);
+    console.log(`    ${"".padEnd(16)}${money(bill!.imported).padStart(15)}   held in vendor advances`);
   }
 
   /**

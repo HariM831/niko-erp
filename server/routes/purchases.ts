@@ -30,6 +30,7 @@ import {
   vendorCreditApplications,
   vendorCreditLines,
   vendorCredits,
+  vendorAdvanceRequests,
   vendorPaymentApplications,
   vendorPayments,
   ACCOUNT_SOURCES,
@@ -92,6 +93,7 @@ import {
   type PlannedApplication,
 } from "../services/apply-credits";
 import { positionOf, settlePayment } from "../services/payment-ledger";
+import { advancesForOrder, cancelAdvanceRequest, createAdvanceRequest } from "../services/vendor-advances";
 
 export const purchasesRouter = Router();
 
@@ -1262,112 +1264,147 @@ purchasesRouter.post(
   async (req, res) => {
     const body = req.body as z.infer<typeof vendorPaymentSchema>;
     try {
-      const result = await db.transaction(async (tx) => {
-        const vendor = await loadVendor(tx, body.vendorId);
-        const [bank] = await tx
-          .select()
-          .from(bankAccounts)
-          .where(eq(bankAccounts.id, body.bankAccountId))
-          .limit(1);
-        if (!bank) throw new PostingError("Bank account not found");
-        if (body.bankTransactionId) {
-          await assertLineFits(tx, body.bankTransactionId, { bankAccountId: bank.id, date: body.paymentDate });
-        }
-
-        const amountP = toPaise(body.amount);
-        const tdsP = toPaise(body.tdsAmount ?? "0");
-        if (amountP <= 0) throw new PostingError("Payment amount must be positive");
-        if (tdsP < 0 || tdsP >= amountP) {
-          throw new PostingError("TDS must be non-negative and less than the payment amount");
-        }
-
-        let appliedP = 0;
-        for (const app of body.applications) {
-          const bill = await tx.query.bills.findFirst({ where: eq(bills.id, app.billId) });
-          if (!bill) throw new PostingError(`Bill not found: ${app.billId}`);
-          if (bill.vendorId !== vendor.id) {
-            throw new PostingError(`Bill ${bill.number} belongs to a different vendor`);
-          }
-          if (bill.status !== "open" && bill.status !== "partially_paid") {
-            throw new PostingError(`Bill ${bill.number} is not open for payment`);
-          }
-          const appP = toPaise(app.amount);
-          if (appP <= 0) throw new PostingError("Application amounts must be positive");
-          if (appP > toPaise(bill.balanceDue)) {
-            throw new PostingError(`Amount exceeds balance due on ${bill.number}`);
-          }
-          appliedP += appP;
-        }
-        if (appliedP > amountP) throw new PostingError("Applied total exceeds the payment amount");
-        const unappliedP = amountP - appliedP;
-
-        const number = await nextDocumentNumber(tx, "vendor_payment", body.seriesId);
-        const [payment] = await tx
-          .insert(vendorPayments)
-          .values({
-            number,
-            vendorId: vendor.id,
-            paymentDate: body.paymentDate,
-            amount: body.amount,
-            unappliedAmount: fromPaise(unappliedP),
-            mode: body.mode ?? "bank_transfer",
-            reference: body.reference,
-            bankAccountId: bank.id,
-            tdsAmount: fromPaise(tdsP),
-            notes: body.notes,
-            createdBy: req.session.user!.id,
-          })
-          .returning();
-
-        for (const app of body.applications) {
-          await tx.insert(vendorPaymentApplications).values({
-            paymentId: payment!.id,
-            billId: app.billId,
-            amountApplied: app.amount,
-          });
-          const bill = (await tx.query.bills.findFirst({ where: eq(bills.id, app.billId) }))!;
-          const newBalanceP = toPaise(bill.balanceDue) - toPaise(app.amount);
-          await tx
-            .update(bills)
-            .set({
-              balanceDue: fromPaise(newBalanceP),
-              status: newBalanceP === 0 ? "paid" : "partially_paid",
-              updatedAt: new Date(),
-            })
-            .where(eq(bills.id, bill.id));
-        }
-
-        const jeLines: Array<{ accountId?: string; systemKey?: string; debit?: string; credit?: string; description?: string }> = [
-          { systemKey: "ap", debit: body.amount, description: `Payment ${number}` },
-          { accountId: bank.glAccountId, credit: fromPaise(amountP - tdsP) },
-        ];
-        if (tdsP > 0) jeLines.push({ systemKey: "tds_payable", credit: fromPaise(tdsP) });
-
-        const jeId = await postJournal(tx, {
-          entryDate: body.paymentDate,
-          narration: `Payment ${number} — ${vendor.displayName}`,
-          reference: body.reference,
-          sourceType: "vendor_payment",
-          sourceId: payment!.id,
-          postedBy: req.session.user!.id,
-          lines: jeLines,
-        });
-        const [updated] = await tx
-          .update(vendorPayments)
-          .set({ journalEntryId: jeId })
-          .where(eq(vendorPayments.id, payment!.id))
-          .returning();
-        if (body.bankTransactionId) {
-          await linkStatementLine(tx, { bankTransactionId: body.bankTransactionId, journalEntryIds: [jeId], kind: "categorized" });
-        }
-        return updated!;
-      });
+      const result = await db.transaction((tx) => createVendorPayment(tx, body, req.session.user!.id));
       res.status(201).json(result);
     } catch (err) {
       if (!handlePostingError(err, res)) throw err;
     }
   },
 );
+
+/**
+ * Record money paid to a vendor, applied to the bills named and the rest held
+ * as an advance. Also what Mark paid on a bank batch calls, once per transfer.
+ */
+export async function createVendorPayment(
+  tx: Tx,
+  body: z.infer<typeof vendorPaymentSchema>,
+  userId: string,
+) {
+  const vendor = await loadVendor(tx, body.vendorId);
+  const [bank] = await tx
+    .select()
+    .from(bankAccounts)
+    .where(eq(bankAccounts.id, body.bankAccountId))
+    .limit(1);
+  if (!bank) throw new PostingError("Bank account not found");
+  if (body.bankTransactionId) {
+    await assertLineFits(tx, body.bankTransactionId, { bankAccountId: bank.id, date: body.paymentDate });
+  }
+
+  const amountP = toPaise(body.amount);
+  const tdsP = toPaise(body.tdsAmount ?? "0");
+  if (amountP <= 0) throw new PostingError("Payment amount must be positive");
+  if (tdsP < 0 || tdsP >= amountP) {
+    throw new PostingError("TDS must be non-negative and less than the payment amount");
+  }
+
+  let appliedP = 0;
+  for (const app of body.applications) {
+    const bill = await tx.query.bills.findFirst({ where: eq(bills.id, app.billId) });
+    if (!bill) throw new PostingError(`Bill not found: ${app.billId}`);
+    if (bill.vendorId !== vendor.id) {
+      throw new PostingError(`Bill ${bill.number} belongs to a different vendor`);
+    }
+    if (bill.status !== "open" && bill.status !== "partially_paid") {
+      throw new PostingError(`Bill ${bill.number} is not open for payment`);
+    }
+    const appP = toPaise(app.amount);
+    if (appP <= 0) throw new PostingError("Application amounts must be positive");
+    if (appP > toPaise(bill.balanceDue)) {
+      throw new PostingError(`Amount exceeds balance due on ${bill.number}`);
+    }
+    appliedP += appP;
+  }
+  if (appliedP > amountP) throw new PostingError("Applied total exceeds the payment amount");
+  const unappliedP = amountP - appliedP;
+
+  const number = await nextDocumentNumber(tx, "vendor_payment", body.seriesId);
+  const [payment] = await tx
+    .insert(vendorPayments)
+    .values({
+      number,
+      vendorId: vendor.id,
+      paymentDate: body.paymentDate,
+      amount: body.amount,
+      unappliedAmount: fromPaise(unappliedP),
+      mode: body.mode ?? "bank_transfer",
+      reference: body.reference,
+      bankAccountId: bank.id,
+      tdsAmount: fromPaise(tdsP),
+      notes: body.notes,
+      advancesInLedger: true,
+      createdBy: userId,
+    })
+    .returning();
+
+  for (const app of body.applications) {
+    await tx.insert(vendorPaymentApplications).values({
+      paymentId: payment!.id,
+      billId: app.billId,
+      amountApplied: app.amount,
+    });
+    const bill = (await tx.query.bills.findFirst({ where: eq(bills.id, app.billId) }))!;
+    const newBalanceP = toPaise(bill.balanceDue) - toPaise(app.amount);
+    await tx
+      .update(bills)
+      .set({
+        balanceDue: fromPaise(newBalanceP),
+        status: newBalanceP === 0 ? "paid" : "partially_paid",
+        updatedAt: new Date(),
+      })
+      .where(eq(bills.id, bill.id));
+  }
+
+  const jeLines = vendorPaymentJeLines({ number, appliedP, unappliedP, tdsP, bankGlAccountId: bank.glAccountId });
+
+  const jeId = await postJournal(tx, {
+    entryDate: body.paymentDate,
+    narration: `Payment ${number} — ${vendor.displayName}`,
+    reference: body.reference,
+    sourceType: "vendor_payment",
+    sourceId: payment!.id,
+    postedBy: userId,
+    lines: jeLines,
+  });
+  const [updated] = await tx
+    .update(vendorPayments)
+    .set({ journalEntryId: jeId })
+    .where(eq(vendorPayments.id, payment!.id))
+    .returning();
+  if (body.bankTransactionId) {
+    await linkStatementLine(tx, { bankTransactionId: body.bankTransactionId, journalEntryIds: [jeId], kind: "categorized" });
+  }
+  return updated!;
+}
+
+/**
+ * A vendor payment's journal: payables for what it settles, Vendor Advances for
+ * what it leaves spare, the bank for what left it, TDS for what we kept back.
+ *
+ * Until 22 Oct 2026 niko debited payables for the whole amount, so an advance
+ * hid inside payables while Zoho's payments held theirs in Vendor Advances.
+ * One convention now, the selling side's: the vendor's balance reads like a
+ * customer's (docs/vendor-advances-and-batches-plan.md).
+ */
+function vendorPaymentJeLines(args: {
+  number: string;
+  appliedP: number;
+  unappliedP: number;
+  tdsP: number;
+  bankGlAccountId: string;
+}) {
+  const lines: Array<{ accountId?: string; systemKey?: string; debit?: string; credit?: string; description?: string }> = [];
+  if (args.appliedP > 0) {
+    lines.push({ systemKey: "ap", debit: fromPaise(args.appliedP), description: `Payment ${args.number}` });
+  }
+  if (args.unappliedP > 0) {
+    lines.push({ systemKey: "vendor_advances", debit: fromPaise(args.unappliedP), description: `Advance ${args.number}` });
+  }
+  lines.push({ accountId: args.bankGlAccountId, credit: fromPaise(args.appliedP + args.unappliedP - args.tdsP) });
+  if (args.tdsP > 0) lines.push({ systemKey: "tds_payable", credit: fromPaise(args.tdsP) });
+  return lines;
+}
 
 /**
  * Editing a payment re-states it end to end: the existing applications are undone
@@ -1478,11 +1515,16 @@ export async function editVendorPayment(
   if (payment.journalEntryId) {
     await reverseJournal(tx, payment.journalEntryId, paymentDate, userId);
   }
-  const jeLines: Array<{ accountId?: string; systemKey?: string; debit?: string; credit?: string; description?: string }> = [
-    { systemKey: "ap", debit: amount, description: `Payment ${payment.number}` },
-    { accountId: bank.glAccountId, credit: fromPaise(amountP - tdsP) },
-  ];
-  if (tdsP > 0) jeLines.push({ systemKey: "tds_payable", credit: fromPaise(tdsP) });
+  // Re-posted under the advances convention whatever it was raised under: the
+  // reversal above takes back the old journal whole, so a payment from before
+  // 22 Oct 2026 comes across to Vendor Advances here by itself.
+  const jeLines = vendorPaymentJeLines({
+    number: payment.number,
+    appliedP,
+    unappliedP: amountP - appliedP,
+    tdsP,
+    bankGlAccountId: bank.glAccountId,
+  });
 
   const jeId = await postJournal(tx, {
     entryDate: paymentDate,
@@ -1508,6 +1550,7 @@ export async function editVendorPayment(
       bankAccountId: bank.id,
       notes: body.notes ?? payment.notes,
       journalEntryId: jeId,
+      advancesInLedger: true,
     })
     .where(eq(vendorPayments.id, payment.id))
     .returning();
@@ -2561,6 +2604,24 @@ export async function deleteVendorPayment(tx: Tx, paymentId: string, userId: str
     reopened.push(bill.number);
   }
   await tx.delete(vendorPaymentApplications).where(eq(vendorPaymentApplications.paymentId, payment.id));
+  // A payment Mark paid recorded: its transfer is waiting again, and so is its
+  // batch, and an advance it paid is open again — still in that batch, so it
+  // is either marked paid once more or cancelled there.
+  const fromBatch = await tx
+    .update(paymentBatchLines)
+    .set({ vendorPaymentId: null, recordedAt: null })
+    .where(eq(paymentBatchLines.vendorPaymentId, payment.id))
+    .returning({ batchId: paymentBatchLines.batchId });
+  if (fromBatch.length) {
+    await tx
+      .update(paymentBatches)
+      .set({ paidAt: null, paidBy: null, paidOn: null })
+      .where(inArray(paymentBatches.id, [...new Set(fromBatch.map((l) => l.batchId))]));
+  }
+  await tx
+    .update(vendorAdvanceRequests)
+    .set({ status: "open", vendorPaymentId: null })
+    .where(eq(vendorAdvanceRequests.vendorPaymentId, payment.id));
   await tx.delete(vendorPayments).where(eq(vendorPayments.id, payment.id));
 
   // Its journals: the reversals an earlier edit made first, then the rest.
@@ -2601,22 +2662,128 @@ purchasesRouter.get(
   },
 );
 
+const advanceRequestSchema = z.object({
+  seriesId: z.string().uuid().optional(),
+  purchaseOrderId: z.string().uuid(),
+  amount: money,
+  proformaNumber: z.string().trim().max(60).optional(),
+  proformaDate: dateStr.optional(),
+  notes: z.string().trim().max(500).optional(),
+});
+
+/** Ask for an advance against a purchase order — the proforma is attached after. */
+purchasesRouter.post(
+  "/advances",
+  requirePermission("purchases", "create"),
+  validateBody(advanceRequestSchema),
+  async (req, res) => {
+    const body = req.body as z.infer<typeof advanceRequestSchema>;
+    try {
+      const created = await db.transaction((tx) => createAdvanceRequest(tx, body, req.session.user!.id));
+      res.status(201).json(created);
+    } catch (err) {
+      if (!handlePostingError(err, res)) throw err;
+    }
+  },
+);
+
+purchasesRouter.post(
+  "/advances/:id/cancel",
+  requirePermission("purchases", "delete"),
+  validateBody(z.object({ reason: z.string().trim().min(1, "Say why it is being cancelled").max(500) })),
+  async (req, res) => {
+    const { reason } = req.body as { reason: string };
+    try {
+      const updated = await db.transaction((tx) =>
+        cancelAdvanceRequest(tx, req.params.id!, reason, req.session.user!.id),
+      );
+      res.json(updated);
+    } catch (err) {
+      if (!handlePostingError(err, res)) throw err;
+    }
+  },
+);
+
+/** A purchase order's advances, for its page. */
+purchasesRouter.get(
+  "/orders/:id/advances",
+  requirePermission("purchases", "view"),
+  async (req, res) => {
+    res.json(await advancesForOrder(db, req.params.id!));
+  },
+);
+
+/**
+ * Orders an advance can be asked for on — issued and not billed in full — for
+ * the New advance dialog on the Vendor Sheet.
+ */
+purchasesRouter.get(
+  "/advances/orders",
+  requirePermission("purchases", "view"),
+  async (_req, res) => {
+    const rows = await db
+      .select({
+        id: purchaseOrders.id,
+        number: purchaseOrders.number,
+        orderDate: purchaseOrders.orderDate,
+        total: purchaseOrders.total,
+        vendorId: purchaseOrders.vendorId,
+        vendorName: contacts.displayName,
+        advanced: sql<string>`(SELECT COALESCE(SUM(r.amount), 0)::numeric(14,2) FROM vendor_advance_requests r
+                                WHERE r.purchase_order_id = ${purchaseOrders.id} AND r.status IN ('open', 'paid'))`,
+      })
+      .from(purchaseOrders)
+      .innerJoin(contacts, eq(contacts.id, purchaseOrders.vendorId))
+      .where(inArray(purchaseOrders.status, ["issued", "partially_billed"]))
+      .orderBy(desc(purchaseOrders.orderDate))
+      .limit(500);
+    res.json(rows);
+  },
+);
+
+/**
+ * Every batch, newest first: one row each on Sent to bank. A batch reads as
+ * Sent until Mark paid records it, Paid after, and Cancelled when the file was
+ * withdrawn. The counts are of live transfers — a line the bank bounced and
+ * somebody cancelled is no longer part of what the batch pays.
+ */
 purchasesRouter.get("/payment-batches", requirePermission("purchases", "view"), async (_req, res) => {
   const rows = await db
     .select({
       ...getTableColumns(paymentBatches),
       bankAccountName: bankAccounts.name,
       createdByName: users.name,
+      paidByName: sql<string | null>`(SELECT name FROM users WHERE id = ${paymentBatches.paidBy})`,
       lineCount: sql<number>`(SELECT COUNT(*)::int FROM ${paymentBatchLines} WHERE batch_id = ${paymentBatches.id})`,
+      liveCount: sql<number>`(SELECT COUNT(*)::int FROM ${paymentBatchLines}
+                               WHERE batch_id = ${paymentBatches.id} AND cancelled_at IS NULL)`,
+      liveTotal: sql<string>`(SELECT COALESCE(SUM(amount), 0)::numeric(14,2) FROM ${paymentBatchLines}
+                               WHERE batch_id = ${paymentBatches.id} AND cancelled_at IS NULL)`,
+      vendorCount: sql<number>`(SELECT COUNT(DISTINCT vendor_id)::int FROM ${paymentBatchLines}
+                                 WHERE batch_id = ${paymentBatches.id} AND cancelled_at IS NULL)`,
+      advanceCount: sql<number>`(SELECT COUNT(*)::int FROM ${paymentBatchLines}
+                                  WHERE batch_id = ${paymentBatches.id} AND cancelled_at IS NULL
+                                    AND advance_request_id IS NOT NULL)`,
     })
     .from(paymentBatches)
     .leftJoin(bankAccounts, eq(bankAccounts.id, paymentBatches.bankAccountId))
     .leftJoin(users, eq(users.id, paymentBatches.createdBy))
     .orderBy(desc(paymentBatches.batchDate), desc(paymentBatches.createdAt))
-    .limit(200);
-  res.json(rows);
+    .limit(500);
+  res.json(
+    rows.map((r) => ({
+      ...r,
+      status: r.cancelledAt ? "cancelled" : r.paidAt ? "paid" : "sent",
+    })),
+  );
 });
 
+/**
+ * One batch for its pop-up: the header, and every transfer in it with the
+ * document behind it — a bill, an expense or an advance — and what went to the
+ * bank for it. Cancelled transfers are included, marked, so the batch can be
+ * read as it was raised.
+ */
 purchasesRouter.get(
   "/payment-batches/:id",
   requirePermission("purchases", "view"),
@@ -2626,6 +2793,8 @@ purchasesRouter.get(
         ...getTableColumns(paymentBatches),
         bankAccountName: bankAccounts.name,
         createdByName: users.name,
+        paidByName: sql<string | null>`(SELECT name FROM users WHERE id = ${paymentBatches.paidBy})`,
+        cancelledByName: sql<string | null>`(SELECT name FROM users WHERE id = ${paymentBatches.cancelledBy})`,
       })
       .from(paymentBatches)
       .leftJoin(bankAccounts, eq(bankAccounts.id, paymentBatches.bankAccountId))
@@ -2633,24 +2802,81 @@ purchasesRouter.get(
       .where(eq(paymentBatches.id, req.params.id!))
       .limit(1);
     if (!batch) return res.status(404).json({ error: "Payment batch not found" });
-    const lines = await db
-      .select({
-        ...getTableColumns(paymentBatchLines),
-        vendorName: contacts.displayName,
-        billNumber: billNoSql,
-        expenseNumber: expenses.number,
-      })
-      .from(paymentBatchLines)
-      .leftJoin(contacts, eq(contacts.id, paymentBatchLines.vendorId))
-      .leftJoin(bills, eq(bills.id, paymentBatchLines.billId))
-      .leftJoin(expenses, eq(expenses.id, paymentBatchLines.expenseId))
-      .where(eq(paymentBatchLines.batchId, batch.id))
-      .orderBy(asc(paymentBatchLines.lineOrder));
-    res.json({ ...batch, lines });
+    const lines = (
+      await db.execute(sql`
+        SELECT l.id, l.amount, l.beneficiary_name, l.account_number, l.ifsc, l.transfer_mode,
+               l.remarks, l.line_order, l.cancelled_at, l.cancel_reason, l.recorded_at,
+               l.vendor_id, c.display_name AS vendor_name,
+               CASE WHEN l.bill_id IS NOT NULL THEN 'bill'
+                    WHEN l.expense_id IS NOT NULL THEN 'expense'
+                    ELSE 'advance' END AS kind,
+               COALESCE(l.bill_id, l.expense_id, l.advance_request_id) AS document_id,
+               COALESCE(b.number, e.number, r.number) AS number,
+               CASE WHEN b.id IS NOT NULL THEN COALESCE(NULLIF(TRIM(b.vendor_bill_number), ''), b.number)
+                    WHEN e.id IS NOT NULL THEN COALESCE(NULLIF(e.reference, ''), e.number)
+                    ELSE COALESCE(NULLIF(r.proforma_number, ''), po.number) END AS bill_number,
+               CASE WHEN b.id IS NOT NULL THEN
+                      (SELECT string_agg(bl.name || COALESCE(' · ' || NULLIF(bl.description, ''), ''), ', '
+                                         ORDER BY bl.line_order)
+                         FROM bill_lines bl WHERE bl.bill_id = b.id)
+                    WHEN e.id IS NOT NULL THEN ea.name
+                    ELSE 'Advance on ' || po.number || COALESCE(' · ' || NULLIF(r.notes, ''), '') END AS description,
+               COALESCE(b.bill_date, e.expense_date, r.proforma_date) AS document_date,
+               COALESCE(b.due_date, e.due_date) AS due_date,
+               po.id AS purchase_order_id, po.number AS purchase_order_number,
+               r.proforma_number, r.proforma_date,
+               vp.id AS payment_id, vp.number AS payment_number
+          FROM payment_batch_lines l
+          JOIN contacts c ON c.id = l.vendor_id
+          LEFT JOIN bills b ON b.id = l.bill_id
+          LEFT JOIN expenses e ON e.id = l.expense_id
+          LEFT JOIN accounts ea ON ea.id = e.expense_account_id
+          LEFT JOIN vendor_advance_requests r ON r.id = l.advance_request_id
+          LEFT JOIN purchase_orders po ON po.id = COALESCE(r.purchase_order_id, b.purchase_order_id)
+          LEFT JOIN vendor_payments vp ON vp.id = l.vendor_payment_id
+         WHERE l.batch_id = ${batch.id}
+         ORDER BY l.line_order`)
+    ).rows as Array<Record<string, unknown>>;
+    const str = (v: unknown) => (v === null || v === undefined ? null : String(v));
+    res.json({
+      ...batch,
+      status: batch.cancelledAt ? "cancelled" : batch.paidAt ? "paid" : "sent",
+      lines: lines.map((l) => ({
+        id: String(l.id),
+        kind: String(l.kind),
+        documentId: String(l.document_id),
+        number: String(l.number),
+        billNumber: str(l.bill_number),
+        description: str(l.description),
+        documentDate: str(l.document_date),
+        dueDate: str(l.due_date),
+        vendorId: String(l.vendor_id),
+        vendorName: String(l.vendor_name),
+        amount: String(l.amount),
+        beneficiaryName: String(l.beneficiary_name),
+        accountNumber: String(l.account_number),
+        ifsc: String(l.ifsc),
+        transferMode: String(l.transfer_mode),
+        remarks: str(l.remarks),
+        cancelledAt: str(l.cancelled_at),
+        cancelReason: str(l.cancel_reason),
+        recordedAt: str(l.recorded_at),
+        purchaseOrderId: str(l.purchase_order_id),
+        purchaseOrderNumber: str(l.purchase_order_number),
+        proformaNumber: str(l.proforma_number),
+        proformaDate: str(l.proforma_date),
+        paymentId: str(l.payment_id),
+        paymentNumber: str(l.payment_number),
+      })),
+    });
   },
 );
 
-/** Re-download a batch, months later, exactly as it was sent. */
+/**
+ * The bank's upload sheet for a batch — downloaded from Sent to bank, as often
+ * as needed. Only the live transfers go in it: one cancelled before upload
+ * must not reach the bank because somebody downloaded the file again.
+ */
 purchasesRouter.get(
   "/payment-batches/:id/file",
   requirePermission("purchases", "view"),
@@ -2669,8 +2895,11 @@ purchasesRouter.get(
     const lines = await db
       .select()
       .from(paymentBatchLines)
-      .where(eq(paymentBatchLines.batchId, batch.id))
+      .where(and(eq(paymentBatchLines.batchId, batch.id), sql`${paymentBatchLines.cancelledAt} IS NULL`))
       .orderBy(asc(paymentBatchLines.lineOrder));
+    if (!lines.length) {
+      return res.status(422).json({ error: `Every transfer in ${batch.number} is cancelled — there is nothing to send` });
+    }
     sendPaymentFile(res, {
       number: batch.number,
       batchDate: batch.batchDate,
@@ -2683,6 +2912,7 @@ purchasesRouter.get(
         transferMode: l.transferMode,
         remarks: l.remarks,
       })),
+      batchId: batch.id,
     });
   },
 );
@@ -2703,7 +2933,7 @@ const paymentBatchSchema = z.object({
   items: z
     .array(
       z.object({
-        kind: z.enum(["bill", "expense"]),
+        kind: z.enum(["bill", "expense", "advance"]),
         id: z.string().uuid(),
         /** Part-payment; defaults to the whole outstanding amount. */
         amount: money.optional(),
@@ -2714,12 +2944,13 @@ const paymentBatchSchema = z.object({
 });
 
 /**
- * Raise a bank file for the selected documents.
+ * Put the selected bills, expenses and advances in a new batch.
  *
  * This writes an instruction, not a payment: nothing here posts to the ledger
- * and nothing here marks a bill paid, because the money has not moved — the
- * bank still has to accept the file, and a line can bounce on a stale IFSC. The
- * payment itself is recorded the usual way once the bank confirms it.
+ * and nothing marks a bill paid, because the money has not moved. Nor does it
+ * hand back the file — since 22 Oct 2026 the batch waits on Sent to bank, and
+ * whoever uploads to the bank downloads it there. Mark paid records the
+ * payments once the bank confirms them.
  */
 purchasesRouter.post(
   "/payment-batches",
@@ -2728,136 +2959,276 @@ purchasesRouter.post(
   async (req, res) => {
     const body = req.body as z.infer<typeof paymentBatchSchema>;
     try {
-      const { batch, payer, lines } = await db.transaction(async (tx) => {
-        const [bank] = await tx
-          .select()
-          .from(bankAccounts)
-          .where(eq(bankAccounts.id, body.bankAccountId))
-          .limit(1);
-        if (!bank) throw new PostingError("Paying bank account not found");
-        if (!bank.isActive) throw new PostingError("That bank account is no longer active");
-
-        // Cheaper to refuse here than after the accounts team has uploaded the
-        // file, naming the screen that fixes it. The bank's customer code is
-        // not required: without one its column goes out blank and the sheet
-        // still carries every account for a bulk transfer.
-        const payer = await paymentFilePayer(bank, tx);
-        const unset: string[] = [];
-        if (!payer.accountNumber) unset.push("this account's number (Banking)");
-        if (!payer.customerName) unset.push("the organisation name (Settings)");
-        if (unset.length) {
-          throw new PostingError(`The bank file needs ${unset.join(", and ")}`);
-        }
-
-        // The same document twice in one file is two transfers for one debt.
-        const keys = body.items.map((i) => `${i.kind}:${i.id}`);
-        if (new Set(keys).size !== keys.length) {
-          throw new PostingError("The same document is selected more than once");
-        }
-
-        const payables = await listPayables(tx, { includeSent: true });
-        const byKey = new Map(payables.map((p) => [`${p.kind}:${p.id}`, p]));
-
-        // Everything wrong with the selection is worth saying at once: a person
-        // fixing four vendors' bank details wants all four names, not the first.
-        const missingRows: string[] = [];
-        const missingBank: string[] = [];
-        const alreadySent: string[] = [];
-        const badAmount: string[] = [];
-
-        const resolved = body.items.map((item, index) => {
-          const row = byKey.get(`${item.kind}:${item.id}`);
-          if (!row) {
-            missingRows.push(item.id);
-            return null;
-          }
-          if (!row.beneficiaryName || !row.bankAccountNumber || !row.bankIfsc) {
-            missingBank.push(row.vendorName);
-          }
-          if (row.sentBatchId && !body.allowResend) {
-            alreadySent.push(`${row.number} (${row.sentBatchNumber})`);
-          }
-          const amountP = item.amount ? toPaise(item.amount) : toPaise(row.amount);
-          if (amountP <= 0 || amountP > toPaise(row.amount)) {
-            badAmount.push(row.number);
-          }
-          return { item, row, amountP, index };
-        });
-
-        if (missingRows.length) {
-          throw new PostingError(
-            `${missingRows.length} of the selected documents are no longer unpaid — reload the page`,
-          );
-        }
-        if (missingBank.length) {
-          throw new PostingError(
-            `No bank details on file for ${[...new Set(missingBank)].join(", ")}`,
-          );
-        }
-        if (alreadySent.length) {
-          throw new PostingError(`Already sent to the bank: ${alreadySent.join(", ")}`);
-        }
-        if (badAmount.length) {
-          throw new PostingError(
-            `The amount to pay must be positive and no more than the outstanding balance: ${badAmount.join(", ")}`,
-          );
-        }
-
-        const batchDate = body.batchDate ?? istDate();
-        const number = await nextDocumentNumber(tx, "payment_batch", body.seriesId);
-        const totalP = resolved.reduce((sum, r) => sum + (r?.amountP ?? 0), 0);
-
-        const [created] = await tx
-          .insert(paymentBatches)
-          .values({
-            number,
-            batchDate,
-            bankAccountId: bank.id,
-            total: fromPaise(totalP),
-            notes: body.notes,
-            createdBy: req.session.user!.id,
-          })
-          .returning();
-
-        const values = resolved.filter((r) => r !== null).map((r) => ({
-          batchId: created!.id,
-          billId: r.row.kind === "bill" ? r.row.id : null,
-          expenseId: r.row.kind === "expense" ? r.row.id : null,
-          vendorId: r.row.vendorId,
-          amount: fromPaise(r.amountP),
-          beneficiaryName: r.row.beneficiaryName!,
-          accountNumber: r.row.bankAccountNumber!,
-          ifsc: r.row.bankIfsc!,
-          transferMode: transferMode(r.row.bankIfsc!, bank.ifsc),
-          // What the vendor sees against the credit. Their own bill number
-          // where we have it, since that is the one they can look up.
-          remarks: r.row.billNumber,
-          lineOrder: r.index,
-        }));
-        const insertedLines = await tx.insert(paymentBatchLines).values(values).returning();
-
-        return { batch: created!, payer, lines: insertedLines };
-      });
-
-      sendPaymentFile(res, {
-        number: batch.number,
-        batchDate: batch.batchDate,
-        payer,
-        lines: lines.map((l) => ({
-          beneficiaryName: l.beneficiaryName,
-          accountNumber: l.accountNumber,
-          ifsc: l.ifsc,
-          amount: l.amount,
-          transferMode: l.transferMode,
-          remarks: l.remarks,
-        })),
-        batchId: batch.id,
-      });
+      const batch = await db.transaction((tx) => createPaymentBatch(tx, body, req.session.user!.id));
+      res.status(201).json(batch);
     } catch (err) {
       if (!handlePostingError(err, res)) throw err;
     }
   },
 );
+
+export async function createPaymentBatch(
+  tx: Tx,
+  body: z.infer<typeof paymentBatchSchema>,
+  userId: string,
+) {
+  const [bank] = await tx
+    .select()
+    .from(bankAccounts)
+    .where(eq(bankAccounts.id, body.bankAccountId))
+    .limit(1);
+  if (!bank) throw new PostingError("Paying bank account not found");
+  if (!bank.isActive) throw new PostingError("That bank account is no longer active");
+
+  // Cheaper to refuse here than after the accounts team has uploaded the
+  // file, naming the screen that fixes it. The bank's customer code is
+  // not required: without one its column goes out blank and the sheet
+  // still carries every account for a bulk transfer.
+  const payer = await paymentFilePayer(bank, tx);
+  const unset: string[] = [];
+  if (!payer.accountNumber) unset.push("this account's number (Banking)");
+  if (!payer.customerName) unset.push("the organisation name (Settings)");
+  if (unset.length) {
+    throw new PostingError(`The bank file needs ${unset.join(", and ")}`);
+  }
+
+  // The same document twice in one file is two transfers for one debt.
+  const keys = body.items.map((i) => `${i.kind}:${i.id}`);
+  if (new Set(keys).size !== keys.length) {
+    throw new PostingError("The same document is selected more than once");
+  }
+
+  const payables = await listPayables(tx, { includeSent: true });
+  const byKey = new Map(payables.map((p) => [`${p.kind}:${p.id}`, p]));
+
+  // Everything wrong with the selection is worth saying at once: a person
+  // fixing four vendors' bank details wants all four names, not the first.
+  const missingRows: string[] = [];
+  const missingBank: string[] = [];
+  const alreadySent: string[] = [];
+  const badAmount: string[] = [];
+
+  const resolved = body.items.map((item, index) => {
+    const row = byKey.get(`${item.kind}:${item.id}`);
+    if (!row) {
+      missingRows.push(item.id);
+      return null;
+    }
+    if (!row.beneficiaryName || !row.bankAccountNumber || !row.bankIfsc) {
+      missingBank.push(row.vendorName);
+    }
+    if (row.sentBatchId && !body.allowResend) {
+      alreadySent.push(`${row.number} (${row.sentBatchNumber})`);
+    }
+    const amountP = item.amount ? toPaise(item.amount) : toPaise(row.amount);
+    // An advance goes for what was asked: part of one would leave a request
+    // that is neither open nor paid.
+    if (amountP <= 0 || amountP > toPaise(row.amount) || (row.kind === "advance" && amountP !== toPaise(row.amount))) {
+      badAmount.push(row.number);
+    }
+    return { item, row, amountP, index };
+  });
+
+  if (missingRows.length) {
+    throw new PostingError(
+      `${missingRows.length} of the selected documents are no longer unpaid — reload the page`,
+    );
+  }
+  if (missingBank.length) {
+    throw new PostingError(
+      `No bank details on file for ${[...new Set(missingBank)].join(", ")}`,
+    );
+  }
+  if (alreadySent.length) {
+    throw new PostingError(`Already sent to the bank: ${alreadySent.join(", ")}`);
+  }
+  if (badAmount.length) {
+    throw new PostingError(
+      `The amount to pay must be positive and no more than the outstanding balance: ${badAmount.join(", ")}`,
+    );
+  }
+
+  const batchDate = body.batchDate ?? istDate();
+  const number = await nextDocumentNumber(tx, "payment_batch", body.seriesId);
+  const totalP = resolved.reduce((sum, r) => sum + (r?.amountP ?? 0), 0);
+
+  const [created] = await tx
+    .insert(paymentBatches)
+    .values({
+      number,
+      batchDate,
+      bankAccountId: bank.id,
+      total: fromPaise(totalP),
+      notes: body.notes,
+      createdBy: userId,
+    })
+    .returning();
+
+  const values = resolved.filter((r) => r !== null).map((r) => ({
+    batchId: created!.id,
+    billId: r.row.kind === "bill" ? r.row.id : null,
+    expenseId: r.row.kind === "expense" ? r.row.id : null,
+    advanceRequestId: r.row.kind === "advance" ? r.row.id : null,
+    vendorId: r.row.vendorId,
+    amount: fromPaise(r.amountP),
+    beneficiaryName: r.row.beneficiaryName!,
+    accountNumber: r.row.bankAccountNumber!,
+    ifsc: r.row.bankIfsc!,
+    transferMode: transferMode(r.row.bankIfsc!, bank.ifsc),
+    // What the vendor sees against the credit. Their own bill number where
+    // we have it, since that is the one they can look up; for an advance,
+    // their proforma's number, or the PO's.
+    remarks: r.row.billNumber,
+    lineOrder: r.index,
+  }));
+  await tx.insert(paymentBatchLines).values(values);
+
+  return { id: created!.id, number, batchDate, total: fromPaise(totalP), lineCount: values.length };
+}
+
+const markPaidSchema = z.object({
+  /** The day the bank paid; defaults to the batch's value date. */
+  paymentDate: dateStr.optional(),
+});
+
+/**
+ * The bank confirmed the file: record what it paid, in one go.
+ *
+ * Every live transfer not yet recorded becomes what it would have been by
+ * hand — a vendor payment against the bill, a vendor payment held as an
+ * advance for an advance request, or the paying account filled in on the
+ * expense. All or nothing: a bill paid some other way since the file went
+ * stops the run by name, and that transfer is cancelled first.
+ */
+purchasesRouter.post(
+  "/payment-batches/:id/mark-paid",
+  requirePermission("purchases", "create"),
+  validateBody(markPaidSchema),
+  async (req, res) => {
+    const { paymentDate } = req.body as z.infer<typeof markPaidSchema>;
+    try {
+      const result = await db.transaction((tx) =>
+        markBatchPaid(tx, req.params.id!, { paymentDate }, req.session.user!.id),
+      );
+      res.json(result);
+    } catch (err) {
+      if (!handlePostingError(err, res)) throw err;
+    }
+  },
+);
+
+export async function markBatchPaid(
+  tx: Tx,
+  batchId: string,
+  opts: { paymentDate?: string },
+  userId: string,
+) {
+  const [batch] = await tx
+    .select()
+    .from(paymentBatches)
+    .where(eq(paymentBatches.id, batchId))
+    .for("update")
+    .limit(1);
+  if (!batch) throw new PostingError("Payment batch not found");
+  if (batch.cancelledAt) throw new PostingError(`${batch.number} is cancelled`);
+  if (batch.paidAt) throw new PostingError(`${batch.number} is already marked paid`);
+  const paymentDate = opts.paymentDate ?? batch.batchDate;
+
+  const lines = await tx
+    .select()
+    .from(paymentBatchLines)
+    .where(
+      and(
+        eq(paymentBatchLines.batchId, batch.id),
+        sql`${paymentBatchLines.cancelledAt} IS NULL`,
+        sql`${paymentBatchLines.recordedAt} IS NULL`,
+      ),
+    )
+    .orderBy(asc(paymentBatchLines.lineOrder))
+    .for("update");
+  if (!lines.length) throw new PostingError(`${batch.number} has nothing left to record`);
+
+  const payments: string[] = [];
+  for (const line of lines) {
+    const what = line.remarks ?? line.id;
+    try {
+      let vendorPaymentId: string | null = null;
+      if (line.billId) {
+        const payment = await createVendorPayment(
+          tx,
+          {
+            vendorId: line.vendorId,
+            paymentDate,
+            amount: line.amount,
+            mode: "bank_transfer",
+            reference: batch.number,
+            bankAccountId: batch.bankAccountId,
+            notes: `Paid by bank file ${batch.number}`,
+            applications: [{ billId: line.billId, amount: line.amount }],
+          },
+          userId,
+        );
+        vendorPaymentId = payment.id;
+        payments.push(payment.number);
+      } else if (line.advanceRequestId) {
+        const [request] = await tx
+          .select()
+          .from(vendorAdvanceRequests)
+          .where(eq(vendorAdvanceRequests.id, line.advanceRequestId))
+          .for("update")
+          .limit(1);
+        if (!request || request.status !== "open") {
+          throw new PostingError(`${request?.number ?? "the advance"} is ${request?.status ?? "gone"}`);
+        }
+        const payment = await createVendorPayment(
+          tx,
+          {
+            vendorId: line.vendorId,
+            paymentDate,
+            amount: line.amount,
+            mode: "bank_transfer",
+            reference: batch.number,
+            bankAccountId: batch.bankAccountId,
+            notes: `Advance ${request.number} paid by bank file ${batch.number}`,
+            applications: [],
+          },
+          userId,
+        );
+        await tx
+          .update(vendorAdvanceRequests)
+          .set({ status: "paid", vendorPaymentId: payment.id })
+          .where(eq(vendorAdvanceRequests.id, request.id));
+        vendorPaymentId = payment.id;
+        payments.push(payment.number);
+      } else if (line.expenseId) {
+        const expense = await tx.query.expenses.findFirst({ where: eq(expenses.id, line.expenseId) });
+        if (!expense) throw new PostingError("the expense is gone");
+        if (expense.paidThroughId) throw new PostingError(`${expense.number} was marked paid some other way`);
+        if (toPaise(line.amount) !== toPaise(expense.amount) + toPaise(expense.taxAmount)) {
+          throw new PostingError(`${expense.number} was sent in part — record it on the expense by hand`);
+        }
+        await tx
+          .update(expenses)
+          .set({ paidThroughId: batch.bankAccountId, dueDate: null })
+          .where(eq(expenses.id, expense.id));
+        await repostExpense(tx, expense.id, userId);
+      }
+      await tx
+        .update(paymentBatchLines)
+        .set({ vendorPaymentId, recordedAt: new Date() })
+        .where(eq(paymentBatchLines.id, line.id));
+    } catch (err) {
+      if (err instanceof PostingError) throw new PostingError(`${what}: ${err.message}`);
+      throw err;
+    }
+  }
+
+  await tx
+    .update(paymentBatches)
+    .set({ paidAt: new Date(), paidBy: userId, paidOn: paymentDate })
+    .where(eq(paymentBatches.id, batch.id));
+  return { number: batch.number, recorded: lines.length, payments };
+}
 
 const cancelTransferSchema = z.object({
   /** Why it will not happen — "never uploaded", "bounced: IFSC changed". */
@@ -2868,9 +3239,10 @@ const cancelTransferSchema = z.object({
  * Cancel a whole batch: the file was raised in error or never went to the bank.
  *
  * Every transfer still live in it is cancelled with it, so their documents are
- * back on To pay and can go in another file. The batch and its lines stay on
- * record, marked, and the file can still be re-downloaded as it was raised.
- * Nothing touches the ledger, because raising the file never did.
+ * back on To pay (or Advances) and can go in another file. The batch and its
+ * lines stay on record, marked. Nothing touches the ledger, because raising the
+ * file never did. A batch marked paid is refused: its payments are in the
+ * books, and they are undone by deleting them.
  */
 purchasesRouter.post(
   "/payment-batches/:id/cancel",
@@ -2889,6 +3261,14 @@ purchasesRouter.post(
           .limit(1);
         if (!batch) throw new PostingError("Payment batch not found");
         if (batch.cancelledAt) throw new PostingError(`${batch.number} is already cancelled`);
+        if (batch.paidAt) throw new PostingError(`${batch.number} is marked paid — delete its payments to undo it`);
+        const [recorded] = await tx
+          .select({ n: sql<number>`count(*)::int` })
+          .from(paymentBatchLines)
+          .where(and(eq(paymentBatchLines.batchId, batch.id), sql`${paymentBatchLines.recordedAt} IS NOT NULL`));
+        if (recorded!.n > 0) {
+          throw new PostingError(`${batch.number} has transfers recorded as paid — cancel the others one by one`);
+        }
         const now = new Date();
         const lines = await tx
           .update(paymentBatchLines)
@@ -2912,9 +3292,10 @@ purchasesRouter.post(
 
 /**
  * Cancel single transfers — the bank bounced a line, or one was taken out of
- * the file before upload. Their documents go back to To pay; the rest of each
- * batch stands. A batch left with nothing live in it is cancelled too, under
- * the same reason, so the Sent list never shows a file that sends nothing.
+ * the file before upload. Their documents go back to To pay or Advances; the
+ * rest of each batch stands. A transfer already recorded as paid is refused.
+ * A batch left with nothing live in it is cancelled too, under the same
+ * reason, so the Sent list never shows a file that sends nothing.
  */
 purchasesRouter.post(
   // Not under /payment-batches/, where ":id/cancel" would claim "lines".
@@ -2931,6 +3312,7 @@ purchasesRouter.post(
             id: paymentBatchLines.id,
             batchId: paymentBatchLines.batchId,
             cancelledAt: paymentBatchLines.cancelledAt,
+            recordedAt: paymentBatchLines.recordedAt,
             remarks: paymentBatchLines.remarks,
           })
           .from(paymentBatchLines)
@@ -2943,6 +3325,12 @@ purchasesRouter.post(
         if (already.length) {
           throw new PostingError(
             `Already cancelled: ${already.map((l) => l.remarks ?? l.id).join(", ")}`,
+          );
+        }
+        const recorded = lines.filter((l) => l.recordedAt);
+        if (recorded.length) {
+          throw new PostingError(
+            `Recorded as paid: ${recorded.map((l) => l.remarks ?? l.id).join(", ")} — delete the payment to undo it`,
           );
         }
         const now = new Date();
@@ -2964,6 +3352,24 @@ purchasesRouter.post(
             ),
           )
           .returning({ number: paymentBatches.number });
+        // A batch whose only unrecorded transfers were these is now paid in
+        // full: what is left in it is all in the books.
+        await tx
+          .update(paymentBatches)
+          .set({ paidAt: now, paidBy: userId, paidOn: sql`(SELECT MAX(vp.payment_date) FROM payment_batch_lines l
+                       JOIN vendor_payments vp ON vp.id = l.vendor_payment_id WHERE l.batch_id = ${paymentBatches.id})` })
+          .where(
+            and(
+              inArray(paymentBatches.id, batchIds),
+              sql`${paymentBatches.cancelledAt} IS NULL`,
+              sql`${paymentBatches.paidAt} IS NULL`,
+              sql`EXISTS (SELECT 1 FROM ${paymentBatchLines} l
+                          WHERE l.batch_id = ${paymentBatches.id} AND l.recorded_at IS NOT NULL)`,
+              sql`NOT EXISTS (SELECT 1 FROM ${paymentBatchLines} l
+                              WHERE l.batch_id = ${paymentBatches.id} AND l.cancelled_at IS NULL
+                                AND l.recorded_at IS NULL)`,
+            ),
+          );
         return { transfersCancelled: lines.length, batchesCancelled: emptied.map((b) => b.number) };
       });
       res.json(result);

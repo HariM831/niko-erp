@@ -12,6 +12,7 @@ import { billNo, localYmd } from "../lib/utils";
 import { printSheet } from "../lib/print-sheet";
 import { GST_STATES, toGstStateCode } from "@shared/gst-states";
 import { ApplyCreditsDialog, useCredits } from "../components/apply-credits";
+import { PurchaseOrderAdvances } from "../components/po-advances";
 import { DeletePaymentDialog, PaymentRowMenu } from "../components/delete-payment";
 import { useAuth } from "../auth";
 
@@ -628,6 +629,18 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
             Mark as Issued
           </button>
         </div>
+      )}
+
+      {kind === "purchase-order" && (
+        <PurchaseOrderAdvances
+          order={{
+            id: doc.id,
+            number: doc.number,
+            status: doc.status,
+            vendorName: contact?.displayName ?? "",
+            total: String(doc.total),
+          }}
+        />
       )}
 
       <div ref={sheetWrapRef} className="flex-1 overflow-y-auto bg-gray-100 p-3 print:bg-white print:p-0 sm:p-6">

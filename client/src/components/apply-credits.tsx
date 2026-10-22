@@ -23,6 +23,10 @@ export interface Credit {
   date: string;
   amount: string;
   available: string;
+  /** The purchase order an advance was paid against. */
+  purchaseOrderNumber?: string | null;
+  /** Paid against this bill's own order: listed first and filled in. */
+  forThisOrder?: boolean;
 }
 
 export interface CreditsOffer {
@@ -59,7 +63,19 @@ export function ApplyCreditsDialog({
   onApplied: () => void;
 }) {
   const qc = useQueryClient();
-  const [amounts, setAmounts] = useState<Record<string, string>>({});
+  // The bill's own order's advances come filled in, as much of each as fits,
+  // since that money was paid for exactly this bill.
+  const [amounts, setAmounts] = useState<Record<string, string>>(() => {
+    let room = Number(offer.balanceDue);
+    const out: Record<string, string> = {};
+    for (const c of offer.credits) {
+      if (!c.forThisOrder || room <= 0) continue;
+      const use = Math.min(Number(c.available), room);
+      out[c.id] = use.toFixed(2);
+      room -= use;
+    }
+    return out;
+  });
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -149,6 +165,12 @@ export function ApplyCreditsDialog({
                     </div>
                     <div className="text-[12px] text-gray-500">
                       {c.number} · {formatDate(c.date)}
+                      {c.purchaseOrderNumber && (
+                        <span className={c.forThisOrder ? "ml-1 font-medium text-brand-700" : "ml-1"}>
+                          · advance on {c.purchaseOrderNumber}
+                          {c.forThisOrder && " (this bill's order)"}
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td className="py-2 text-right tabular-nums text-gray-600">{formatMoney(c.amount)}</td>

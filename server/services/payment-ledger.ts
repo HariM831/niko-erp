@@ -17,13 +17,14 @@
  * see (the egg bay's auto-apply and the October allocation scripts posted
  * their entries against the invoice, not the receipt).
  *
- * The buying side is the same where it applies. A vendor payment raised in
- * niko debits payables in full, so its advance already sits inside payables
- * and nothing ever moves. One brought from Zoho parks its unapplied part in
- * vendor advances, and that part moves with its applications the same way.
+ * The buying side is the same. A vendor payment holds its unapplied part in
+ * vendor advances — Zoho's always did, and niko's do since 22 Oct 2026 — and
+ * that part moves with its applications. A niko payment older than that still
+ * has its advance inside payables (advances_in_ledger false), so nothing moves
+ * for it until scripts/move-vendor-advances.ts or an edit brings it across.
  */
-import { and, eq, sql } from "drizzle-orm";
-import { paymentApplications, vendorPayments, zohoIdMap } from "@shared/schema";
+import { eq, sql } from "drizzle-orm";
+import { paymentApplications, vendorPayments } from "@shared/schema";
 import { postJournal } from "./posting";
 import { fromPaise } from "./documents";
 import type { db as Db } from "../db";
@@ -49,16 +50,11 @@ export async function positionOf(tx: Tx, side: Side, paymentId: string): Promise
       .where(eq(paymentApplications.paymentId, paymentId));
     return { side, paymentId, held: paise(a!.v), ledger: await moved(tx, "customer_payment", paymentId, "ar", -1) };
   }
-  const [imported] = await tx
-    .select({ id: zohoIdMap.id })
-    .from(zohoIdMap)
-    .where(and(eq(zohoIdMap.entity, "vendor_payment"), eq(zohoIdMap.eggsyId, paymentId)))
-    .limit(1);
-  if (!imported) return null;
   const [p] = await tx
-    .select({ unapplied: vendorPayments.unappliedAmount })
+    .select({ unapplied: vendorPayments.unappliedAmount, inLedger: vendorPayments.advancesInLedger })
     .from(vendorPayments)
     .where(eq(vendorPayments.id, paymentId));
+  if (!p?.inLedger) return null;
   return {
     side,
     paymentId,

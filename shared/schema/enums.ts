@@ -109,6 +109,9 @@ export const purchaseOrderStatus = pgEnum("purchase_order_status", [
   "cancelled",
 ]);
 
+/** An advance asked for against a purchase order, before its bill. */
+export const vendorAdvanceStatus = pgEnum("vendor_advance_status", ["open", "paid", "cancelled"]);
+
 export const creditNoteStatus = pgEnum("credit_note_status", [
   "draft",
   "open",

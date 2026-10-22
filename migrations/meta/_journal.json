@@ -946,6 +946,13 @@
       "when": 1792800000000,
       "tag": "0130_optional_holidays",
       "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "7",
+      "when": 1792886400000,
+      "tag": "0131_vendor_advances",
+      "breakpoints": true
     }
   ]
 }

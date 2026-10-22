@@ -89,6 +89,14 @@ export const ENTITIES: EntityDef[] = [
     lookupTarget: false,
   },
   {
+    key: "vendor_advance_request",
+    label: "Advance Request",
+    plural: "Advance Requests",
+    module: "purchases",
+    numbered: true,
+    lookupTarget: false,
+  },
+  {
     key: "expense",
     label: "Expense",
     plural: "Expenses",

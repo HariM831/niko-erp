@@ -16,9 +16,9 @@
  * account. An advance is different on the selling side, where the receipt
  * holds it in customer advances until it is put against a sale, so applying
  * one moves it into receivables with an entry of its own, dated today and tied
- * to the receipt (services/payment-ledger.ts). A vendor payment raised here
- * debited payables in full and moves nothing; one brought from Zoho holds its
- * advance in vendor advances and moves the same way.
+ * to the receipt (services/payment-ledger.ts). A vendor payment holds its
+ * advance in vendor advances the same way — Zoho's always did, niko's since
+ * 22 Oct 2026 — and only a niko payment older than that moves nothing.
  */
 import { and, eq, gt, inArray } from "drizzle-orm";
 import {
@@ -28,6 +28,8 @@ import {
   customerPayments,
   paymentApplications,
   invoices,
+  purchaseOrders,
+  vendorAdvanceRequests,
   vendorCreditApplications,
   vendorCredits,
   vendorPayments,
@@ -55,6 +57,10 @@ export interface Credit {
   amount: string;
   /** What is still going spare, and so the most that can be applied. */
   available: string;
+  /** The purchase order an advance was paid against, from its advance request. */
+  purchaseOrderNumber?: string | null;
+  /** Paid against this bill's own order: offered first, already filled in. */
+  forThisOrder?: boolean;
 }
 
 export interface CreditsOffer {
@@ -87,8 +93,12 @@ export async function creditsFor(side: Side, documentId: string): Promise<Credit
           date: vendorPayments.paymentDate,
           amount: vendorPayments.amount,
           available: vendorPayments.unappliedAmount,
+          purchaseOrderId: vendorAdvanceRequests.purchaseOrderId,
+          purchaseOrderNumber: purchaseOrders.number,
         })
         .from(vendorPayments)
+        .leftJoin(vendorAdvanceRequests, eq(vendorAdvanceRequests.vendorPaymentId, vendorPayments.id))
+        .leftJoin(purchaseOrders, eq(purchaseOrders.id, vendorAdvanceRequests.purchaseOrderId))
         .where(and(eq(vendorPayments.vendorId, bill.vendorId), gt(vendorPayments.unappliedAmount, "0")))
         .orderBy(vendorPayments.paymentDate),
       db
@@ -103,7 +113,19 @@ export async function creditsFor(side: Side, documentId: string): Promise<Credit
         .where(and(eq(vendorCredits.vendorId, bill.vendorId), eq(vendorCredits.status, "open"), gt(vendorCredits.balance, "0")))
         .orderBy(vendorCredits.creditDate),
     ]);
-    return offer(bill.number, bill.balanceDue, advances, credits);
+    const out = offer(
+      bill.number,
+      bill.balanceDue,
+      advances.map(({ purchaseOrderId, ...a }) => ({
+        ...a,
+        forThisOrder: !!bill.purchaseOrderId && purchaseOrderId === bill.purchaseOrderId,
+      })),
+      credits,
+    );
+    // The order's own advances first: that is the money this bill was paid
+    // ahead with, and the one most likely to be paid twice if it is missed.
+    out.credits.sort((a, b) => Number(!!b.forThisOrder) - Number(!!a.forThisOrder));
+    return out;
   }
 
   const invoice = await db.query.invoices.findFirst({ where: eq(invoices.id, documentId) });
@@ -135,7 +157,15 @@ export async function creditsFor(side: Side, documentId: string): Promise<Credit
   return offer(invoice.number, invoice.balanceDue, advances, credits);
 }
 
-type Row = { id: string; number: string; date: string; amount: string; available: string };
+type Row = {
+  id: string;
+  number: string;
+  date: string;
+  amount: string;
+  available: string;
+  purchaseOrderNumber?: string | null;
+  forThisOrder?: boolean;
+};
 
 function offer(number: string, balanceDue: string, advances: Row[], credits: Row[]): CreditsOffer {
   const all: Credit[] = [

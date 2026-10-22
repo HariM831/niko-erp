@@ -1,4 +1,5 @@
 import {
+  boolean,
   date,
   index,
   integer,
@@ -14,6 +15,7 @@ import {
   creditNoteStatus,
   paymentMode,
   purchaseOrderStatus,
+  vendorAdvanceStatus,
 } from "./enums";
 import { contacts } from "./contacts";
 import { items } from "./items";
@@ -224,6 +226,13 @@ export const vendorPayments = pgTable("vendor_payments", {
   tdsAmount: money("tds_amount").notNull().default("0"),
   notes: text("notes"),
   journalEntryId: uuid("journal_entry_id").references(() => journalEntries.id),
+  /**
+   * Whether the unapplied part sits in Vendor Advances rather than inside
+   * payables. True for everything from Zoho and everything niko raises since
+   * 22 Oct 2026; false only for niko's older payments until
+   * scripts/move-vendor-advances.ts moves them (services/payment-ledger.ts).
+   */
+  advancesInLedger: boolean("advances_in_ledger").notNull().default(false),
   createdBy: uuid("created_by")
     .notNull()
     .references(() => users.id),
@@ -370,7 +379,55 @@ export const paymentBatches = pgTable("payment_batches", {
   cancelledAt: timestamp("cancelled_at"),
   cancelledBy: uuid("cancelled_by").references(() => users.id),
   cancelReason: text("cancel_reason"),
+  /**
+   * Paid: the bank confirmed the file and every live transfer in it was
+   * recorded as a vendor payment (or the expense marked paid) on `paidOn`.
+   */
+  paidAt: timestamp("paid_at"),
+  paidBy: uuid("paid_by").references(() => users.id),
+  paidOn: date("paid_on"),
 });
+
+/**
+ * Money asked for against a purchase order before its bill — the vendor sent a
+ * proforma and wants paying first.
+ *
+ * Always against a PO, so the bill that follows on the same order can find it.
+ * The proforma itself is an attachment on this row (entity
+ * "vendor_advance_request"); there is no proforma document. It goes to the bank
+ * in a batch like a bill does, and Mark paid turns it into a vendor payment
+ * with nothing applied, held in Vendor Advances until the bill takes it.
+ * Whether it is in a live batch is read from payment_batch_lines, as it is for
+ * a bill, so the status here is only open, paid or cancelled.
+ */
+export const vendorAdvanceRequests = pgTable(
+  "vendor_advance_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    number: varchar("number", { length: 30 }).notNull().unique(),
+    purchaseOrderId: uuid("purchase_order_id")
+      .notNull()
+      .references(() => purchaseOrders.id),
+    vendorId: uuid("vendor_id")
+      .notNull()
+      .references(() => contacts.id),
+    amount: money("amount").notNull(),
+    proformaNumber: text("proforma_number"),
+    proformaDate: date("proforma_date"),
+    notes: text("notes"),
+    status: vendorAdvanceStatus("status").notNull().default("open"),
+    /** The payment it became once paid. */
+    vendorPaymentId: uuid("vendor_payment_id").references(() => vendorPayments.id),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    cancelledAt: timestamp("cancelled_at"),
+    cancelledBy: uuid("cancelled_by").references(() => users.id),
+    cancelReason: text("cancel_reason"),
+  },
+  (t) => [index("ix_var_po").on(t.purchaseOrderId), index("ix_var_payment").on(t.vendorPaymentId)],
+);
 
 /**
  * One transfer in a batch — one row of the file.
@@ -390,6 +447,7 @@ export const paymentBatchLines = pgTable(
     /** Exactly one of these is set — the document being paid. */
     billId: uuid("bill_id").references(() => bills.id),
     expenseId: uuid("expense_id").references(() => expenses.id),
+    advanceRequestId: uuid("advance_request_id").references(() => vendorAdvanceRequests.id),
     vendorId: uuid("vendor_id")
       .notNull()
       .references(() => contacts.id),
@@ -409,10 +467,18 @@ export const paymentBatchLines = pgTable(
     cancelledAt: timestamp("cancelled_at"),
     cancelledBy: uuid("cancelled_by").references(() => users.id),
     cancelReason: text("cancel_reason"),
+    /** The vendor payment Mark paid recorded for it (none for an expense). */
+    vendorPaymentId: uuid("vendor_payment_id").references(() => vendorPayments.id),
+    /**
+     * When Mark paid put this transfer in the books. Deleting the payment it
+     * made clears it, and the batch is waiting again.
+     */
+    recordedAt: timestamp("recorded_at"),
   },
   (t) => [
     index("ix_pbl_batch").on(t.batchId),
     index("ix_pbl_bill").on(t.billId),
     index("ix_pbl_expense").on(t.expenseId),
+    index("ix_pbl_advance").on(t.advanceRequestId),
   ],
 );

@@ -10,26 +10,32 @@ import { AccountSelect, bankNodes } from "../components/account-select";
 import { type SearchField, filterRows, useAdvancedSearch } from "../components/advanced-search";
 import { DateInput } from "../components/date-input";
 import { SortTh, compareBy, useSortState, type SortValue } from "../components/sortable-table";
+import { AttachmentsButton } from "../components/attachments";
+import { CancelAdvanceDialog, NewAdvanceDialog } from "../components/po-advances";
+import { SentBatches } from "./vendor-sheet-batches";
 
 /**
  * Vendor Sheet — the one screen that answers "what do we owe, and what goes to
  * the bank today".
  *
- * Bills and unpaid expenses sit in one list because they are the same thing to
- * whoever is paying: money owed to a vendor with a date on it. Tick the rows,
- * press Send to bank, and the selection comes back as the bank's own upload
- * sheet.
+ * Three tabs (docs/vendor-advances-and-batches-plan.md, 22 Oct 2026):
+ *
+ * - To pay: bills and unpaid expenses in one list, because they are the same
+ *   thing to whoever is paying — money owed to a vendor with a date on it.
+ * - Advances: money asked for against a purchase order on the vendor's
+ *   proforma, before the bill. Sent the same way, and in the same batch.
+ * - Sent to bank: one row per batch. The file is downloaded there — Send to
+ *   bank only makes the batch — and Mark paid records the payments once the
+ *   bank confirms them.
  *
  * Sending is not paying. The file is an instruction; the bank can still reject
- * a line, so nothing here touches the ledger. What it does do is remember what
- * went out, so the rows drop off this list and the same bill is not paid twice
- * on Tuesday and again on Wednesday. The payment itself is recorded when the
- * bank confirms it — a vendor payment against the bill, or the paid-through
- * account filled in on the expense.
+ * a line, so sending touches nothing in the ledger. It remembers what went out,
+ * so the rows drop off To pay and the same bill is not paid twice on Tuesday
+ * and again on Wednesday.
  */
 
 interface Payable {
-  kind: "bill" | "expense";
+  kind: "bill" | "expense" | "advance";
   id: string;
   number: string;
   billNumber: string;
@@ -51,6 +57,11 @@ interface Payable {
   sentBatchNumber: string | null;
   sentBatchDate: string | null;
   sentAmount: string | null;
+  /** An advance's order and proforma. */
+  purchaseOrderId: string | null;
+  purchaseOrderNumber: string | null;
+  proformaNumber: string | null;
+  proformaDate: string | null;
 }
 
 /** What each column sorts a ROW on. */
@@ -60,7 +71,7 @@ const ROW_SORTS: Record<string, (r: Payable) => SortValue> = {
   amount: (r) => Number(r.amount) || 0,
   bill: (r) => r.billNumber || r.number,
   delivery: (r) => r.deliveryDate,
-  due: (r) => r.dueDate,
+  due: (r) => (r.kind === "advance" ? r.proformaDate : r.dueDate),
   overdue: (r) => r.overdueDays,
   notes: (r) => r.notes,
 };
@@ -106,14 +117,24 @@ interface PayerAccount {
 const rowKey = (r: Payable) => `${r.kind}:${r.id}`;
 const hasBank = (r: Payable) => !!(r.beneficiaryName && r.bankAccountNumber && r.bankIfsc);
 const docPath = (r: Payable) =>
-  r.kind === "bill" ? `/purchases/bills/${r.id}` : `/purchases/expenses/${r.id}`;
+  r.kind === "bill"
+    ? `/purchases/bills/${r.id}`
+    : r.kind === "expense"
+      ? `/purchases/expenses/${r.id}`
+      : `/purchases/orders/${r.purchaseOrderId}`;
+
+type Tab = "pay" | "advances" | "sent";
+const TABS: Array<{ key: Tab; label: string }> = [
+  { key: "pay", label: "To pay" },
+  { key: "advances", label: "Advances" },
+  { key: "sent", label: "Sent to bank" },
+];
 
 const today = () => localYmd();
 /**
  * What the person paying asks of the sheet: one vendor's dues, what falls due
  * this week, what is badly overdue, what cannot go because the bank details
- * are missing, and — on the Sent tab — what went in which batch. The sheet is
- * loaded whole, so these filter on the client.
+ * are missing. The sheet is loaded whole, so these filter on the client.
  */
 const SHEET_SEARCH: SearchField[] = [
   { key: "vendorId", label: "Vendor", kind: "contact", contactType: "vendor" },
@@ -124,6 +145,7 @@ const SHEET_SEARCH: SearchField[] = [
     options: [
       { value: "bill", label: "Bill" },
       { value: "expense", label: "Expense" },
+      { value: "advance", label: "Advance" },
     ],
   },
   { key: "billNumber", label: "Bill#", kind: "text" },
@@ -141,8 +163,6 @@ const SHEET_SEARCH: SearchField[] = [
       { value: "no", label: "Missing" },
     ],
   },
-  { key: "batch", label: "Batch#", kind: "text" },
-  { key: "sentDate", label: "Sent Date Range", kind: "dateRange" },
 ];
 
 const sheetValue = (r: Payable, key: string) => {
@@ -166,10 +186,6 @@ const sheetValue = (r: Payable, key: string) => {
       return r.overdueDays;
     case "bank":
       return hasBank(r) ? "yes" : "no";
-    case "batch":
-      return r.sentBatchNumber;
-    case "sentDate":
-      return r.sentBatchDate;
   }
   return undefined;
 };
@@ -178,30 +194,41 @@ const sheetValue = (r: Payable, key: string) => {
 export function VendorSheetPage() {
   const [, navigate] = useLocation();
   const qc = useQueryClient();
-  const [showSent, setShowSent] = useState(false);
+  const [tab, setTab] = useState<Tab>("pay");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [cancelling, setCancelling] = useState<CancelTarget | null>(null);
+  const [newAdvance, setNewAdvance] = useState(false);
+  const [cancellingAdvance, setCancellingAdvance] = useState<Payable | null>(null);
 
+  // Sent documents are not here: they are on Sent to bank, in their batch.
   const { data, isLoading, error } = useQuery({
-    queryKey: ["/api/purchases/payables", showSent],
-    queryFn: () =>
-      api<Payable[]>(`/api/purchases/payables${showSent ? "?includeSent=1" : ""}`),
+    queryKey: ["/api/purchases/payables"],
+    queryFn: () => api<Payable[]>("/api/purchases/payables"),
+    enabled: tab !== "sent",
   });
+  const advanceCount = (data ?? []).filter((r) => r.kind === "advance").length;
 
   const rows = useMemo(
-    () => (showSent ? (data ?? []).filter((r) => r.sentBatchId) : (data ?? [])),
-    [data, showSent],
+    () => (data ?? []).filter((r) => (tab === "advances" ? r.kind === "advance" : r.kind !== "advance")),
+    [data, tab],
   );
 
   // "Search in Vendor Sheet" narrows the rows shown. Ticks are kept on rows
-  // the search hides — the file is built from every tick, and the dialog lists
+  // the search hides — the batch is built from every tick, and the dialog lists
   // each one before anything is sent — and the banner still sums the sheet.
   const term = useLocalSearch("Vendor Sheet", "vendor-sheet");
   const adv = useAdvancedSearch("Vendor Sheet", SHEET_SEARCH);
   const shown = filterRows(
     rows.filter((r) =>
-      matchesTerm(term, [r.vendorName, r.billNumber, r.number, r.description, r.notes, r.beneficiaryName]),
+      matchesTerm(term, [
+        r.vendorName,
+        r.billNumber,
+        r.number,
+        r.description,
+        r.notes,
+        r.beneficiaryName,
+        r.purchaseOrderNumber,
+      ]),
     ),
     SHEET_SEARCH,
     adv.criteria,
@@ -249,9 +276,11 @@ export function VendorSheetPage() {
   }, [shown, sort]);
   const shownTotal = shown.reduce((sum, r) => sum + Number(r.amount), 0);
 
+  // Ticks carry across To pay and Advances, so bills and advances can go to
+  // the bank in one batch.
   const chosen = useMemo(
-    () => rows.filter((r) => selected.has(rowKey(r))),
-    [rows, selected],
+    () => (data ?? []).filter((r) => selected.has(rowKey(r))),
+    [data, selected],
   );
   const selectedTotal = chosen.reduce((sum, r) => sum + Number(r.amount), 0);
   const totalPayable = rows.reduce((sum, r) => sum + Number(r.amount), 0);
@@ -262,9 +291,8 @@ export function VendorSheetPage() {
   // Only a row we can actually pay is selectable: a vendor with no account
   // number cannot go in the file, and letting it be ticked only moves the
   // disappointment to the end of the run.
-  // On the Sent tab a tick picks transfers to cancel instead.
   // The header box works on the rows in view, leaving ticks elsewhere alone.
-  const canTick = (r: Payable) => (showSent ? !!r.sentLineId : hasBank(r) && !r.sentBatchId);
+  const canTick = (r: Payable) => hasBank(r) && !r.sentBatchId;
   const payable = shown.filter(canTick);
   const allSelected = payable.length > 0 && payable.every((r) => selected.has(rowKey(r)));
 
@@ -285,6 +313,7 @@ export function VendorSheetPage() {
       return next;
     });
 
+  const onAdvances = tab === "advances";
 
   return (
     <div className="flex h-full flex-col">
@@ -292,43 +321,35 @@ export function VendorSheetPage() {
         <div className="flex items-center gap-3">
           <h1 className="text-lg font-semibold text-gray-800">Vendor Sheet</h1>
           <div className="flex rounded-md border border-gray-200 p-0.5 text-[12px]">
-            {[
-              { label: "To pay", value: false },
-              { label: "Sent to bank", value: true },
-            ].map((tab) => (
+            {TABS.map((t) => (
               <button
-                key={tab.label}
-                onClick={() => {
-                  setShowSent(tab.value);
-                  setSelected(new Set());
-                }}
+                key={t.key}
+                onClick={() => setTab(t.key)}
                 className={`rounded px-2.5 py-1 ${
-                  showSent === tab.value
-                    ? "bg-brand-50 font-medium text-brand-700"
-                    : "text-gray-500 hover:bg-gray-50"
+                  tab === t.key ? "bg-brand-50 font-medium text-brand-700" : "text-gray-500 hover:bg-gray-50"
                 }`}
               >
-                {tab.label}
+                {t.label}
+                {t.key === "advances" && advanceCount > 0 && (
+                  <span className="ml-1 text-gray-400">{advanceCount}</span>
+                )}
               </button>
             ))}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {adv.button}
-          {selected.size > 0 && (
-            <span className="text-[13px] text-gray-500">
-              {selected.size} selected · {formatMoney(selectedTotal)}
-            </span>
-          )}
-          {showSent ? (
-            <button
-              onClick={() => setCancelling({ kind: "lines", rows: chosen })}
-              disabled={selected.size === 0}
-              className="btn-secondary"
-            >
-              Cancel transfers
-            </button>
-          ) : (
+        {tab !== "sent" && (
+          <div className="flex items-center gap-2">
+            {adv.button}
+            {selected.size > 0 && (
+              <span className="text-[13px] text-gray-500">
+                {selected.size} selected · {formatMoney(selectedTotal)}
+              </span>
+            )}
+            {onAdvances && (
+              <button onClick={() => setNewAdvance(true)} className="btn-secondary">
+                New advance
+              </button>
+            )}
             <button
               onClick={() => setDialogOpen(true)}
               disabled={selected.size === 0}
@@ -336,247 +357,247 @@ export function VendorSheetPage() {
             >
               Send to bank
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </header>
 
-      <SummaryBanner
-        primary={{
-          label: showSent ? "Sent to the bank" : "To pay",
-          value: formatMoney(totalPayable),
-        }}
-        secondary={[
-          { label: "Documents", value: String(rows.length) },
-          { label: "Overdue", value: formatMoney(overdueTotal), alert: overdueTotal > 0 },
-          { label: "Selected", value: formatMoney(selectedTotal) },
-        ]}
-      />
+      {tab === "sent" ? (
+        <SentBatches />
+      ) : (
+        <>
+          <SummaryBanner
+            primary={{
+              label: onAdvances ? "Advances to send" : "To pay",
+              value: formatMoney(totalPayable),
+            }}
+            secondary={[
+              { label: onAdvances ? "Advances" : "Documents", value: String(rows.length) },
+              ...(onAdvances ? [] : [{ label: "Overdue", value: formatMoney(overdueTotal), alert: overdueTotal > 0 }]),
+              { label: "Selected", value: formatMoney(selectedTotal) },
+            ]}
+          />
 
-      <div className="flex-1 overflow-auto">
-        {isLoading ? (
-          <div className="p-8 text-center text-sm text-gray-500">Loading…</div>
-        ) : error ? (
-          <div className="p-8 text-center text-sm text-red-600">
-            {error instanceof Error ? error.message : "Failed to load"}
-          </div>
-        ) : !rows.length ? (
-          <div className="p-12 text-center text-sm text-gray-500">
-            {showSent ? "Nothing has been sent to the bank yet." : "Nothing is unpaid."}
-          </div>
-        ) : !shown.length ? (
-          <div className="p-12 text-center text-sm text-gray-500">
-            {term.trim() ? <>Nothing matches “{term.trim()}”.</> : "Nothing matches the search."}
-          </div>
-        ) : (
-          <table className="list-table w-full border-separate border-spacing-0 text-[13px]">
-            <thead className="table-head sticky top-0 z-10">
-              <tr>
-                <th className="w-9 border-b border-[#ece3d5] px-3 py-2">
-                  <input
-                    type="checkbox"
-                    checked={allSelected}
-                    disabled={payable.length === 0}
-                    onChange={toggleAll}
-                    className="accent-brand-500"
-                  />
-                </th>
-                <SortTh k="vendor" sort={sort} toggle={toggle} className="border-b border-[#ece3d5] px-3 py-2 font-semibold">Vendor</SortTh>
-                <SortTh k="desc" sort={sort} toggle={toggle} className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">Item &amp; Desc</SortTh>
-                <SortTh k="amount" sort={sort} toggle={toggle} align="right" className="border-b border-[#ece3d5] px-3 py-2 text-right font-semibold">Amount</SortTh>
-                <SortTh k="bill" sort={sort} toggle={toggle} className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">Bill No</SortTh>
-                <SortTh k="delivery" sort={sort} toggle={toggle} className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">Delivery Date</SortTh>
-                <SortTh k="due" sort={sort} toggle={toggle} className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">Due Date</SortTh>
-                <SortTh k="overdue" sort={sort} toggle={toggle} align="right" className="border-b border-[#ece3d5] px-3 py-2 text-right font-semibold">Overdue Days</SortTh>
-                <SortTh k="notes" sort={sort} toggle={toggle} className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">Notes</SortTh>
-              </tr>
-            </thead>
-            <tbody>
-              {groups.flatMap(({ vendorId, vendorName, rows: vendorRows, subtotal, bank }) => {
-                const open = !collapsed.has(vendorId);
-                const groupPayable = vendorRows.filter(canTick);
-                const groupAllOn = groupPayable.length > 0 && groupPayable.every((r) => selected.has(rowKey(r)));
-                const header = (
-                  <tr key={`v:${vendorId}`} className="bg-gray-50 text-[12px]">
-                    <td className="border-b border-[#ece3d5] px-3 py-1.5" onClick={(e) => e.stopPropagation()}>
+          <div className="flex-1 overflow-auto">
+            {isLoading ? (
+              <div className="p-8 text-center text-sm text-gray-500">Loading…</div>
+            ) : error ? (
+              <div className="p-8 text-center text-sm text-red-600">
+                {error instanceof Error ? error.message : "Failed to load"}
+              </div>
+            ) : !rows.length ? (
+              <div className="p-12 text-center text-sm text-gray-500">
+                {onAdvances ? (
+                  <>
+                    No advance is waiting to go to the bank.{" "}
+                    <button onClick={() => setNewAdvance(true)} className="text-brand-600 hover:underline">
+                      New advance
+                    </button>
+                  </>
+                ) : (
+                  "Nothing is unpaid."
+                )}
+              </div>
+            ) : !shown.length ? (
+              <div className="p-12 text-center text-sm text-gray-500">
+                {term.trim() ? <>Nothing matches “{term.trim()}”.</> : "Nothing matches the search."}
+              </div>
+            ) : (
+              <table className="list-table w-full border-separate border-spacing-0 text-[13px]">
+                <thead className="table-head sticky top-0 z-10">
+                  <tr>
+                    <th className="w-9 border-b border-[#ece3d5] px-3 py-2">
                       <input
                         type="checkbox"
-                        checked={groupAllOn}
-                        disabled={groupPayable.length === 0}
-                        title={
-                          showSent
-                            ? `Tick every ${vendorName} transfer`
-                            : groupPayable.length === 0
-                            ? bank
-                              ? "Everything here has been sent"
-                              : `${vendorName} has no bank details on file`
-                            : `Tick every ${vendorName} row`
-                        }
-                        onChange={() =>
-                          setSelected((s) => {
-                            const next = new Set(s);
-                            for (const r of groupPayable) {
-                              if (groupAllOn) next.delete(rowKey(r));
-                              else next.add(rowKey(r));
-                            }
-                            return next;
-                          })
-                        }
-                        className="accent-brand-500 disabled:opacity-40"
+                        checked={allSelected}
+                        disabled={payable.length === 0}
+                        onChange={toggleAll}
+                        className="accent-brand-500"
                       />
-                    </td>
-                    <td
-                      className="cursor-pointer select-none whitespace-nowrap border-b border-[#ece3d5] px-3 py-1.5 font-semibold text-gray-700"
-                      onClick={() =>
-                        setCollapsed((c) => {
-                          const next = new Set(c);
-                          if (next.has(vendorId)) next.delete(vendorId);
-                          else next.add(vendorId);
-                          return next;
-                        })
-                      }
-                    >
-                      <span className="mr-1.5 inline-block w-3 text-gray-400">{open ? "▾" : "▸"}</span>
-                      {vendorName}
-                      <span className="ml-2 font-normal text-gray-400">{vendorRows.length}</span>
-                      {!bank && <span className="ml-2 font-normal text-amber-600">no bank details</span>}
-                    </td>
-                    <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-1.5" />
-                    <td className="border-b border-[#ece3d5] px-3 py-1.5 text-right font-semibold tabular-nums text-gray-800">
-                      {formatMoney(subtotal)}
-                    </td>
-                    <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-1.5" />
-                    <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-1.5" />
-                    <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-1.5" />
-                    <td className="border-b border-[#ece3d5] px-3 py-1.5" />
-                    <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-1.5" />
+                    </th>
+                    <SortTh k="vendor" sort={sort} toggle={toggle} className="border-b border-[#ece3d5] px-3 py-2 font-semibold">Vendor</SortTh>
+                    <SortTh k="desc" sort={sort} toggle={toggle} className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">Item &amp; Desc</SortTh>
+                    <SortTh k="amount" sort={sort} toggle={toggle} align="right" className="border-b border-[#ece3d5] px-3 py-2 text-right font-semibold">Amount</SortTh>
+                    <SortTh k="bill" sort={sort} toggle={toggle} className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">{onAdvances ? "Proforma No" : "Bill No"}</SortTh>
+                    <SortTh k="delivery" sort={sort} toggle={toggle} className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">{onAdvances ? "Expected Delivery" : "Delivery Date"}</SortTh>
+                    <SortTh k="due" sort={sort} toggle={toggle} className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">{onAdvances ? "Proforma Date" : "Due Date"}</SortTh>
+                    <SortTh k="overdue" sort={sort} toggle={toggle} align="right" className="border-b border-[#ece3d5] px-3 py-2 text-right font-semibold">Overdue Days</SortTh>
+                    <SortTh k="notes" sort={sort} toggle={toggle} className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 font-semibold">Notes</SortTh>
                   </tr>
-                );
-                if (!open) return [header];
-                return [
-                  header,
-                  ...vendorRows.map((r) => {
-                    const k = rowKey(r);
-                    const selectable = canTick(r);
-                    return (
-                      <tr
-                        key={k}
-                        onClick={() => navigate(docPath(r))}
-                        className="cursor-pointer bg-white transition-colors duration-100 hover:bg-gray-50"
-                      >
-                        <td className="border-b border-[#ece3d5] px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                </thead>
+                <tbody>
+                  {groups.flatMap(({ vendorId, vendorName, rows: vendorRows, subtotal, bank }) => {
+                    const open = !collapsed.has(vendorId);
+                    const groupPayable = vendorRows.filter(canTick);
+                    const groupAllOn = groupPayable.length > 0 && groupPayable.every((r) => selected.has(rowKey(r)));
+                    const header = (
+                      <tr key={`v:${vendorId}`} className="bg-gray-50 text-[12px]">
+                        <td className="border-b border-[#ece3d5] px-3 py-1.5" onClick={(e) => e.stopPropagation()}>
                           <input
                             type="checkbox"
-                            checked={selected.has(k)}
-                            disabled={!selectable}
+                            checked={groupAllOn}
+                            disabled={groupPayable.length === 0}
                             title={
-                              showSent
-                                ? `Cancel this transfer from ${r.sentBatchNumber}`
-                                : r.sentBatchId
-                                ? `Already sent in ${r.sentBatchNumber}`
-                                : selectable
-                                  ? undefined
-                                  : `${r.vendorName} has no bank details on file`
+                              groupPayable.length === 0
+                                ? `${vendorName} has no bank details on file`
+                                : `Tick every ${vendorName} row`
                             }
-                            onChange={() => toggleOne(k)}
+                            onChange={() =>
+                              setSelected((s) => {
+                                const next = new Set(s);
+                                for (const r of groupPayable) {
+                                  if (groupAllOn) next.delete(rowKey(r));
+                                  else next.add(rowKey(r));
+                                }
+                                return next;
+                              })
+                            }
                             className="accent-brand-500 disabled:opacity-40"
                           />
                         </td>
-                        <td className="border-b border-[#ece3d5] px-3 py-2">
-                          {/* The vendor is the group heading, so a row is known by its document:
-                              a bill by the vendor's number (the server falls back to ours), an
-                              expense by its own. */}
-                          <div className="text-gray-800">
-                            {r.kind === "bill" ? `Bill · ${r.billNumber}` : `Expense · ${r.number}`}
-                          </div>
-                          {r.sentBatchNumber && (
-                            <div className="text-[11px] text-brand-600">
-                              sent {r.sentBatchNumber} · {shortDate(r.sentBatchDate)}
-                              {showSent && r.sentBatchId && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setCancelling({
-                                      kind: "batch",
-                                      batchId: r.sentBatchId!,
-                                      batchNumber: r.sentBatchNumber!,
-                                      rows: rows.filter((x) => x.sentBatchId === r.sentBatchId),
-                                    });
-                                  }}
-                                  className="ml-2 text-gray-400 underline hover:text-red-600"
-                                >
-                                  cancel batch
-                                </button>
-                              )}
-                            </div>
-                          )}
+                        <td
+                          className="cursor-pointer select-none whitespace-nowrap border-b border-[#ece3d5] px-3 py-1.5 font-semibold text-gray-700"
+                          onClick={() =>
+                            setCollapsed((c) => {
+                              const next = new Set(c);
+                              if (next.has(vendorId)) next.delete(vendorId);
+                              else next.add(vendorId);
+                              return next;
+                            })
+                          }
+                        >
+                          <span className="mr-1.5 inline-block w-3 text-gray-400">{open ? "▾" : "▸"}</span>
+                          {vendorName}
+                          <span className="ml-2 font-normal text-gray-400">{vendorRows.length}</span>
+                          {!bank && <span className="ml-2 font-normal text-amber-600">no bank details</span>}
                         </td>
-                        <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2">
-                          <div className="max-w-xs truncate text-gray-700" title={r.description ?? ""}>
-                            {r.description || "—"}
-                          </div>
+                        <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-1.5" />
+                        <td className="border-b border-[#ece3d5] px-3 py-1.5 text-right font-semibold tabular-nums text-gray-800">
+                          {formatMoney(subtotal)}
                         </td>
-                        <td className="border-b border-[#ece3d5] px-3 py-2 text-right tabular-nums">
-                          {formatMoney(r.amount)}
-                        </td>
-                        <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 text-gray-600">
-                          {r.billNumber}
-                        </td>
-                        <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2">
-                          {shortDate(r.deliveryDate)}
-                        </td>
-                        <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2">{shortDate(r.dueDate)}</td>
-                        <td className="border-b border-[#ece3d5] px-3 py-2 text-right tabular-nums">
-                          {r.overdueDays > 0 ? (
-                            <span className="text-red-600">{r.overdueDays}</span>
-                          ) : (
-                            <span className="text-gray-400">—</span>
-                          )}
-                        </td>
-                        <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 text-gray-600">
-                          <div className="max-w-[16rem] truncate" title={r.notes ?? ""}>
-                            {r.notes || "—"}
-                          </div>
-                        </td>
+                        <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-1.5" />
+                        <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-1.5" />
+                        <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-1.5" />
+                        <td className="border-b border-[#ece3d5] px-3 py-1.5" />
+                        <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-1.5" />
                       </tr>
                     );
-                  }),
-                ];
-              })}
-            </tbody>
-            {/* The sheet's own total — what the rows in view add up to, which after
-                a search is not the banner's figure. */}
-            <tfoot className="table-head sticky bottom-0 z-10">
-              <tr>
-                <td className="border-t border-[#ece3d5] px-3 py-2" />
-                <td className="border-t border-[#ece3d5] px-3 py-2 font-semibold">
-                  Total
-                  <span className="ml-1.5 font-normal text-gray-400">
-                    {shown.length} documents · {groups.length} vendors
-                  </span>
-                </td>
-                <td className="col-portrait-hide border-t border-[#ece3d5] px-3 py-2" />
-                <td className="border-t border-[#ece3d5] px-3 py-2 text-right font-semibold tabular-nums">
-                  {formatMoney(shownTotal)}
-                </td>
-                <td className="col-portrait-hide border-t border-[#ece3d5] px-3 py-2" />
-                <td className="col-portrait-hide border-t border-[#ece3d5] px-3 py-2" />
-                <td className="col-portrait-hide border-t border-[#ece3d5] px-3 py-2" />
-                <td className="border-t border-[#ece3d5] px-3 py-2" />
-                <td className="col-portrait-hide border-t border-[#ece3d5] px-3 py-2" />
-              </tr>
-            </tfoot>
-          </table>
-        )}
-      </div>
+                    if (!open) return [header];
+                    return [
+                      header,
+                      ...vendorRows.map((r) => {
+                        const k = rowKey(r);
+                        const selectable = canTick(r);
+                        return (
+                          <tr
+                            key={k}
+                            onClick={() => navigate(docPath(r))}
+                            className="cursor-pointer bg-white transition-colors duration-100 hover:bg-gray-50"
+                          >
+                            <td className="border-b border-[#ece3d5] px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                              <input
+                                type="checkbox"
+                                checked={selected.has(k)}
+                                disabled={!selectable}
+                                title={selectable ? undefined : `${r.vendorName} has no bank details on file`}
+                                onChange={() => toggleOne(k)}
+                                className="accent-brand-500 disabled:opacity-40"
+                              />
+                            </td>
+                            <td className="border-b border-[#ece3d5] px-3 py-2">
+                              {/* The vendor is the group heading, so a row is known by its document:
+                                  a bill by the vendor's number (the server falls back to ours), an
+                                  expense by its own, an advance by its own and its order. */}
+                              {r.kind === "advance" ? (
+                                <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                                  <div className="text-gray-800">
+                                    Advance · {r.number}
+                                    <div className="text-[11px] text-gray-500">on {r.purchaseOrderNumber}</div>
+                                  </div>
+                                  <AttachmentsButton entityType="vendor_advance_request" entityId={r.id} />
+                                  <button
+                                    onClick={() => setCancellingAdvance(r)}
+                                    className="text-[11.5px] text-gray-400 hover:text-red-600"
+                                  >
+                                    cancel
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="text-gray-800">
+                                  {r.kind === "bill" ? `Bill · ${r.billNumber}` : `Expense · ${r.number}`}
+                                </div>
+                              )}
+                            </td>
+                            <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2">
+                              <div className="max-w-xs truncate text-gray-700" title={r.description ?? ""}>
+                                {r.description || "—"}
+                              </div>
+                            </td>
+                            <td className="border-b border-[#ece3d5] px-3 py-2 text-right tabular-nums">
+                              {formatMoney(r.amount)}
+                            </td>
+                            <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 text-gray-600">
+                              {r.kind === "advance" ? r.proformaNumber || "—" : r.billNumber}
+                            </td>
+                            <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2">
+                              {shortDate(r.deliveryDate)}
+                            </td>
+                            <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2">
+                              {shortDate(r.kind === "advance" ? r.proformaDate : r.dueDate)}
+                            </td>
+                            <td className="border-b border-[#ece3d5] px-3 py-2 text-right tabular-nums">
+                              {r.overdueDays > 0 ? (
+                                <span className="text-red-600">{r.overdueDays}</span>
+                              ) : (
+                                <span className="text-gray-400">—</span>
+                              )}
+                            </td>
+                            <td className="col-portrait-hide border-b border-[#ece3d5] px-3 py-2 text-gray-600">
+                              <div className="max-w-[16rem] truncate" title={r.notes ?? ""}>
+                                {r.notes || "—"}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      }),
+                    ];
+                  })}
+                </tbody>
+                {/* The sheet's own total — what the rows in view add up to, which after
+                    a search is not the banner's figure. */}
+                <tfoot className="table-head sticky bottom-0 z-10">
+                  <tr>
+                    <td className="border-t border-[#ece3d5] px-3 py-2" />
+                    <td className="border-t border-[#ece3d5] px-3 py-2 font-semibold">
+                      Total
+                      <span className="ml-1.5 font-normal text-gray-400">
+                        {shown.length} {onAdvances ? "advances" : "documents"} · {groups.length} vendors
+                      </span>
+                    </td>
+                    <td className="col-portrait-hide border-t border-[#ece3d5] px-3 py-2" />
+                    <td className="border-t border-[#ece3d5] px-3 py-2 text-right font-semibold tabular-nums">
+                      {formatMoney(shownTotal)}
+                    </td>
+                    <td className="col-portrait-hide border-t border-[#ece3d5] px-3 py-2" />
+                    <td className="col-portrait-hide border-t border-[#ece3d5] px-3 py-2" />
+                    <td className="col-portrait-hide border-t border-[#ece3d5] px-3 py-2" />
+                    <td className="border-t border-[#ece3d5] px-3 py-2" />
+                    <td className="col-portrait-hide border-t border-[#ece3d5] px-3 py-2" />
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+          </div>
+        </>
+      )}
 
       {adv.dialog}
-      {cancelling && (
-        <CancelTransfersDialog
-          target={cancelling}
-          onClose={() => setCancelling(null)}
+      {newAdvance && <NewAdvanceDialog onClose={() => setNewAdvance(false)} />}
+      {cancellingAdvance && (
+        <CancelAdvanceDialog
+          advance={cancellingAdvance}
+          onClose={() => setCancellingAdvance(null)}
           onDone={async () => {
-            setCancelling(null);
-            setSelected(new Set());
+            setCancellingAdvance(null);
             await qc.invalidateQueries({ queryKey: ["/api/purchases/payables"] });
           }}
         />
@@ -585,10 +606,12 @@ export function VendorSheetPage() {
         <SendToBankDialog
           rows={chosen}
           onClose={() => setDialogOpen(false)}
-          onSent={async () => {
+          onSent={async (openSent) => {
             setDialogOpen(false);
             setSelected(new Set());
             await qc.invalidateQueries({ queryKey: ["/api/purchases/payables"] });
+            await qc.invalidateQueries({ queryKey: ["/api/purchases/payment-batches"] });
+            if (openSent) setTab("sent");
           }}
         />
       )}
@@ -598,7 +621,9 @@ export function VendorSheetPage() {
 
 /**
  * The one dialog before money leaves: which account the bank debits, what value
- * date to put on it, and one last look at the total.
+ * date to put on it, and one last look at the total. It makes the batch and
+ * nothing more — the file is downloaded from Sent to bank, by whoever uploads
+ * it to the bank.
  */
 function SendToBankDialog({
   rows,
@@ -607,7 +632,7 @@ function SendToBankDialog({
 }: {
   rows: Payable[];
   onClose: () => void;
-  onSent: () => void;
+  onSent: (openSent: boolean) => void;
 }) {
   const [bankAccountId, setBankAccountId] = useState("");
   const [batchDate, setBatchDate] = useState(today());
@@ -624,53 +649,35 @@ function SendToBankDialog({
   useEffect(() => {
     if (accounts?.length === 1) setBankAccountId(accounts[0]!.id);
   }, [accounts]);
-  // Escape closes, like every other dialog — but once the file is raised it
+  // Escape closes, like every other dialog — but once the batch is made it
   // closes through onSent, or dismissing would leave sent rows on the list.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") (done ? onSent : onClose)();
+      if (e.key === "Escape") (done ? () => onSent(false) : onClose)();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [done, onClose, onSent]);
   const account = accounts?.find((a) => a.id === bankAccountId);
   const total = rows.reduce((sum, r) => sum + Number(r.amount), 0);
+  const advances = rows.filter((r) => r.kind === "advance").length;
 
   const send = async () => {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch("/api/purchases/payment-batches", {
+      const batch = await api<{ number: string }>("/api/purchases/payment-batches", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({
+        body: {
           bankAccountId,
           batchDate,
           notes: notes || undefined,
           items: rows.map((r) => ({ kind: r.kind, id: r.id })),
-        }),
+        },
       });
-      if (!res.ok) {
-        let message = res.statusText;
-        try {
-          message = ((await res.json()) as { error?: string }).error ?? message;
-        } catch {
-          /* non-JSON error body */
-        }
-        throw new Error(message);
-      }
-      const number = res.headers.get("X-Payment-Batch-Number") ?? "payments";
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${number}.xlsx`;
-      a.click();
-      URL.revokeObjectURL(url);
-      setDone(number);
+      setDone(batch.number);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not raise the file");
+      setError(err instanceof Error ? err.message : "Could not make the batch");
     } finally {
       setBusy(false);
     }
@@ -678,23 +685,25 @@ function SendToBankDialog({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/40" onClick={done ? onSent : onClose} />
+      <div className="fixed inset-0 bg-black/40" onClick={done ? () => onSent(false) : onClose} />
       <div className="relative z-10 w-full max-w-md rounded-lg border bg-white p-5 shadow-2xl">
         <h2 className="text-base font-semibold text-gray-800">Send to bank</h2>
         {done ? (
           <>
             <p className="mt-3 text-[13px] text-gray-600">
-              <span className="font-medium text-gray-800">{done}</span> is downloaded, with{" "}
-              {rows.length} {rows.length === 1 ? "transfer" : "transfers"} totalling{" "}
-              {formatMoney(total)}. Upload it to the bank as it is.
+              <span className="font-medium text-gray-800">{done}</span> is on Sent to bank, with {rows.length}{" "}
+              {rows.length === 1 ? "transfer" : "transfers"} totalling {formatMoney(total)}. Download its file
+              there to upload to the bank.
             </p>
             <p className="mt-2 text-[12.5px] text-gray-500">
-              These documents are still unpaid in the books — record the payment once the bank
-              confirms the transfer.
+              Nothing is paid in the books yet — once the bank confirms, open the batch and Mark paid.
             </p>
-            <div className="mt-5 flex justify-end">
-              <button onClick={onSent} className="btn-primary">
+            <div className="mt-5 flex justify-end gap-2">
+              <button onClick={() => onSent(false)} className="btn-secondary">
                 Done
+              </button>
+              <button onClick={() => onSent(true)} className="btn-primary">
+                Open Sent to bank
               </button>
             </div>
           </>
@@ -702,6 +711,7 @@ function SendToBankDialog({
           <>
             <p className="mt-1 text-[12.5px] text-gray-500">
               {rows.length} {rows.length === 1 ? "transfer" : "transfers"} · {formatMoney(total)}
+              {advances > 0 && ` · ${advances} ${advances === 1 ? "advance" : "advances"}`}
             </p>
             <div className="mt-4 grid gap-3">
               <div>
@@ -747,108 +757,11 @@ function SendToBankDialog({
                 disabled={busy || !bankAccountId || !batchDate}
                 className="btn-primary"
               >
-                {busy ? "Preparing…" : "Generate file"}
+                {busy ? "Sending…" : "Send to bank"}
               </button>
             </div>
           </>
         )}
-      </div>
-    </div>
-  );
-}
-
-type CancelTarget =
-  | { kind: "lines"; rows: Payable[] }
-  | { kind: "batch"; batchId: string; batchNumber: string; rows: Payable[] };
-
-/**
- * Take transfers back from the bank: a file raised in error, or a line the bank
- * bounced. The documents return to To pay; the batch stays on record, marked
- * cancelled, with the reason given here.
- */
-function CancelTransfersDialog({
-  target,
-  onClose,
-  onDone,
-}: {
-  target: CancelTarget;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const total = target.rows.reduce((sum, r) => sum + Number(r.amount), 0);
-
-  const submit = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      if (target.kind === "batch") {
-        await api(`/api/purchases/payment-batches/${target.batchId}/cancel`, {
-          method: "POST",
-          body: { reason },
-        });
-      } else {
-        await api("/api/purchases/payment-batch-lines/cancel", {
-          method: "POST",
-          body: { reason, lineIds: target.rows.map((r) => r.sentLineId) },
-        });
-      }
-      onDone();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not cancel");
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-md rounded-lg border bg-white p-5 shadow-2xl">
-        <h2 className="text-base font-semibold text-gray-800">
-          {target.kind === "batch" ? `Cancel ${target.batchNumber}` : "Cancel transfers"}
-        </h2>
-        <p className="mt-1 text-[12.5px] text-gray-500">
-          {target.rows.length} {target.rows.length === 1 ? "transfer" : "transfers"} ·{" "}
-          {formatMoney(total)}
-        </p>
-        <ul className="mt-3 max-h-40 overflow-auto rounded border border-gray-100 text-[12.5px]">
-          {target.rows.map((r) => (
-            <li
-              key={rowKey(r)}
-              className="flex justify-between gap-3 border-b border-gray-100 px-2.5 py-1.5 last:border-0"
-            >
-              <span className="truncate text-gray-700">
-                {r.vendorName} · {r.kind === "bill" ? r.billNumber : r.number}
-              </span>
-              <span className="tabular-nums text-gray-600">{formatMoney(r.amount)}</span>
-            </li>
-          ))}
-        </ul>
-        <p className="mt-3 text-[12.5px] text-gray-600">
-          These go back to To pay. Cancel only once you know the bank has not paid them — a
-          transfer that went through, sent again, is paid twice.
-        </p>
-        <div className="mt-3">
-          <label className="label-required">Reason *</label>
-          <input
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="Never uploaded, bounced on IFSC…"
-            className="input"
-            autoFocus
-          />
-        </div>
-        {error && <p className="mt-3 text-[12.5px] text-red-600">{error}</p>}
-        <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onClose} className="btn-secondary">
-            Keep
-          </button>
-          <button onClick={submit} disabled={busy || !reason.trim()} className="btn-primary">
-            {busy ? "Cancelling…" : target.kind === "batch" ? "Cancel batch" : "Cancel transfers"}
-          </button>
-        </div>
       </div>
     </div>
   );
