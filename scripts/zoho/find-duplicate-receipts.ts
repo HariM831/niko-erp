@@ -40,6 +40,15 @@ const dumpAt = process.argv.indexOf("--dump");
 const DIR = dumpAt > -1 ? process.argv[dumpAt + 1]! : ".zoho-dump/detail";
 /** Same customer, same amount, no further apart than this — worth a look. */
 const DAYS = 7;
+/** The money going out. Complaints of duplicates there too, 22 Oct 2026. */
+const VENDOR = process.argv.includes("--vendor");
+const SIDE = VENDOR
+  ? { file: "vendorpayments", table: sql`vendor_payments`, who: sql`vendor_id`,
+      apps: sql`vendor_payment_applications`, doc: sql`bills`, on: sql`bill_id`,
+      entity: "vendor_payment", word: "payment" }
+  : { file: "customerpayments", table: sql`customer_payments`, who: sql`customer_id`,
+      apps: sql`payment_applications`, doc: sql`invoices`, on: sql`invoice_id`,
+      entity: "customer_payment", word: "receipt" };
 
 const money = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
 const days = (a: string, b: string) => Math.abs((Date.parse(a) - Date.parse(b)) / 86_400_000);
@@ -59,19 +68,19 @@ async function main() {
   const zoho = new Map<string, Z>();
   for (const line of readFileSync(`${DIR}/customerpayments.jsonl`, "utf8").split("\n")) {
     if (!line.trim()) continue;
-    const z = JSON.parse(line) as Z;
-    zoho.set(z.payment_number, z);
+    const z = JSON.parse(line) as Z & { vendor_name?: string };
+    zoho.set(z.payment_number, { ...z, customer_name: z.customer_name ?? z.vendor_name });
   }
 
   const here = (
     await db.execute(sql`
       SELECT p.number, p.payment_date::text AS date, c.display_name AS cust,
-             p.customer_id::text AS cust_id,
+             p.${SIDE.who}::text AS cust_id,
              round(p.amount::numeric, 2)::float8 AS amount, p.reference,
              coalesce((SELECT string_agg(i.number || ' ' || round(pa.amount_applied::numeric)::text, '; ' ORDER BY i.number)
-                         FROM payment_applications pa JOIN invoices i ON i.id = pa.invoice_id
+                         FROM ${SIDE.apps} pa JOIN ${SIDE.doc} i ON i.id = pa.${SIDE.on}
                         WHERE pa.payment_id = p.id), '(unapplied)') AS applied
-        FROM customer_payments p JOIN contacts c ON c.id = p.customer_id
+        FROM ${SIDE.table} p JOIN contacts c ON c.id = p.${SIDE.who}
        ORDER BY p.payment_date, p.number
     `)
   ).rows as Array<{ number: string; date: string; cust: string; cust_id: string;
