@@ -58,7 +58,19 @@ async function main() {
   console.log(`\n  niko holds ${live.reduce((s, r) => s + r.n, 0)} invoices that count` +
     `${rows.length > live.length ? `, and ${rows.filter((r) => !live.includes(r)).reduce((s, r) => s + r.n, 0)} void or draft` : ""}\n`);
   console.log(`    ${"series".padEnd(8)}${"where it came from".padEnd(22)}${"count".padStart(7)}${"value".padStart(16)}   span`);
+  // Status is only read to tell a live invoice from a void one; a census of
+  // origins should not be split three ways by whether the money has arrived.
+  const folded = new Map<string, { series: string; origin: string; n: number; value: number; first: string; last: string }>();
   for (const r of live) {
+    const key = `${r.series}|${r.origin}`;
+    const cur = folded.get(key) ?? { series: r.series, origin: r.origin, n: 0, value: 0, first: r.first, last: r.last };
+    cur.n += r.n;
+    cur.value += r.value;
+    if (r.first < cur.first) cur.first = r.first;
+    if (r.last > cur.last) cur.last = r.last;
+    folded.set(key, cur);
+  }
+  for (const r of [...folded.values()].sort((a, b) => b.n - a.n)) {
     console.log(
       `    ${r.series.padEnd(8)}${r.origin.padEnd(22)}${String(r.n).padStart(7)}${money(r.value).padStart(16)}` +
         `   ${r.first} .. ${r.last}`,
