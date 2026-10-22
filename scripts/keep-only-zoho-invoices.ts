@@ -86,11 +86,22 @@ async function main() {
     console.log(`    ${r.number.padEnd(20)}${r.date}  ${r.party.slice(0, 22).padEnd(23)}${money(r.total).padStart(12)}  comes back`);
   }
 
+  /**
+   * A submitted stock day cannot take its boxes back, and voiding the invoice
+   * without them would leave the eggs sold with nothing recording the sale.
+   * So the whole document is left alone until a Director reopens the day —
+   * half-done is the one outcome worth refusing.
+   */
   const blocked = drop.filter((r) => r.day_locked && (r.dispatches || r.stock));
+  const doing = drop.filter((r) => !blocked.includes(r));
   if (blocked.length) {
-    console.log(`\n  ${blocked.length} sit on a submitted stock day; their boxes cannot go back until it is reopened.`);
+    console.log(`\n  left alone — the stock day is submitted, reopen it and run again:`);
+    for (const b of blocked) console.log(`    ${b.number}  ${b.date}  ${b.party}  ${money(b.total)}`);
   }
-  console.log(`\n  afterwards: ${keep.length + restore.length} live invoices against Zoho's ${zoho.size}\n`);
+  console.log(
+    `\n  afterwards: ${keep.length + restore.length + blocked.length} live invoices against Zoho's ${zoho.size}` +
+      `${blocked.length ? ` (${blocked.length} still to go)` : ""}\n`,
+  );
 
   if (!COMMIT) {
     console.log(`  Dry run — nothing written. Re-run with --commit.\n`);
