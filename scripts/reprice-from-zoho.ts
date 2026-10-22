@@ -110,11 +110,15 @@ async function main() {
           invoiceId: r.id,
           itemId: keep.itemId,
           accountId: keep.accountId,
-          description: l.description?.trim() || l.name || keep.description,
+          name: l.name?.trim() || keep.name,
+          description: l.description?.trim() || keep.description,
+          hsnOrSac: keep.hsnOrSac,
+          unit: keep.unit,
           quantity: String(l.quantity ?? 0),
-          rate: R(P(l.rate)),
-          lineTotal: R(P(l.item_total)),
-          taxRate: "0.00",
+          // Zoho carries rates to six decimals and a feed line rounded to
+          // paise reads two thousand rupees away from its own amount.
+          rate: String(l.rate ?? 0),
+          amount: R(P(l.item_total)),
           taxAmount: "0.00",
           lineOrder: order,
         });
