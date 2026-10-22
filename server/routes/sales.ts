@@ -30,6 +30,7 @@ import {
   applyCredits,
   creditPlanFor,
   creditsFor,
+  dissociatePayment,
   type Application,
   type PlannedApplication,
 } from "../services/apply-credits";
@@ -566,6 +567,28 @@ salesRouter.post(
     } catch (err) {
       if (err instanceof PostingError) return res.status(422).json({ error: err.message });
       throw err;
+    }
+  },
+);
+
+/**
+ * Zoho's "Dissociate & Add As Credit": take one payment off this invoice and
+ * leave the money on the payment as the customer's credit. The payment itself
+ * stays; Delete Payment is DELETE /payments/:id.
+ */
+salesRouter.post(
+  "/invoices/:id/payments/:paymentId/dissociate",
+  requirePermission("sales", "edit"),
+  async (req, res) => {
+    try {
+      res.json(
+        await db.transaction((tx) =>
+          dissociatePayment(tx, "customer", req.params.id!, req.params.paymentId!, req.session.user!.id),
+        ),
+      );
+    } catch (err) {
+      if (err instanceof PostingError) return res.status(422).json({ error: err.message });
+    throw err;
     }
   },
 );

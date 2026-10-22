@@ -87,6 +87,7 @@ import {
   applyCredits,
   creditPlanFor,
   creditsFor,
+  dissociatePayment,
   type Application,
   type PlannedApplication,
 } from "../services/apply-credits";
@@ -873,6 +874,27 @@ purchasesRouter.patch(
         return updated!;
       });
       res.json(result);
+    } catch (err) {
+      if (!handlePostingError(err, res)) throw err;
+    }
+  },
+);
+
+/**
+ * Zoho's "Dissociate & Add As Credit": take one payment off this bill and
+ * leave the money on the payment as the vendor's credit. The payment itself
+ * stays; Delete Payment is DELETE /payments/:id.
+ */
+purchasesRouter.post(
+  "/bills/:id/payments/:paymentId/dissociate",
+  requirePermission("purchases", "edit"),
+  async (req, res) => {
+    try {
+      res.json(
+        await db.transaction((tx) =>
+          dissociatePayment(tx, "vendor", req.params.id!, req.params.paymentId!, req.session.user!.id),
+        ),
+      );
     } catch (err) {
       if (!handlePostingError(err, res)) throw err;
     }

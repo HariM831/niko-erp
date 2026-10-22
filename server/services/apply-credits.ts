@@ -28,9 +28,11 @@ import {
   vendorCredits,
   vendorPayments,
   vendorPaymentApplications,
+  zohoIdMap,
 } from "@shared/schema";
 import { db } from "../db";
-import { PostingError } from "./posting";
+import { PostingError, assertPeriodOpen, postJournal } from "./posting";
+import { istDate } from "./day-resolution";
 import { fromPaise, toPaise } from "./documents";
 import type { db as Db } from "../db";
 
@@ -501,4 +503,133 @@ export async function applyCreditPlan(
     appliedP += toPaise(out.applied);
   }
   return { documents: byDocument.size, applied: fromPaise(appliedP) };
+}
+
+
+/* ── Dissociate a payment from one document ────────────────────────────────
+ *
+ * Zoho's "Delete Recorded Payment?" offers two answers from a document's
+ * Payments section. Delete Payment is the payment delete the payments screens
+ * already use. "Dissociate & Add As Credit" is this: the payment stays, only
+ * its application to THIS document goes. The document is owed again by what
+ * the payment took off it, and the money goes back to the payment as
+ * unapplied — an advance the party can have applied elsewhere.
+ *
+ * The postings follow the control accounts, not the document: receivables
+ * must equal the open invoices and customer advances the receipts' unapplied
+ * total, so moving money from one to the other moves the ledger by the same
+ * amount, dated today the way the void path's return is. On the buying side a
+ * payment raised in niko debited payables in full, so its advance already sits
+ * inside payables and nothing posts; one brought from Zoho parked its
+ * unapplied part in vendor advances, and that is where this part goes too.
+ * Both journals belong to the payment, so deleting it later removes them.
+ */
+export async function dissociatePayment(
+  tx: Tx,
+  side: Side,
+  documentId: string,
+  paymentId: string,
+  userId: string,
+): Promise<{ number: string; paymentNumber: string; returned: string; balanceDue: string }> {
+  const on = istDate();
+  return side === "vendor"
+    ? dissociateFromBill(tx, documentId, paymentId, on, userId)
+    : dissociateFromInvoice(tx, documentId, paymentId, on, userId);
+}
+
+async function dissociateFromInvoice(tx: Tx, invoiceId: string, paymentId: string, on: string, userId: string) {
+  const inv = await tx.query.invoices.findFirst({ where: eq(invoices.id, invoiceId) });
+  if (!inv) throw new PostingError("Invoice not found");
+  const payment = await tx.query.customerPayments.findFirst({ where: eq(customerPayments.id, paymentId) });
+  if (!payment) throw new PostingError("Payment not found");
+  await assertPeriodOpen(tx, on, "customer_payment");
+
+  const where = and(eq(paymentApplications.paymentId, payment.id), eq(paymentApplications.invoiceId, inv.id));
+  const apps = await tx.select().from(paymentApplications).where(where);
+  const returnedP = apps.reduce((s, a) => s + toPaise(a.amountApplied), 0);
+  if (!apps.length || returnedP <= 0) {
+    throw new PostingError(`${payment.number} is not applied to ${inv.number}`);
+  }
+  await tx.delete(paymentApplications).where(where);
+  await tx
+    .update(customerPayments)
+    .set({ unappliedAmount: fromPaise(toPaise(payment.unappliedAmount) + returnedP) })
+    .where(eq(customerPayments.id, payment.id));
+
+  // Partly paid while another payment still stands against it; a credit note
+  // alone leaves it sent, as applying one does.
+  const [others] = await tx
+    .select({ id: paymentApplications.id })
+    .from(paymentApplications)
+    .where(eq(paymentApplications.invoiceId, inv.id))
+    .limit(1);
+  const balanceP = Math.min(toPaise(inv.balanceDue) + returnedP, toPaise(inv.total));
+  await tx
+    .update(invoices)
+    .set({ balanceDue: fromPaise(balanceP), status: others ? "partially_paid" : "sent", updatedAt: new Date() })
+    .where(eq(invoices.id, inv.id));
+
+  await postJournal(tx, {
+    entryDate: on,
+    narration: `Payment ${payment.number} dissociated from ${inv.number} and added as credit`,
+    sourceType: "customer_payment",
+    sourceId: payment.id,
+    postedBy: userId,
+    lines: [
+      { systemKey: "ar", debit: fromPaise(returnedP) },
+      { systemKey: "customer_advances", credit: fromPaise(returnedP) },
+    ],
+  });
+  return { number: inv.number, paymentNumber: payment.number, returned: fromPaise(returnedP), balanceDue: fromPaise(balanceP) };
+}
+
+async function dissociateFromBill(tx: Tx, billId: string, paymentId: string, on: string, userId: string) {
+  const bill = await tx.query.bills.findFirst({ where: eq(bills.id, billId) });
+  if (!bill) throw new PostingError("Bill not found");
+  const payment = await tx.query.vendorPayments.findFirst({ where: eq(vendorPayments.id, paymentId) });
+  if (!payment) throw new PostingError("Payment not found");
+  await assertPeriodOpen(tx, on, "vendor_payment");
+
+  const where = and(eq(vendorPaymentApplications.paymentId, payment.id), eq(vendorPaymentApplications.billId, bill.id));
+  const apps = await tx.select().from(vendorPaymentApplications).where(where);
+  const returnedP = apps.reduce((s, a) => s + toPaise(a.amountApplied), 0);
+  if (!apps.length || returnedP <= 0) {
+    throw new PostingError(`${payment.number} is not applied to ${bill.number}`);
+  }
+  await tx.delete(vendorPaymentApplications).where(where);
+  await tx
+    .update(vendorPayments)
+    .set({ unappliedAmount: fromPaise(toPaise(payment.unappliedAmount) + returnedP) })
+    .where(eq(vendorPayments.id, payment.id));
+
+  const [others] = await tx
+    .select({ id: vendorPaymentApplications.id })
+    .from(vendorPaymentApplications)
+    .where(eq(vendorPaymentApplications.billId, bill.id))
+    .limit(1);
+  const balanceP = Math.min(toPaise(bill.balanceDue) + returnedP, toPaise(bill.total));
+  await tx
+    .update(bills)
+    .set({ balanceDue: fromPaise(balanceP), status: others ? "partially_paid" : "open", updatedAt: new Date() })
+    .where(eq(bills.id, bill.id));
+
+  const [imported] = await tx
+    .select({ id: zohoIdMap.id })
+    .from(zohoIdMap)
+    .where(and(eq(zohoIdMap.entity, "vendor_payment"), eq(zohoIdMap.eggsyId, payment.id)))
+    .limit(1);
+  if (imported) {
+    await postJournal(tx, {
+      entryDate: on,
+      narration: `Payment ${payment.number} dissociated from ${bill.number} and added as credit`,
+      sourceType: "vendor_payment",
+      sourceId: payment.id,
+      postedBy: userId,
+      lines: [
+        { systemKey: "vendor_advances", debit: fromPaise(returnedP) },
+        { systemKey: "ap", credit: fromPaise(returnedP) },
+      ],
+    });
+  }
+  return { number: bill.number, paymentNumber: payment.number, returned: fromPaise(returnedP), balanceDue: fromPaise(balanceP) };
 }

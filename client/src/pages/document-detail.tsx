@@ -12,6 +12,7 @@ import { billNo, localYmd } from "../lib/utils";
 import { printSheet } from "../lib/print-sheet";
 import { GST_STATES, toGstStateCode } from "@shared/gst-states";
 import { ApplyCreditsDialog, useCredits } from "../components/apply-credits";
+import { DeletePaymentDialog, PaymentRowMenu } from "../components/delete-payment";
 import { useAuth } from "../auth";
 
 /** A vendor credit applied to the bill being viewed. */
@@ -351,6 +352,7 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
 
   const [busy, setBusy] = useState(false);
   const [creditsOpen, setCreditsOpen] = useState(false);
+  const [deleting, setDeleting] = useState<NonNullable<DetailDoc["payments"]>[number] | null>(null);
 
   const { data: prefs } = useQuery({
     queryKey: ["preferences"],
@@ -471,6 +473,7 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
   const billingAddr = contact?.addresses?.find((a) => a.kind === "billing");
   const shippingAddr = contact?.addresses?.find((a) => a.kind === "shipping") ?? billingAddr;
   const isSales = ["invoice", "credit-note"].includes(kind);
+  const paymentModule = isSales ? "sales" : "purchases";
 
   const allCustomFields = (doc.customFieldValues ?? []) as Array<{
     fieldId: string;
@@ -976,6 +979,7 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
                       <th className="border-b border-[#ece3d5] px-3 py-2">Payment #</th>
                       <th className="border-b border-[#ece3d5] px-3 py-2">Date</th>
                       <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Amount Applied</th>
+                      <th className="w-10 border-b border-[#ece3d5] px-3 py-2"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -991,6 +995,14 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
                         </td>
                         <td className="px-3 py-2">{formatDate(p.paymentDate)}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{formatMoney(p.amountApplied)}</td>
+                        <td className="px-3 py-2 text-right">
+                          <PaymentRowMenu
+                            editHref={`${isSales ? "/sales/payments" : "/purchases/payments"}/${p.paymentId}/edit`}
+                            canEdit={can(paymentModule, "edit")}
+                            canDelete={can(paymentModule, "edit") || can(paymentModule, "delete")}
+                            onDelete={() => setDeleting(p)}
+                          />
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1074,6 +1086,16 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
           </div>
         </div>
       </div>
+      {deleting && creditSide && (
+        <DeletePaymentDialog
+          side={creditSide}
+          documentId={id}
+          payment={deleting}
+          canDissociate={can(paymentModule, "edit")}
+          canDelete={can(paymentModule, "delete")}
+          onClose={() => setDeleting(null)}
+        />
+      )}
       {creditsOpen && credits && creditSide && (
         <ApplyCreditsDialog
           side={creditSide}
