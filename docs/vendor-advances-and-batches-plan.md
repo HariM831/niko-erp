@@ -1,6 +1,9 @@
 # Vendor Sheet: advances, and Sent to bank by batch
 
-Planned 22 Oct 2026. Nothing built yet.
+Planned and built 22 Oct 2026; on staging (5dff4ea), not on production.
+`scripts/check-vendor-advances.ts` passes there, rolled back. Still to do on
+staging: `scripts/move-vendor-advances.ts --commit` (dry run: 23 payments,
+Rs 71,21,378), waiting on the user.
 
 ## What was decided
 
@@ -106,10 +109,8 @@ default and lists every payment and amount first. Afterwards it runs
 `check-document-balances`, `check-control-accounts --account ap` and
 `fix-control-drift`, expecting payables to agree.
 
-**To confirm before building:** which account carries the `vendor_advances`
-key on production. The seed names it 2130 "Vendor Advances Applied", a
-liability; the loader's notes say 1095 Prepaid Expenses. A paid advance is an
-asset, so it should be 1095 or similar.
+**Checked 22 Oct 2026:** `vendor_advances` is 1095 Prepaid Expenses, an asset,
+on both staging and production (the seed's 2130 is not what either carries).
 
 ## Build order
 
