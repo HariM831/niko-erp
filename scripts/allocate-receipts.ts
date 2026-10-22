@@ -61,6 +61,8 @@ const ONLY = custAt > -1 ? process.argv[custAt + 1]! : undefined;
 const WINDOW = Number(process.env.ALLOCATE_WINDOW ?? 1);
 /** The old mop-up, kept behind a flag for the day somebody wants it. */
 const SETTLE_OLDER = process.argv.includes("--settle-older");
+/** List the money the window could not reach, with the gap that defeated it. */
+const UNPLACED = process.argv.includes("--unplaced");
 
 const P = (n: string | number) => Math.round(Number(n) * 100);
 const R = (p: number) => (p / 100).toFixed(2);
@@ -235,6 +237,39 @@ async function main() {
       `   advance left ${money(c.advP).padStart(10)}   ${c.openInvs.slice(0, 4).map((i) => `${i.number.slice(-4)} ${money(i.openP)}`).join(", ")}`);
   }
   console.log();
+
+  /**
+   * The money the rule cannot place, and why. For each receipt with something
+   * left, the nearest invoice of that customer still open — so the distance
+   * that defeated it is on the page rather than inferred. A gap of a month
+   * is a different problem from a gap of three days.
+   */
+  if (UNPLACED) {
+    console.log(`  receipts the rule cannot place, and the nearest open invoice:
+`);
+    let total = 0;
+    for (const c of changes) {
+      const rows = c.recs.filter((r) => r.amountP - r.now.reduce((s, a) => s + a.p, 0) > 100);
+      if (!rows.length) continue;
+      const open = perCust.find((p) => p.name === c.cust)?.openInvs ?? [];
+      console.log(`    ${c.cust}`);
+      for (const r of rows) {
+        const spare = r.amountP - r.now.reduce((s, a) => s + a.p, 0);
+        total += spare;
+        const near = [...open].sort(
+          (a, b) => Math.abs(day(a.date) - day(r.date)) - Math.abs(day(b.date) - day(r.date)),
+        )[0];
+        const gap = near ? Math.round(day(near.date) - day(r.date)) : null;
+        console.log(
+          `      ${r.number.padEnd(18)}${r.date}  ${money(spare).padStart(12)}   ` +
+            `${near ? `nearest open ${near.number.slice(-4)} of ${near.date}, ${gap! >= 0 ? `${gap} day(s) later` : `${-gap!} day(s) earlier`}, owes ${money(near.openP)}` : "nothing of theirs is open"}`,
+        );
+      }
+    }
+    console.log(`
+    Rs ${money(total)} unplaced in all.
+`);
+  }
 
   if (VERBOSE) {
     for (const c of changes) {
