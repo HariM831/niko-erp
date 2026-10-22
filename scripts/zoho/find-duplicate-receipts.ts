@@ -86,7 +86,22 @@ async function main() {
   ).rows as Array<{ number: string; date: string; cust: string; cust_id: string;
                     amount: number; reference: string | null; applied: string }>;
 
-  console.log(`\n  ${here.length} receipts in niko, ${zoho.size} in the dump\n`);
+  console.log(`\n  ${here.length} ${SIDE.word}s in niko, ${zoho.size} in the dump\n`);
+
+  /** Everything for one party, when a single account is in question. */
+  const partyAt = process.argv.indexOf("--party");
+  const only = partyAt > -1 ? process.argv[partyAt + 1]! : undefined;
+  if (only) {
+    const mine = here.filter((h) => h.cust.toLowerCase().includes(only.toLowerCase()));
+    console.log(`  everything niko holds for ${only}:`);
+    for (const m of mine) {
+      console.log(
+        `    ${m.number.padEnd(20)}${m.date}  ${money(m.amount).padStart(12)}   ${m.applied}` +
+          `   ${(m.reference ?? "").slice(0, 32)}`,
+      );
+    }
+    console.log(`    ${mine.length} in all, Rs ${money(mine.reduce((s, m) => s + m.amount, 0))}\n`);
+  }
 
   type Pair = { a: typeof here[number]; b: typeof here[number]; why: string[]; bucket: number };
   const pairs: Pair[] = [];
