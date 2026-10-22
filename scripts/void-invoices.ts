@@ -22,7 +22,7 @@
  * The reversal is dated to the invoice's own day, so no month in between is
  * disturbed by a document that was never a sale.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { eq, sql } from "drizzle-orm";
 import { invoices } from "@shared/schema";
 import { reverseJournal } from "../server/services/posting";
@@ -33,8 +33,8 @@ const onAt = process.argv.indexOf("--on");
 const ON = onAt > -1 ? process.argv[onAt + 1]! : undefined;
 /** Either a file of numbers, or the numbers themselves — four is not a file. */
 const bare = process.argv.slice(2).filter((a, i, all) => !a.startsWith("--") && all[i - 1] !== "--on");
-/** A path looks like a path; everything else is a document number. */
-const file = bare.find((a) => /[\\/]/.test(a) || /\.(txt|csv|jsonl?)$/i.test(a));
+/** A filename is a file that exists; everything else is a document number. */
+const file = bare.find((a) => existsSync(a) || /\.(txt|csv|jsonl?)$/i.test(a));
 const named = file ? [] : bare;
 
 const money = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 0 });

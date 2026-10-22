@@ -29,7 +29,7 @@
  * Nothing is written without --yes, and the document numbers are niko's, not
  * Zoho's, because those are what a person can check on screen.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   customerPayments, invoiceLines, invoices, journalEntries, journalEntryLines,
@@ -53,12 +53,12 @@ async function main() {
   const rest = args.slice(1).filter((a) => !a.startsWith("--"));
   /**
    * A document number is whatever its series made it — Zoho numbered its older
-   * payments 381 and 671, with no letters at all. So what marks a filename is
-   * that it looks like a path, not that the alternative looks like a number:
-   * demanding a letter prefix silently dropped seven of twenty-six payments
-   * named on the command line, and the run reported success on the rest.
+   * payments 381 and 671 with no letters at all, and its receipts carry a
+   * slash: CP-2026-27/106. So a filename is one that is actually there on
+   * disk, not one that looks like a path. Guessing by shape has now failed
+   * twice, once in each direction.
    */
-  const file = rest.find((a) => /[\\/]/.test(a) || /\.(txt|csv|jsonl?)$/i.test(a));
+  const file = rest.find((a) => existsSync(a) || /\.(txt|csv|jsonl?)$/i.test(a));
   const named = file ? [] : rest;
   if (!entity || !ENTITIES.includes(entity) || (!file && !named.length)) {
     console.error(`Usage: unload-selected.ts <${ENTITIES.join("|")}> <numbers | file of numbers> [--yes]`);
