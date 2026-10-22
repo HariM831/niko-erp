@@ -49,7 +49,7 @@ async function main() {
       const [customer] = await tx.insert(contacts).values({ type: "customer", displayName: `${tag} Traders` }).returning();
       const [inv] = await tx
         .insert(invoices)
-        .values({ number: `${tag}-I1`, customerId: customer!.id, status: "partially_paid", invoiceDate: day, dueDate: day, total: "1000.00", balanceDue: "600.00", createdBy: actor.id })
+        .values({ number: `${tag}-I1`, customerId: customer!.id, status: "partially_paid", invoiceDate: day, dueDate: day, total: "2000.00", balanceDue: "1600.00", createdBy: actor.id })
         .returning();
       const [p] = await tx
         .insert(customerPayments)
@@ -72,7 +72,7 @@ async function main() {
         `${await moved(tx, "customer_advances", p!.id)} ${await moved(tx, "ar", p!.id)}`);
       await refuses("the receipt cannot be deleted under a refund", () => deleteCustomerPayment(tx, p!.id, actor.id), "has refunds");
       await refuses("nor edited to apply refunded money", () =>
-        tx.transaction((sp) => editCustomerPayment(sp, p!.id, { applications: [{ invoiceId: inv!.id, amount: "600.00" }] }, actor.id)),
+        tx.transaction((sp) => editCustomerPayment(sp, p!.id, { applications: [{ invoiceId: inv!.id, amount: "800.00" }] }, actor.id)),
         "after 250.00 refunded");
       await editCustomerPayment(tx, p!.id, { notes: "edited" }, actor.id);
       const edited = (await tx.select().from(customerPayments).where(eq(customerPayments.id, p!.id)))[0]!;
