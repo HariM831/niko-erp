@@ -63,6 +63,16 @@ const WINDOW = Number(process.env.ALLOCATE_WINDOW ?? 1);
 const SETTLE_OLDER = process.argv.includes("--settle-older");
 /** List the money the window could not reach, with the gap that defeated it. */
 const UNPLACED = process.argv.includes("--unplaced");
+/**
+ * Whether to place the money Zoho took and left against nothing.
+ *
+ * Off, by the user's word on 22 Oct 2026: "you can take zoho alocations even
+ * it doesnt agree with my rule". Zoho's treatment of its own receipts stands
+ * whole — what it applied AND what it deliberately did not — so a customer
+ * reading Zoho's statement and niko's sees the same thing. Only receipts
+ * keyed here, which Zoho never saw, are placed by the rule.
+ */
+const PLACE_ADVANCES = process.argv.includes("--place-advances");
 
 const P = (n: string | number) => Math.round(Number(n) * 100);
 const R = (p: number) => (p / 100).toFixed(2);
@@ -150,6 +160,7 @@ async function main() {
          ORDER BY p.payment_date, p.number
       `)
     ).rows as Array<{ id: string; number: string; date: string; spare: string }>;
+    if (!PLACE_ADVANCES) loose.length = 0;
     if (!recs.length && !loose.length) continue;
 
     const pool_: Inv[] = invs.map((i) => {
