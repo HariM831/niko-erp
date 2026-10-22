@@ -91,11 +91,11 @@ async function main() {
   const je = (
     await db.execute(sql`
       SELECT j.entry_date::text AS date, j.narration, j.is_reversal,
-             count(l.id)::int AS lines, j.created_at::text AS created
+             count(l.id)::int AS lines, j.posted_at::text AS created
         FROM journal_entries j LEFT JOIN journal_entry_lines l ON l.entry_id = j.id
        WHERE j.source_type = 'invoice' AND j.source_id = ${inv.id}::uuid
-       GROUP BY j.id, j.entry_date, j.narration, j.is_reversal, j.created_at
-       ORDER BY j.created_at
+       GROUP BY j.id, j.entry_date, j.narration, j.is_reversal, j.posted_at
+       ORDER BY j.posted_at
     `)
   ).rows as Array<{ date: string; narration: string | null; is_reversal: boolean; lines: number; created: string }>;
   console.log(`\n    posted:`);
