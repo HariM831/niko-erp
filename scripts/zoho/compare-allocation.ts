@@ -28,6 +28,11 @@ import { db, pool } from "../../server/db";
 const dumpAt = process.argv.indexOf("--dump");
 const DIR = dumpAt > -1 ? process.argv[dumpAt + 1]! : ".zoho-dump/detail";
 const LIST = process.argv.includes("--list");
+/** The same question of the money coming in. Zoho wins there too. */
+const CUSTOMER = process.argv.includes("--customer");
+const SIDE = CUSTOMER
+  ? { file: "customerpayments", docs: "invoices", entity: "customer_payment", word: "receipt" }
+  : { file: "vendorpayments", docs: "bills", entity: "vendor_payment", word: "payment" };
 
 const money = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
 
@@ -47,7 +52,7 @@ async function main() {
   /** Every Zoho bill id niko holds, so "we do not have it" is a fact, not a guess. */
   const billHere = new Map(
     ((
-      await db.execute(sql`SELECT zoho_id, eggsy_id::text FROM zoho_id_map WHERE entity = 'bill'`)
+      await db.execute(sql`SELECT zoho_id, eggsy_id::text FROM zoho_id_map WHERE entity = ${CUSTOMER ? "invoice" : "bill"}`)
     ).rows as Array<{ zoho_id: string; eggsy_id: string }>).map((r) => [r.zoho_id, r.eggsy_id]),
   );
 
@@ -57,12 +62,14 @@ async function main() {
              p.amount::float8 AS amount,
              coalesce((
                SELECT json_agg(json_build_object('bill', b.id::text, 'amount', round(pa.amount_applied::numeric, 2)))
-                 FROM vendor_payment_applications pa JOIN bills b ON b.id = pa.bill_id
+                 FROM ${CUSTOMER ? sql`payment_applications` : sql`vendor_payment_applications`} pa
+                 JOIN ${CUSTOMER ? sql`invoices` : sql`bills`} b
+                   ON b.id = ${CUSTOMER ? sql`pa.invoice_id` : sql`pa.bill_id`}
                 WHERE pa.payment_id = p.id
              ), '[]'::json) AS apps
-        FROM vendor_payments p
-        JOIN zoho_id_map z ON z.entity = 'vendor_payment' AND z.eggsy_id = p.id
-        JOIN contacts c ON c.id = p.vendor_id
+        FROM ${CUSTOMER ? sql`customer_payments` : sql`vendor_payments`} p
+        JOIN zoho_id_map z ON z.entity = ${SIDE.entity} AND z.eggsy_id = p.id
+        JOIN contacts c ON c.id = ${CUSTOMER ? sql`p.customer_id` : sql`p.vendor_id`}
        ORDER BY p.payment_date, p.number
     `)
   ).rows as Array<{ zoho_id: string; number: string; date: string; vendor: string;
@@ -75,7 +82,11 @@ async function main() {
   for (const n of here) {
     const z = zoho.get(n.zoho_id);
     if (!z) continue;                                    // deleted in Zoho; a separate question
-    const wantAll = (z.bills ?? []).map((b) => ({ bill: billHere.get(String(b.bill_id)), amount: Math.round(Number(b.amount_applied) * 100) / 100 }));
+    const applied = (CUSTOMER
+      ? ((z as unknown as { invoices?: Array<{ invoice_id: string; amount_applied: number }> }).invoices ?? [])
+          .map((i) => ({ bill_id: i.invoice_id, amount_applied: i.amount_applied }))
+      : (z.bills ?? []));
+    const wantAll = applied.map((b) => ({ bill: billHere.get(String(b.bill_id)), amount: Math.round(Number(b.amount_applied) * 100) / 100 }));
     const absent = wantAll.filter((w) => !w.bill);
     if (absent.length) {
       elsewhere.push({ n, z, missing: absent.reduce((s, w) => s + w.amount, 0) });
