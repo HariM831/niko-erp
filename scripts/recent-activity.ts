@@ -54,6 +54,31 @@ async function main() {
   }
   if (!rows.length) console.log(`    none`);
 
+  /**
+   * The ones somebody keyed, named. The catch-up's own work is the noise here
+   * and the team's is the signal, so the two are told apart by their author.
+   */
+  const byHand = rows.filter((r) => (r.who ?? "") !== "Zoho");
+  if (byHand.length) {
+    console.log(`
+  keyed by hand:`);
+    for (const r of byHand) {
+      const applied = (
+        await db.execute(sql`
+          SELECT coalesce(sum(pa.amount_applied), 0)::float8 AS applied,
+                 coalesce(string_agg(i.number || ' ' || round(pa.amount_applied::numeric)::text, ', '), '') AS against
+            FROM payment_applications pa JOIN invoices i ON i.id = pa.invoice_id
+            JOIN customer_payments p ON p.id = pa.payment_id
+           WHERE p.number = ${r.number}
+        `)
+      ).rows[0] as { applied: number; against: string };
+      console.log(
+        `    ${r.at.slice(0, 16)}  ${r.number.padEnd(14)}${r.party.slice(0, 22).padEnd(23)}` +
+          `${money(r.amount).padStart(12)}   ${applied.applied ? `against ${applied.against}` : "not applied to anything"}`,
+      );
+    }
+  }
+
   const latest = (
     await db.execute(sql`
       SELECT a.created_at::text AS at, a.action, u.name AS who
