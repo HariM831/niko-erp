@@ -1,4 +1,6 @@
 @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+/* Letterhead documents (the PO): Glacial Indifference is not on Google Fonts; Questrial is its nearest. */
+@import url("https://fonts.googleapis.com/css2?family=Questrial&family=Mulish:wght@800&display=swap");
 @import "tailwindcss";
 
 @theme {
@@ -707,6 +709,29 @@ body {
    * would keep the unscaled height and leave a gap the length of an A4 page.
    */
   zoom: var(--sheet-zoom, 1);
+}
+
+/* A document on the company letterhead. Body in Questrial, emphasis in Mulish
+   800 — together the nearest web fonts to the letterhead's Glacial Indifference. */
+.letterhead {
+  font-family: "Questrial", var(--font-sans);
+  font-size: 10pt;
+  line-height: 1.45;
+  color: #1f1f1f;
+}
+.letterhead .lh-bold {
+  font-family: "Mulish", var(--font-sans);
+  font-weight: 800;
+}
+.letterhead .lh-lbl {
+  color: #555;
+}
+.letterhead .lh-kv {
+  display: grid;
+  grid-template-columns: 32mm 1fr;
+  row-gap: 1.4mm;
+  align-items: baseline;
+  align-content: start;
 }
 
 @media print {

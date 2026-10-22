@@ -13,6 +13,7 @@ import { printSheet } from "../lib/print-sheet";
 import { GST_STATES, toGstStateCode } from "@shared/gst-states";
 import { ApplyCreditsDialog, useCredits } from "../components/apply-credits";
 import { PurchaseOrderAdvances } from "../components/po-advances";
+import { PoLetterheadSheet, type PoLetterheadProps } from "../components/po-letterhead-sheet";
 import { DeletePaymentDialog, PaymentRowMenu } from "../components/delete-payment";
 import { useAuth } from "../auth";
 
@@ -666,8 +667,51 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
             </div>
           </div>
 
-          {/* Zoho "Spreadsheet Template": hairline #9e9e9e grid, Ubuntu-ish 8pt body. */}
-          <div className="p-9 text-[11px] leading-[15px] text-black">
+          {kind === "purchase-order" && (
+            <PoLetterheadSheet
+              number={doc.number}
+              orderDate={doc[config.dateField] as string}
+              terms={terms}
+              reference={doc.reference as string | null}
+              allowance={doc.allowance as PoLetterheadProps["allowance"]}
+              allowanceReason={doc.extraAllowanceReason as string | null}
+              placeOfSupply={supply}
+              vendorName={contact?.displayName ?? "—"}
+              vendorLink={
+                contactId ? (
+                  <Link href={`/purchases/vendors/${contactId}`} className="hover:underline">
+                    {contact?.displayName ?? "—"}
+                  </Link>
+                ) : undefined
+              }
+              vendorAddress={addressLines(billingAddr)}
+              vendorGstin={contact?.gstin}
+              org={org}
+              pdfFields={pdfFields}
+              lines={goodsLines.filter((l) => !prefs?.hideZeroValueLines || Number(l.amount) !== 0)}
+              subTotal={doc.subTotal as string}
+              discountTotal={doc.discountTotal as string}
+              cgst={doc.cgst as string}
+              sgst={doc.sgst as string}
+              igst={doc.igst as string}
+              roundOff={doc.roundOff as string}
+              total={doc.total as string}
+              notes={doc.notes as string | null}
+              termsAndConditions={doc.termsAndConditions as string | null}
+              formatNum={formatNum}
+              slashDate={slashDate}
+            />
+          )}
+
+          {/* Zoho "Spreadsheet Template": hairline #9e9e9e grid, Ubuntu-ish 8pt body.
+              A PO prints on the letterhead above; only the screen-only sections stay here. */}
+          <div
+            className={
+              kind === "purchase-order" ? "px-9 pb-9 text-[11px] leading-[15px] text-black print:hidden" : "p-9 text-[11px] leading-[15px] text-black"
+            }
+          >
+            {kind !== "purchase-order" && (
+            <>
             <div className="flex items-stretch justify-between px-2.5 pb-2">
               <div className="w-1/2">
                 <div className="mb-1.5 text-[15px] font-bold leading-none">{org?.name || "Your Business"}</div>
@@ -982,6 +1026,9 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
                 </table>
               </div>
             </div>
+
+            </>
+            )}
 
             {!!doc.payments?.length && (
               <div className="mt-10 print:hidden">
