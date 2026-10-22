@@ -54,8 +54,12 @@ async function main() {
              (SELECT count(*)::int FROM egg_dispatches d WHERE d.invoice_id = i.id AND d.status <> 'void') AS dispatches,
              (SELECT count(*)::int FROM inventory_transactions t
                WHERE t.source_type = 'invoice' AND t.source_id = i.id) AS stock,
+             -- The same test dayLock() makes: a day that has been reopened
+             -- since it was submitted is open, and the submission stays on
+             -- the record rather than being erased.
              (SELECT count(*)::int FROM egg_stock_days s
-               WHERE s.day = i.invoice_date AND s.submitted_at IS NOT NULL) AS day_locked
+               WHERE s.day = i.invoice_date AND s.submitted_at IS NOT NULL
+                 AND NOT (s.reopened_at IS NOT NULL AND s.reopened_at > s.submitted_at)) AS day_locked
         FROM invoices i JOIN contacts c ON c.id = i.customer_id
        WHERE i.status <> 'draft'
        ORDER BY i.invoice_date, i.number
