@@ -43,7 +43,7 @@ interface Z {
 
 async function main() {
   const zoho = new Map<string, Z>();
-  for (const line of readFileSync(`${DIR}/vendorpayments.jsonl`, "utf8").split("\n")) {
+  for (const line of readFileSync(`${DIR}/${SIDE.file}.jsonl`, "utf8").split("\n")) {
     if (!line.trim()) continue;
     const z = JSON.parse(line) as Z;
     zoho.set(String(z.payment_id), z);
