@@ -200,7 +200,15 @@ async function main() {
      */
     const owes = pool_.reduce((s, i) => s + i.openP, 0);
     const holds = free.reduce((s, r) => s + (r.amountP - r.wasP), 0);
-    const square = owes > 0 && Math.abs(owes - holds) <= 100;
+    /**
+     * `owes` counts an invoice as open even where a receipt keyed here has
+     * already settled it, because this pass is about to release and re-place
+     * every one of those. The account as it stands today — which is what the
+     * balances report shows and what "net is zero" means — is that figure
+     * less what those receipts are currently holding down.
+     */
+    const placed = free.reduce((s, r) => s + r.wasP, 0);
+    const square = owes - placed > 0 && Math.abs(owes - placed - holds) <= 100;
     if (NET_ZERO && UNPLACED) {
       console.log(
         `    ${cust.name.slice(0, 28).padEnd(29)}open ${money(owes).padStart(13)}` +
