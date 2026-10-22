@@ -701,7 +701,17 @@ async function learnedCorpus() {
         JOIN contacts c ON c.id = coalesce(cp.customer_id, vp.vendor_id)
        WHERE t.description IS NOT NULL
     `)
-  ).rows as typeof corpusRows;
+    // A raw query answers in the column names Postgres gave it, and a UNION
+    // takes those from its first branch: party_id, display_name. Read as
+    // partyId and displayName they are both undefined, which is how every
+    // learned name came back nameless — and how a line that names nobody came
+    // to name "somebody else" than whoever a receipt was from, hiding the
+    // Match found tag on 28 of 29 open lines and sending every one of them to
+    // Categorize. PMT-00161 was keyed over CP-2026-27/1453 through that door.
+  ).rows.map((r) => {
+    const row = r as { party_id: string; display_name: string; text: string; side: string };
+    return { partyId: row.party_id, displayName: row.display_name, text: row.text, side: row.side };
+  });
   houseAccounts = (
     await db.select({ n: bankAccounts.accountNumber }).from(bankAccounts)
   ).map((r) => r.n ?? "");
@@ -727,7 +737,10 @@ export async function linePartyNames(lines: Array<{ id: string; description: str
   for (const l of lines) {
     const text = `${l.description ?? ""} ${l.utr ?? ""} ${l.counterparty ?? ""}`;
     const found = [...suggestParties(text, people), ...suggestLearned(text, seen, houseAccounts)];
-    out.set(l.id, new Set(found.map((f) => f.displayName)));
+    // A nameless suggestion is worse than none: partyVerdict reads a set that
+    // holds one as "this line names somebody", and then every real party is
+    // somebody else.
+    out.set(l.id, new Set(found.map((f) => f.displayName).filter((n) => !!n?.trim())));
   }
   return out;
 }
