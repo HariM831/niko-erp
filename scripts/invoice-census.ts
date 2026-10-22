@@ -25,6 +25,9 @@ import { readFileSync } from "node:fs";
 import { sql } from "drizzle-orm";
 import { db, pool } from "../server/db";
 
+/** The same census of what we bought. */
+const BILLS = process.argv.includes("--bills");
+
 const dumpAt = process.argv.indexOf("--dump");
 const DIR = dumpAt > -1 ? process.argv[dumpAt + 1]! : undefined;
 const money = (n: number) => n.toLocaleString("en-IN", { maximumFractionDigits: 0 });
@@ -33,21 +36,22 @@ async function main() {
   const rows = (
     await db.execute(sql`
       SELECT CASE
+               WHEN ${BILLS ? sql`true` : sql`false`} THEN 'bills'
                WHEN i.number LIKE 'A-INV-EG-%' THEN 'eggs'
                WHEN i.number LIKE 'A-INV-FD-%' THEN 'feed'
                WHEN i.number LIKE 'A-INV-BD-%' THEN 'birds'
                ELSE 'other' END AS series,
              CASE
                WHEN EXISTS (SELECT 1 FROM zoho_id_map z
-                             WHERE z.entity = 'invoice' AND z.eggsy_id = i.id) THEN 'from Zoho'
+                             WHERE z.entity = ${BILLS ? "bill" : "invoice"} AND z.eggsy_id = i.id) THEN 'from Zoho'
                WHEN u.username = 'replit' THEN 'imported from Amino'
                ELSE 'raised in niko' END AS origin,
              i.status::text AS status,
              count(*)::int AS n,
              sum(i.total)::float8 AS value,
-             min(i.invoice_date)::text AS first,
-             max(i.invoice_date)::text AS last
-        FROM invoices i LEFT JOIN users u ON u.id = i.created_by
+             min(${BILLS ? sql`i.bill_date` : sql`i.invoice_date`})::text AS first,
+             max(${BILLS ? sql`i.bill_date` : sql`i.invoice_date`})::text AS last
+        FROM ${BILLS ? sql`bills` : sql`invoices`} i LEFT JOIN users u ON u.id = i.created_by
        GROUP BY 1, 2, 3
        ORDER BY 1, 2, 3
     `)
@@ -135,7 +139,7 @@ async function main() {
     await pool.end();
     return;
   }
-  const zoho = readFileSync(`${DIR}/invoices.jsonl`, "utf8")
+  const zoho = readFileSync(`${DIR}/${BILLS ? "bills" : "invoices"}.jsonl`, "utf8")
     .split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l) as { invoice_number: string; status?: string; total: number });
   const zLive = zoho.filter((z) => (z.status ?? "") !== "void");
   const linked = live.filter((r) => r.origin === "from Zoho").reduce((s, r) => s + r.n, 0);
@@ -150,6 +154,7 @@ async function main() {
    * invoice date, settled 16 Oct 2026 — so a difference now is a mistake, not
    * a policy, and the allocation rule rests on these dates being the same.
    */
+  if (BILLS) { console.log(); await pool.end(); return; }
   const dates = (
     await db.execute(sql`
       SELECT z.zoho_id, i.number, i.invoice_date::text AS here, c.display_name AS party,
@@ -176,7 +181,7 @@ async function main() {
 
   const mapped = new Set(
     ((
-      await db.execute(sql`SELECT zoho_id FROM zoho_id_map WHERE entity = 'invoice'`)
+      await db.execute(sql`SELECT zoho_id FROM zoho_id_map WHERE entity = ${BILLS ? "bill" : "invoice"}`)
     ).rows as Array<{ zoho_id: string }>).map((r) => r.zoho_id),
   );
   const orphans = zoho.filter((z) => !mapped.has(String((z as unknown as { invoice_id: string }).invoice_id)));
