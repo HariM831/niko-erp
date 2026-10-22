@@ -114,12 +114,20 @@ async function main() {
    * already here under its own number is not missing, it is the second copy.
    * The twin is the earlier record — the one keyed when the money arrived.
    */
+  /**
+   * Twins already accepted into this very run. Unloading a receipt to rebuild
+   * its allocation empties niko of it for a moment, and in that moment its
+   * October re-entry stops looking like a duplicate and loads: CP-2026-27/1403
+   * came back that way on 22 Oct 2026, hours after being removed, because
+   * CP-2026-27/058 had been taken out for a rebuild.
+   */
+  const accepted = new Set<string>();
   const twinHere = (z: Z) => {
     const zu = utrs(z.reference_number);
     return zoho.find(
       (o) =>
         o.payment_number !== z.payment_number &&
-        byNumber.has(o.payment_number) &&
+        (byNumber.has(o.payment_number) || accepted.has(o.payment_number)) &&
         Math.abs(Number(o.amount) - Number(z.amount)) <= 1 &&
         days(o.date, z.date) <= 2 &&
         Date.parse(o.created_time ?? o.date) < Date.parse(z.created_time ?? z.date) &&
@@ -146,7 +154,11 @@ async function main() {
     );
   };
 
-  const unmatched = zoho.filter((z) => !byNumber.has(z.payment_number));
+  const unmatched = zoho
+    .filter((z) => !byNumber.has(z.payment_number))
+    // Oldest keying first, so the copy that was written when the money
+    // arrived is the one accepted and the re-entry is the one held back.
+    .sort((a, b) => (a.created_time ?? a.date).localeCompare(b.created_time ?? b.date));
   /**
    * The amount and the party and a few days between them is where every
    * double-post lives, but it is not proof — a customer who pays the same
@@ -176,6 +188,7 @@ async function main() {
     if (hit) { taken.add(hit.number); skip.push({ z, as: hit, utr: false }); continue; }
     const twin = twinHere(z);
     if (twin) { twins.push({ z, as: twin }); continue; }
+    accepted.add(z.payment_number);
     load.push(z);
   }
 
