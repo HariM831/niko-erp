@@ -86,6 +86,58 @@ async function main() {
         `   ${r.oldest ?? "-"}${r.days ? ` (${r.days}d)` : ""}`,
     );
   }
+  if (process.argv.includes("--invoices")) {
+    /**
+     * The sales still waiting, named, with the money that customer is holding
+     * beside them. Two columns of one fact: what they owe on paper, and what
+     * of theirs we already have but could not place under the rule — a
+     * payment settles the invoice of its own day or the next, never one
+     * before it.
+     */
+    const detail = (
+      await db.execute(sql`
+        SELECT c.display_name AS customer, c.is_group_company AS grp,
+               i.number, i.invoice_date::text AS date,
+               (i.total - coalesce((SELECT sum(amount_applied) FROM payment_applications WHERE invoice_id = i.id), 0)
+                        - coalesce((SELECT sum(amount_applied) FROM credit_note_applications WHERE invoice_id = i.id), 0))::float8 AS owed,
+               i.total::float8 AS total
+          FROM invoices i JOIN contacts c ON c.id = i.customer_id
+         WHERE i.status NOT IN ('void', 'draft')
+           AND i.total - coalesce((SELECT sum(amount_applied) FROM payment_applications WHERE invoice_id = i.id), 0)
+                       - coalesce((SELECT sum(amount_applied) FROM credit_note_applications WHERE invoice_id = i.id), 0) > 1
+         ORDER BY c.display_name, i.invoice_date
+      `)
+    ).rows as Array<{ customer: string; grp: boolean; number: string; date: string; owed: number; total: number }>;
+    const credit = new Map(rows.map((r) => [r.customer, r.advance]));
+    console.log(`
+  Unpaid invoices, and what that customer is holding
+`);
+    let last = "";
+    for (const d of detail) {
+      if (d.customer !== last) {
+        const held = credit.get(d.customer) ?? 0;
+        console.log(
+          `
+    ${(d.customer + (d.grp ? " *" : "")).padEnd(30)}${held ? `holds ${money(held)} unapplied` : "holds nothing"}`,
+        );
+        last = d.customer;
+      }
+      console.log(
+        `      ${d.number.padEnd(20)}${d.date}  owes ${money(d.owed).padStart(13)}` +
+          `${Math.abs(d.owed - d.total) > 1 ? `  of ${money(d.total)}` : ""}`,
+      );
+    }
+    const inCreditOnly = rows.filter((r) => r.advance > 0 && !detail.some((d) => d.customer === r.customer));
+    if (inCreditOnly.length) {
+      console.log(`
+    holding money with no unpaid invoice at all:`);
+      for (const r of inCreditOnly.sort((a, b) => b.advance - a.advance)) {
+        console.log(`      ${r.customer.padEnd(30)}${money(r.advance).padStart(13)}`);
+      }
+    }
+    console.log();
+  }
+
   const t = (f: (r: Row) => number) => rows.reduce((s, r) => s + f(r), 0);
   console.log(
     `\n    ${"TOTAL".padEnd(32)}${String(t((r) => r.invoices)).padStart(5)}${money(t((r) => r.owed)).padStart(15)}` +
