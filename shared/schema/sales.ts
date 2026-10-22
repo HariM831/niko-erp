@@ -124,6 +124,33 @@ export const customerPayments = pgTable("customer_payments", {
 });
 
 /** Open-item application of a payment against invoices. */
+/**
+ * Money returned to a customer out of what a receipt has spare. It comes off
+ * the receipt's unapplied amount, and its journal — DR customer advances, CR
+ * the bank it left — is sourced to the receipt.
+ */
+export const customerPaymentRefunds = pgTable(
+  "customer_payment_refunds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    paymentId: uuid("payment_id")
+      .notNull()
+      .references(() => customerPayments.id),
+    refundDate: date("refund_date").notNull(),
+    amount: money("amount").notNull(),
+    /** Where the money left from; null where Zoho paid it out of Undeposited Funds. */
+    bankAccountId: uuid("bank_account_id").references(() => bankAccounts.id),
+    reference: text("reference"),
+    notes: text("notes"),
+    journalEntryId: uuid("journal_entry_id").references(() => journalEntries.id),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("ix_cpr_payment").on(t.paymentId)],
+);
+
 export const paymentApplications = pgTable("payment_applications", {
   id: uuid("id").primaryKey().defaultRandom(),
   paymentId: uuid("payment_id")

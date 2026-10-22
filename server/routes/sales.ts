@@ -8,6 +8,7 @@ import {
   eggDispatches,
   journalEntries,
   contacts,
+  customerPaymentRefunds,
   customerPayments,
   inventoryTransactions,
   invoiceLines,
@@ -857,8 +858,147 @@ salesRouter.get("/payments/:id", requirePermission("sales", "view"), async (req,
     .from(paymentApplications)
     .innerJoin(invoices, eq(invoices.id, paymentApplications.invoiceId))
     .where(eq(paymentApplications.paymentId, payment.id));
-  res.json({ ...payment, contactName: contact?.displayName ?? null, applications });
+  const refunds = await db
+    .select({
+      ...getTableColumns(customerPaymentRefunds),
+      bankAccountName: bankAccounts.name,
+    })
+    .from(customerPaymentRefunds)
+    .leftJoin(bankAccounts, eq(bankAccounts.id, customerPaymentRefunds.bankAccountId))
+    .where(eq(customerPaymentRefunds.paymentId, payment.id))
+    .orderBy(asc(customerPaymentRefunds.refundDate));
+  res.json({ ...payment, contactName: contact?.displayName ?? null, applications, refunds });
 });
+
+const customerRefundSchema = z.object({
+  refundDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  amount: money,
+  /** The account the money went out of. */
+  bankAccountId: z.string().uuid(),
+  reference: z.string().trim().max(200).optional(),
+  notes: z.string().trim().max(500).optional(),
+});
+
+/**
+ * Money handed back to a customer out of what a receipt has spare. Only the
+ * unused part can go back: money already on an invoice is unapplied first.
+ */
+salesRouter.post(
+  "/payments/:id/refunds",
+  requirePermission("sales", "create"),
+  validateBody(customerRefundSchema),
+  async (req, res) => {
+    const body = req.body as z.infer<typeof customerRefundSchema>;
+    try {
+      const refund = await db.transaction((tx) => refundCustomerPayment(tx, req.params.id!, body, req.session.user!.id));
+      res.status(201).json(refund);
+    } catch (err) {
+      if (err instanceof PostingError) return res.status(422).json({ error: err.message });
+      throw err;
+    }
+  },
+);
+
+salesRouter.delete(
+  "/payments/:id/refunds/:refundId",
+  requirePermission("sales", "delete"),
+  async (req, res) => {
+    try {
+      const out = await db.transaction((tx) => deleteCustomerRefund(tx, req.params.refundId!));
+      res.json(out);
+    } catch (err) {
+      if (err instanceof PostingError) return res.status(422).json({ error: err.message });
+      throw err;
+    }
+  },
+);
+
+export async function refundCustomerPayment(
+  tx: Tx,
+  paymentId: string,
+  body: z.infer<typeof customerRefundSchema>,
+  userId: string,
+) {
+  const [payment] = await tx
+    .select()
+    .from(customerPayments)
+    .where(eq(customerPayments.id, paymentId))
+    .for("update")
+    .limit(1);
+  if (!payment) throw new PostingError("Payment not found");
+  await assertPeriodOpen(tx, body.refundDate, "customer_payment");
+  const amountP = toPaise(body.amount);
+  if (amountP <= 0) throw new PostingError("The refund must be more than nothing");
+  if (amountP > toPaise(payment.unappliedAmount)) {
+    throw new PostingError(
+      `${payment.number} has only ${payment.unappliedAmount} spare — unapply it from an invoice first to refund more`,
+    );
+  }
+  const [bank] = await tx.select().from(bankAccounts).where(eq(bankAccounts.id, body.bankAccountId)).limit(1);
+  if (!bank) throw new PostingError("Bank account not found");
+  const customer = await loadCustomer(tx, payment.customerId);
+
+  // Sourced to the receipt. It never touches receivables, so the receipt's
+  // position (services/payment-ledger.ts, applied against AR) is not moved.
+  const jeId = await postJournal(tx, {
+    entryDate: body.refundDate,
+    narration: `Refund on ${payment.number} — ${customer.displayName}`,
+    reference: body.reference,
+    sourceType: "customer_payment",
+    sourceId: payment.id,
+    postedBy: userId,
+    lines: [
+      { systemKey: "customer_advances", debit: fromPaise(amountP), description: `Refund on ${payment.number}` },
+      { accountId: bank.glAccountId, credit: fromPaise(amountP) },
+    ] as never,
+  });
+  const [refund] = await tx
+    .insert(customerPaymentRefunds)
+    .values({
+      paymentId: payment.id,
+      refundDate: body.refundDate,
+      amount: fromPaise(amountP),
+      bankAccountId: bank.id,
+      reference: body.reference || null,
+      notes: body.notes || null,
+      journalEntryId: jeId,
+      createdBy: userId,
+    })
+    .returning();
+  await tx
+    .update(customerPayments)
+    .set({ unappliedAmount: fromPaise(toPaise(payment.unappliedAmount) - amountP) })
+    .where(eq(customerPayments.id, payment.id));
+  return refund!;
+}
+
+/** Take a refund back off: the money is spare on the receipt again. */
+export async function deleteCustomerRefund(tx: Tx, refundId: string) {
+  const [refund] = await tx
+    .select()
+    .from(customerPaymentRefunds)
+    .where(eq(customerPaymentRefunds.id, refundId))
+    .limit(1);
+  if (!refund) throw new PostingError("Refund not found");
+  await assertPeriodOpen(tx, refund.refundDate, "customer_payment");
+  if (refund.journalEntryId) {
+    const matched = await linkedStatementLine(tx, [refund.journalEntryId]);
+    if (matched) throw new PostingError("This refund is matched to a bank statement line — unmatch it in Banking first");
+  }
+  const [payment] = await tx
+    .select()
+    .from(customerPayments)
+    .where(eq(customerPayments.id, refund.paymentId))
+    .for("update")
+    .limit(1);
+  await tx.delete(customerPaymentRefunds).where(eq(customerPaymentRefunds.id, refund.id));
+  if (refund.journalEntryId) await tx.delete(journalEntries).where(eq(journalEntries.id, refund.journalEntryId));
+  await tx
+    .update(customerPayments)
+    .set({ unappliedAmount: fromPaise(toPaise(payment!.unappliedAmount) + toPaise(refund.amount)) })
+    .where(eq(customerPayments.id, payment!.id));
+  return { number: payment!.number, amount: refund.amount };
+}
 
 salesRouter.post(
   "/payments",
@@ -1057,6 +1197,12 @@ export async function editCustomerPayment(
   const applications =
     body.applications ??
     oldApps.map((a) => ({ invoiceId: a.invoiceId, amount: a.amountApplied }));
+  // What went back to the customer is no longer the receipt's to apply.
+  const [ref] = await tx
+    .select({ v: sql<string>`coalesce(sum(${customerPaymentRefunds.amount}), 0)` })
+    .from(customerPaymentRefunds)
+    .where(eq(customerPaymentRefunds.paymentId, payment.id));
+  const refundedP = toPaise(ref!.v);
 
   let appliedP = 0;
   for (const app of applications) {
@@ -1074,7 +1220,15 @@ export async function editCustomerPayment(
     }
     appliedP += appP;
   }
-  if (appliedP > amountP) throw new PostingError("Applied total exceeds the payment amount");
+  if (appliedP > amountP - refundedP) {
+    throw new PostingError(
+      refundedP > 0
+        ? `Applied total exceeds what is left of the payment after ${fromPaise(refundedP)} refunded`
+        : "Applied total exceeds the payment amount",
+    );
+  }
+  // The receipt's own journal holds everything it did not apply; the refunds'
+  // journals take back what went out again.
   const unappliedP = amountP - appliedP;
 
   for (const app of applications) {
@@ -1122,7 +1276,7 @@ export async function editCustomerPayment(
       customerId: customer.id,
       paymentDate,
       amount,
-      unappliedAmount: fromPaise(unappliedP),
+      unappliedAmount: fromPaise(unappliedP - refundedP),
       mode: body.mode ?? payment.mode,
       reference: body.reference ?? payment.reference,
       bankAccountId: bank.id,
@@ -1170,6 +1324,13 @@ export async function deleteCustomerPayment(tx: Tx, paymentId: string, userId: s
   const payment = await tx.query.customerPayments.findFirst({ where: eq(customerPayments.id, paymentId) });
   if (!payment) throw new PostingError("Payment not found");
   await assertPeriodOpen(tx, payment.paymentDate, "customer_payment");
+  const [refunded] = await tx
+    .select({ n: sql<number>`count(*)::int` })
+    .from(customerPaymentRefunds)
+    .where(eq(customerPaymentRefunds.paymentId, payment.id));
+  if (refunded!.n > 0) {
+    throw new PostingError(`${payment.number} has refunds recorded against it — delete them first`);
+  }
   const before = await positionOf(tx, "customer", payment.id);
 
   const entries = await tx

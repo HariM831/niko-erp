@@ -134,7 +134,7 @@ export function PaymentDetailPage({ side, id }: { side: "customer" | "vendor"; i
   if (!doc) return <div className="p-8 text-sm text-red-600">Payment not found.</div>;
 
   const refunds = doc.refunds ?? [];
-  const canRefund = !isCustomer && Number(doc.unappliedAmount) > 0;
+  const canRefund = Number(doc.unappliedAmount) > 0;
   const deleteRefund = async (refundId: string, amount: string) => {
     if (!confirm(`Delete the refund of ${formatMoney(amount)}? It will be spare on ${doc.number} again.`)) return;
     try {
@@ -286,10 +286,10 @@ export function PaymentDetailPage({ side, id }: { side: "customer" | "vendor"; i
         {Number(doc.tdsAmount ?? 0) > 0 && (
           <p className="mt-3 text-[13px] text-gray-600">TDS Withheld: {formatMoney(doc.tdsAmount!)}</p>
         )}
-        {!isCustomer && Number(doc.unappliedAmount) > 0 && (
+        {Number(doc.unappliedAmount) > 0 && (
           <p className="mt-3 text-[13px] text-gray-600">
             Unused: <strong className="tabular-nums">{formatMoney(doc.unappliedAmount)}</strong> — held as an advance
-            until a bill takes it, or the vendor refunds it.
+            until {isCustomer ? "an invoice takes it, or it is refunded to the customer" : "a bill takes it, or the vendor refunds it"}.
           </p>
         )}
         {refunds.length > 0 && (
@@ -299,7 +299,7 @@ export function PaymentDetailPage({ side, id }: { side: "customer" | "vendor"; i
               <thead className="table-head">
                 <tr>
                   <th className="border-b border-[#ece3d5] px-3 py-2">Date</th>
-                  <th className="border-b border-[#ece3d5] px-3 py-2">Into</th>
+                  <th className="border-b border-[#ece3d5] px-3 py-2">{isCustomer ? "From" : "Into"}</th>
                   <th className="border-b border-[#ece3d5] px-3 py-2">Reference</th>
                   <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Amount</th>
                   <th className="border-b border-[#ece3d5] px-3 py-2" />
@@ -343,6 +343,8 @@ export function PaymentDetailPage({ side, id }: { side: "customer" | "vendor"; i
       <JournalSection sourceType={sourceType} sourceId={id} heading={isCustomer ? "Customer Payment" : "Vendor Payment"} />
       {refunding && (
         <RefundDialog
+          endpoint={endpoint}
+          isCustomer={isCustomer}
           paymentId={id}
           number={doc.number}
           spare={doc.unappliedAmount}
@@ -364,6 +366,8 @@ export function PaymentDetailPage({ side, id }: { side: "customer" | "vendor"; i
  * Made. At most what the payment has spare; the bank it came into is debited.
  */
 function RefundDialog({
+  endpoint,
+  isCustomer,
   paymentId,
   number,
   spare,
@@ -372,6 +376,8 @@ function RefundDialog({
   onClose,
   onDone,
 }: {
+  endpoint: string;
+  isCustomer: boolean;
   paymentId: string;
   number: string;
   spare: string;
@@ -390,7 +396,7 @@ function RefundDialog({
     setBusy(true);
     setError(null);
     try {
-      await api(`/api/purchases/payments/${paymentId}/refunds`, {
+      await api(`${endpoint}/${paymentId}/refunds`, {
         method: "POST",
         body: { refundDate, amount: Number(amount).toFixed(2), bankAccountId, reference: reference.trim() || undefined },
       });
@@ -423,7 +429,7 @@ function RefundDialog({
             </div>
           </div>
           <div>
-            <label className="label-required">Received into *</label>
+            <label className="label-required">{isCustomer ? "Paid out of *" : "Received into *"}</label>
             <select value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)} className="input">
               <option value="">Choose an account</option>
               {banks.map((b) => (
