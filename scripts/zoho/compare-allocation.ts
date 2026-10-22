@@ -70,6 +70,9 @@ async function main() {
         FROM ${CUSTOMER ? sql`customer_payments` : sql`vendor_payments`} p
         JOIN zoho_id_map z ON z.entity = ${SIDE.entity} AND z.eggsy_id = p.id
         JOIN contacts c ON c.id = ${CUSTOMER ? sql`p.customer_id` : sql`p.vendor_id`}
+       -- The group's advances are unapplied here on purpose (16 Oct 2026), so
+       -- Zoho having spent them is a decision, not a difference to fix.
+       WHERE c.is_group_company = false
        ORDER BY p.payment_date, p.number
     `)
   ).rows as Array<{ zoho_id: string; number: string; date: string; vendor: string;
