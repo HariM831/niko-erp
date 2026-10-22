@@ -47,8 +47,10 @@ async function main() {
           JOIN accounts a ON a.id = l.account_id
          WHERE a.system_key IN ('ap', 'vendor_advances')
          GROUP BY 1, 2)
+      , rf AS (SELECT payment_id, sum(amount) AS v FROM vendor_payment_refunds GROUP BY 1)
       SELECT p.id::text, p.number, c.display_name AS vendor,
-             (p.amount - p.unapplied_amount)::float8 AS applied,
+             -- What the vendor refunded is neither applied nor spare.
+             (p.amount - p.unapplied_amount - coalesce(rf.v, 0))::float8 AS applied,
              p.unapplied_amount::float8 AS unapplied,
              coalesce(ap.v, 0)::float8 AS ap,
              coalesce(ad.v, 0)::float8 AS adv
@@ -56,8 +58,9 @@ async function main() {
         JOIN contacts c ON c.id = p.vendor_id
         LEFT JOIN mv ap ON ap.source_id = p.id AND ap.system_key = 'ap'
         LEFT JOIN mv ad ON ad.source_id = p.id AND ad.system_key = 'vendor_advances'
+        LEFT JOIN rf ON rf.payment_id = p.id
        WHERE p.advances_in_ledger
-         AND (abs(coalesce(ap.v, 0) - (p.amount - p.unapplied_amount)) > 0.004
+         AND (abs(coalesce(ap.v, 0) - (p.amount - p.unapplied_amount - coalesce(rf.v, 0))) > 0.004
            OR abs(coalesce(ad.v, 0) - p.unapplied_amount) > 0.004)
        ORDER BY p.payment_date, p.number`)
   ).rows as Array<{ id: string; number: string; vendor: string; applied: number; unapplied: number; ap: number; adv: number }>;
