@@ -11,10 +11,14 @@
  * Zoho calls this "Apply Credits" and offers both kinds in one list — advance
  * payments and open credit notes — and so does this.
  *
- * No journal is posted either way. An advance already debited Accounts Payable
- * when it was paid, and a credit note already credited it when it was raised;
- * applying one is a reallocation inside AP, and posting anything here would
- * double the entry that exists.
+ * A credit note posts nothing here: it already credited the receivable or the
+ * payable when it was raised, and applying it is a reallocation inside that
+ * account. An advance is different on the selling side, where the receipt
+ * holds it in customer advances until it is put against a sale, so applying
+ * one moves it into receivables with an entry of its own, dated today and tied
+ * to the receipt (services/payment-ledger.ts). A vendor payment raised here
+ * debited payables in full and moves nothing; one brought from Zoho holds its
+ * advance in vendor advances and moves the same way.
  */
 import { and, eq, gt, inArray } from "drizzle-orm";
 import {
@@ -28,11 +32,11 @@ import {
   vendorCredits,
   vendorPayments,
   vendorPaymentApplications,
-  zohoIdMap,
 } from "@shared/schema";
 import { db } from "../db";
-import { PostingError, assertPeriodOpen, postJournal } from "./posting";
+import { PostingError, assertPeriodOpen } from "./posting";
 import { istDate } from "./day-resolution";
+import { positionOf, settlePayment } from "./payment-ledger";
 import { fromPaise, toPaise } from "./documents";
 import type { db as Db } from "../db";
 
@@ -161,14 +165,15 @@ export async function applyCredits(
   side: Side,
   documentId: string,
   applications: Application[],
+  userId: string,
 ): Promise<{ balanceDue: string; applied: string }> {
   if (!applications.length) throw new PostingError("Nothing chosen to apply");
   return side === "vendor"
-    ? applyToBill(tx, documentId, applications)
-    : applyToInvoice(tx, documentId, applications);
+    ? applyToBill(tx, documentId, applications, userId)
+    : applyToInvoice(tx, documentId, applications, userId);
 }
 
-async function applyToBill(tx: Tx, billId: string, applications: Application[]) {
+async function applyToBill(tx: Tx, billId: string, applications: Application[], userId: string) {
   const bill = await tx.query.bills.findFirst({ where: eq(bills.id, billId) });
   if (!bill) throw new PostingError("Bill not found");
   if (bill.status !== "open" && bill.status !== "partially_paid") {
@@ -195,6 +200,7 @@ async function applyToBill(tx: Tx, billId: string, applications: Application[]) 
       if (amountP > toPaise(payment.unappliedAmount)) {
         throw new PostingError(`${payment.number} has only ${payment.unappliedAmount} unapplied`);
       }
+      const before = await positionOf(tx, "vendor", payment.id);
       await tx.insert(vendorPaymentApplications).values({
         paymentId: payment.id,
         billId: bill.id,
@@ -204,6 +210,7 @@ async function applyToBill(tx: Tx, billId: string, applications: Application[]) 
         .update(vendorPayments)
         .set({ unappliedAmount: fromPaise(toPaise(payment.unappliedAmount) - amountP) })
         .where(eq(vendorPayments.id, payment.id));
+      await settlePayment(tx, before, { on: istDate(), userId, narration: `${payment.number} applied to ${bill.number}` });
       paidAny = true;
     } else {
       const credit = await tx.query.vendorCredits.findFirst({ where: eq(vendorCredits.id, app.id) });
@@ -237,7 +244,7 @@ async function applyToBill(tx: Tx, billId: string, applications: Application[]) 
   return { balanceDue: fromPaise(balanceP), applied: fromPaise(appliedP) };
 }
 
-async function applyToInvoice(tx: Tx, invoiceId: string, applications: Application[]) {
+async function applyToInvoice(tx: Tx, invoiceId: string, applications: Application[], userId: string) {
   const invoice = await tx.query.invoices.findFirst({ where: eq(invoices.id, invoiceId) });
   if (!invoice) throw new PostingError("Invoice not found");
   if (invoice.status !== "sent" && invoice.status !== "partially_paid") {
@@ -262,6 +269,7 @@ async function applyToInvoice(tx: Tx, invoiceId: string, applications: Applicati
       if (amountP > toPaise(payment.unappliedAmount)) {
         throw new PostingError(`${payment.number} has only ${payment.unappliedAmount} unapplied`);
       }
+      const before = await positionOf(tx, "customer", payment.id);
       await tx.insert(paymentApplications).values({
         paymentId: payment.id,
         invoiceId: invoice.id,
@@ -271,6 +279,7 @@ async function applyToInvoice(tx: Tx, invoiceId: string, applications: Applicati
         .update(customerPayments)
         .set({ unappliedAmount: fromPaise(toPaise(payment.unappliedAmount) - amountP) })
         .where(eq(customerPayments.id, payment.id));
+      await settlePayment(tx, before, { on: istDate(), userId, narration: `${payment.number} applied to ${invoice.number}` });
       paidAny = true;
     } else {
       const note = await tx.query.creditNotes.findFirst({ where: eq(creditNotes.id, app.id) });
@@ -487,6 +496,7 @@ export async function applyCreditPlan(
   tx: Tx,
   side: Side,
   lines: PlannedApplication[],
+  userId: string,
 ): Promise<{ documents: number; applied: string }> {
   if (!lines.length) throw new PostingError("Nothing chosen to apply");
 
@@ -499,7 +509,7 @@ export async function applyCreditPlan(
 
   let appliedP = 0;
   for (const [documentId, applications] of byDocument) {
-    const out = await applyCredits(tx, side, documentId, applications);
+    const out = await applyCredits(tx, side, documentId, applications, userId);
     appliedP += toPaise(out.applied);
   }
   return { documents: byDocument.size, applied: fromPaise(appliedP) };
@@ -515,14 +525,9 @@ export async function applyCreditPlan(
  * the payment took off it, and the money goes back to the payment as
  * unapplied — an advance the party can have applied elsewhere.
  *
- * The postings follow the control accounts, not the document: receivables
- * must equal the open invoices and customer advances the receipts' unapplied
- * total, so moving money from one to the other moves the ledger by the same
- * amount, dated today the way the void path's return is. On the buying side a
- * payment raised in niko debited payables in full, so its advance already sits
- * inside payables and nothing posts; one brought from Zoho parked its
- * unapplied part in vendor advances, and that is where this part goes too.
- * Both journals belong to the payment, so deleting it later removes them.
+ * The ledger moves with it by the payment-ledger rule: an entry of its own,
+ * dated today and tied to the payment, so deleting the payment later removes
+ * it too.
  */
 export async function dissociatePayment(
   tx: Tx,
@@ -543,6 +548,7 @@ async function dissociateFromInvoice(tx: Tx, invoiceId: string, paymentId: strin
   const payment = await tx.query.customerPayments.findFirst({ where: eq(customerPayments.id, paymentId) });
   if (!payment) throw new PostingError("Payment not found");
   await assertPeriodOpen(tx, on, "customer_payment");
+  const before = await positionOf(tx, "customer", payment.id);
 
   const where = and(eq(paymentApplications.paymentId, payment.id), eq(paymentApplications.invoiceId, inv.id));
   const apps = await tx.select().from(paymentApplications).where(where);
@@ -569,16 +575,10 @@ async function dissociateFromInvoice(tx: Tx, invoiceId: string, paymentId: strin
     .set({ balanceDue: fromPaise(balanceP), status: others ? "partially_paid" : "sent", updatedAt: new Date() })
     .where(eq(invoices.id, inv.id));
 
-  await postJournal(tx, {
-    entryDate: on,
+  await settlePayment(tx, before, {
+    on,
+    userId,
     narration: `Payment ${payment.number} dissociated from ${inv.number} and added as credit`,
-    sourceType: "customer_payment",
-    sourceId: payment.id,
-    postedBy: userId,
-    lines: [
-      { systemKey: "ar", debit: fromPaise(returnedP) },
-      { systemKey: "customer_advances", credit: fromPaise(returnedP) },
-    ],
   });
   return { number: inv.number, paymentNumber: payment.number, returned: fromPaise(returnedP), balanceDue: fromPaise(balanceP) };
 }
@@ -589,6 +589,7 @@ async function dissociateFromBill(tx: Tx, billId: string, paymentId: string, on:
   const payment = await tx.query.vendorPayments.findFirst({ where: eq(vendorPayments.id, paymentId) });
   if (!payment) throw new PostingError("Payment not found");
   await assertPeriodOpen(tx, on, "vendor_payment");
+  const before = await positionOf(tx, "vendor", payment.id);
 
   const where = and(eq(vendorPaymentApplications.paymentId, payment.id), eq(vendorPaymentApplications.billId, bill.id));
   const apps = await tx.select().from(vendorPaymentApplications).where(where);
@@ -613,23 +614,10 @@ async function dissociateFromBill(tx: Tx, billId: string, paymentId: string, on:
     .set({ balanceDue: fromPaise(balanceP), status: others ? "partially_paid" : "open", updatedAt: new Date() })
     .where(eq(bills.id, bill.id));
 
-  const [imported] = await tx
-    .select({ id: zohoIdMap.id })
-    .from(zohoIdMap)
-    .where(and(eq(zohoIdMap.entity, "vendor_payment"), eq(zohoIdMap.eggsyId, payment.id)))
-    .limit(1);
-  if (imported) {
-    await postJournal(tx, {
-      entryDate: on,
-      narration: `Payment ${payment.number} dissociated from ${bill.number} and added as credit`,
-      sourceType: "vendor_payment",
-      sourceId: payment.id,
-      postedBy: userId,
-      lines: [
-        { systemKey: "vendor_advances", debit: fromPaise(returnedP) },
-        { systemKey: "ap", credit: fromPaise(returnedP) },
-      ],
-    });
-  }
+  await settlePayment(tx, before, {
+    on,
+    userId,
+    narration: `Payment ${payment.number} dissociated from ${bill.number} and added as credit`,
+  });
   return { number: bill.number, paymentNumber: payment.number, returned: fromPaise(returnedP), balanceDue: fromPaise(balanceP) };
 }

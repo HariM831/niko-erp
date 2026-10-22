@@ -41,7 +41,8 @@ import {
 } from "@shared/schema";
 import { DIRECT_RATE_SIZES, EGG_SIZES, EGG_SIZE_LABEL, type EggSize } from "@shared/egg-sizes";
 import type { db as Db } from "../db";
-import { PostingError, postJournal } from "./posting";
+import { PostingError } from "./posting";
+import { positionOf, settlePayment } from "./payment-ledger";
 import { applyDefaultSalesAccounts, computeDocumentTotals, fromPaise, toPaise, type DocLineInput } from "./documents";
 import { nextDocumentNumber } from "../lib/numbering";
 import { computeDueDate, loadCustomer, postInvoiceJournal } from "../routes/sales";
@@ -1154,8 +1155,9 @@ export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
  * sitting in `customer_advances`. Leaving them there would show the customer
  * owing an invoice they have already paid for; this moves the money the rest
  * of the way — application rows, the payments' unapplied balances, the
- * invoice's own balance, and one journal shifting the liability into the
- * receivable (DR advances / CR AR).
+ * invoice's own balance, and for each payment an entry shifting the liability
+ * into the receivable (DR advances / CR AR), tied to that payment
+ * (services/payment-ledger.ts).
  *
  * Applies what advances can cover and leaves any remainder due — credit notes
  * count toward the loading gate but are not consumed here, so an invoice
@@ -1182,6 +1184,7 @@ export async function applyAdvancesToInvoice(tx: Tx, invoiceId: string, userId: 
     if (remainingP <= 0) break;
     const takeP = Math.min(toPaise(p.unappliedAmount), remainingP);
     if (takeP <= 0) continue;
+    const before = await positionOf(tx, "customer", p.id);
     await tx.insert(paymentApplications).values({
       paymentId: p.id,
       invoiceId: inv.id,
@@ -1191,6 +1194,7 @@ export async function applyAdvancesToInvoice(tx: Tx, invoiceId: string, userId: 
       .update(customerPayments)
       .set({ unappliedAmount: fromPaise(toPaise(p.unappliedAmount) - takeP) })
       .where(eq(customerPayments.id, p.id));
+    await settlePayment(tx, before, { on: inv.invoiceDate, userId, narration: `Advance ${p.number} applied to ${inv.number}` });
     remainingP -= takeP;
     appliedP += takeP;
   }
@@ -1203,25 +1207,14 @@ export async function applyAdvancesToInvoice(tx: Tx, invoiceId: string, userId: 
         updatedAt: new Date(),
       })
       .where(eq(invoices.id, inv.id));
-    await postJournal(tx, {
-      entryDate: inv.invoiceDate,
-      narration: `Advance applied to ${inv.number}`,
-      sourceType: "advance_application",
-      sourceId: inv.id,
-      postedBy: userId,
-      lines: [
-        { systemKey: "customer_advances", debit: fromPaise(appliedP) },
-        { systemKey: "ar", credit: fromPaise(appliedP) },
-      ],
-    });
   }
   return fromPaise(appliedP);
 }
 
 /**
  * The inverse, for the void path: hand every applied payment back to the
- * customer's advances so the invoice can be voided at full balance. The
- * reversing journal is dated to the void, not backdated to the application.
+ * customer's advances so the invoice can be voided at full balance. Each
+ * payment's entry is dated to the void, not backdated to the application.
  */
 export async function unapplyInvoicePayments(tx: Tx, invoiceId: string, on: string, userId: string): Promise<void> {
   const [inv] = await tx.select().from(invoices).where(eq(invoices.id, invoiceId));
@@ -1232,34 +1225,24 @@ export async function unapplyInvoicePayments(tx: Tx, invoiceId: string, on: stri
     .where(eq(paymentApplications.invoiceId, invoiceId));
   if (!apps.length) return;
 
-  let returnedP = 0;
-  for (const a of apps) {
-    const [p] = await tx.select().from(customerPayments).where(eq(customerPayments.id, a.paymentId));
+  for (const paymentId of new Set(apps.map((a) => a.paymentId))) {
+    const [p] = await tx.select().from(customerPayments).where(eq(customerPayments.id, paymentId));
     if (!p) continue;
+    const before = await positionOf(tx, "customer", p.id);
+    const returnedP = apps.filter((a) => a.paymentId === p.id).reduce((s, a) => s + toPaise(a.amountApplied), 0);
+    await tx
+      .delete(paymentApplications)
+      .where(and(eq(paymentApplications.invoiceId, invoiceId), eq(paymentApplications.paymentId, p.id)));
     await tx
       .update(customerPayments)
-      .set({ unappliedAmount: fromPaise(toPaise(p.unappliedAmount) + toPaise(a.amountApplied)) })
+      .set({ unappliedAmount: fromPaise(toPaise(p.unappliedAmount) + returnedP) })
       .where(eq(customerPayments.id, p.id));
-    returnedP += toPaise(a.amountApplied);
+    await settlePayment(tx, before, { on, userId, narration: `Advance ${p.number} returned on void of ${inv.number}` });
   }
-  await tx.delete(paymentApplications).where(eq(paymentApplications.invoiceId, invoiceId));
   await tx
     .update(invoices)
     .set({ balanceDue: inv.total, status: "sent", updatedAt: new Date() })
     .where(eq(invoices.id, invoiceId));
-  if (returnedP > 0) {
-    await postJournal(tx, {
-      entryDate: on,
-      narration: `Advance returned on void of ${inv.number}`,
-      sourceType: "advance_application",
-      sourceId: inv.id,
-      postedBy: userId,
-      lines: [
-        { systemKey: "ar", debit: fromPaise(returnedP) },
-        { systemKey: "customer_advances", credit: fromPaise(returnedP) },
-      ],
-    });
-  }
 }
 
 /**

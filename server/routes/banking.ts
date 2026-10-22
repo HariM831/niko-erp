@@ -1245,9 +1245,9 @@ bankingRouter.post("/transactions/:id/unmatch", requirePermission("banking", "ed
         const je = await tx.query.journalEntries.findFirst({ where: eq(journalEntries.id, link.journalEntryId) });
         if (!je) continue;
         if (je.sourceType === "customer_payment" && je.sourceId) {
-          deleted.push((await deleteCustomerPayment(tx, je.sourceId)).number);
+          deleted.push((await deleteCustomerPayment(tx, je.sourceId, req.session.user!.id)).number);
         } else if (je.sourceType === "vendor_payment" && je.sourceId) {
-          deleted.push((await deleteVendorPayment(tx, je.sourceId)).number);
+          deleted.push((await deleteVendorPayment(tx, je.sourceId, req.session.user!.id)).number);
         } else if (je.sourceType === "expense" && je.sourceId) {
           deleted.push(await deleteStatementExpense(tx, je.sourceId));
         } else if (je.sourceType === "banking") {

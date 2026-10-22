@@ -162,10 +162,10 @@ async function main() {
       await tx.update(customerPayments).set({ journalEntryId: jPay }).where(eq(customerPayments.id, pay!.id));
       await linkStatementLine(tx, { bankTransactionId: l4.id, journalEntryIds: [jPay], kind: "categorized" });
       check("linked payment is found", !!(await linkedStatementLine(tx, [jPay])));
-      await refuses("deleting a matched payment refused", () => deleteCustomerPayment(tx, pay!.id), "matched to a bank statement line");
+      await refuses("deleting a matched payment refused", () => deleteCustomerPayment(tx, pay!.id, actor.id), "matched to a bank statement line");
       // What unmatch does: let go of the links, then delete what the line made.
       await tx.delete(bankTransactionLinks).where(eq(bankTransactionLinks.bankTransactionId, l4.id));
-      const gone = await deleteCustomerPayment(tx, pay!.id);
+      const gone = await deleteCustomerPayment(tx, pay!.id, actor.id);
       check("then deleted", gone.number === `${tag}-P1`);
       const left = await tx.select().from(customerPayments).where(and(eq(customerPayments.id, pay!.id)));
       check("payment row gone", left.length === 0);

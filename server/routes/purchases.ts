@@ -91,6 +91,7 @@ import {
   type Application,
   type PlannedApplication,
 } from "../services/apply-credits";
+import { positionOf, settlePayment } from "../services/payment-ledger";
 
 export const purchasesRouter = Router();
 
@@ -930,7 +931,7 @@ purchasesRouter.post(
     const body = req.body as { applications: Application[] };
     try {
       const result = await db.transaction(async (tx) =>
-        applyCredits(tx, "vendor", req.params.id!, body.applications),
+        applyCredits(tx, "vendor", req.params.id!, body.applications, req.session.user!.id),
       );
       res.json(result);
     } catch (err) {
@@ -981,7 +982,7 @@ purchasesRouter.post(
   async (req, res) => {
     const body = req.body as { plan: PlannedApplication[] };
     try {
-      res.json(await db.transaction((tx) => applyCreditPlan(tx, "vendor", body.plan)));
+      res.json(await db.transaction((tx) => applyCreditPlan(tx, "vendor", body.plan, req.session.user!.id)));
     } catch (err) {
       if (!handlePostingError(err, res)) throw err;
     }
@@ -1380,130 +1381,145 @@ purchasesRouter.patch(
   async (req, res) => {
     const body = req.body as Partial<z.infer<typeof vendorPaymentSchema>>;
     try {
-      const result = await db.transaction(async (tx) => {
-        const payment = await tx.query.vendorPayments.findFirst({
-          where: eq(vendorPayments.id, req.params.id!),
-        });
-        if (!payment) throw new PostingError("Payment not found");
-
-        // Undo the old allocation so bills are back to pre-payment balances.
-        const oldApps = await tx
-          .select()
-          .from(vendorPaymentApplications)
-          .where(eq(vendorPaymentApplications.paymentId, payment.id));
-        for (const app of oldApps) {
-          const bill = await tx.query.bills.findFirst({ where: eq(bills.id, app.billId) });
-          if (!bill) continue;
-          const restoredP = toPaise(bill.balanceDue) + toPaise(app.amountApplied);
-          await tx
-            .update(bills)
-            .set({
-              balanceDue: fromPaise(restoredP),
-              status: restoredP === toPaise(bill.total) ? "open" : "partially_paid",
-              updatedAt: new Date(),
-            })
-            .where(eq(bills.id, bill.id));
-        }
-        await tx
-          .delete(vendorPaymentApplications)
-          .where(eq(vendorPaymentApplications.paymentId, payment.id));
-
-        const vendor = await loadVendor(tx, body.vendorId ?? payment.vendorId);
-        const paymentDate = body.paymentDate ?? payment.paymentDate;
-        const amount = body.amount ?? payment.amount;
-        const amountP = toPaise(amount);
-        if (amountP <= 0) throw new PostingError("Payment amount must be positive");
-        const tdsP = toPaise(body.tdsAmount ?? payment.tdsAmount);
-        if (tdsP >= amountP) throw new PostingError("TDS cannot be the whole payment");
-
-        const [bank] = await tx
-          .select()
-          .from(bankAccounts)
-          .where(eq(bankAccounts.id, body.bankAccountId ?? payment.bankAccountId!))
-          .limit(1);
-        if (!bank) throw new PostingError("Bank account not found");
-
-        const applications =
-          body.applications ?? oldApps.map((a) => ({ billId: a.billId, amount: a.amountApplied }));
-
-        let appliedP = 0;
-        for (const app of applications) {
-          const bill = await tx.query.bills.findFirst({ where: eq(bills.id, app.billId) });
-          if (!bill) throw new PostingError(`Bill not found: ${app.billId}`);
-          if (bill.vendorId !== vendor.id) {
-            throw new PostingError(`Bill ${bill.number} belongs to a different vendor`);
-          }
-          const appP = toPaise(app.amount);
-          if (appP <= 0) throw new PostingError("Application amounts must be positive");
-          if (appP > toPaise(bill.balanceDue)) {
-            throw new PostingError(`Amount exceeds balance due on ${bill.number}`);
-          }
-          appliedP += appP;
-        }
-        if (appliedP > amountP) throw new PostingError("Applied total exceeds the payment amount");
-
-        for (const app of applications) {
-          await tx.insert(vendorPaymentApplications).values({
-            paymentId: payment.id,
-            billId: app.billId,
-            amountApplied: app.amount,
-          });
-          const bill = (await tx.query.bills.findFirst({ where: eq(bills.id, app.billId) }))!;
-          const newBalanceP = toPaise(bill.balanceDue) - toPaise(app.amount);
-          await tx
-            .update(bills)
-            .set({
-              balanceDue: fromPaise(newBalanceP),
-              status: newBalanceP === 0 ? "paid" : "partially_paid",
-              updatedAt: new Date(),
-            })
-            .where(eq(bills.id, bill.id));
-        }
-
-        if (payment.journalEntryId) {
-          await reverseJournal(tx, payment.journalEntryId, paymentDate, req.session.user!.id);
-        }
-        const jeLines: Array<{ accountId?: string; systemKey?: string; debit?: string; credit?: string; description?: string }> = [
-          { systemKey: "ap", debit: amount, description: `Payment ${payment.number}` },
-          { accountId: bank.glAccountId, credit: fromPaise(amountP - tdsP) },
-        ];
-        if (tdsP > 0) jeLines.push({ systemKey: "tds_payable", credit: fromPaise(tdsP) });
-
-        const jeId = await postJournal(tx, {
-          entryDate: paymentDate,
-          narration: `Payment ${payment.number} — ${vendor.displayName}`,
-          reference: body.reference ?? payment.reference ?? undefined,
-          sourceType: "vendor_payment",
-          sourceId: payment.id,
-          postedBy: req.session.user!.id,
-          lines: jeLines,
-        });
-        await carryLinks(tx, payment.journalEntryId, jeId, payment.number);
-
-        const [updated] = await tx
-          .update(vendorPayments)
-          .set({
-            vendorId: vendor.id,
-            paymentDate,
-            amount,
-            unappliedAmount: fromPaise(amountP - appliedP),
-            tdsAmount: fromPaise(tdsP),
-            mode: body.mode ?? payment.mode,
-            reference: body.reference ?? payment.reference,
-            bankAccountId: bank.id,
-            notes: body.notes ?? payment.notes,
-            journalEntryId: jeId,
-          })
-          .where(eq(vendorPayments.id, payment.id))
-          .returning();
-        return updated!;
-      });
+      const result = await db.transaction((tx) => editVendorPayment(tx, req.params.id!, body, req.session.user!.id));
       res.json(result);
     } catch (err) {
       if (!handlePostingError(err, res)) throw err;
     }
   },
 );
+
+export async function editVendorPayment(
+  tx: Tx,
+  paymentId: string,
+  body: Partial<z.infer<typeof vendorPaymentSchema>>,
+  userId: string,
+) {
+  const payment = await tx.query.vendorPayments.findFirst({
+    where: eq(vendorPayments.id, paymentId),
+  });
+  if (!payment) throw new PostingError("Payment not found");
+  const before = await positionOf(tx, "vendor", payment.id);
+
+  // Undo the old allocation so bills are back to pre-payment balances.
+  const oldApps = await tx
+    .select()
+    .from(vendorPaymentApplications)
+    .where(eq(vendorPaymentApplications.paymentId, payment.id));
+  for (const app of oldApps) {
+    const bill = await tx.query.bills.findFirst({ where: eq(bills.id, app.billId) });
+    if (!bill) continue;
+    const restoredP = toPaise(bill.balanceDue) + toPaise(app.amountApplied);
+    await tx
+      .update(bills)
+      .set({
+        balanceDue: fromPaise(restoredP),
+        status: restoredP === toPaise(bill.total) ? "open" : "partially_paid",
+        updatedAt: new Date(),
+      })
+      .where(eq(bills.id, bill.id));
+  }
+  await tx
+    .delete(vendorPaymentApplications)
+    .where(eq(vendorPaymentApplications.paymentId, payment.id));
+
+  const vendor = await loadVendor(tx, body.vendorId ?? payment.vendorId);
+  const paymentDate = body.paymentDate ?? payment.paymentDate;
+  const amount = body.amount ?? payment.amount;
+  const amountP = toPaise(amount);
+  if (amountP <= 0) throw new PostingError("Payment amount must be positive");
+  const tdsP = toPaise(body.tdsAmount ?? payment.tdsAmount);
+  if (tdsP >= amountP) throw new PostingError("TDS cannot be the whole payment");
+
+  const [bank] = await tx
+    .select()
+    .from(bankAccounts)
+    .where(eq(bankAccounts.id, body.bankAccountId ?? payment.bankAccountId!))
+    .limit(1);
+  if (!bank) throw new PostingError("Bank account not found");
+
+  const applications =
+    body.applications ?? oldApps.map((a) => ({ billId: a.billId, amount: a.amountApplied }));
+
+  let appliedP = 0;
+  for (const app of applications) {
+    const bill = await tx.query.bills.findFirst({ where: eq(bills.id, app.billId) });
+    if (!bill) throw new PostingError(`Bill not found: ${app.billId}`);
+    if (bill.vendorId !== vendor.id) {
+      throw new PostingError(`Bill ${bill.number} belongs to a different vendor`);
+    }
+    const appP = toPaise(app.amount);
+    if (appP <= 0) throw new PostingError("Application amounts must be positive");
+    if (appP > toPaise(bill.balanceDue)) {
+      throw new PostingError(`Amount exceeds balance due on ${bill.number}`);
+    }
+    appliedP += appP;
+  }
+  if (appliedP > amountP) throw new PostingError("Applied total exceeds the payment amount");
+
+  for (const app of applications) {
+    await tx.insert(vendorPaymentApplications).values({
+      paymentId: payment.id,
+      billId: app.billId,
+      amountApplied: app.amount,
+    });
+    const bill = (await tx.query.bills.findFirst({ where: eq(bills.id, app.billId) }))!;
+    const newBalanceP = toPaise(bill.balanceDue) - toPaise(app.amount);
+    await tx
+      .update(bills)
+      .set({
+        balanceDue: fromPaise(newBalanceP),
+        status: newBalanceP === 0 ? "paid" : "partially_paid",
+        updatedAt: new Date(),
+      })
+      .where(eq(bills.id, bill.id));
+  }
+
+  if (payment.journalEntryId) {
+    await reverseJournal(tx, payment.journalEntryId, paymentDate, userId);
+  }
+  const jeLines: Array<{ accountId?: string; systemKey?: string; debit?: string; credit?: string; description?: string }> = [
+    { systemKey: "ap", debit: amount, description: `Payment ${payment.number}` },
+    { accountId: bank.glAccountId, credit: fromPaise(amountP - tdsP) },
+  ];
+  if (tdsP > 0) jeLines.push({ systemKey: "tds_payable", credit: fromPaise(tdsP) });
+
+  const jeId = await postJournal(tx, {
+    entryDate: paymentDate,
+    narration: `Payment ${payment.number} — ${vendor.displayName}`,
+    reference: body.reference ?? payment.reference ?? undefined,
+    sourceType: "vendor_payment",
+    sourceId: payment.id,
+    postedBy: userId,
+    lines: jeLines,
+  });
+  await carryLinks(tx, payment.journalEntryId, jeId, payment.number);
+
+  const [updated] = await tx
+    .update(vendorPayments)
+    .set({
+      vendorId: vendor.id,
+      paymentDate,
+      amount,
+      unappliedAmount: fromPaise(amountP - appliedP),
+      tdsAmount: fromPaise(tdsP),
+      mode: body.mode ?? payment.mode,
+      reference: body.reference ?? payment.reference,
+      bankAccountId: bank.id,
+      notes: body.notes ?? payment.notes,
+      journalEntryId: jeId,
+    })
+    .where(eq(vendorPayments.id, payment.id))
+    .returning();
+  // Applications made after the receipt kept their own entries; the
+  // re-posted journal above restates only the receipt, so post the rest.
+  await settlePayment(tx, before, {
+    on: paymentDate,
+    userId: userId,
+    narration: `Payment ${payment.number} edited: earlier applications carried`,
+  });
+  return updated!;
+}
 
 // ============================ Vendor Credits ============================
 
@@ -2497,17 +2513,18 @@ purchasesRouter.get("/payables", requirePermission("purchases", "view"), async (
  */
 purchasesRouter.delete("/payments/:id", requirePermission("purchases", "delete"), async (req, res) => {
   try {
-    const out = await db.transaction((tx) => deleteVendorPayment(tx, req.params.id!));
+    const out = await db.transaction((tx) => deleteVendorPayment(tx, req.params.id!, req.session.user!.id));
     res.json(out);
   } catch (err) {
     if (!handlePostingError(err, res)) throw err;
   }
 });
 
-export async function deleteVendorPayment(tx: Tx, paymentId: string) {
+export async function deleteVendorPayment(tx: Tx, paymentId: string, userId: string) {
   const payment = await tx.query.vendorPayments.findFirst({ where: eq(vendorPayments.id, paymentId) });
   if (!payment) throw new PostingError("Payment not found");
   await assertPeriodOpen(tx, payment.paymentDate, "vendor_payment");
+  const before = await positionOf(tx, "vendor", payment.id);
 
   const entries = await tx
     .select({ id: journalEntries.id, isReversal: journalEntries.isReversal })
@@ -2554,6 +2571,13 @@ export async function deleteVendorPayment(tx: Tx, paymentId: string) {
   await tx
     .delete(attachments)
     .where(and(eq(attachments.entityType, "vendor_payment"), eq(attachments.entityId, payment.id)));
+  // What later applications moved under their own entries goes back with it.
+  await settlePayment(tx, before, {
+    on: istDate(),
+    userId,
+    narration: `Payment ${payment.number} deleted: earlier applications handed back`,
+    gone: true,
+  });
   return { number: payment.number, billsReopened: reopened };
 }
 

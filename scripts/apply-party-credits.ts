@@ -24,7 +24,8 @@
  *   npx tsx scripts/apply-party-credits.ts --side customer
  *   npx tsx scripts/apply-party-credits.ts --side vendor --apply
  */
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import { users } from "@shared/schema";
 import { db } from "../server/db";
 import { applyCreditPlan, creditPlanFor } from "../server/services/apply-credits";
 
@@ -97,7 +98,8 @@ for (const c of candidates) {
 
   if (APPLY) {
     try {
-      const out = await db.transaction((tx) => applyCreditPlan(tx, SIDE, plan.plan));
+      const admin = await adminId();
+      const out = await db.transaction((tx) => applyCreditPlan(tx, SIDE, plan.plan, admin));
       console.log(`    applied ${money(out.applied)} across ${out.documents} ${DOC}(s)`);
       totalApplied += Number(out.applied);
       done++;
@@ -122,3 +124,10 @@ if (!APPLY) {
 }
 
 process.exit(0);
+
+/** Who the advance entries are posted by. */
+async function adminId(): Promise<string> {
+  const [admin] = await db.select({ id: users.id }).from(users).where(eq(users.username, "admin")).limit(1);
+  if (!admin) throw new Error("No admin user to post as");
+  return admin.id;
+}

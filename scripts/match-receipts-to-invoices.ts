@@ -26,7 +26,7 @@
  * tidy-up — it is a decision that has not been taken yet.
  */
 import { and, asc, eq, gt, ne, sql } from "drizzle-orm";
-import { contacts, customerPayments, invoices } from "@shared/schema";
+import { contacts, customerPayments, invoices, users } from "@shared/schema";
 import { applyCredits } from "../server/services/apply-credits";
 import { db, pool } from "../server/db";
 
@@ -125,13 +125,15 @@ async function main() {
     return;
   }
 
+  const [admin] = await db.select({ id: users.id }).from(users).where(eq(users.username, "admin")).limit(1);
+  if (!admin) throw new Error("No admin user to post as");
   let done = 0;
   for (const p of plan) {
     // One transaction per invoice: a customer whose allocation is refused does
     // not take the other two hundred down with it.
     try {
       await db.transaction(async (tx) => {
-        await applyCredits(tx, "customer", p.invoiceId, p.apps);
+        await applyCredits(tx, "customer", p.invoiceId, p.apps, admin.id);
       });
       done++;
     } catch (e) {

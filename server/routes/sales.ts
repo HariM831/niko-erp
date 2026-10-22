@@ -34,6 +34,8 @@ import {
   type Application,
   type PlannedApplication,
 } from "../services/apply-credits";
+import { positionOf, settlePayment } from "../services/payment-ledger";
+import { istDate } from "../services/day-resolution";
 import {
   applyDefaultSalesAccounts,
   computeDocumentTotals,
@@ -622,7 +624,7 @@ salesRouter.post(
     const body = req.body as { applications: Application[] };
     try {
       const result = await db.transaction(async (tx) =>
-        applyCredits(tx, "customer", req.params.id!, body.applications),
+        applyCredits(tx, "customer", req.params.id!, body.applications, req.session.user!.id),
       );
       res.json(result);
     } catch (err) {
@@ -674,7 +676,7 @@ salesRouter.post(
   async (req, res) => {
     const body = req.body as { plan: PlannedApplication[] };
     try {
-      res.json(await db.transaction((tx) => applyCreditPlan(tx, "customer", body.plan)));
+      res.json(await db.transaction((tx) => applyCreditPlan(tx, "customer", body.plan, req.session.user!.id)));
     } catch (err) {
       if (err instanceof PostingError) return res.status(422).json({ error: err.message });
       throw err;
@@ -998,124 +1000,7 @@ salesRouter.patch(
   async (req, res) => {
     const body = req.body as Partial<z.infer<typeof paymentSchema>>;
     try {
-      const result = await db.transaction(async (tx) => {
-        const payment = await tx.query.customerPayments.findFirst({
-          where: eq(customerPayments.id, req.params.id!),
-        });
-        if (!payment) throw new PostingError("Payment not found");
-
-        // Undo the old allocation so invoices are back to pre-payment balances.
-        const oldApps = await tx
-          .select()
-          .from(paymentApplications)
-          .where(eq(paymentApplications.paymentId, payment.id));
-        for (const app of oldApps) {
-          const inv = await tx.query.invoices.findFirst({ where: eq(invoices.id, app.invoiceId) });
-          if (!inv) continue;
-          const restoredP = toPaise(inv.balanceDue) + toPaise(app.amountApplied);
-          await tx
-            .update(invoices)
-            .set({
-              balanceDue: fromPaise(restoredP),
-              status: restoredP === toPaise(inv.total) ? "sent" : "partially_paid",
-              updatedAt: new Date(),
-            })
-            .where(eq(invoices.id, inv.id));
-        }
-        await tx.delete(paymentApplications).where(eq(paymentApplications.paymentId, payment.id));
-
-        const customer = await loadCustomer(tx, body.customerId ?? payment.customerId);
-        const paymentDate = body.paymentDate ?? payment.paymentDate;
-        const amount = body.amount ?? payment.amount;
-        const amountP = toPaise(amount);
-        if (amountP <= 0) throw new PostingError("Payment amount must be positive");
-
-        const [bank] = await tx
-          .select()
-          .from(bankAccounts)
-          .where(eq(bankAccounts.id, body.bankAccountId ?? payment.bankAccountId!))
-          .limit(1);
-        if (!bank) throw new PostingError("Bank account not found");
-
-        const applications =
-          body.applications ??
-          oldApps.map((a) => ({ invoiceId: a.invoiceId, amount: a.amountApplied }));
-
-        let appliedP = 0;
-        for (const app of applications) {
-          const inv = await tx.query.invoices.findFirst({ where: eq(invoices.id, app.invoiceId) });
-          if (!inv) throw new PostingError(`Invoice not found: ${app.invoiceId}`);
-          if (inv.customerId !== customer.id) {
-            throw new PostingError(`Invoice ${inv.number} belongs to a different customer`);
-          }
-          const appP = toPaise(app.amount);
-          if (appP <= 0) throw new PostingError("Application amounts must be positive");
-          if (appP > toPaise(inv.balanceDue)) {
-            throw new PostingError(
-              `Applying ${app.amount} exceeds balance due ${inv.balanceDue} on ${inv.number}`,
-            );
-          }
-          appliedP += appP;
-        }
-        if (appliedP > amountP) throw new PostingError("Applied total exceeds the payment amount");
-        const unappliedP = amountP - appliedP;
-
-        for (const app of applications) {
-          await tx.insert(paymentApplications).values({
-            paymentId: payment.id,
-            invoiceId: app.invoiceId,
-            amountApplied: app.amount,
-          });
-          const inv = (await tx.query.invoices.findFirst({ where: eq(invoices.id, app.invoiceId) }))!;
-          const newBalanceP = toPaise(inv.balanceDue) - toPaise(app.amount);
-          await tx
-            .update(invoices)
-            .set({
-              balanceDue: fromPaise(newBalanceP),
-              status: newBalanceP === 0 ? "paid" : "partially_paid",
-              updatedAt: new Date(),
-            })
-            .where(eq(invoices.id, inv.id));
-        }
-
-        if (payment.journalEntryId) {
-          await reverseJournal(tx, payment.journalEntryId, paymentDate, req.session.user!.id);
-        }
-        const jeLines = [
-          { accountId: bank.glAccountId, debit: amount, description: `Payment ${payment.number}` },
-        ];
-        if (appliedP > 0) jeLines.push({ systemKey: "ar", credit: fromPaise(appliedP) } as never);
-        if (unappliedP > 0) {
-          jeLines.push({ systemKey: "customer_advances", credit: fromPaise(unappliedP) } as never);
-        }
-        const jeId = await postJournal(tx, {
-          entryDate: paymentDate,
-          narration: `Payment ${payment.number} — ${customer.displayName}`,
-          reference: body.reference ?? payment.reference ?? undefined,
-          sourceType: "customer_payment",
-          sourceId: payment.id,
-          postedBy: req.session.user!.id,
-          lines: jeLines,
-        });
-        await carryLinks(tx, payment.journalEntryId, jeId, payment.number);
-
-        const [updated] = await tx
-          .update(customerPayments)
-          .set({
-            customerId: customer.id,
-            paymentDate,
-            amount,
-            unappliedAmount: fromPaise(unappliedP),
-            mode: body.mode ?? payment.mode,
-            reference: body.reference ?? payment.reference,
-            bankAccountId: bank.id,
-            notes: body.notes ?? payment.notes,
-            journalEntryId: jeId,
-          })
-          .where(eq(customerPayments.id, payment.id))
-          .returning();
-        return updated!;
-      });
+      const result = await db.transaction((tx) => editCustomerPayment(tx, req.params.id!, body, req.session.user!.id));
       res.json(result);
     } catch (err) {
       if (err instanceof PostingError) return res.status(422).json({ error: err.message });
@@ -1123,6 +1008,138 @@ salesRouter.patch(
     }
   },
 );
+
+export async function editCustomerPayment(
+  tx: Tx,
+  paymentId: string,
+  body: Partial<z.infer<typeof paymentSchema>>,
+  userId: string,
+) {
+  const payment = await tx.query.customerPayments.findFirst({
+    where: eq(customerPayments.id, paymentId),
+  });
+  if (!payment) throw new PostingError("Payment not found");
+  const before = await positionOf(tx, "customer", payment.id);
+
+  // Undo the old allocation so invoices are back to pre-payment balances.
+  const oldApps = await tx
+    .select()
+    .from(paymentApplications)
+    .where(eq(paymentApplications.paymentId, payment.id));
+  for (const app of oldApps) {
+    const inv = await tx.query.invoices.findFirst({ where: eq(invoices.id, app.invoiceId) });
+    if (!inv) continue;
+    const restoredP = toPaise(inv.balanceDue) + toPaise(app.amountApplied);
+    await tx
+      .update(invoices)
+      .set({
+        balanceDue: fromPaise(restoredP),
+        status: restoredP === toPaise(inv.total) ? "sent" : "partially_paid",
+        updatedAt: new Date(),
+      })
+      .where(eq(invoices.id, inv.id));
+  }
+  await tx.delete(paymentApplications).where(eq(paymentApplications.paymentId, payment.id));
+
+  const customer = await loadCustomer(tx, body.customerId ?? payment.customerId);
+  const paymentDate = body.paymentDate ?? payment.paymentDate;
+  const amount = body.amount ?? payment.amount;
+  const amountP = toPaise(amount);
+  if (amountP <= 0) throw new PostingError("Payment amount must be positive");
+
+  const [bank] = await tx
+    .select()
+    .from(bankAccounts)
+    .where(eq(bankAccounts.id, body.bankAccountId ?? payment.bankAccountId!))
+    .limit(1);
+  if (!bank) throw new PostingError("Bank account not found");
+
+  const applications =
+    body.applications ??
+    oldApps.map((a) => ({ invoiceId: a.invoiceId, amount: a.amountApplied }));
+
+  let appliedP = 0;
+  for (const app of applications) {
+    const inv = await tx.query.invoices.findFirst({ where: eq(invoices.id, app.invoiceId) });
+    if (!inv) throw new PostingError(`Invoice not found: ${app.invoiceId}`);
+    if (inv.customerId !== customer.id) {
+      throw new PostingError(`Invoice ${inv.number} belongs to a different customer`);
+    }
+    const appP = toPaise(app.amount);
+    if (appP <= 0) throw new PostingError("Application amounts must be positive");
+    if (appP > toPaise(inv.balanceDue)) {
+      throw new PostingError(
+        `Applying ${app.amount} exceeds balance due ${inv.balanceDue} on ${inv.number}`,
+      );
+    }
+    appliedP += appP;
+  }
+  if (appliedP > amountP) throw new PostingError("Applied total exceeds the payment amount");
+  const unappliedP = amountP - appliedP;
+
+  for (const app of applications) {
+    await tx.insert(paymentApplications).values({
+      paymentId: payment.id,
+      invoiceId: app.invoiceId,
+      amountApplied: app.amount,
+    });
+    const inv = (await tx.query.invoices.findFirst({ where: eq(invoices.id, app.invoiceId) }))!;
+    const newBalanceP = toPaise(inv.balanceDue) - toPaise(app.amount);
+    await tx
+      .update(invoices)
+      .set({
+        balanceDue: fromPaise(newBalanceP),
+        status: newBalanceP === 0 ? "paid" : "partially_paid",
+        updatedAt: new Date(),
+      })
+      .where(eq(invoices.id, inv.id));
+  }
+
+  if (payment.journalEntryId) {
+    await reverseJournal(tx, payment.journalEntryId, paymentDate, userId);
+  }
+  const jeLines = [
+    { accountId: bank.glAccountId, debit: amount, description: `Payment ${payment.number}` },
+  ];
+  if (appliedP > 0) jeLines.push({ systemKey: "ar", credit: fromPaise(appliedP) } as never);
+  if (unappliedP > 0) {
+    jeLines.push({ systemKey: "customer_advances", credit: fromPaise(unappliedP) } as never);
+  }
+  const jeId = await postJournal(tx, {
+    entryDate: paymentDate,
+    narration: `Payment ${payment.number} — ${customer.displayName}`,
+    reference: body.reference ?? payment.reference ?? undefined,
+    sourceType: "customer_payment",
+    sourceId: payment.id,
+    postedBy: userId,
+    lines: jeLines,
+  });
+  await carryLinks(tx, payment.journalEntryId, jeId, payment.number);
+
+  const [updated] = await tx
+    .update(customerPayments)
+    .set({
+      customerId: customer.id,
+      paymentDate,
+      amount,
+      unappliedAmount: fromPaise(unappliedP),
+      mode: body.mode ?? payment.mode,
+      reference: body.reference ?? payment.reference,
+      bankAccountId: bank.id,
+      notes: body.notes ?? payment.notes,
+      journalEntryId: jeId,
+    })
+    .where(eq(customerPayments.id, payment.id))
+    .returning();
+  // Applications made after the receipt kept their own entries; the
+  // re-posted journal above restates only the receipt, so post the rest.
+  await settlePayment(tx, before, {
+    on: paymentDate,
+    userId: userId,
+    narration: `Payment ${payment.number} edited: earlier applications carried`,
+  });
+  return updated!;
+}
 
 /**
  * Delete a payment received, as Zoho's Delete does: the payment is gone and
@@ -1141,7 +1158,7 @@ salesRouter.patch(
  */
 salesRouter.delete("/payments/:id", requirePermission("sales", "delete"), async (req, res) => {
   try {
-    const out = await db.transaction((tx) => deleteCustomerPayment(tx, req.params.id!));
+    const out = await db.transaction((tx) => deleteCustomerPayment(tx, req.params.id!, req.session.user!.id));
     res.json(out);
   } catch (err) {
     if (err instanceof PostingError) return res.status(422).json({ error: err.message });
@@ -1149,10 +1166,11 @@ salesRouter.delete("/payments/:id", requirePermission("sales", "delete"), async 
   }
 });
 
-export async function deleteCustomerPayment(tx: Tx, paymentId: string) {
+export async function deleteCustomerPayment(tx: Tx, paymentId: string, userId: string) {
   const payment = await tx.query.customerPayments.findFirst({ where: eq(customerPayments.id, paymentId) });
   if (!payment) throw new PostingError("Payment not found");
   await assertPeriodOpen(tx, payment.paymentDate, "customer_payment");
+  const before = await positionOf(tx, "customer", payment.id);
 
   const entries = await tx
     .select({ id: journalEntries.id, isReversal: journalEntries.isReversal })
@@ -1196,6 +1214,13 @@ export async function deleteCustomerPayment(tx: Tx, paymentId: string) {
   await tx
     .delete(attachments)
     .where(and(eq(attachments.entityType, "customer_payment"), eq(attachments.entityId, payment.id)));
+  // What later applications moved under their own entries goes back with it.
+  await settlePayment(tx, before, {
+    on: istDate(),
+    userId,
+    narration: `Payment ${payment.number} deleted: earlier applications handed back`,
+    gone: true,
+  });
 
   return { number: payment.number, invoicesReopened: reopened };
 }
