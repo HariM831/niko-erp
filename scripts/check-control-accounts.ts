@@ -73,11 +73,14 @@ async function main() {
   const [bill] = (
     await db.execute(sql`
       SELECT (SELECT coalesce(sum(balance_due), 0) FROM bills WHERE status NOT IN ('void', 'draft'))::float8 AS open,
+             -- A vendor credit debits payables in full when raised, so what it has
+             -- not yet put against a bill still sits there as a debit.
+             (SELECT coalesce(sum(balance), 0) FROM vendor_credits WHERE status = 'open')::float8 AS credits,
              (SELECT coalesce(sum(unapplied_amount), 0) FROM vendor_payments WHERE advances_in_ledger)::float8 AS imported,
              (SELECT coalesce(sum(unapplied_amount), 0) FROM vendor_payments WHERE NOT advances_in_ledger)::float8 AS own
     `)
-  ).rows as Array<{ open: number; imported: number; own: number }>;
-  checks.push({ what: "open bills less old advances", key: "ap", docs: bill!.open - bill!.own, sign: -1 });
+  ).rows as Array<{ open: number; credits: number; imported: number; own: number }>;
+  checks.push({ what: "open bills less credits", key: "ap", docs: bill!.open - bill!.credits - bill!.own, sign: -1 });
   checks.push({ what: "advances held as advances", key: "vendor_advances", docs: bill!.imported, sign: 1 });
 
   for (const c of checks) {
