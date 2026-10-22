@@ -92,7 +92,11 @@ async function main() {
                                 round(pa.amount_applied::numeric)::text, ', ' ORDER BY p.payment_date)
                 FROM payment_applications pa JOIN customer_payments p ON p.id = pa.payment_id
                WHERE pa.invoice_id = i.id)`
-             } AS receipts
+             } AS receipts,
+             -- A bill the vendor numbered himself. Two of ours carrying one
+             -- of his is the only proof of a duplicate that does not depend
+             -- on a judgement about dates and amounts.
+             ${BILLS ? sql`i.vendor_bill_number` : sql`NULL`} AS their_number
         FROM ${BILLS ? sql`bills` : sql`invoices`} i
         JOIN contacts c ON c.id = i.${BILLS ? sql`vendor_id` : sql`customer_id`}
        WHERE i.status NOT IN ('void', 'draft')
@@ -121,10 +125,13 @@ async function main() {
          */
         both: books,
         why: [
+          a.their_number && a.their_number === b.their_number
+            ? `BOTH CARRY THE VENDOR'S BILL ${a.their_number}`
+            : "",
           sameParty ? "same customer" : `two records for one party — ${a.cust} / ${b.cust}`,
           books ? "one from Zoho, one raised here" : a.zoho ? "both from Zoho" : "both raised here",
           apart ? `${apart} day apart` : "same day",
-        ].join("; "),
+        ].filter(Boolean).join("; "),
       });
     }
   }
@@ -141,7 +148,7 @@ async function main() {
         console.log(
           `      ${r.number.padEnd(20)}${r.date}  ${r.cust.slice(0, 22).padEnd(23)}${money(r.total).padStart(12)}` +
             `  ${r.status.padEnd(15)}${(r.zoho ? "from Zoho" : "raised here").padEnd(13)}` +
-            `${r.dispatches ? `${r.dispatches} dispatch` : "no dispatch"}`,
+            `${BILLS ? (r.their_number ?? "no vendor number") : r.dispatches ? `${r.dispatches} dispatch` : "no dispatch"}`,
         );
         console.log(`        ${r.receipts ?? "(nothing applied)"}`);
       }
