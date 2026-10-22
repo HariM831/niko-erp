@@ -270,7 +270,9 @@ async function main() {
         (await moved(tx, "vendor_advances", ahead.id)) === 50, String(await moved(tx, "vendor_advances", ahead.id)));
       await refuses("the payment cannot be deleted under a refund", () => deleteVendorPayment(tx, ahead.id, actor.id), "has refunds");
       await refuses("nor edited to apply refunded money", () =>
-        editVendorPayment(tx, ahead.id, { applications: [{ billId: main.id, amount: "200.00" }] }, actor.id), "after 150.00 refunded");
+        // In its own savepoint, as a refused request rolls back whole in the app.
+        tx.transaction((sp) => editVendorPayment(sp, ahead.id, { applications: [{ billId: main.id, amount: "200.00" }] }, actor.id)),
+        "after 150.00 refunded");
       await editVendorPayment(tx, ahead.id, { notes: "edited" }, actor.id);
       const edited = (await tx.select().from(vendorPayments).where(eq(vendorPayments.id, ahead.id)))[0]!;
       check("an edit keeps the refund off", edited.unappliedAmount === "50.00" && (await moved(tx, "vendor_advances", ahead.id)) === 50,
