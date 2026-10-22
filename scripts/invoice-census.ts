@@ -80,6 +80,56 @@ async function main() {
     console.log(`    ${r.series.padEnd(8)}${`${r.origin} (${r.status})`.padEnd(22)}${String(r.n).padStart(7)}${money(r.value).padStart(16)}`);
   }
 
+  /**
+   * Everything that is not Zoho's, named. If Zoho is to be the only source
+   * these are the rows that go, and what is applied to them is what has to be
+   * dealt with first.
+   */
+  const outsiders = (
+    await db.execute(sql`
+      SELECT i.number, i.invoice_date::text AS date, c.display_name AS party,
+             i.total::float8 AS total, i.status::text,
+             CASE WHEN u.username = 'replit' THEN 'Amino' ELSE 'niko' END AS origin,
+             coalesce((SELECT sum(amount_applied) FROM payment_applications WHERE invoice_id = i.id), 0)::float8 AS applied,
+             (SELECT count(*)::int FROM egg_dispatches d WHERE d.invoice_id = i.id AND d.status <> 'void') AS dispatches
+        FROM invoices i
+        JOIN contacts c ON c.id = i.customer_id
+        LEFT JOIN users u ON u.id = i.created_by
+       WHERE i.status NOT IN ('void', 'draft')
+         AND NOT EXISTS (SELECT 1 FROM zoho_id_map z WHERE z.entity = 'invoice' AND z.eggsy_id = i.id)
+       ORDER BY i.invoice_date
+    `)
+  ).rows as Array<{ number: string; date: string; party: string; total: number; status: string;
+                    origin: string; applied: number; dispatches: number }>;
+  console.log(`
+  not Zoho's — ${outsiders.length}, Rs ${money(outsiders.reduce((s, r) => s + r.total, 0))}:`);
+  for (const o of outsiders) {
+    console.log(
+      `    ${o.number.padEnd(20)}${o.date}  ${o.party.slice(0, 24).padEnd(25)}${money(o.total).padStart(12)}` +
+        `  ${o.origin.padEnd(6)}${o.applied ? `applied ${money(o.applied)}` : "nothing applied"}` +
+        `${o.dispatches ? `, ${o.dispatches} dispatch` : ""}`,
+    );
+  }
+
+  /** A Zoho invoice whose only counterpart here is void is a sale now missing. */
+  const voided = (
+    await db.execute(sql`
+      SELECT i.number, i.invoice_date::text AS date, c.display_name AS party,
+             i.total::float8 AS total, z.label AS zoho
+        FROM invoices i
+        JOIN zoho_id_map z ON z.entity = 'invoice' AND z.eggsy_id = i.id
+        JOIN contacts c ON c.id = i.customer_id
+       WHERE i.status = 'void'
+    `)
+  ).rows as Array<{ number: string; date: string; party: string; total: number; zoho: string | null }>;
+  if (voided.length) {
+    console.log(`
+  Zoho invoices whose niko copy is void — the sale is only here as a non-Zoho row:`);
+    for (const v of voided) {
+      console.log(`    ${v.number.padEnd(20)}${v.date}  ${v.party.slice(0, 24).padEnd(25)}${money(v.total).padStart(12)}   zoho ${v.zoho ?? "?"}`);
+    }
+  }
+
   if (!DIR) {
     console.log(`\n  Pass --dump <dir> to count Zoho's side beside it.\n`);
     await pool.end();
