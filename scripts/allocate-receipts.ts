@@ -201,6 +201,12 @@ async function main() {
     const owes = pool_.reduce((s, i) => s + i.openP, 0);
     const holds = free.reduce((s, r) => s + (r.amountP - r.wasP), 0);
     const square = owes > 0 && Math.abs(owes - holds) <= 100;
+    if (NET_ZERO && UNPLACED) {
+      console.log(
+        `    ${cust.name.slice(0, 28).padEnd(29)}open ${money(owes).padStart(13)}` +
+          `   holding ${money(holds).padStart(13)}   ${square ? "SQUARE" : `apart ${money(owes - holds)}`}`,
+      );
+    }
     if (NET_ZERO && !square) continue;
 
     const take = (r: Rec, inv: Inv, p: number) => {
