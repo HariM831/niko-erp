@@ -193,6 +193,16 @@ async function main() {
     before.owedP += pool_.reduce((s, i) => s + i.openP, 0);
     before.advanceP += free.reduce((s, r) => s + (r.amountP - r.wasP), 0);
 
+    /**
+     * Holding exactly what is owed, to the rupee — measured here, before a
+     * single rupee is placed, because a pass that half-settles an account
+     * would otherwise make it look square and finish the job.
+     */
+    const owes = pool_.reduce((s, i) => s + i.openP, 0);
+    const holds = free.reduce((s, r) => s + (r.amountP - r.wasP), 0);
+    const square = owes > 0 && Math.abs(owes - holds) <= 100;
+    if (NET_ZERO && !square) continue;
+
     const take = (r: Rec, inv: Inv, p: number) => {
       if (p <= 0) return 0;
       r.now.push({ invoiceId: inv.id, p });
@@ -212,17 +222,8 @@ async function main() {
         take(r, inv, Math.min(inv.openP, left(r)));
       }
     }
-    /**
-     * Holding exactly what is owed, to the rupee. Measured before anything is
-     * placed, so a pass that half-settles the account cannot turn it into one.
-     */
-    const owes = pool_.reduce((s, i) => s + i.openP, 0);
-    const holds = free.reduce((s, r) => s + (r.amountP - r.wasP), 0);
-    const square = NET_ZERO && owes > 0 && Math.abs(owes - holds) <= 100;
-    if (NET_ZERO && !square) { free.length = 0; }
-
     // Then, only if asked, whatever the customer still owes, oldest first.
-    if (SETTLE_OLDER || square) {
+    if (SETTLE_OLDER || (NET_ZERO && square)) {
       for (const r of free) {
         for (const inv of pool_) {
           if (left(r) <= 0) break;
