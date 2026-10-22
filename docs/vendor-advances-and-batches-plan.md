@@ -1,9 +1,9 @@
 # Vendor Sheet: advances, and Sent to bank by batch
 
 Planned and built 22 Oct 2026; on staging (5dff4ea), not on production.
-`scripts/check-vendor-advances.ts` passes there, rolled back. Still to do on
-staging: `scripts/move-vendor-advances.ts --commit` (dry run: 23 payments,
-Rs 71,21,378), waiting on the user.
+`scripts/check-vendor-advances.ts` passes there, rolled back. On staging the
+same day, `scripts/move-vendor-advances.ts --commit` moved 23 payments,
+Rs 71,21,378, from payables to Vendor Advances.
 
 ## What was decided
 
