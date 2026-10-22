@@ -265,7 +265,7 @@ async function main() {
       console.log("Imported vendor payment");
       const [v3] = await tx
         .insert(vendorPayments)
-        .values({ number: `${tag}-V3`, vendorId: vendor!.id, paymentDate: day, amount: "500.00", unappliedAmount: "500.00", bankAccountId: bank!.id, createdBy: actor.id })
+        .values({ number: `${tag}-V3`, vendorId: vendor!.id, paymentDate: day, amount: "500.00", unappliedAmount: "500.00", bankAccountId: bank!.id, advancesInLedger: true, createdBy: actor.id })
         .returning();
       await tx.insert(zohoIdMap).values({ entity: "vendor_payment", zohoId: `${tag}-zoho3`, eggsyId: v3!.id });
       const v3je = await postJournal(tx, {
