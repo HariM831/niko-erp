@@ -114,7 +114,7 @@ async function main() {
   ).rows as Array<{ id: string }>;
   if (!user) throw new Error("the zoho user is missing; the catch-up is recorded as that user");
 
-  for (const r of drop) {
+  for (const r of doing) {
     await db.transaction(async (tx) => {
       // The receipts go back to being the customer's money, and receivables
       // gives up what it was told those invoices had settled.
@@ -193,7 +193,12 @@ async function main() {
       console.log(`    restored ${r.number}`);
     });
   }
-  console.log(`\n  Removed ${drop.length}, restored ${restore.length}.\n`);
+  console.log(
+    `
+  Removed ${doing.length}, restored ${restore.length}` +
+      `${blocked.length ? `, left ${blocked.length} on a locked day` : ""}.
+`,
+  );
   await pool.end();
 }
 
