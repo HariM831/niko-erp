@@ -175,7 +175,8 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
     setFreightVendorId((existing.freightVendorId as string) ?? "");
     setFreightAccountId((existing.freightAccountId as string) ?? "");
     setDeliveryDate((existing.expectedDeliveryDate as string) ?? "");
-    setNotes((existing.customerNotes as string) ?? "");
+    // Sales documents keep their notes as customerNotes, purchase ones as notes.
+    setNotes(((existing.customerNotes ?? existing.notes) as string) ?? "");
     setTds({
       amount:
         existing.tdsAmount && Number(existing.tdsAmount) !== 0
@@ -486,7 +487,9 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
         customFields,
         ...config.extraBody,
       };
-      if (notes) body.customerNotes = notes;
+      // Purchase endpoints take `notes`; sent as customerNotes they were
+      // stripped by validation and the PO/bill came out with none.
+      if (notes) body[config.contactType === "vendor" ? "notes" : "customerNotes"] = notes;
       if (Number(tds.amount || 0) !== 0) {
         body.tdsAmount = Number(tds.amount).toFixed(2);
         if (tds.section) body.tdsSection = tds.section;
