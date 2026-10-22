@@ -2048,6 +2048,9 @@ purchasesRouter.patch(
         const jeId = await postJournal(tx, {
           entryDate: expenseDate,
           narration: `Expense ${expense.number}`,
+          // The bank's All Transactions reads its Reference# off the journal,
+          // so without this an expense showed "—" there (22 Oct 2026).
+          reference: (body.reference ?? expense.reference)?.trim() || undefined,
           sourceType: "expense",
           sourceId: expense.id,
           postedBy: req.session.user!.id,
@@ -2172,6 +2175,7 @@ purchasesRouter.post(
         const jeId = await postJournal(tx, {
           entryDate: body.expenseDate,
           narration: `Expense ${number}`,
+          reference: body.reference?.trim() || undefined,
           sourceType: "expense",
           sourceId: expense!.id,
           postedBy: req.session.user!.id,
@@ -2411,6 +2415,7 @@ export async function repostExpense(tx: Tx, id: string, userId: string): Promise
   const jeId = await postJournal(tx, {
     entryDate: expense.expenseDate,
     narration: `Expense ${expense.number}`,
+    reference: expense.reference?.trim() || undefined,
     sourceType: "expense",
     sourceId: id,
     postedBy: userId,
