@@ -55,13 +55,21 @@ async function main() {
   const dispatches = (
     await db.execute(sql`
       SELECT d.id::text, d.dispatch_date::text AS date, d.status::text,
-             d.created_at::text AS created, u.name AS by
-        FROM egg_dispatches d LEFT JOIN users u ON u.id = d.created_by
+             d.created_at::text AS created, u.name AS by,
+             d.driver_name, d.vehicle_number
+        FROM egg_dispatches d LEFT JOIN users u ON u.id = d.loaded_by
        WHERE d.invoice_id = ${inv.id}::uuid
     `)
-  ).rows as Array<{ id: string; date: string; status: string; created: string; by: string | null }>;
+  ).rows as Array<{ id: string; date: string; status: string; created: string; by: string | null;
+                    driver_name: string | null; vehicle_number: string | null }>;
   console.log(
-    `    ${dispatches.length ? dispatches.map((d) => `dispatch ${d.date} (${d.status}), entered ${d.created.slice(0, 16)} by ${d.by ?? "?"}`).join("; ") : "no dispatch behind it"}`,
+    `    ${
+      dispatches.length
+        ? dispatches
+            .map((d) => `dispatch ${d.date} (${d.status}), ${d.vehicle_number ?? "?"} / ${d.driver_name ?? "?"}, loaded by ${d.by ?? "?"} on ${d.created.slice(0, 16)}`)
+            .join("; ")
+        : "no dispatch behind it"
+    }`,
   );
 
   const apps = (
