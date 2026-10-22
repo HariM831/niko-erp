@@ -218,7 +218,12 @@ async function main() {
     }
   }
 
+  const leftOpen = perCust.flatMap((c) => c.openInvs);
   console.log(`  ${owners.length} customer(s) with a receipt of their own or money sitting loose`);
+  console.log(
+    `    invoices left unpaid ${String(leftOpen.length).padStart(5)}      Rs ${money(leftOpen.reduce((s, i) => s + i.openP, 0))}` +
+      `   (the rule settles a sale dated the receipt's day or the next)`,
+  );
   console.log(`    owed before .... Rs ${money(before.owedP).padStart(12)}      advances before  Rs ${money(before.advanceP)}`);
   console.log(`    owed after ..... Rs ${money(after.owedP).padStart(12)}      advances after   Rs ${money(after.advanceP)}`);
   console.log(`    ${touched} receipt(s) re-placed into ${moves} application(s), Rs ${money(movedRupees)}\n`);
