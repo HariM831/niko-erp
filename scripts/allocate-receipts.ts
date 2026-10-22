@@ -73,6 +73,17 @@ const UNPLACED = process.argv.includes("--unplaced");
  * keyed here, which Zoho never saw, are placed by the rule.
  */
 const PLACE_ADVANCES = process.argv.includes("--place-advances");
+/**
+ * Settle the customers who are holding exactly what they owe.
+ *
+ * When a customer's open invoices come to the same figure as the money of
+ * theirs we are sitting on, the two are the same thing seen twice: Zoho put
+ * the receipt against a later sale, or none at all, and the dates no longer
+ * line up. Nothing is being decided here that the arithmetic has not already
+ * decided — the account closes at zero either way — so for these the window
+ * is set aside and the money goes against the oldest invoice first.
+ */
+const NET_ZERO = process.argv.includes("--net-zero");
 
 const P = (n: string | number) => Math.round(Number(n) * 100);
 const R = (p: number) => (p / 100).toFixed(2);
@@ -160,7 +171,7 @@ async function main() {
          ORDER BY p.payment_date, p.number
       `)
     ).rows as Array<{ id: string; number: string; date: string; spare: string }>;
-    if (!PLACE_ADVANCES) loose.length = 0;
+    if (!PLACE_ADVANCES && !NET_ZERO) loose.length = 0;
     if (!recs.length && !loose.length) continue;
 
     const pool_: Inv[] = invs.map((i) => {
@@ -201,8 +212,17 @@ async function main() {
         take(r, inv, Math.min(inv.openP, left(r)));
       }
     }
+    /**
+     * Holding exactly what is owed, to the rupee. Measured before anything is
+     * placed, so a pass that half-settles the account cannot turn it into one.
+     */
+    const owes = pool_.reduce((s, i) => s + i.openP, 0);
+    const holds = free.reduce((s, r) => s + (r.amountP - r.wasP), 0);
+    const square = NET_ZERO && owes > 0 && Math.abs(owes - holds) <= 100;
+    if (NET_ZERO && !square) { free.length = 0; }
+
     // Then, only if asked, whatever the customer still owes, oldest first.
-    if (SETTLE_OLDER) {
+    if (SETTLE_OLDER || square) {
       for (const r of free) {
         for (const inv of pool_) {
           if (left(r) <= 0) break;
