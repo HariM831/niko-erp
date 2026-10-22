@@ -123,11 +123,21 @@ async function main() {
           lineOrder: order,
         });
       }
+      /**
+       * The round-off is what the document says it is worth less what its
+       * lines come to, and both have just changed. Left at the figure the
+       * import wrote, it puts receivables two rupees away from the revenue
+       * on a journal that must balance to the paisa.
+       */
+      const lineSum = (z.line_items ?? []).reduce((t, l) => t + P(l.item_total), 0);
+      const [before] = await tx.select().from(invoices).where(eq(invoices.id, r.id));
+      const adjust = P(before!.adjustment);
       await tx
         .update(invoices)
         .set({
-          subTotal: R(P(z.sub_total)),
+          subTotal: R(lineSum),
           total: R(P(z.total)),
+          roundOff: R(P(z.total) - lineSum - adjust),
           balanceDue: R(P(z.total)),
           status: "sent",
           updatedAt: new Date(),
