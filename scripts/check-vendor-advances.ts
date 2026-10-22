@@ -34,8 +34,10 @@ import {
   createPaymentBatch,
   createVendorPayment,
   deleteVendorPayment,
+  deleteVendorRefund,
   editVendorPayment,
   markBatchPaid,
+  refundVendorPayment,
 } from "../server/routes/purchases";
 
 let failed = 0;
@@ -257,6 +259,25 @@ async function main() {
       );
       check("payables 100, vendor advances 200",
         (await moved(tx, "ap", ahead.id)) === 100 && (await moved(tx, "vendor_advances", ahead.id)) === 200);
+
+      console.log("The vendor refunds part of it");
+      await refuses("not more than is spare", () =>
+        refundVendorPayment(tx, ahead.id, { refundDate: day, amount: "250.00", bankAccountId: bank!.id }, actor.id), "only 200.00 spare");
+      const refund = await refundVendorPayment(tx, ahead.id, { refundDate: day, amount: "150.00", bankAccountId: bank!.id }, actor.id);
+      const afterRefund = (await tx.select().from(vendorPayments).where(eq(vendorPayments.id, ahead.id)))[0]!;
+      check("50 left spare", afterRefund.unappliedAmount === "50.00", afterRefund.unappliedAmount);
+      check("vendor advances 50, the bank back 150",
+        (await moved(tx, "vendor_advances", ahead.id)) === 50, String(await moved(tx, "vendor_advances", ahead.id)));
+      await refuses("the payment cannot be deleted under a refund", () => deleteVendorPayment(tx, ahead.id, actor.id), "has refunds");
+      await refuses("nor edited to apply refunded money", () =>
+        editVendorPayment(tx, ahead.id, { applications: [{ billId: main.id, amount: "200.00" }] }, actor.id), "after 150.00 refunded");
+      await editVendorPayment(tx, ahead.id, { notes: "edited" }, actor.id);
+      const edited = (await tx.select().from(vendorPayments).where(eq(vendorPayments.id, ahead.id)))[0]!;
+      check("an edit keeps the refund off", edited.unappliedAmount === "50.00" && (await moved(tx, "vendor_advances", ahead.id)) === 50,
+        `${edited.unappliedAmount} ${await moved(tx, "vendor_advances", ahead.id)}`);
+      await deleteVendorRefund(tx, refund.id);
+      const back = (await tx.select().from(vendorPayments).where(eq(vendorPayments.id, ahead.id)))[0]!;
+      check("deleting the refund puts 200 back", back.unappliedAmount === "200.00" && (await moved(tx, "vendor_advances", ahead.id)) === 200);
 
       throw new Rollback();
     })

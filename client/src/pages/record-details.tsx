@@ -85,6 +85,15 @@ interface PaymentDoc {
     billTotal?: string;
     amountApplied: string;
   }>;
+  /** Money the vendor sent back out of the payment's spare amount. */
+  refunds?: Array<{
+    id: string;
+    refundDate: string;
+    amount: string;
+    bankAccountName: string | null;
+    reference: string | null;
+    notes: string | null;
+  }>;
 }
 interface ContactMini {
   displayName: string;
@@ -119,9 +128,22 @@ export function PaymentDetailPage({ side, id }: { side: "customer" | "vendor"; i
     queryKey: ["bank-accounts"],
     queryFn: () => api<BankAccount[]>("/api/banking/accounts"),
   });
+  const [refunding, setRefunding] = useState(false);
 
   if (isLoading) return <div className="p-8 text-sm text-gray-500">Loading…</div>;
   if (!doc) return <div className="p-8 text-sm text-red-600">Payment not found.</div>;
+
+  const refunds = doc.refunds ?? [];
+  const canRefund = !isCustomer && Number(doc.unappliedAmount) > 0;
+  const deleteRefund = async (refundId: string, amount: string) => {
+    if (!confirm(`Delete the refund of ${formatMoney(amount)}? It will be spare on ${doc.number} again.`)) return;
+    try {
+      await api(`${endpoint}/${id}/refunds/${refundId}`, { method: "DELETE" });
+      await qc.invalidateQueries();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Could not delete the refund");
+    }
+  };
 
   const billingAddr = contact?.addresses?.find((a) => a.kind === "billing");
   const addressLines = [billingAddr?.line1, billingAddr?.line2, billingAddr?.city, [billingAddr?.pincode, billingAddr?.state].filter(Boolean).join(" "), "India"].filter(Boolean) as string[];
@@ -138,6 +160,11 @@ export function PaymentDetailPage({ side, id }: { side: "customer" | "vendor"; i
           <button onClick={() => navigate(`${backPath}/${id}/edit`)} className="btn-ghost">
             Edit
           </button>
+          {canRefund && (
+            <button onClick={() => setRefunding(true)} className="btn-ghost">
+              Refund
+            </button>
+          )}
           <button
             onClick={async () => {
               if (!confirm(`Delete ${doc.number}? The ${isCustomer ? "invoices it settled" : "bills it paid"} will be owed again.`)) return;
@@ -259,6 +286,43 @@ export function PaymentDetailPage({ side, id }: { side: "customer" | "vendor"; i
         {Number(doc.tdsAmount ?? 0) > 0 && (
           <p className="mt-3 text-[13px] text-gray-600">TDS Withheld: {formatMoney(doc.tdsAmount!)}</p>
         )}
+        {!isCustomer && Number(doc.unappliedAmount) > 0 && (
+          <p className="mt-3 text-[13px] text-gray-600">
+            Unused: <strong className="tabular-nums">{formatMoney(doc.unappliedAmount)}</strong> — held as an advance
+            until a bill takes it, or the vendor refunds it.
+          </p>
+        )}
+        {refunds.length > 0 && (
+          <div className="mt-6">
+            <h3 className="mb-2 text-sm font-semibold">Refunds</h3>
+            <table className="w-full text-[13px]">
+              <thead className="table-head">
+                <tr>
+                  <th className="border-b border-[#ece3d5] px-3 py-2">Date</th>
+                  <th className="border-b border-[#ece3d5] px-3 py-2">Into</th>
+                  <th className="border-b border-[#ece3d5] px-3 py-2">Reference</th>
+                  <th className="border-b border-[#ece3d5] px-3 py-2 text-right">Amount</th>
+                  <th className="border-b border-[#ece3d5] px-3 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {refunds.map((r) => (
+                  <tr key={r.id} className="border-b border-[#ece3d5]">
+                    <td className="px-3 py-2.5">{shortDate(r.refundDate)}</td>
+                    <td className="px-3 py-2.5">{r.bankAccountName ?? "Undeposited Funds"}</td>
+                    <td className="px-3 py-2.5 text-gray-600">{r.reference || r.notes || "—"}</td>
+                    <td className="px-3 py-2.5 text-right font-medium tabular-nums">{formatMoney(r.amount)}</td>
+                    <td className="px-3 py-2.5 text-right">
+                      <button onClick={() => void deleteRefund(r.id, r.amount)} className="text-[12px] text-gray-400 hover:text-red-600">
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
         {doc.notes && (
           <p className="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-[13px] text-gray-600">{doc.notes}</p>
         )}
@@ -277,7 +341,118 @@ export function PaymentDetailPage({ side, id }: { side: "customer" | "vendor"; i
       )}
 
       <JournalSection sourceType={sourceType} sourceId={id} heading={isCustomer ? "Customer Payment" : "Vendor Payment"} />
+      {refunding && (
+        <RefundDialog
+          paymentId={id}
+          number={doc.number}
+          spare={doc.unappliedAmount}
+          defaultBankId={doc.bankAccountId}
+          banks={banks ?? []}
+          onClose={() => setRefunding(false)}
+          onDone={async () => {
+            setRefunding(false);
+            await qc.invalidateQueries();
+          }}
+        />
+      )}
     </DetailShell>
+  );
+}
+
+/**
+ * The vendor sent money back out of an advance — Zoho's Refund on a Payment
+ * Made. At most what the payment has spare; the bank it came into is debited.
+ */
+function RefundDialog({
+  paymentId,
+  number,
+  spare,
+  defaultBankId,
+  banks,
+  onClose,
+  onDone,
+}: {
+  paymentId: string;
+  number: string;
+  spare: string;
+  defaultBankId?: string;
+  banks: BankAccount[];
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [refundDate, setRefundDate] = useState(localYmd());
+  const [amount, setAmount] = useState(spare);
+  const [bankAccountId, setBankAccountId] = useState(defaultBankId ?? "");
+  const [reference, setReference] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const save = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api(`/api/purchases/payments/${paymentId}/refunds`, {
+        method: "POST",
+        body: { refundDate, amount: Number(amount).toFixed(2), bankAccountId, reference: reference.trim() || undefined },
+      });
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not record the refund");
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 print:hidden">
+      <div className="fixed inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-md rounded-lg border bg-white p-5 shadow-2xl">
+        <h2 className="text-base font-semibold text-gray-800">Refund on {number}</h2>
+        <p className="mt-1 text-[12.5px] text-gray-500">Up to {formatMoney(spare)} is spare on this payment.</p>
+        <div className="mt-4 grid gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label-required">Refund date *</label>
+              <DateInput value={refundDate} onChange={(e) => setRefundDate(e.target.value)} className="input" />
+            </div>
+            <div>
+              <label className="label-required">Amount *</label>
+              <input
+                inputMode="decimal"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="input text-right tabular-nums"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="label-required">Received into *</label>
+            <select value={bankAccountId} onChange={(e) => setBankAccountId(e.target.value)} className="input">
+              <option value="">Choose an account</option>
+              {banks.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="label">Reference</label>
+            <input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="UTR / NEFT reference" className="input" />
+          </div>
+        </div>
+        {error && <p className="mt-3 text-[12.5px] text-red-600">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="btn-secondary">
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={busy || !bankAccountId || !(Number(amount) > 0) || Number(amount) > Number(spare)}
+            className="btn-primary"
+          >
+            {busy ? "Saving…" : "Record refund"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

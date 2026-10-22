@@ -250,6 +250,37 @@ export const vendorPaymentApplications = pgTable("vendor_payment_applications", 
   amountApplied: money("amount_applied").notNull(),
 });
 
+/**
+ * Money a vendor sent back out of an advance — Zoho's Refund on a Payment Made.
+ *
+ * It comes off what the payment has spare (unapplied_amount is net of every
+ * refund), and its journal — DR the bank it came into, CR Vendor Advances (or
+ * payables, for a payment from before 22 Oct 2026 still holding its advance
+ * there) — is sourced to the payment, so services/payment-ledger.ts sees the
+ * advance and its postings move together.
+ */
+export const vendorPaymentRefunds = pgTable(
+  "vendor_payment_refunds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    paymentId: uuid("payment_id")
+      .notNull()
+      .references(() => vendorPayments.id),
+    refundDate: date("refund_date").notNull(),
+    amount: money("amount").notNull(),
+    /** Where the money came back to; null where Zoho put it in Undeposited Funds. */
+    bankAccountId: uuid("bank_account_id").references(() => bankAccounts.id),
+    reference: text("reference"),
+    notes: text("notes"),
+    journalEntryId: uuid("journal_entry_id").references(() => journalEntries.id),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("ix_vpr_payment").on(t.paymentId)],
+);
+
 export const vendorCredits = pgTable("vendor_credits", {
   id: uuid("id").primaryKey().defaultRandom(),
   number: varchar("number", { length: 30 }).notNull().unique(),
