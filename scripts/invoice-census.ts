@@ -144,6 +144,36 @@ async function main() {
    * Zoho rows with nothing here would be a hole in the catch-up; the other
    * direction is ordinary and is the answer to "why are there more".
    */
+  /**
+   * Every linked invoice, its date here against its date there. The renumber
+   * re-dated 81 of them to Zoho's day on purpose — the dispatch date is the
+   * invoice date, settled 16 Oct 2026 — so a difference now is a mistake, not
+   * a policy, and the allocation rule rests on these dates being the same.
+   */
+  const dates = (
+    await db.execute(sql`
+      SELECT z.zoho_id, i.number, i.invoice_date::text AS here, c.display_name AS party,
+             i.total::float8 AS total
+        FROM zoho_id_map z
+        JOIN invoices i ON i.id = z.eggsy_id
+        JOIN contacts c ON c.id = i.customer_id
+       WHERE z.entity = 'invoice' AND i.status <> 'void'
+    `)
+  ).rows as Array<{ zoho_id: string; number: string; here: string; party: string; total: number }>;
+  const theirs = new Map(
+    zoho.map((z) => [String((z as unknown as { invoice_id: string }).invoice_id),
+                     (z as unknown as { date: string }).date]),
+  );
+  const differs = dates.filter((d) => theirs.has(d.zoho_id) && theirs.get(d.zoho_id) !== d.here);
+  console.log(
+    `
+  dates: ${dates.length - differs.length} of ${dates.length} linked invoices carry Zoho's own date` +
+      `${differs.length ? `, ${differs.length} do not:` : " — every one of them."}`,
+  );
+  for (const d of differs) {
+    console.log(`    ${d.number.padEnd(20)}${d.party.slice(0, 24).padEnd(25)}here ${d.here}   Zoho ${theirs.get(d.zoho_id)}`);
+  }
+
   const mapped = new Set(
     ((
       await db.execute(sql`SELECT zoho_id FROM zoho_id_map WHERE entity = 'invoice'`)
