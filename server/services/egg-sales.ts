@@ -21,6 +21,7 @@ import {
   eggAgreements,
   eggBenchmarkPrices,
   eggBoxRates,
+  eggBoxSizes,
   eggDispatches,
   eggGrading,
   eggStockCount,
@@ -101,10 +102,26 @@ export function sellableBoxes(held: Record<EggSize, number>, prefs: UnitPrefs): 
 }
 const SIZE_LABEL = EGG_SIZE_LABEL;
 
-export async function eggPrefs(tx: Conn) {
+/**
+ * The egg preferences; with a date, the box sizes are the ones in force that
+ * day (egg_box_sizes) — Niko held 360 until 22 Oct 2026 and 210 after. Without
+ * one, today's.
+ */
+export async function eggPrefs(tx: Conn, on?: string) {
   const [row] = await tx.select().from(eggSalesPreferences);
   if (!row) throw new PostingError("Egg sales preferences are missing — run migrations");
-  return row;
+  if (!on) return row;
+  const sizes = await tx
+    .selectDistinctOn([eggBoxSizes.size], { size: eggBoxSizes.size, eggs: eggBoxSizes.eggsPerBox })
+    .from(eggBoxSizes)
+    .where(lte(eggBoxSizes.effectiveFrom, on))
+    .orderBy(eggBoxSizes.size, desc(eggBoxSizes.effectiveFrom));
+  const of = new Map(sizes.map((s) => [s.size, s.eggs]));
+  return {
+    ...row,
+    nikoEggsPerBox: of.get("niko") ?? row.nikoEggsPerBox,
+    jumboEggsPerBox: of.get("jumbo") ?? row.jumboEggsPerBox,
+  };
 }
 
 /** The benchmark in force on a date, or null — null blocks invoicing. */
@@ -177,7 +194,7 @@ export async function boxRateHistory(tx: Conn, size: EggSize, limit = 60) {
  * price with this, so neither can quote what the Loading Bay will not invoice.
  */
 export async function dayPricer(tx: Conn, on: string) {
-  const [bm, offsets, prefs] = await Promise.all([benchmarkOn(tx, on), sizeOffsetsOn(tx, on), eggPrefs(tx)]);
+  const [bm, offsets, prefs] = await Promise.all([benchmarkOn(tx, on), sizeOffsetsOn(tx, on), eggPrefs(tx, on)]);
   const boxRate: Partial<Record<EggSize, number>> = {};
   for (const s of DIRECT_RATE_SIZES) {
     const r = await boxRateOn(tx, s, on);
@@ -644,7 +661,8 @@ export interface GradingInput {
  * A shed's eggs for a day, from the packing room's graded boxes.
  *
  * Boxes converted at each size's own capacity (a jumbo box holds 180, a Niko
- * box 360, the rest 210). Null when the shed has no grading row that day.
+ * box 210 from 23 Oct 2026 and 360 before, the rest 210). Null when the shed
+ * has no grading row that day.
  */
 export async function gradedEggsOn(tx: Conn, houseId: string, day: string): Promise<number | null> {
   const [g] = await tx
@@ -652,7 +670,7 @@ export async function gradedEggsOn(tx: Conn, houseId: string, day: string): Prom
     .from(eggGrading)
     .where(and(eq(eggGrading.houseId, houseId), eq(eggGrading.gradedOn, day)));
   if (!g) return null;
-  const prefs = await eggPrefs(tx);
+  const prefs = await eggPrefs(tx, day);
   const row = g as unknown as Record<string, unknown>;
   return EGG_SIZES.reduce((n, size) => n + Number(row[size] ?? 0) * eggsPerStockUnit(size, prefs), 0);
 }
@@ -951,7 +969,7 @@ export interface LoadInput {
  */
 export async function loadAndInvoice(tx: Tx, input: LoadInput, userId: string) {
   await assertDayOpen(tx, input.dispatchDate, "loading a truck on that day");
-  const prefs = await eggPrefs(tx);
+  const prefs = await eggPrefs(tx, input.dispatchDate);
   const qty = (s: EggSize) => Math.max(0, Math.trunc(input.loaded[s] ?? 0));
 
   /**

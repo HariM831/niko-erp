@@ -212,12 +212,15 @@ export async function costAnalysis(db: Conn, from: string, to: string) {
   // Income is divided by eggs SOLD, not produced: a price is per egg that
   // left, and a month whose late-month lay is invoiced in the next month would
   // otherwise print a rate nobody was ever paid. Costs stay per egg produced.
+  // A box holds what it held on the invoice's day: Niko 360 until 22 Oct 2026, 210 after.
   const ep = await eggPrefs(db);
   const sizeRows = await db.select().from(eggSizeItems);
-  const perBox = new Map(sizeRows.map((s) => [s.itemId, eggsInBox(s.size as EggSize, ep)]));
+  const sizeOf = new Map(sizeRows.map((s) => [s.itemId, s.size as EggSize]));
+  const prefsOn = new Map<string, Awaited<ReturnType<typeof eggPrefs>>>();
   const sold = await db
     .select({
       itemId: invoiceLines.itemId,
+      day: invoices.invoiceDate,
       boxes: sql<string>`coalesce(sum(${invoiceLines.quantity}), 0)`,
       amount: sql<string>`coalesce(sum(${invoiceLines.amount}), 0)`,
     })
@@ -225,17 +228,19 @@ export async function costAnalysis(db: Conn, from: string, to: string) {
     .innerJoin(invoices, eq(invoices.id, invoiceLines.invoiceId))
     .where(
       and(
-        inArray(invoiceLines.itemId, [...perBox.keys()]),
+        inArray(invoiceLines.itemId, [...sizeOf.keys()]),
         sql`${invoices.status} not in ('draft', 'void')`,
         gte(invoices.invoiceDate, from),
         lte(invoices.invoiceDate, to),
       ),
     )
-    .groupBy(invoiceLines.itemId);
+    .groupBy(invoiceLines.itemId, invoices.invoiceDate);
   let eggsSold = 0;
   let eggSales = 0;
   for (const s of sold) {
-    eggsSold += Number(s.boxes) * (perBox.get(s.itemId!) ?? ep.eggsPerBox);
+    if (!prefsOn.has(s.day)) prefsOn.set(s.day, await eggPrefs(db, s.day));
+    const size = sizeOf.get(s.itemId!);
+    eggsSold += Number(s.boxes) * (size ? eggsInBox(size, prefsOn.get(s.day)!) : ep.eggsPerBox);
     eggSales += Number(s.amount);
   }
   eggsSold = Math.round(eggsSold);

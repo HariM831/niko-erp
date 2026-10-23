@@ -30,7 +30,7 @@ interface DayData {
   benchmark: { ratePerEgg: string; setFor: string } | null;
   offsets: Record<string, string> | null;
   eggsPerBox: number;
-  /** Eggs to the box, per size: 210, jumbo 180, niko 360. */
+  /** Eggs to the box, per size, on the day: 210, jumbo 180, niko 210 (360 before 23 Oct 2026). */
   boxSizes: Record<string, number>;
   /** The box-priced grades' rate per box for the day, or null when none is set. */
   boxRates: Record<string, string | null>;

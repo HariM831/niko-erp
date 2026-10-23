@@ -599,7 +599,7 @@ eggSalesRouter.get("/day/:date", view, async (req, res) => {
     dayOrders(db, on),
     benchmarkOn(db, on),
     sizeOffsetsOn(db, on),
-    eggPrefs(db),
+    eggPrefs(db, on),
   ]);
 
   /** What the pile holds right now, by size — the bay's own headroom. */
@@ -752,7 +752,7 @@ const canReopen = (user: { roleName: string; permissions: Record<string, string[
  * physical count against the calculated closing, and whether it was signed.
  */
 async function stockSheetOn(on: string) {
-  const prefs = await eggPrefs(db);
+  const prefs = await eggPrefs(db, on);
   const houseRows = await db
     .select({ id: houses.id, code: houses.code, purpose: houses.purpose })
     .from(houses)

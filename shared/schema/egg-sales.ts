@@ -210,7 +210,10 @@ export const eggSalesPreferences = pgTable("egg_sales_preferences", {
    * fact about a box the farm buys, not an adjustment to another number.
    */
   jumboEggsPerBox: integer("jumbo_eggs_per_box").notNull().default(180),
-  /** The Niko pack holds 360 — the sheet prints it beside the column. */
+  /**
+   * The Niko pack — 360 until 22 Oct 2026, 210 from the 23rd. The figure in
+   * force today; a past day reads egg_box_sizes for its own.
+   */
   nikoEggsPerBox: integer("niko_eggs_per_box").notNull().default(360),
   /**
    * Dirty is counted in stock in trays of 30, and sold in boxes of 210 like
@@ -372,4 +375,24 @@ export const eggPriceForecasts = pgTable(
     uniqueIndex("uq_egg_price_forecast").on(t.anchorDate, t.forDate),
     index("ix_egg_price_forecast_anchor").on(t.anchorDate, t.forDate),
   ],
+);
+
+/**
+ * Eggs in a box of a grade, dated: a pack that changes size keeps the old
+ * figure for the days before (Niko 360 → 210 on 23 Oct 2026). Only the grades
+ * with their own box size are here; a grade with no row takes the
+ * preferences. Eggs produced, eggs sold and per-egg prices read the figure in
+ * force on their own day.
+ */
+export const eggBoxSizes = pgTable(
+  "egg_box_sizes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** 'niko' | 'jumbo' */
+    size: varchar("size", { length: 10 }).notNull(),
+    eggsPerBox: integer("eggs_per_box").notNull(),
+    effectiveFrom: date("effective_from").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("uq_egg_box_sizes").on(t.size, t.effectiveFrom)],
 );
