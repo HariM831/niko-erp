@@ -1,14 +1,15 @@
 import { amountInWords } from "../api";
 import logoUrl from "../assets/letterhead-logo.png";
-import bandUrl from "../assets/letterhead-band.png";
+import wordmarkUrl from "../assets/letterhead-wordmark.png";
 
 /**
- * A purchase order on the company letterhead (22 Oct 2026).
+ * A purchase order on the Amino Farms letterhead (23 Oct 2026).
  *
  * The content is the PO's own — the same fields, in the same places, as the
  * Zoho-style sheet every other document prints. Only the look comes from the
- * letterhead: the niko logo, red accents, and the band and company lines at
- * the foot of the page.
+ * letterhead: the Amino Farms logo, accents in its green (#0f3918), gold
+ * (#d89a01) and olive (#8f9921), and the wordmark, address and CIN at the
+ * foot of the page.
  */
 export interface PoLetterheadProps {
   number: string;
@@ -25,7 +26,17 @@ export interface PoLetterheadProps {
   vendorLink?: React.ReactNode;
   vendorAddress: string[];
   vendorGstin?: string;
-  org?: { name: string; address?: string; city?: string; state?: string; pincode?: string } | null;
+  org?: {
+    name: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    pincode?: string;
+    /** "MM-DD" the financial year starts on; "04-01" in India. */
+    fiscalYearStart?: string;
+  } | null;
+  /** The location picked in the PO's "Deliver To" field; without one, the org profile's address prints. */
+  deliverTo?: { name: string; lines: string[] } | null;
   pdfFields: Array<{ fieldId: string; label: string; display: string }>;
   lines: Array<{ id: string; name: string; description?: string; quantity: string; unit?: string; rate: string; amount: string }>;
   subTotal: string;
@@ -41,6 +52,19 @@ export interface PoLetterheadProps {
   slashDate: (d: string) => string;
 }
 
+/**
+ * The PO number as printed, with its financial year after the prefix:
+ * PO-00025 dated 3 Oct 2026 prints as PO-2627-00025 with an April start, or
+ * PO-2026-00025 for a calendar year. Print only — the stored number, and the
+ * one the lists and search show, stays PO-00025.
+ */
+function printedNumber(number: string, date: string, start = "04-01"): string {
+  const year = Number(date.slice(0, 4));
+  const from = date.slice(5, 10) >= start ? year : year - 1;
+  const fy = start === "01-01" ? String(from) : `${from % 100}`.padStart(2, "0") + `${(from + 1) % 100}`.padStart(2, "0");
+  return number.replace(/^(.*?)(\d+)$/, `$1${fy}-$2`);
+}
+
 export function PoLetterheadSheet(p: PoLetterheadProps) {
   const n = p.formatNum;
   const amountRows: Array<[string, string]> = [
@@ -54,55 +78,64 @@ export function PoLetterheadSheet(p: PoLetterheadProps) {
 
   return (
     <div className="letterhead flex min-h-[297mm] flex-col">
-      <div className="flex-1 px-[16mm] pt-[14mm]">
-        <header className="flex items-start justify-between border-b border-[#cb1e25] pb-[5mm]">
-          <img src={logoUrl} alt="niko eggs" className="-mt-[2mm] ml-[2mm] w-[32mm]" />
+      <div className="flex-1 pl-[15mm] pr-[16mm] pt-[14.5mm]">
+        <header className="flex items-end justify-between border-b-[1.5px] border-[#d89a01] pb-[4mm]">
+          <img src={logoUrl} alt="Amino Farms" className="w-[46mm]" />
           <div className="text-right">
-            <div className="lh-bold mt-[7mm] text-[22pt] leading-none">PURCHASE ORDER</div>
-            <div className="lh-bold mt-[2mm] text-[9.5pt] text-[#cb1e25]">{p.org?.name || "Amino Farms Private Limited"}</div>
+            <div className="lh-bold text-[22pt] leading-none text-[#0f3918]">PURCHASE ORDER</div>
+            <div className="lh-bold mt-[2mm] text-[9.5pt] text-[#8f9921]">{p.org?.name || "Amino Farms Private Limited"}</div>
           </div>
         </header>
 
         <div className="flex border-b border-[#c9c9c9]">
-          <div className="lh-kv flex-1 px-[2.5mm] py-[3mm]">
-            <span className="lh-lbl">#</span>
-            <span className="lh-bold">{p.number}</span>
-            <span className="lh-lbl">Purchase Order Date</span>
-            <span className="lh-bold">{p.slashDate(p.orderDate)}</span>
-            {p.terms && (
-              <>
-                <span className="lh-lbl">Terms</span>
-                <span className="lh-bold">{p.terms}</span>
-              </>
-            )}
-            {p.reference && (
-              <>
-                <span className="lh-lbl">Reference</span>
-                <span className="lh-bold">{p.reference}</span>
-              </>
-            )}
-            {p.allowance && (
-              <>
-                <span className="lh-lbl">Allowance</span>
-                <span className="lh-bold">
-                  {p.allowance.orgPct}% over ordered
-                  {p.allowance.extraPct > 0 && (
-                    <>
-                      {" "}+ {p.allowance.extraPct}% extended{p.allowance.by ? ` by ${p.allowance.by}` : ""}
-                      {p.allowanceReason ? ` — ${p.allowanceReason}` : ""}
-                    </>
-                  )}
-                </span>
-              </>
-            )}
-            {p.freightBasis && p.freightBasis !== "none" && Number(p.freightRate) > 0 && (
-              <>
-                <span className="lh-lbl">Freight</span>
-                <span className="lh-bold">
-                  ₹{n(p.freightRate!)} {p.freightBasis === "per_ton" ? "per ton" : "per truck"}, paid by us to the transporter
-                </span>
-              </>
-            )}
+          <div className="flex-1 px-[2.5mm] py-[3mm]">
+            <div className="grid grid-cols-2 gap-x-[3mm]">
+              {[
+                ["PO No.", printedNumber(p.number, p.orderDate, p.org?.fiscalYearStart)],
+                ["Date", p.slashDate(p.orderDate)],
+              ].map(([label, value]) => (
+                <div key={label}>
+                  <div className="lh-lbl">{label}</div>
+                  <div className="lh-bold">{value}</div>
+                </div>
+              ))}
+            </div>
+            <div className="lh-kv mt-[3mm] empty:hidden">
+              {p.terms && (
+                <>
+                  <span className="lh-lbl">Terms</span>
+                  <span className="lh-bold">{p.terms}</span>
+                </>
+              )}
+              {p.reference && (
+                <>
+                  <span className="lh-lbl">Reference</span>
+                  <span className="lh-bold">{p.reference}</span>
+                </>
+              )}
+              {p.allowance && (
+                <>
+                  <span className="lh-lbl">Allowance</span>
+                  <span className="lh-bold">
+                    {p.allowance.orgPct}% over ordered
+                    {p.allowance.extraPct > 0 && (
+                      <>
+                        {" "}+ {p.allowance.extraPct}% extended{p.allowance.by ? ` by ${p.allowance.by}` : ""}
+                        {p.allowanceReason ? ` — ${p.allowanceReason}` : ""}
+                      </>
+                    )}
+                  </span>
+                </>
+              )}
+              {p.freightBasis && p.freightBasis !== "none" && Number(p.freightRate) > 0 && (
+                <>
+                  <span className="lh-lbl">Freight</span>
+                  <span className="lh-bold">
+                    ₹{n(p.freightRate!)} {p.freightBasis === "per_ton" ? "per ton" : "per truck"}, paid by us to the transporter
+                  </span>
+                </>
+              )}
+            </div>
           </div>
           <div className="lh-kv flex-1 border-l border-[#c9c9c9] px-[2.5mm] py-[3mm]">
             {p.placeOfSupply && (
@@ -116,7 +149,7 @@ export function PoLetterheadSheet(p: PoLetterheadProps) {
 
         <div className="flex border-b border-[#c9c9c9]">
           <div className="flex-1 px-[2.5mm] py-[3mm]">
-            <div className="lh-bold mb-[1.5mm] text-[#cb1e25]">Vendor</div>
+            <div className="lh-bold mb-[1.5mm] text-[#0f3918]">Vendor</div>
             <div className="lh-bold text-[10.5pt]">{p.vendorLink ?? p.vendorName}</div>
             {p.vendorAddress.map((l, i) => (
               <div key={i}>{l}</div>
@@ -124,11 +157,22 @@ export function PoLetterheadSheet(p: PoLetterheadProps) {
             {p.vendorGstin && <div>GSTIN {p.vendorGstin}</div>}
           </div>
           <div className="flex-1 border-l border-[#c9c9c9] px-[2.5mm] py-[3mm]">
-            <div className="lh-bold mb-[1.5mm] text-[#cb1e25]">Deliver To</div>
+            <div className="lh-bold mb-[1.5mm] text-[#0f3918]">Deliver To</div>
             <div className="lh-bold text-[10.5pt]">{p.org?.name}</div>
-            {p.org?.address && <div>{p.org.address}</div>}
-            {[p.org?.city, p.org?.pincode, p.org?.state].some(Boolean) && (
-              <div>{[p.org?.city, p.org?.pincode, p.org?.state].filter(Boolean).join(" ")}</div>
+            {p.deliverTo ? (
+              <>
+                <div className="lh-bold">{p.deliverTo.name}</div>
+                {p.deliverTo.lines.map((l, i) => (
+                  <div key={i}>{l}</div>
+                ))}
+              </>
+            ) : (
+              <>
+                {p.org?.address && <div>{p.org.address}</div>}
+                {[p.org?.city, p.org?.pincode, p.org?.state].some(Boolean) && (
+                  <div>{[p.org?.city, p.org?.pincode, p.org?.state].filter(Boolean).join(" ")}</div>
+                )}
+              </>
             )}
             <div>India</div>
           </div>
@@ -147,7 +191,7 @@ export function PoLetterheadSheet(p: PoLetterheadProps) {
 
         <table className="mt-[4mm] w-full border-collapse">
           <thead>
-            <tr className="bg-[#cb1e25] text-white">
+            <tr className="bg-[#0f3918] text-white">
               <th className="lh-bold w-[9mm] px-[2.5mm] py-[2.2mm] text-center">#</th>
               <th className="lh-bold px-[2.5mm] py-[2.2mm] text-left">Item &amp; Description</th>
               <th className="lh-bold w-[26mm] px-[2.5mm] py-[2.2mm] text-right">Qty</th>
@@ -180,13 +224,13 @@ export function PoLetterheadSheet(p: PoLetterheadProps) {
             <div className="lh-bold mt-[1mm] italic">{amountInWords(p.total)}</div>
             {p.notes && (
               <div className="pt-[4mm]">
-                <div className="lh-bold text-[#cb1e25]">Notes</div>
+                <div className="lh-bold text-[#0f3918]">Notes</div>
                 <p className="mt-[1mm] whitespace-pre-wrap">{p.notes}</p>
               </div>
             )}
             {p.termsAndConditions && (
               <div className="pt-[4mm]">
-                <div className="lh-bold text-[#cb1e25]">Terms &amp; Conditions</div>
+                <div className="lh-bold text-[#0f3918]">Terms &amp; Conditions</div>
                 <p className="mt-[1mm] whitespace-pre-wrap">{p.termsAndConditions}</p>
               </div>
             )}
@@ -211,17 +255,13 @@ export function PoLetterheadSheet(p: PoLetterheadProps) {
         </div>
       </div>
 
-      <footer className="mt-[8mm] break-inside-avoid pb-[6mm]">
-        <img src={bandUrl} alt="" className="block h-[4.6mm] w-full" />
-        <div className="pl-[18.5mm] pt-[4mm] text-[8.5pt] leading-[1.75] text-[#404041]">
-          <div className="lh-bold">Amino Farms Private Limited</div>
-          <div>
-            <span className="lh-bold">CIN:</span> U01463AS2023PTC029795 | <span className="lh-bold">Website:</span> www.aminofarms.com
-          </div>
-          <div>
-            <span className="lh-bold">Registered Address:</span> 1 No. Nabil Kachari, Mouza Borgaon, Thelamara, District Sonitpur,
-            784149, Assam, India
-          </div>
+      <footer className="mt-[8mm] flex break-inside-avoid items-center pb-[8.5mm] pl-[15mm]">
+        <img src={wordmarkUrl} alt="Amino Farms Pvt. Ltd." className="w-[34mm]" />
+        <div className="ml-[1.6mm] mr-[3.5mm] h-[13.7mm] w-[0.6mm] bg-[#0f3918]" />
+        <div className="text-center text-[8.2pt] leading-[1.45] text-[#404041]" style={{ fontFamily: "Arial, Helvetica, sans-serif" }}>
+          Address: 1 No. Nabil Kachari, Johamari Road, Borgaon, PO - Thelamara, District - Sonitpur,
+          <br />
+          Assam - 784149, India. | CIN: U01463TS2023PTC179046
         </div>
       </footer>
     </div>

@@ -107,6 +107,7 @@ const SECTIONS: SectionDef[] = [
       { key: "whatsapp", label: "WhatsApp message" },
     ],
   },
+  { key: "m-purchase-orders", label: "Purchase Orders", group: "Module Settings", entity: "purchase_order" },
   { key: "m-bills", label: "Bills", group: "Module Settings", entity: "bill" },
   { key: "m-expenses", label: "Expenses", group: "Module Settings", entity: "expense" },
   {
