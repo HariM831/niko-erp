@@ -219,8 +219,10 @@ export interface DayOrderLine {
   /** Where they are, for the bay's eye — the default billing city. */
   city: string | null;
   boxes: number;
-  /** Spot orders are booked per size; a standing order is a box count. */
+  /** Spot orders are booked per size; a standing order is a box count, unless the day was given a breakup. */
   sizes: Partial<Record<EggSize, number>> | null;
+  /** A standing order's own box count, before any change for the day. */
+  agreedBoxes?: number;
   spreadPerEgg: string;
   notes: string | null;
   /** Set when the line was reduced or came from an exception. */
@@ -367,7 +369,9 @@ export async function dayOrders(tx: Conn, on: string): Promise<DayOrderLine[]> {
       customerName: a.customerName,
       city: a.city,
       boxes: ex?.kind === "qty_override" ? (ex.boxes ?? a.boxes) : a.boxes,
-      sizes: null,
+      // The day's breakup when the customer gave one; otherwise a count, shown under Large.
+      sizes: ex?.kind === "qty_override" && ex.sizes ? (ex.sizes as Partial<Record<EggSize, number>>) : null,
+      agreedBoxes: a.boxes,
       spreadPerEgg: a.spreadPerEgg,
       notes: a.notes,
       exception: ex ? { kind: ex.kind, reason: ex.reason } : null,

@@ -974,6 +974,13 @@
       "when": 1793145600000,
       "tag": "0134_po_freight",
       "breakpoints": true
+    },
+    {
+      "idx": 136,
+      "version": "7",
+      "when": 1793232000000,
+      "tag": "0135_egg_exception_sizes",
+      "breakpoints": true
     }
   ]
 }

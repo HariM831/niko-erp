@@ -215,15 +215,51 @@ eggSalesRouter.delete("/agreements/:id", create, async (req, res) => {
 
 /* ── Exceptions: the per-day void for standing orders ────────────────────── */
 
+/** Boxes per grade, missing grades zero — spot orders and a standing order's day breakup. */
+const sizeBoxes = z.object(
+  Object.fromEntries(EGG_SIZES.map((s) => [s, looseNumber(z.number().int().min(0)).default(0)])) as Record<
+    (typeof EGG_SIZES)[number],
+    z.ZodDefault<z.ZodEffects<z.ZodNumber, number, unknown>>
+  >,
+);
+
 const exceptionBody = z.object({
   onDate: dateStr,
   kind: z.enum(["skip", "qty_override"]),
   boxes: looseNumber(z.number().int().positive()).optional(),
+  /** The day's grade breakup; the box count is then its total. */
+  sizes: sizeBoxes.optional(),
   reason: z.string().max(300).optional(),
 });
 
+/** How far ahead a standing order's breakup may be given: today, tomorrow and the day after (23 Oct 2026). */
+const BREAKUP_DAYS_AHEAD = 2;
+/** How far the breakup's total may stray from the agreed boxes, either way. */
+const BREAKUP_TOLERANCE = 0.05;
+
 eggSalesRouter.post("/agreements/:id/exceptions", create, validateBody(exceptionBody), async (req, res) => {
   const b = req.body as z.infer<typeof exceptionBody>;
+  let sizes: Partial<Record<EggSize, number>> | null = null;
+  if (b.kind === "qty_override" && b.sizes) {
+    sizes = Object.fromEntries(EGG_SIZES.filter((s) => (b.sizes![s] ?? 0) > 0).map((s) => [s, b.sizes![s]!]));
+    const total = Object.values(sizes).reduce((a, n) => a + n, 0);
+    if (total <= 0) return res.status(422).json({ error: "Give at least one box of some grade" });
+    b.boxes = total;
+    const today = istDate();
+    const last = new Date(`${today}T00:00:00Z`);
+    last.setUTCDate(last.getUTCDate() + BREAKUP_DAYS_AHEAD);
+    if (b.onDate < today || b.onDate > last.toISOString().slice(0, 10)) {
+      return res.status(422).json({ error: "A breakup can be given for today, tomorrow or the day after only" });
+    }
+    // Within 5% of the agreed boxes either way, never more (the user, 23 Oct 2026).
+    const [ag] = await db.select({ boxes: eggAgreements.boxes }).from(eggAgreements).where(eq(eggAgreements.id, req.params.id!));
+    if (!ag) return res.status(404).json({ error: "No such agreement" });
+    if (Math.abs(total - ag.boxes) > ag.boxes * BREAKUP_TOLERANCE) {
+      return res.status(422).json({
+        error: `${total} boxes is more than 5% off the agreed ${ag.boxes} — skip the day and book a spot order instead`,
+      });
+    }
+  }
   if (b.kind === "qty_override" && !b.boxes) {
     return res.status(422).json({ error: "An override needs the new box count" });
   }
@@ -250,6 +286,7 @@ eggSalesRouter.post("/agreements/:id/exceptions", create, validateBody(exception
       onDate: b.onDate,
       kind: b.kind,
       boxes: b.kind === "qty_override" ? b.boxes! : null,
+      sizes,
       reason: b.reason || null,
       createdBy: req.session.user!.id,
     })
@@ -258,6 +295,7 @@ eggSalesRouter.post("/agreements/:id/exceptions", create, validateBody(exception
       set: {
         kind: b.kind,
         boxes: b.kind === "qty_override" ? b.boxes! : null,
+        sizes,
         reason: b.reason || null,
         createdBy: req.session.user!.id,
       },
@@ -279,13 +317,6 @@ eggSalesRouter.delete("/agreements/:id/exceptions/:date", create, async (req, re
 });
 
 /* ── Spot orders ─────────────────────────────────────────────────────────── */
-
-const sizeBoxes = z.object(
-  Object.fromEntries(EGG_SIZES.map((s) => [s, looseNumber(z.number().int().min(0)).default(0)])) as Record<
-    (typeof EGG_SIZES)[number],
-    z.ZodDefault<z.ZodEffects<z.ZodNumber, number, unknown>>
-  >,
-);
 
 const spotBody = z.object({
   customerId: z.string().uuid(),

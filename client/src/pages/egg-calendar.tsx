@@ -261,6 +261,8 @@ function DayDrawer({
   const [wa, setWa] = useState<Map<string, WaMessage>>(new Map());
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState<{ id: string | null; customerId: string; sizes: Record<Size, string>; spread: string; notes: string } | null>(null);
+  /** A standing order's grade breakup for this one day — the agreement itself is untouched. */
+  const [breakup, setBreakup] = useState<{ line: DayLine; sizes: Record<Size, string>; reason: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -308,7 +310,8 @@ function DayDrawer({
     const r = await api<{ spread: string | null }>(`/api/sales/eggs/customers/${customerId}/last-spread`).catch(() => null);
     setForm((f) => (f ? { ...f, customerId, spread: r?.spread != null ? Number(r.spread).toFixed(2) : "" } : f));
   };
-  const openEdit = (l: DayLine) =>
+  const openEdit = (l: DayLine) => {
+    setBreakup(null);
     setForm({
       id: l.sourceId,
       customerId: l.customerId,
@@ -316,6 +319,7 @@ function DayDrawer({
       spread: Number(l.spreadPerEgg) ? Number(l.spreadPerEgg).toFixed(2) : "",
       notes: "",
     });
+  };
 
   const submitForm = () =>
     act(async () => {
@@ -325,6 +329,42 @@ function DayDrawer({
       if (form.id) await api(`/api/sales/eggs/spot-orders/${form.id}`, { method: "PATCH", body });
       else await api("/api/sales/eggs/spot-orders", { method: "POST", body: { customerId: form.customerId, orderDate: date, ...body } });
       setForm(null);
+    });
+
+  /**
+   * The customer gives the exact grades the day before or on the day, within
+   * 5% of the agreed boxes either way, never more: today, tomorrow and the day after can take
+   * one (the user, 23 Oct 2026).
+   */
+  const lastBreakupDay = (() => {
+    const d = new Date(`${today}T00:00:00`);
+    d.setDate(d.getDate() + 2);
+    return localYmd(d);
+  })();
+  const breakupOpen = date >= today && date <= lastBreakupDay;
+  const openBreakup = (l: DayLine) => {
+    setForm(null);
+    const split = l.sizes && Object.keys(l.sizes).length ? l.sizes : { large: l.boxes };
+    setBreakup({
+      line: l,
+      sizes: Object.fromEntries(SIZES.map((s) => [s, split[s] ? String(split[s]) : ""])) as Record<Size, string>,
+      reason: l.exception?.kind === "qty_override" ? (l.exception.reason ?? "") : "",
+    });
+  };
+  const saveBreakup = () =>
+    act(async () => {
+      if (!breakup) return;
+      const sizes = Object.fromEntries(SIZES.map((s) => [s, Number(breakup.sizes[s]) || 0]));
+      await api(`/api/sales/eggs/agreements/${breakup.line.sourceId}/exceptions`, {
+        method: "POST",
+        body: { onDate: date, kind: "qty_override", sizes, reason: breakup.reason || undefined },
+      });
+      setBreakup(null);
+    });
+  const resetBreakup = (agreementId: string) =>
+    act(async () => {
+      await api(`/api/sales/eggs/agreements/${agreementId}/exceptions/${date}`, { method: "DELETE" });
+      setBreakup(null);
     });
 
   const skip = (agreementId: string) => {
@@ -343,6 +383,9 @@ function DayDrawer({
   const pretty = new Date(`${date}T00:00:00`).toLocaleDateString("en-IN", { weekday: "long", day: "2-digit", month: "short", year: "numeric" });
   const live = lines.filter((l) => !l.voided && l.exception?.kind !== "skip");
   const formTotal = form ? SIZES.reduce((a, s) => a + (Number(form.sizes[s]) || 0), 0) : 0;
+  const breakupTotal = breakup ? SIZES.reduce((a, s) => a + (Number(breakup.sizes[s]) || 0), 0) : 0;
+  const agreed = breakup?.line.agreedBoxes ?? breakup?.line.boxes ?? 0;
+  const breakupOff = agreed ? (breakupTotal - agreed) / agreed : 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4" onClick={onClose}>
@@ -403,7 +446,7 @@ function DayDrawer({
             <div>
               <div className="mb-1 flex items-center justify-between">
                 <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Orders</div>
-                {!past && !form && (
+                {!past && !form && !breakup && (
                   <button onClick={openNew} className="inline-flex items-center gap-1 text-sm text-primary hover:underline">
                     <Plus className="h-3.5 w-3.5" /> Spot order
                   </button>
@@ -466,6 +509,60 @@ function DayDrawer({
                 </div>
               )}
 
+              {breakup && (
+                <div className="mb-3 rounded-md border border-dashed border-primary/40 bg-primary/5 p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-sm font-medium">{breakup.line.customerName} — grades for this day only</span>
+                    <button onClick={() => setBreakup(null)} className="text-muted-foreground hover:text-foreground">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className="mb-2 grid grid-cols-3 gap-2">
+                    {SIZES.map((s) => (
+                      <div key={s}>
+                        <label className="mb-0.5 block text-[10px] text-muted-foreground">{SIZE_LABEL[s]} (boxes)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={breakup.sizes[s]}
+                          onChange={(e) => setBreakup({ ...breakup, sizes: { ...breakup.sizes, [s]: e.target.value } })}
+                          className={inputCls}
+                          placeholder="0"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mb-2">
+                    <label className="mb-0.5 block text-[10px] text-muted-foreground">Note (optional)</label>
+                    <input value={breakup.reason} onChange={(e) => setBreakup({ ...breakup, reason: e.target.value })} className={inputCls} />
+                  </div>
+                  {/* Within 5% of the agreement either way, or it does not save (the user, 23 Oct 2026). */}
+                  <p className={`mb-2 text-xs ${Math.abs(breakupOff) > 0.05 ? "font-medium text-destructive" : "text-muted-foreground"}`}>
+                    {fmtBoxes(breakupTotal)} boxes against {fmtBoxes(agreed)} agreed
+                    {breakupTotal !== agreed && ` (${breakupOff > 0 ? "+" : ""}${(breakupOff * 100).toFixed(1)}%)`}
+                    {Math.abs(breakupOff) > 0.05 && " — more than 5% off the agreement; skip it and book a spot order instead"}
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={saveBreakup}
+                      disabled={busy || breakupTotal <= 0 || Math.abs(breakupOff) > 0.05}
+                      className="flex-1 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-50"
+                    >
+                      {busy ? <Loader2 className="mx-auto h-4 w-4 animate-spin" /> : `Save ${fmtBoxes(breakupTotal)} boxes for this day`}
+                    </button>
+                    {breakup.line.exception?.kind === "qty_override" && (
+                      <button
+                        onClick={() => resetBreakup(breakup.line.sourceId)}
+                        disabled={busy}
+                        className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50"
+                      >
+                        Reset to agreement
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
                 {(() => {
                   const struck = lines.filter(isStruck);
                   // One message per customer: the icon sits on their first order of the day.
@@ -485,6 +582,11 @@ function DayDrawer({
                       <div className="flex justify-end gap-0.5">
                         {l.kind === "spot" && (
                           <button onClick={() => openEdit(l as DayLine)} disabled={busy} title="Edit" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                        {l.kind === "standing" && breakupOpen && (
+                          <button onClick={() => openBreakup(l as DayLine)} disabled={busy} title="Grades for this day" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
                         )}

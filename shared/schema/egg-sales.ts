@@ -17,6 +17,7 @@ import {
   date,
   index,
   integer,
+  jsonb,
   numeric,
   pgTable,
   text,
@@ -79,6 +80,12 @@ export const eggAgreementExceptions = pgTable(
     kind: varchar("kind", { length: 12 }).notNull(),
     /** The boxes for a qty_override; meaningless on a skip. */
     boxes: integer("boxes"),
+    /**
+     * The day's grade breakup on a qty_override — boxes per grade, as a spot
+     * order books them; `boxes` is then their total. The customer gives the
+     * exact split the day before or on the day (the user, 23 Oct 2026).
+     */
+    sizes: jsonb("sizes").$type<Partial<Record<string, number>>>(),
     reason: text("reason"),
     createdBy: uuid("created_by")
       .notNull()

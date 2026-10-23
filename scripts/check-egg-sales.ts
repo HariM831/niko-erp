@@ -237,6 +237,22 @@ try {
     line = mine(lines).find((l) => l.kind === "standing")!;
     ok("an override changes the day's boxes only", line.boxes === 80 && line.exception?.kind === "qty_override");
 
+    // The customer's grade breakup for the day: the line carries it, the agreement's count beside it.
+    await tx
+      .update(eggAgreementExceptions)
+      .set({ boxes: 52, sizes: { large: 40, niko: 12 } })
+      .where(and(eq(eggAgreementExceptions.agreementId, ag!.id), eq(eggAgreementExceptions.onDate, MON)));
+    lines = await dayOrders(tx, MON);
+    line = mine(lines).find((l) => l.kind === "standing")!;
+    ok(
+      "a day's breakup shows by grade, agreement unchanged",
+      line.boxes === 52 && line.sizes?.large === 40 && line.sizes?.niko === 12 && line.agreedBoxes === 50,
+    );
+    await tx
+      .update(eggAgreementExceptions)
+      .set({ boxes: 80, sizes: null })
+      .where(and(eq(eggAgreementExceptions.agreementId, ag!.id), eq(eggAgreementExceptions.onDate, MON)));
+
     /* ══ 4. Loading refusals ═════════════════════════════════════════════ */
     await refuses(
       `no benchmark in force (${NOBM}) → refused`,

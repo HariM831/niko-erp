@@ -22,6 +22,8 @@ export interface OrderLine {
   city: string | null;
   boxes: number;
   sizes: Partial<Record<EggSize, number>> | null;
+  /** A standing order's own box count, before the day's change. */
+  agreedBoxes?: number;
   spreadPerEgg: string;
   exception: { kind: string; reason: string | null } | null;
   voided: boolean;
