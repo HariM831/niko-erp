@@ -41,6 +41,7 @@ import { settleReceipt } from "../server/routes/office";
 import { voidBill } from "../server/routes/purchases";
 import { deleteFreightPayment, payFreight, planFreight } from "../server/services/freight";
 import { istDate } from "../server/services/day-resolution";
+import { advanceSeriesPast } from "../server/lib/numbering";
 
 let failed = 0;
 const check = (name: string, pass: boolean, detail = "") => {
@@ -57,6 +58,12 @@ try {
     const [payable] = await tx.select().from(accounts).where(eq(accounts.systemKey, "freight_payable"));
     if (!payable) throw new Error("No freight_payable account — migration 0134 has not run");
     const userId = user!.id;
+    // A database whose bill counter trails bills loaded directly would hand
+    // settlement a number already taken. Moved past them here, rolled back.
+    const [{ top }] = (await tx.execute(
+      sql`SELECT coalesce(max(substring(number from '[0-9]+$')::int), 0) AS top FROM bills WHERE number ~ '^BILL-[0-9]+$'`,
+    )).rows as Array<{ top: number }>;
+    await advanceSeriesPast(tx, "bill", "BILL-", Number(top) + 1);
 
     // ── Fixtures ──
     const [stockAcct] = await tx
