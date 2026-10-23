@@ -455,9 +455,19 @@ export async function actualBoxesOn(tx: Conn, from: string, to: string) {
  * The shelf plus the lay, carried day to day:
  *   opening(d) = closing(d−1)
  *   supply(d)  = opening(d) + production(d)   graded sheet if in, else forecast
- *   closing(d) = supply(d) − committed(d)     assuming orders load
- * Past days rebuild their opening from the ledger (stock now − movements
- * since); today's is the same arithmetic; tomorrow's is projected.
+ *   closing(d) = supply(d) − sold(d)
+ *
+ * The shelf starts from the latest physical count (egg_stock_count is the
+ * day's closing): from the day after it, the closing is carried forward by
+ * graded boxes less what was booked — or loaded, where more went out than was
+ * booked. Orders are taken off whether or not they went through the Loading
+ * Bay, so trucks never keyed there no longer pile up as stock (the user, 23 Oct
+ * 2026). Every count re-anchors. The stock ledger itself is untouched; the
+ * Production & Stock Statement still reads it.
+ *
+ * Days before the first count have nothing to start from, so they keep the
+ * ledger: past days rebuild their opening from it (stock now − movements
+ * since), today's is the same arithmetic, tomorrow's is projected.
  */
 export interface SupplyDay {
   date: string;
@@ -473,15 +483,35 @@ export interface SupplyDay {
   closing: number | null;
 }
 
+/** Each day's physical count in boxes, up to `to` — Dirty's trays a seventh each. */
+async function countedBoxesByDay(tx: Conn, to: string): Promise<Map<string, number>> {
+  const prefs = await eggPrefs(tx);
+  const rows = await tx.select().from(eggStockCount).where(lte(eggStockCount.countedOn, to));
+  return new Map(
+    rows.map((r) => [r.countedOn, EGG_SIZES.reduce((a, s) => a + Number(r[s]) / unitsPerBox(s, prefs), 0)]),
+  );
+}
+
+const nextDay = (on: string) => {
+  const d = new Date(`${on}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+};
+
 export async function supplyCascade(tx: Conn, from: string, to: string): Promise<SupplyDay[]> {
   const today = istDate();
-  const graded = await gradedBoxesByDay(tx, from, to);
+  const counts = await countedBoxesByDay(tx, to);
+  // Carry from the last count before the range, so a month opens on it.
+  const anchor = [...counts.keys()].filter((d) => d < from).sort().pop();
+  const start = anchor ? nextDay(anchor) : from;
+
+  const graded = await gradedBoxesByDay(tx, start, to);
   const expected = await expectedGradedBoxesPerDay(tx);
   const held = await stockBySize(tx);
   const unitPrefs = await eggPrefs(tx);
   // In boxes: Dirty's trays count a seventh of a box each.
   const stockNow = EGG_SIZES.reduce((a, s) => a + held[s] / unitsPerBox(s, unitPrefs), 0);
-  const moves = await netMovesByDay(tx, from);
+  const moves = await netMovesByDay(tx, start);
   const openingFromLedger = (on: string) => {
     let since = 0;
     for (const [day, q] of moves) if (day >= on) since += q;
@@ -489,9 +519,9 @@ export async function supplyCascade(tx: Conn, from: string, to: string): Promise
   };
 
   const out: SupplyDay[] = [];
-  let carried: number | null = null;
-  for (let d = new Date(`${from}T00:00:00Z`); d.toISOString().slice(0, 10) <= to; d.setUTCDate(d.getUTCDate() + 1)) {
-    const on = d.toISOString().slice(0, 10);
+  let carried: number | null = anchor ? counts.get(anchor)! : null;
+  let counted = !!anchor;
+  for (let on = start; on <= to; on = nextDay(on)) {
     const lines = await dayOrders(tx, on);
     const standing = lines.filter((l) => l.kind === "standing" && !l.exception).reduce((a, l) => a + l.boxes, 0);
     const overridden = lines
@@ -502,18 +532,31 @@ export async function supplyCascade(tx: Conn, from: string, to: string): Promise
     const committed = standing + overridden + spot;
 
     const hasSheet = graded.has(on);
-    const production = hasSheet ? graded.get(on)! : on >= today ? expected : null;
-    const opening: number | null = on <= today ? openingFromLedger(on) : carried;
+    let production: number | null;
+    let opening: number | null;
+    let closing: number | null;
+    if (counted) {
+      // From a count on, a day with no sheet yet — past or future — takes the forecast.
+      production = hasSheet ? graded.get(on)! : expected;
+      opening = carried;
+    } else {
+      production = hasSheet ? graded.get(on)! : on >= today ? expected : null;
+      opening = on <= today ? openingFromLedger(on) : carried;
+    }
     const supply: number | null = opening != null && production != null ? opening + production : null;
-    // A day gone by closes on what the ledger says was left — the next day's
-    // opening — so a closing always carries into the next opening. Orders that
-    // never went through the Loading Bay are still on the shelf there, and the
-    // calendar says so rather than subtracting them (1 Oct 2026).
-    const next = new Date(d);
-    next.setUTCDate(next.getUTCDate() + 1);
-    const closing: number | null =
-      on < today ? openingFromLedger(next.toISOString().slice(0, 10)) : supply != null ? supply - committed : null;
+    if (counts.has(on)) {
+      // The day was counted: that is its closing, whatever the arithmetic said.
+      closing = counts.get(on)!;
+      counted = true;
+    } else if (counted) {
+      closing = supply != null ? supply - Math.max(committed, dispatched) : null;
+    } else {
+      // Before any count, a day gone by closes on the ledger — the next day's
+      // opening — and orders never loaded show as "not loaded" (1 Oct 2026).
+      closing = on < today ? openingFromLedger(nextDay(on)) : supply != null ? supply - committed : null;
+    }
     carried = closing;
+    if (on < from) continue;
     out.push({
       date: on,
       committed,
@@ -704,12 +747,13 @@ export async function saveGrading(tx: Tx, input: GradingInput, userId: string) {
   return row!;
 }
 
-/** Boxes graded per day, total across sheds, for the days that have a sheet. */
+/** Boxes graded per day, total across sheds, for the days that have a sheet — Dirty's trays a seventh each. */
 export async function gradedBoxesByDay(tx: Conn, from: string, to: string) {
+  const dirtyPerBox = unitsPerBox("dirty", await eggPrefs(tx));
   const rows = await tx
     .select({
       day: eggGrading.gradedOn,
-      boxes: sql<string>`sum(${eggGrading.small} + ${eggGrading.medium} + ${eggGrading.large} + ${eggGrading.xl} + ${eggGrading.jumbo} + ${eggGrading.brown} + ${eggGrading.niko} + ${eggGrading.dirty})`,
+      boxes: sql<string>`sum(${eggGrading.small} + ${eggGrading.medium} + ${eggGrading.large} + ${eggGrading.xl} + ${eggGrading.jumbo} + ${eggGrading.brown} + ${eggGrading.niko}) + sum(${eggGrading.dirty})::numeric / ${dirtyPerBox}`,
     })
     .from(eggGrading)
     .where(and(gte(eggGrading.gradedOn, from), lte(eggGrading.gradedOn, to)))
@@ -723,10 +767,11 @@ export async function gradedBoxesByDay(tx: Conn, from: string, to: string) {
  * so the calendar has a denominator from day one.
  */
 export async function expectedGradedBoxesPerDay(tx: Conn): Promise<number | null> {
+  const dirtyPerBox = unitsPerBox("dirty", await eggPrefs(tx));
   const rows = await tx
     .select({
       day: eggGrading.gradedOn,
-      boxes: sql<string>`sum(${eggGrading.small} + ${eggGrading.medium} + ${eggGrading.large} + ${eggGrading.xl} + ${eggGrading.jumbo} + ${eggGrading.brown} + ${eggGrading.niko} + ${eggGrading.dirty})`,
+      boxes: sql<string>`sum(${eggGrading.small} + ${eggGrading.medium} + ${eggGrading.large} + ${eggGrading.xl} + ${eggGrading.jumbo} + ${eggGrading.brown} + ${eggGrading.niko}) + sum(${eggGrading.dirty})::numeric / ${dirtyPerBox}`,
     })
     .from(eggGrading)
     .groupBy(eggGrading.gradedOn)
