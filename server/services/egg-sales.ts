@@ -459,10 +459,11 @@ export async function actualBoxesOn(tx: Conn, from: string, to: string) {
  *
  * The shelf starts from the latest physical count (egg_stock_count is the
  * day's closing): from the day after it, the closing is carried forward by
- * graded boxes less what was booked — or loaded, where more went out than was
- * booked. Orders are taken off whether or not they went through the Loading
- * Bay, so trucks never keyed there no longer pile up as stock (the user, 23 Oct
- * 2026). Every count re-anchors. The stock ledger itself is untouched; the
+ * graded boxes less what was sold. A day gone by sold what was invoiced on it,
+ * through the Loading Bay or not — a booking nobody skipped is not a sale (the
+ * user, 23 Oct 2026: the 22 Oct count agreed with the invoices, not the
+ * bookings). Today sold the larger of booked and invoiced; a day ahead, what is
+ * booked. Every count re-anchors. The stock ledger itself is untouched; the
  * Production & Stock Statement still reads it.
  *
  * Days before the first count have nothing to start from, so they keep the
@@ -492,6 +493,21 @@ async function countedBoxesByDay(tx: Conn, to: string): Promise<Map<string, numb
   );
 }
 
+/** Egg boxes invoiced per day (void invoices out) — Dirty's trays a seventh each. */
+async function invoicedBoxesByDay(tx: Conn, from: string, to: string): Promise<Map<string, number>> {
+  const prefs = await eggPrefs(tx);
+  const rows = await tx
+    .select({ day: invoices.invoiceDate, size: eggSizeItems.size, q: sql<string>`sum(${invoiceLines.quantity})` })
+    .from(invoiceLines)
+    .innerJoin(invoices, eq(invoices.id, invoiceLines.invoiceId))
+    .innerJoin(eggSizeItems, eq(eggSizeItems.itemId, invoiceLines.itemId))
+    .where(and(gte(invoices.invoiceDate, from), lte(invoices.invoiceDate, to), ne(invoices.status, "void")))
+    .groupBy(invoices.invoiceDate, eggSizeItems.size);
+  const out = new Map<string, number>();
+  for (const r of rows) out.set(r.day, (out.get(r.day) ?? 0) + Number(r.q) / unitsPerBox(r.size as EggSize, prefs));
+  return out;
+}
+
 const nextDay = (on: string) => {
   const d = new Date(`${on}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() + 1);
@@ -506,6 +522,7 @@ export async function supplyCascade(tx: Conn, from: string, to: string): Promise
   const start = anchor ? nextDay(anchor) : from;
 
   const graded = await gradedBoxesByDay(tx, start, to);
+  const invoiced = await invoicedBoxesByDay(tx, start, to);
   const expected = await expectedGradedBoxesPerDay(tx);
   const held = await stockBySize(tx);
   const unitPrefs = await eggPrefs(tx);
@@ -549,7 +566,9 @@ export async function supplyCascade(tx: Conn, from: string, to: string): Promise
       closing = counts.get(on)!;
       counted = true;
     } else if (counted) {
-      closing = supply != null ? supply - Math.max(committed, dispatched) : null;
+      const billed = invoiced.get(on) ?? 0;
+      const sold = on < today ? billed : on === today ? Math.max(committed, billed) : committed;
+      closing = supply != null ? supply - sold : null;
     } else {
       // Before any count, a day gone by closes on the ledger — the next day's
       // opening — and orders never loaded show as "not loaded" (1 Oct 2026).
