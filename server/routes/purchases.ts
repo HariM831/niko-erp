@@ -75,6 +75,15 @@ import {
 } from "../services/purchases";
 import { describeSpecsForOrder } from "../services/qc";
 import {
+  applyFreightToBillLines,
+  deleteFreightPayment,
+  payFreight,
+  planFreight,
+  postFreightCharges,
+  voidFreightForBill,
+} from "../services/freight";
+import { freightCharges, freightPayments } from "@shared/schema";
+import {
   buildPaymentFile,
   listPayables,
   transferMode,
@@ -178,6 +187,9 @@ const poSchema = z.object({
   reference: z.string().optional(),
   notes: z.string().optional(),
   termsAndConditions: z.string().optional(),
+  /** Freight we pay the transporter: per ton on the vendor's billed kilos, or a lump sum a truck. */
+  freightBasis: z.enum(["none", "per_ton", "per_truck"]).optional(),
+  freightRate: money.optional(),
   lines: z
     .array(
       lineSchema.extend({
@@ -366,6 +378,8 @@ export async function editPurchaseOrder(tx: Tx, orderId: string, body: PurchaseO
       reference: body.reference ?? po.reference,
       notes: body.notes ?? po.notes,
       termsAndConditions: body.termsAndConditions ?? po.termsAndConditions,
+      freightBasis: body.freightBasis ?? po.freightBasis,
+      freightRate: body.freightBasis === "none" ? "0" : (body.freightRate ?? po.freightRate),
       ...totalsPatch,
       updatedAt: new Date(),
     })
@@ -409,6 +423,8 @@ purchasesRouter.post(
             ...headerTotals,
             notes,
             termsAndConditions: body.termsAndConditions,
+            freightBasis: body.freightBasis ?? "none",
+            freightRate: body.freightBasis && body.freightBasis !== "none" ? (body.freightRate ?? "0") : "0",
             createdBy: req.session.user!.id,
           })
           .returning();
@@ -515,11 +531,54 @@ purchasesRouter.post(
           .where(eq(purchaseOrderLines.purchaseOrderId, po.id))
           .orderBy(asc(purchaseOrderLines.lineOrder));
 
+        /**
+         * The PO's freight, for the one truck a whole-order bill stands for.
+         * Per ton needs the lines in weight; kilos, quintals or tonnes.
+         */
+        const KG_PER: Record<string, number> = { kg: 1, kgs: 1, qtl: 100, quintal: 100, t: 1000, ton: 1000, tons: 1000, tonne: 1000, mt: 1000 };
+        const accounts = await resolveLineAccounts(
+          tx,
+          poLines.map((l) => ({ itemId: l.itemId ?? undefined, accountId: l.accountId ?? undefined, name: l.name })),
+        );
+        const freightPlans = await planFreight(tx, [
+          {
+            purchaseOrderId: po.id,
+            lines: poLines.map((l, i) => {
+              const per = KG_PER[(l.unit ?? "").trim().toLowerCase()];
+              return {
+                key: l.id,
+                itemId: l.itemId,
+                accountId: accounts[i]!.accountId,
+                name: l.name,
+                kg: per ? Number(l.quantity) * per : null,
+                value: Number(l.amount),
+              };
+            }),
+          },
+        ]);
+        const poItemIds = poLines.map((l) => l.itemId).filter((v): v is string => !!v);
+        const tracked = new Set(
+          poItemIds.length
+            ? (
+                await tx
+                  .select({ id: items.id })
+                  .from(items)
+                  .where(and(inArray(items.id, poItemIds), eq(items.trackInventory, true)))
+              ).map((r) => r.id)
+            : [],
+        );
+        const freightStock = freightPlans.flatMap((p) =>
+          p.lines
+            .filter((fl) => fl.itemId && tracked.has(fl.itemId) && fl.amountP > 0)
+            .map((fl) => ({ itemId: fl.itemId!, value: (fl.amountP / 100).toFixed(2) })),
+        );
+
         const bill = await createBill(tx, {
           vendor,
           billDate: req.body.billDate,
           vendorBillNumber: req.body.vendorBillNumber,
           purchaseOrderId: po.id,
+          freightStock,
           lines: poLines.map((l) => ({
             itemId: l.itemId ?? undefined,
             accountId: l.accountId ?? undefined,
@@ -534,6 +593,16 @@ purchasesRouter.post(
           })),
           postedBy: req.session.user!.id,
         });
+        if (freightPlans.length) {
+          await postFreightCharges(tx, {
+            plans: freightPlans,
+            billId: bill.id,
+            billNumber: bill.number,
+            chargeDate: req.body.billDate,
+            userId: req.session.user!.id,
+          });
+          await applyFreightToBillLines(tx, bill.id);
+        }
 
         for (const l of poLines) {
           await tx
@@ -837,6 +906,7 @@ purchasesRouter.patch(
           .values(billLineValues(c, bill.id))
           .returning({ id: billLines.id, lineOrder: billLines.lineOrder });
         await saveBillLineTags(tx, c, editedLines);
+        await applyFreightToBillLines(tx, bill.id);
 
         const jeId = await postJournal(tx, {
           entryDate: billDate,
@@ -1023,6 +1093,8 @@ export async function voidBill(tx: Tx, billId: string, voidDate: string, userId:
   for (const je of [bill.journalEntryId, bill.freightJournalEntryId]) {
     if (je) await reverseJournal(tx, je, voidDate, userId);
   }
+  // And the PO freight raised with it, unless the transporter is already paid.
+  await voidFreightForBill(tx, bill.id, voidDate, userId);
   const [updated] = await tx
     .update(bills)
     .set({ status: "void", balanceDue: "0.00", updatedAt: new Date() })
@@ -1940,6 +2012,106 @@ purchasesRouter.post(
   },
 );
 
+// ============================ Freight ============================
+//
+// Freight agreed on a PO and paid to the transporter by us — see
+// services/freight.ts. Each settled truck under such a PO is a charge; a
+// payment clears a set of them out of a bank account.
+
+purchasesRouter.get("/freight", requirePermission("purchases", "view"), async (req, res) => {
+  const status = String(req.query.status ?? "owed");
+  const rows = await db
+    .select({
+      id: freightCharges.id,
+      chargeDate: freightCharges.chargeDate,
+      vehicleNumber: freightCharges.vehicleNumber,
+      basis: freightCharges.basis,
+      rate: freightCharges.rate,
+      quantityKg: freightCharges.quantityKg,
+      amount: freightCharges.amount,
+      billId: freightCharges.billId,
+      billNumber: bills.number,
+      purchaseOrderId: freightCharges.purchaseOrderId,
+      poNumber: purchaseOrders.number,
+      vendorName: contacts.displayName,
+      receiptId: freightCharges.receiptId,
+      receiptNumber: officeReceipts.number,
+      paymentId: freightCharges.freightPaymentId,
+      paymentNumber: freightPayments.number,
+      paymentDate: freightPayments.paymentDate,
+    })
+    .from(freightCharges)
+    .innerJoin(bills, eq(bills.id, freightCharges.billId))
+    .innerJoin(purchaseOrders, eq(purchaseOrders.id, freightCharges.purchaseOrderId))
+    .innerJoin(contacts, eq(contacts.id, purchaseOrders.vendorId))
+    .leftJoin(officeReceipts, eq(officeReceipts.id, freightCharges.receiptId))
+    .leftJoin(freightPayments, eq(freightPayments.id, freightCharges.freightPaymentId))
+    .where(
+      and(
+        sql`${freightCharges.voidedAt} IS NULL`,
+        status === "owed"
+          ? sql`${freightCharges.freightPaymentId} IS NULL`
+          : status === "paid"
+            ? sql`${freightCharges.freightPaymentId} IS NOT NULL`
+            : sql`true`,
+      ),
+    )
+    .orderBy(asc(freightCharges.chargeDate), asc(freightCharges.createdAt));
+  res.json(rows);
+});
+
+purchasesRouter.get("/freight/payments", requirePermission("purchases", "view"), async (_req, res) => {
+  const rows = await db
+    .select({
+      id: freightPayments.id,
+      number: freightPayments.number,
+      paymentDate: freightPayments.paymentDate,
+      amount: freightPayments.amount,
+      transporter: freightPayments.transporter,
+      reference: freightPayments.reference,
+      notes: freightPayments.notes,
+      bankAccountName: bankAccounts.name,
+      trucks: sql<string>`(SELECT string_agg(coalesce(c.vehicle_number, '—'), ', ' ORDER BY c.charge_date)
+                             FROM freight_charges c WHERE c.freight_payment_id = ${freightPayments.id})`,
+    })
+    .from(freightPayments)
+    .leftJoin(bankAccounts, eq(bankAccounts.id, freightPayments.bankAccountId))
+    .orderBy(desc(freightPayments.paymentDate), desc(freightPayments.createdAt));
+  res.json(rows);
+});
+
+purchasesRouter.post(
+  "/freight/payments",
+  requirePermission("purchases", "create"),
+  validateBody(
+    z.object({
+      chargeIds: z.array(z.string().uuid()).min(1).max(200),
+      paymentDate: dateStr,
+      bankAccountId: z.string().uuid(),
+      transporter: z.string().max(200).optional(),
+      reference: z.string().max(200).optional(),
+      notes: z.string().max(1000).optional(),
+    }),
+  ),
+  async (req, res) => {
+    try {
+      const out = await db.transaction((tx) => payFreight(tx, { ...req.body, userId: req.session.user!.id }));
+      res.status(201).json(out);
+    } catch (err) {
+      if (!handlePostingError(err, res)) throw err;
+    }
+  },
+);
+
+purchasesRouter.delete("/freight/payments/:id", requirePermission("purchases", "delete"), async (req, res) => {
+  try {
+    await db.transaction((tx) => deleteFreightPayment(tx, req.params.id!, req.session.user!.id));
+    res.json({ ok: true });
+  } catch (err) {
+    if (!handlePostingError(err, res)) throw err;
+  }
+});
+
 // ======================= Account head suggestions =======================
 
 const suggestSchema = z.object({
@@ -2557,6 +2729,7 @@ export async function repostBill(tx: Tx, id: string, userId: string): Promise<vo
   );
   await tx.delete(billLines).where(eq(billLines.billId, id));
   await tx.insert(billLines).values(billLineValues(c, id));
+  await applyFreightToBillLines(tx, id);
 
   const jeId = await postJournal(tx, {
     entryDate: bill.billDate,

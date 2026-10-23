@@ -45,6 +45,8 @@ const SOURCE_DOC_BASE: Record<string, string> = {
   vendor_payment: "/purchases/payments",
   vendor_credit: "/purchases/vendor-credits",
   expense: "/purchases/expenses",
+  freight_charge: "/purchases/freight",
+  freight_payment: "/purchases/freight",
 };
 const SOURCE_LABEL: Record<string, string> = {
   manual: "Journal Entry",
@@ -59,6 +61,8 @@ const SOURCE_LABEL: Record<string, string> = {
   opening_balance: "Opening Balance",
   depreciation: "Depreciation",
   banking: "Bank Entry",
+  freight_charge: "Freight",
+  freight_payment: "Freight Payment",
 };
 
 export const bankingRouter = Router();

@@ -62,7 +62,14 @@ export const journalSourceType = pgEnum("journal_source_type", [
   "advance_application",
   /** A confirmed payroll run: salary expense against the payables. */
   "payroll_run",
+  /** A truck's freight under its PO's terms: the material's account against Freight Payable. */
+  "freight_charge",
+  /** Freight paid to transporters out of a bank account. */
+  "freight_payment",
 ]);
+
+/** How a purchase order's freight is charged — see migrations/0134_po_freight.sql. */
+export const freightBasis = pgEnum("freight_basis", ["none", "per_ton", "per_truck"]);
 
 /**
  * `both` is for a party that trades in each direction — Nandamuri Poultries

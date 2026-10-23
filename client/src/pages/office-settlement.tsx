@@ -61,6 +61,9 @@ interface Context {
   deductionTotal: number;
   netPayable: number;
   billTotalVariance: number | null;
+  /** Freight under the PO's terms, owed to the transporter once this settles. */
+  freight?: Array<{ poNumber: string; basis: string; rate: string; quantityKg: string | null; amount: string }>;
+  freightError?: string | null;
 }
 
 /** A deduction is identified by the line it sits on and the rule that made it. */
@@ -421,6 +424,28 @@ export function SettlementPage() {
                 <span>Net payable</span>
                 <span className="tabular-nums">{inr(netPayable)}</span>
               </div>
+
+              {/* Not part of what the vendor is paid: it goes to the transporter,
+                  and onto the material's cost. */}
+              {(ctx.freight?.length ?? 0) > 0 && (
+                <div className="mt-3 rounded-lg border border-gray-200 p-2 text-[12.5px]">
+                  {ctx.freight!.map((f) => (
+                    <div key={f.poNumber} className="flex justify-between">
+                      <span className="text-gray-600">
+                        Freight to transporter · {f.poNumber} ·{" "}
+                        {f.basis === "per_ton"
+                          ? `${inr(Number(f.rate))}/t × ${(Number(f.quantityKg) / 1000).toLocaleString("en-IN", { maximumFractionDigits: 3 })} t`
+                          : `${inr(Number(f.rate))} a truck`}
+                      </span>
+                      <span className="tabular-nums font-medium">{inr(Number(f.amount))}</span>
+                    </div>
+                  ))}
+                  <div className="mt-1 text-[11px] text-gray-500">Added to the material's cost; paid from Purchases › Freight.</div>
+                </div>
+              )}
+              {ctx.freightError && (
+                <p className="mt-3 rounded-lg bg-amber-50 px-2 py-1.5 text-[12px] text-amber-800">{ctx.freightError}</p>
+              )}
 
               <div className="mt-3 rounded-lg bg-gray-50 p-2 text-[11px] text-gray-500">
                 <div className="mb-1 font-semibold text-gray-600">The chain</div>

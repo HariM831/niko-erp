@@ -48,6 +48,7 @@ import {
 import { TransactionNewPage } from "./pages/transaction-new";
 import { PaymentNewPage } from "./pages/payment-new";
 import { VendorSheetPage } from "./pages/vendor-sheet";
+import { FreightPage } from "./pages/freight";
 import { ExpenseNewPage } from "./pages/expense-new";
 import { DocumentDetailPage } from "./pages/document-detail";
 import { ContactNewPage } from "./pages/contact-new";
@@ -182,6 +183,10 @@ export function App() {
         <Route path="/purchases/payments/:id/edit">{(p) => <PaymentNewPage side="vendor" editId={p.id!} />}</Route>
         <Route path="/purchases/payments/:id">{(p) => <PaymentDetailPage side="vendor" id={p.id!} />}</Route>
         <Route path="/purchases/payments" component={VendorPaymentsPage} />
+        {/* Freight owed to transporters on PO terms, and its payments. Banking
+            links an entry to /purchases/freight/<id>; the page is the same. */}
+        <Route path="/purchases/freight/:id" component={FreightPage} />
+        <Route path="/purchases/freight" component={FreightPage} />
         <Route path="/purchases/vendor-credits/new">{() => <TransactionNewPage kind="vendor-credit" />}</Route>
         <Route path="/purchases/vendor-credits/:id/edit">{(p) => <TransactionNewPage kind="vendor-credit" editId={p.id!} />}</Route>
         <Route path="/purchases/vendor-credits/:id">{(p) => <SplitDetail kind="vendor-credit" id={p.id!} />}</Route>

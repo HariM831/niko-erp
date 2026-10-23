@@ -14,6 +14,7 @@ import {
   billStatus,
   creditNoteStatus,
   paymentMode,
+  freightBasis,
   purchaseOrderStatus,
   vendorAdvanceStatus,
 } from "./enums";
@@ -93,6 +94,13 @@ export const purchaseOrders = pgTable("purchase_orders", {
   ...totalsColumns,
   notes: text("notes"),
   termsAndConditions: text("terms_and_conditions"),
+  /**
+   * Freight we pay the transporter for this order's trucks, as agreed with
+   * the vendor: so much a ton on the kilos they bill, or a lump sum a truck.
+   * Charged to the material's cost when each truck is settled (22 Oct 2026).
+   */
+  freightBasis: freightBasis("freight_basis").notNull().default("none"),
+  freightRate: numeric("freight_rate", { precision: 14, scale: 2 }).notNull().default("0"),
   /**
    * Over-delivery allowed on this order beyond the org-wide allowance, set by a
    * purchase manager (at most 5%), with who, when and why (3 Oct 2026).

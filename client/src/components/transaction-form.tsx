@@ -115,6 +115,8 @@ export interface TransactionFormConfig {
   withFreight?: boolean;
   /** Expected delivery date (purchase orders). */
   withDeliveryDate?: boolean;
+  /** Freight we pay the transporter, per ton or per truck (purchase orders). */
+  withPoFreight?: boolean;
   /**
    * Show the tax column and tax the totals.
    *
@@ -143,6 +145,8 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
   const [freightVendorId, setFreightVendorId] = useState("");
   const [freightAccountId, setFreightAccountId] = useState("");
   const [deliveryDate, setDeliveryDate] = useState("");
+  const [poFreightBasis, setPoFreightBasis] = useState<"none" | "per_ton" | "per_truck">("none");
+  const [poFreightRate, setPoFreightRate] = useState("");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<FormLine[]>([emptyLine()]);
   /** Zoho's Adjustment: a typed correction with its own label and account. */
@@ -175,6 +179,8 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
     setFreightVendorId((existing.freightVendorId as string) ?? "");
     setFreightAccountId((existing.freightAccountId as string) ?? "");
     setDeliveryDate((existing.expectedDeliveryDate as string) ?? "");
+    setPoFreightBasis((existing.freightBasis as "none" | "per_ton" | "per_truck") ?? "none");
+    setPoFreightRate(Number(existing.freightRate ?? 0) > 0 ? String(Number(existing.freightRate)) : "");
     // Sales documents keep their notes as customerNotes, purchase ones as notes.
     setNotes(((existing.customerNotes ?? existing.notes) as string) ?? "");
     setTds({
@@ -508,6 +514,10 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
         if (freightAccountId) body.freightAccountId = freightAccountId;
       }
       if (config.withDeliveryDate && deliveryDate) body.expectedDeliveryDate = deliveryDate;
+      if (config.withPoFreight) {
+        body.freightBasis = poFreightBasis;
+        if (poFreightBasis !== "none") body.freightRate = Number(poFreightRate || 0).toFixed(2);
+      }
       let savedId: string;
       if (editId) {
         await api(`${config.endpoint}/${editId}`, { method: "PATCH", body });
@@ -540,7 +550,9 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
 
   // Freight can't post without somewhere to charge it, so don't let Save promise otherwise.
   const freightNeedsAccount = config.withFreight && Number(freightAmount) > 0 && !freightAccountId;
-  const cannotSave = busy || !contactId || !date || freightNeedsAccount;
+  // Freight terms with no figure would charge nothing on every truck, quietly.
+  const poFreightIncomplete = config.withPoFreight && poFreightBasis !== "none" && !(Number(poFreightRate) > 0);
+  const cannotSave = busy || !contactId || !date || freightNeedsAccount || poFreightIncomplete;
 
   return (
     <div className="flex h-full flex-col">
@@ -607,6 +619,31 @@ export function TransactionForm({ config, editId }: { config: TransactionFormCon
                 onChange={(e) => setDeliveryDate(e.target.value)}
                 className={inputCls}
               />
+            </div>
+          )}
+          {config.withPoFreight && (
+            <div>
+              <label className="label">Freight (paid by us to the transporter)</label>
+              <div className="flex gap-2">
+                <select
+                  value={poFreightBasis}
+                  onChange={(e) => setPoFreightBasis(e.target.value as "none" | "per_ton" | "per_truck")}
+                  className={inputCls}
+                >
+                  <option value="none">None</option>
+                  <option value="per_ton">Per ton</option>
+                  <option value="per_truck">Lump sum per truck</option>
+                </select>
+                {poFreightBasis !== "none" && (
+                  <input
+                    value={poFreightRate}
+                    onChange={(e) => setPoFreightRate(e.target.value)}
+                    inputMode="decimal"
+                    placeholder={poFreightBasis === "per_ton" ? "₹ a ton" : "₹ a truck"}
+                    className={inputCls}
+                  />
+                )}
+              </div>
             </div>
           )}
           {config.withFreight && (

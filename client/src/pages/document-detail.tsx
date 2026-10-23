@@ -675,6 +675,8 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
               reference={doc.reference as string | null}
               allowance={doc.allowance as PoLetterheadProps["allowance"]}
               allowanceReason={doc.extraAllowanceReason as string | null}
+              freightBasis={doc.freightBasis as PoLetterheadProps["freightBasis"]}
+              freightRate={doc.freightRate as string | null}
               placeOfSupply={supply}
               vendorName={contact?.displayName ?? "—"}
               vendorLink={

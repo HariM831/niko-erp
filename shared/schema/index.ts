@@ -21,6 +21,7 @@ export * from "./banking";
 export * from "./sales";
 export * from "./purchases";
 export * from "./office";
+export * from "./freight";
 export * from "./feedmill";
 export * from "./attachments";
 export * from "./comments";

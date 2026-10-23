@@ -518,6 +518,12 @@ export interface CreateBillArgs {
    * value waits in Goods in Transit between the two.
    */
   stockDate?: string;
+  /**
+   * Freight agreed on the PO, by material, added to what goes into stock
+   * (services/freight.ts). Its own entry debits the stock account on the day
+   * the truck arrived, so it stays out of the Goods in Transit pair.
+   */
+  freightStock?: Array<{ itemId: string; value: string }>;
 }
 
 /** Shared by direct bill creation and PO conversion. Posts the JE immediately (status "open"). */
@@ -632,6 +638,8 @@ export async function receiveBillStock(
     billDate: string;
     stockDate: string;
     movements: Array<{ itemId: string; quantity: string; value: string }>;
+    /** What the bill's own entry put on the stock account, when it differs from the movements. */
+    transitMovements?: Array<{ itemId: string; value: string }>;
     stockLocationId?: string;
     postedBy: string;
   },
@@ -643,7 +651,9 @@ export async function receiveBillStock(
     sourceId: args.billId,
     stockLocationId: args.stockLocationId,
   });
-  if (args.stockDate !== args.billDate) await postGoodsInTransit(tx, args);
+  if (args.stockDate !== args.billDate) {
+    await postGoodsInTransit(tx, { ...args, movements: args.transitMovements ?? args.movements });
+  }
 }
 
 /**
@@ -773,12 +783,20 @@ export async function createBill(tx: Tx, args: CreateBillArgs) {
   const firstItem = c.computedLines[0]?.itemId;
   const carrier = roundOffP && firstItem ? movements.find((m) => m.itemId === firstItem) : undefined;
   if (carrier) carrier.value = fromPaise(toPaise(carrier.value) + roundOffP);
+  // The bill's own entry carries the goods only; the PO freight rides on its
+  // own entry, so it joins the stock after the transit pair is sized.
+  const transitMovements = movements.map((m) => ({ itemId: m.itemId, value: m.value }));
+  for (const f of args.freightStock ?? []) {
+    const m = movements.find((x) => x.itemId === f.itemId);
+    if (m) m.value = fromPaise(toPaise(m.value) + toPaise(f.value));
+  }
   await receiveBillStock(tx, {
     billId: bill!.id,
     billNumber: number,
     billDate: args.billDate,
     stockDate: args.stockDate ?? args.billDate,
     movements,
+    transitMovements,
     // Where the goods landed. Procurement passes the receiving site; a bill
     // keyed by hand falls back to the main store of the primary location.
     stockLocationId: await mainStore(tx, args.stockLocationOf ?? null),

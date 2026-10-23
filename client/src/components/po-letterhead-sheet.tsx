@@ -17,6 +17,9 @@ export interface PoLetterheadProps {
   reference?: string | null;
   allowance?: { orgPct: number; extraPct: number; by: string | null } | null;
   allowanceReason?: string | null;
+  /** Freight we pay the transporter, as agreed with the vendor. */
+  freightBasis?: "none" | "per_ton" | "per_truck" | null;
+  freightRate?: string | null;
   placeOfSupply: string | null;
   vendorName: string;
   vendorLink?: React.ReactNode;
@@ -89,6 +92,14 @@ export function PoLetterheadSheet(p: PoLetterheadProps) {
                       {p.allowanceReason ? ` — ${p.allowanceReason}` : ""}
                     </>
                   )}
+                </span>
+              </>
+            )}
+            {p.freightBasis && p.freightBasis !== "none" && Number(p.freightRate) > 0 && (
+              <>
+                <span className="lh-lbl">Freight</span>
+                <span className="lh-bold">
+                  ₹{n(p.freightRate!)} {p.freightBasis === "per_ton" ? "per ton" : "per truck"}, paid by us to the transporter
                 </span>
               </>
             )}

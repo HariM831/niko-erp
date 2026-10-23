@@ -101,6 +101,8 @@ const COA: Array<[string, string, AcctType, AcctSubtype, string?, string?, boole
   // pt_payable was left assigned to no account at all. Payroll's professional
   // tax posting had nowhere to go on any freshly seeded database.
   ["2131", "Professional Tax Payable", "liability", "other_current_liability", "pt_payable", "2120"],
+  // What we owe transporters for freight agreed on a PO (0134_po_freight.sql).
+  ["2132", "Freight Payable", "liability", "other_current_liability", "freight_payable", "2120"],
 
   // ---------------- Equity ----------------
   ["3000", "Equity", "equity", "equity", undefined, undefined, true],
@@ -221,6 +223,7 @@ const SERIES: Array<[string, string]> = [
   ["vendor_payment", "VPMT-"],
   ["payment_batch", "PB-"],
   ["vendor_advance_request", "ADV-"],
+  ["freight_payment", "FRP-"],
   ["vendor_credit", "VCN-"],
   ["expense", "EXP-"],
   ["fixed_asset", "FA-"],

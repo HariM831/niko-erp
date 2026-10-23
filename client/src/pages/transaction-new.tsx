@@ -51,6 +51,7 @@ const configs: Record<string, TransactionFormConfig> = {
     dateLabel: "Order Date",
     withAccountColumn: true,
     withDeliveryDate: true,
+    withPoFreight: true,
     /** The vendor charges GST and this document is theirs — see withTax. */
     withTax: true,
   },

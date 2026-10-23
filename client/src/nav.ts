@@ -106,6 +106,7 @@ export const NAV: NavItem[] = [
       { label: "Bills", path: "/purchases/bills", home: true, perm: ["purchases", "view"] },
       { label: "Vendor Sheet", path: "/purchases/vendor-sheet", perm: ["purchases", "view"] },
       { label: "Payments Made", path: "/purchases/payments", perm: ["purchases", "view"] },
+      { label: "Freight", path: "/purchases/freight", perm: ["purchases", "view"] },
       { label: "Vendor Credits", path: "/purchases/vendor-credits", perm: ["purchases", "view"] },
     ],
   },

@@ -39,6 +39,7 @@ import { validateBody } from "../lib/validate";
 import { nextDocumentNumber, resyncDocumentNumber } from "../lib/numbering";
 import { PostingError, assertPeriodOpen } from "../services/posting";
 import { computeDueDate, createBill, loadVendor } from "../services/purchases";
+import { applyFreightToBillLines, planFreight, postFreightCharges } from "../services/freight";
 import { stockUnitsPerKg } from "../services/inventory";
 import {
   ALLOWED_MIME,
@@ -2005,15 +2006,58 @@ officeRouter.get("/receipts/for-bill/:billId", requireAnyPermission(RECEIPT_EVID
   res.json(row ?? null);
 });
 
+/**
+ * The truck's materials, order by order, as the PO freight sees them: every
+ * unloaded line, since the transporter carried it whatever QC then took off
+ * it. Per ton is on the kilos the vendor billed.
+ */
+function truckFreightGroups(ctx: Awaited<ReturnType<typeof settlementContext>>) {
+  const byOrder = new Map<string, typeof ctx.lines>();
+  for (const l of ctx.lines) {
+    if (l.line.status !== "unloaded" || !l.line.purchaseOrderId) continue;
+    const list = byOrder.get(l.line.purchaseOrderId) ?? [];
+    list.push(l);
+    byOrder.set(l.line.purchaseOrderId, list);
+  }
+  return [...byOrder].map(([purchaseOrderId, ls]) => ({
+    purchaseOrderId,
+    lines: ls.map((l) => ({
+      key: l.line.id,
+      itemId: l.line.itemId,
+      accountId: l.purchaseAccountId,
+      name: l.line.itemName ?? "Material",
+      kg: l.line.billQuantityKg != null ? Number(l.line.billQuantityKg) : null,
+      value: ctx.billLines.find((b) => b.kind === "goods" && b.lineId === l.line.id)?.amount ?? 0,
+    })),
+  }));
+}
+
 officeRouter.get(
   "/receipts/:id/settlement-context",
   requirePermission("office", "settle"),
   async (req, res) => {
     try {
       const ctx = await settlementContext(db, req.params.id!);
+      // What settling will add for the transporter under the PO's freight terms.
+      // Refused terms (a per-ton order with an unweighed line) show as a note.
+      let freight: Array<{ poNumber: string; basis: string; rate: string; quantityKg: string | null; amount: string }> = [];
+      let freightError: string | null = null;
+      try {
+        freight = (await planFreight(db, truckFreightGroups(ctx))).map((p) => ({
+          poNumber: p.poNumber,
+          basis: p.basis,
+          rate: p.rate,
+          quantityKg: p.quantityKg,
+          amount: (p.amountP / 100).toFixed(2),
+        }));
+      } catch (e) {
+        freightError = e instanceof Error ? e.message : String(e);
+      }
       res.json({
         ...ctx,
         lines: ctx.lines.map((l) => l.line),
+        freight,
+        freightError,
       });
     } catch (err) {
       if (!fail(err, res)) throw err;
@@ -2265,12 +2309,26 @@ export async function settleReceipt(tx: Tx, receiptId: string, body: SettleBody,
       return [{ itemId: l.line.itemId!, quantity: (kg * stockUnitsPerKg(l)!).toFixed(3), value: value.toFixed(2) }];
     });
 
+  /**
+   * Freight agreed on the order, paid to the transporter by us: part of what
+   * the material cost (services/freight.ts). Per ton on the kilos the vendor
+   * billed; a lump sum once for the truck. Every unloaded line, since the
+   * transporter carried it whatever QC then took off it.
+   */
+  const freightPlans = await planFreight(tx, truckFreightGroups(ctx));
+  const freightStock = freightPlans.flatMap((p) =>
+    p.lines
+      .filter((fl) => fl.itemId && fl.amountP > 0 && inStock.some((s) => s.line.id === fl.key))
+      .map((fl) => ({ itemId: fl.itemId!, value: (fl.amountP / 100).toFixed(2) })),
+  );
+
   const bill = await createBill(tx, {
     vendor,
     billDate,
     dueDate,
     stockDate: arrived,
     stockMovements,
+    freightStock,
     // The goods land at the site the lorry came to.
     stockLocationOf: receipt.locationId,
     vendorBillNumber: receipt.vendorBillNumber ?? undefined,
@@ -2316,6 +2374,18 @@ export async function settleReceipt(tx: Tx, receiptId: string, body: SettleBody,
     ],
     postedBy: userId,
   });
+  if (freightPlans.length) {
+    await postFreightCharges(tx, {
+      plans: freightPlans,
+      billId: bill.id,
+      billNumber: bill.number,
+      receiptId: receipt.id,
+      vehicleNumber: receipt.vehicleNumber,
+      chargeDate: arrived,
+      userId,
+    });
+    await applyFreightToBillLines(tx, bill.id);
+  }
 
   // Counters. An unloaded line discharges the order by what the vendor
   // sent, and is billed for the same — QC rejections were counted at
