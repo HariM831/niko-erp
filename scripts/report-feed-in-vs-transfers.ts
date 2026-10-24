@@ -104,9 +104,7 @@ async function main() {
   for (const m of mill) console.log(`  ${m.name.padEnd(14)} made ${t(m.made).padStart(7)}  sent ${t(m.sent).padStart(7)}  on hand ${t(m.on_hand).padStart(7)}`);
 
   if (process.argv.includes("--arrivals")) {
-    console.log("
-EVERY SILO ARRIVAL (≥ 1 t), shed by shed
-");
+    console.log("\nEVERY SILO ARRIVAL (≥ 1 t), shed by shed");
     let last = "";
     for (const a of arrivals) {
       const code = a.slice(0, 2);
