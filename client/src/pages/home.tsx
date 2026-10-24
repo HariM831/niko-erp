@@ -170,7 +170,7 @@ function Tile({
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-yolk-50 text-yolk-600">{icon}</span>
-          <h2 className="text-[14px] font-bold text-soil-900">{title}</h2>
+          <h2 className="card-title text-[14px] font-bold text-soil-900">{title}</h2>
         </div>
         {hint && <span className="text-[11px] text-soil-400">{hint}</span>}
       </div>
@@ -487,7 +487,7 @@ export function HomePage() {
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-yolk-400 opacity-75" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-yolk-500" />
               </span>
-              <h1 className="text-[22px] font-extrabold tracking-tight text-soil-900">
+              <h1 className="home-greeting text-[22px] font-extrabold tracking-tight text-soil-900">
                 Hello, {user?.name?.split(" ")[0] ?? "there"} 👋
               </h1>
             </div>
@@ -502,7 +502,7 @@ export function HomePage() {
             edge unreachable. Scrolls within itself now; max-w-full stops it
             setting the width of everything above it.
           */}
-          <div className="flex max-w-full shrink-0 gap-1 overflow-x-auto rounded-xl bg-white p-1 shadow-sm ring-1 ring-soil-100">
+          <div className="range-tabs flex max-w-full shrink-0 gap-1 overflow-x-auto rounded-xl bg-white p-1 shadow-sm ring-1 ring-soil-100">
             {RANGES.map((r) => (
               <button
                 key={r}
@@ -526,9 +526,9 @@ export function HomePage() {
         <div className="mx-auto max-w-[1800px] space-y-4 p-6 xl:p-8">
           {/* ── Farm hero — the reason there is a mill or a ledger at all ── */}
           <div className="grid gap-4 lg:grid-cols-3">
-            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-yolk-400 via-yolk-500 to-yolk-600 p-5 text-white shadow-[0_8px_30px_-12px_color-mix(in_srgb,var(--color-yolk-600)_55%,transparent)] lg:col-span-2">
+            <div className="farm-hero relative overflow-hidden rounded-2xl bg-gradient-to-br from-yolk-400 via-yolk-500 to-yolk-600 p-5 text-white shadow-[0_8px_30px_-12px_color-mix(in_srgb,var(--color-yolk-600)_55%,transparent)] lg:col-span-2">
               {/* A quiet sun, not a texture — one soft circle, nothing more */}
-              <div className="pointer-events-none absolute -right-10 -top-14 h-48 w-48 rounded-full bg-white/10" />
+              <div className="hero-sun pointer-events-none absolute -right-10 -top-14 h-48 w-48 rounded-full bg-white/10" />
               <div className="relative flex items-start justify-between">
                 <div className="flex items-center gap-2">
                   <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/15">
@@ -557,7 +557,7 @@ export function HomePage() {
             {/* Per-house register, beside the hero */}
             <div className="rounded-2xl bg-white p-4 shadow-[0_1px_2px_rgba(36,26,16,0.06),0_1px_10px_-4px_rgba(36,26,16,0.08)]">
               <div className="mb-2.5 flex items-center justify-between">
-                <h3 className="text-[12px] font-bold uppercase tracking-wide text-soil-400">Houses</h3>
+                <h3 className="sec-label text-[12px] font-bold uppercase tracking-wide text-soil-400">Houses</h3>
                 <button onClick={() => setDetail("houses")} className="text-[11px] font-semibold text-yolk-600 hover:underline">
                   all →
                 </button>

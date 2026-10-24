@@ -115,10 +115,33 @@
    and picked on 24 Oct 2026; the logo-file red read faded and signal red
    (#e30613) too cold beside the cloth. 400 and 500 are the
    same so the home hero is one flat red rather than a salmon-to-red sweep;
-   600 is barely deeper, which keeps hover states visible. The rail goes
-   near-black (brown dulled the red) and the page header goes white with a
-   red rule instead of the pink wash. */
+   600 is barely deeper, which keeps hover states visible.
+
+   From 24 Oct 2026 Niko red also carries the nikoeggs.com look (see "Niko
+   look" further down): the website footer's deep red for the rail, its cream
+   page, sand secondaries and warm browns in place of the cool greys. The grey
+   and soil ramps are redefined here, so every text-gray-* in the app warms
+   without a screen changing. */
 [data-accent="niko"] {
+  --color-surface: #fcf9f6;
+
+  --color-gray-50: #fbf8f4;
+  --color-gray-100: #f3eee8;
+  --color-gray-200: #e8dfd4;
+  --color-gray-300: #d6ccc1;
+  --color-gray-400: #a39990;
+  --color-gray-500: #8a8079;
+  --color-gray-600: #5f564f;
+  --color-gray-700: #4a423c;
+  --color-gray-800: #2e2925;
+  --color-gray-900: #1d1a18;
+
+  --color-soil-50: #fcf9f6;
+  --color-soil-100: #f1eae1;
+  --color-soil-400: #8a8079;
+  --color-soil-600: #5f564f;
+  --color-soil-900: #1d1a18;
+
   --color-brand-50: #fdf4f3;
   --color-brand-100: #fbe2e1;
   --color-brand-200: #f6c4c3;
@@ -144,9 +167,9 @@
   --color-primary: #d2171a;
   --color-ring: #d2171a;
 
-  --color-sidebar: #1c1c1c;
-  --color-sidebar-deep: #121212;
-  --color-sidebar-hover: #2c2c2c;
+  --color-sidebar: #850206;
+  --color-sidebar-deep: #6e0105;
+  --color-sidebar-hover: #9a0e12;
 }
 
 /* ── Teal accent ──────────────────────────────────────────────────────────
@@ -417,10 +440,176 @@ body {
   @apply border-b border-yolk-200/70 bg-gradient-to-r from-yolk-100 via-yolk-50 to-transparent;
 }
 
-/* Niko red keeps its headers white like the PO letterhead: a pink wash under
-   a signal red reads faded. */
+/* ── Niko look ─────────────────────────────────────────────────────────────
+   nikoeggs.com carried into the app under Niko red (24 Oct 2026; the spec is
+   the "niko look, detailed" sample). Glacial Indifference, the website's own
+   face, carries the brand: headings, the rail, buttons. Inter keeps the
+   work: tables, amounts, forms. Glacial's digits are proportional (a 1 is half
+   an 8), so a column of amounts in it never lines up.
+
+   The font is served from nikoeggs.com, which allows any origin; if that site
+   is down the fallback is Inter and nothing breaks. */
+@font-face {
+  font-family: "Glacial Indifference";
+  src: url("https://www.nikoeggs.com/assets/glacial-indifference.regular.otf") format("opentype");
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Glacial Indifference";
+  src: url("https://www.nikoeggs.com/assets/glacial-indifference.bold.otf") format("opentype");
+  font-weight: 700;
+  font-display: swap;
+}
+
+[data-accent="niko"] {
+  --font-brand: "Glacial Indifference", var(--font-sans);
+}
+
+/* Headers sit on the cream page, divided by a sand rule, as on the website. */
 [data-accent="niko"] .page-header {
-  @apply border-brand-500 bg-white bg-none;
+  @apply bg-transparent bg-none;
+  border-color: var(--color-gray-200);
+}
+/* The summary strips under a list's title lose the pink wash for sand. */
+[data-accent="niko"] .tint-band {
+  @apply bg-none;
+  background-color: #f6f1ea;
+  border-color: var(--color-gray-200);
+}
+/* A header's title: list names, document numbers. */
+[data-accent="niko"] .page-header :is(h1, h2, .font-semibold, .font-bold) {
+  font-family: var(--font-brand);
+  font-weight: 700;
+}
+[data-accent="niko"] .page-header button.font-semibold {
+  font-size: 19px;
+}
+
+/* The rail: the website footer's deep red, pale pink type, a gamosa scallop
+   along its top edge, and pills rather than rounded boxes. */
+[data-accent="niko"] .rail {
+  position: relative;
+  color: #f4dcd8;
+}
+[data-accent="niko"] .rail::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 10px;
+  background: radial-gradient(circle at 5px 0, var(--color-brand-500) 4px, transparent 4.5px) 0 0 / 10px 10px repeat-x;
+  pointer-events: none;
+}
+[data-accent="niko"] .rail nav {
+  font-family: var(--font-brand);
+  font-size: 15px;
+}
+[data-accent="niko"] .rail .rail-item {
+  border-radius: 999px;
+  font-weight: 400;
+}
+[data-accent="niko"] .rail .rail-sub {
+  font-size: 14px;
+}
+[data-accent="niko"] .rail .rail-item:hover {
+  color: #fff;
+}
+/* Active is a cream pill with red type: red on red would vanish. */
+[data-accent="niko"] .rail .rail-active {
+  background: #fcf9f6;
+  color: var(--color-brand-500);
+  font-weight: 700;
+}
+[data-accent="niko"] .rail .rail-active:hover {
+  color: var(--color-brand-500);
+}
+[data-accent="niko"] .rail .rail-active svg {
+  color: var(--color-brand-500);
+}
+/* An open group's icon is brand red elsewhere; on this rail it would vanish. */
+[data-accent="niko"] .rail .text-brand-400 {
+  color: #fff;
+}
+[data-accent="niko"] .rail .text-gray-500 {
+  color: rgb(244 220 216 / 0.7);
+}
+[data-accent="niko"] .rail .rail-user {
+  font-family: var(--font-brand);
+  font-size: 15px;
+  font-weight: 700;
+}
+/* The logo mark sits on a cream tile, as on the website. */
+[data-accent="niko"] .rail .rail-logo {
+  background: #fcf9f6;
+  border-radius: 12px;
+  padding: 5px 9px;
+  margin-top: 6px;
+}
+
+/* Pill buttons in the website's face. */
+[data-accent="niko"] :is(.btn-primary, .btn-secondary) {
+  border-radius: 999px;
+  font-family: var(--font-brand);
+  font-size: 14px;
+  font-weight: 700;
+  padding-inline: 16px;
+}
+[data-accent="niko"] .btn-secondary {
+  background-color: #f1eae1;
+  border-color: transparent;
+}
+
+[data-accent="niko"] .table-head {
+  background-color: #fbf8f4;
+  color: #8a8079;
+  letter-spacing: 0.05em;
+}
+
+/* Home */
+[data-accent="niko"] .home-greeting {
+  font-family: var(--font-brand);
+  font-size: 28px;
+  line-height: 32px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+[data-accent="niko"] .range-tabs {
+  border-radius: 999px;
+}
+[data-accent="niko"] .range-tabs button {
+  border-radius: 999px;
+  font-family: var(--font-brand);
+  font-size: 14px;
+}
+[data-accent="niko"] .card-title {
+  font-family: var(--font-brand);
+  font-size: 17px;
+  font-weight: 700;
+}
+/* Section labels: small gold capitals, deepened on white so they read. */
+[data-accent="niko"] .sec-label {
+  color: #a8670f;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+[data-accent="niko"] .farm-hero {
+  box-shadow: none;
+}
+[data-accent="niko"] .farm-hero .hero-sun {
+  display: none;
+}
+[data-accent="niko"] .farm-hero h2 {
+  font-family: var(--font-brand);
+  font-size: 19px;
+}
+[data-accent="niko"] .farm-hero::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 10px;
+  background: radial-gradient(circle at 5px 10px, #850206 4px, transparent 4.5px) 0 0 / 10px 10px repeat-x;
+  pointer-events: none;
 }
 
 .table-surface {

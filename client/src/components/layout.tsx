@@ -84,7 +84,9 @@ function SidebarBody({
       <div className="flex h-14 items-center justify-between px-4">
         {/* brand-500 rather than 600: the deeper step goes muddy on the rail's
             dark ground, in either accent. */}
-        <LogoMark className="h-8" color="bg-brand-500" />
+        <span className="rail-logo">
+          <LogoMark className="block h-8" color="bg-brand-500" />
+        </span>
         {onHide && (
           <button
             onClick={onHide}
@@ -106,7 +108,7 @@ function SidebarBody({
               <div key={item.label} className="mb-0.5">
                 <button
                   onClick={() => setOpenGroup(open ? null : item.label)}
-                  className={`flex w-full items-center justify-between rounded-lg px-2.5 py-2 font-medium transition-colors duration-150 ${
+                  className={`rail-item flex w-full items-center justify-between rounded-lg px-2.5 py-2 font-medium transition-colors duration-150 ${
                     groupActive && !open
                       ? "bg-sidebar-hover text-white"
                       : "hover:bg-sidebar-hover hover:text-gray-200"
@@ -138,9 +140,9 @@ function SidebarBody({
                           key={c.path}
                           href={c.path}
                           onClick={onNavigate}
-                          className={`block rounded-lg py-[7px] pl-[38px] pr-2.5 transition-colors duration-150 ${
+                          className={`rail-item rail-sub block rounded-lg py-[7px] pl-[38px] pr-2.5 transition-colors duration-150 ${
                             active
-                              ? "bg-brand-500 font-semibold text-white shadow-sm"
+                              ? "rail-active bg-brand-500 font-semibold text-white shadow-sm"
                               : "hover:bg-sidebar-hover hover:text-gray-200"
                           }`}
                         >
@@ -159,9 +161,9 @@ function SidebarBody({
               key={item.label}
               href={item.path!}
               onClick={onNavigate}
-              className={`mb-0.5 flex items-center gap-2.5 rounded-lg px-2.5 py-2 font-medium transition-colors duration-150 ${
+              className={`rail-item mb-0.5 flex items-center gap-2.5 rounded-lg px-2.5 py-2 font-medium transition-colors duration-150 ${
                 active
-                  ? "bg-brand-500 text-white shadow-sm"
+                  ? "rail-active bg-brand-500 text-white shadow-sm"
                   : "hover:bg-sidebar-hover hover:text-gray-200"
               }`}
             >
@@ -177,7 +179,7 @@ function SidebarBody({
             {user?.name?.[0]?.toUpperCase() ?? "U"}
           </span>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-[13px] font-semibold text-white">{user?.name}</div>
+            <div className="rail-user truncate text-[13px] font-semibold text-white">{user?.name}</div>
             <div className="truncate text-[11px] text-gray-500">{user?.roleName}</div>
           </div>
           <button
@@ -317,7 +319,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
       <div className="flex h-screen overflow-hidden">
         {/* Desktop rail */}
         {!railHidden && (
-          <aside className="hidden w-[218px] shrink-0 flex-col bg-sidebar text-gray-400 print:hidden lg:flex">
+          <aside className="hidden w-[218px] shrink-0 rail flex-col bg-sidebar text-gray-400 print:hidden lg:flex">
             <SidebarBody
               navItems={navItems}
               location={location}
@@ -335,7 +337,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
         {drawerOpen && (
           <div className="fixed inset-0 z-50 lg:hidden">
             <div className="fixed inset-0 bg-black/50" onClick={() => setDrawerOpen(false)} />
-            <aside className="absolute left-0 top-0 flex h-full w-[264px] flex-col bg-sidebar text-gray-400 shadow-2xl">
+            <aside className="absolute left-0 top-0 flex h-full w-[264px] rail flex-col bg-sidebar text-gray-400 shadow-2xl">
               <SidebarBody
                 navItems={navItems}
                 location={location}

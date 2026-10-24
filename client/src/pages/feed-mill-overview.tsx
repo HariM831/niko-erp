@@ -64,7 +64,7 @@ function Spot({
   return (
     <div className="rounded-xl bg-white shadow-sm">
       <Link href={href}>
-        <div className="cursor-pointer border-b border-yolk-200/60 bg-gradient-to-r from-yolk-100 via-yolk-50 to-transparent px-3 py-2">
+        <div className="cursor-pointer border-b border-yolk-200/60 tint-band bg-gradient-to-r from-yolk-100 via-yolk-50 to-transparent px-3 py-2">
           <div className="flex items-baseline justify-between gap-2">
             <span className="text-[12px] font-semibold uppercase tracking-wide text-soil-700">{label}</span>
             <span className="text-[13px] font-semibold tabular-nums text-soil-800">
