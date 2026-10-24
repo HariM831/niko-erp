@@ -17,7 +17,9 @@ import {
   billLines,
   bills,
   contacts,
+  inventoryTransactions,
   items,
+  officeReceipts,
   reportingTagOptions,
   vendorCreditApplications,
   vendorCreditLines,
@@ -621,6 +623,97 @@ async function stockLines(
 }
 
 /**
+ * What a bill puts into stock: its tracked goods lines (or what the caller
+ * says came off the lorry), carrying the bill's round-off.
+ *
+ * The bill's own round-off (total to the rupee) folds into the first line's
+ * account — the stock account, for goods — so the first line's material
+ * carries it too, or stock is worth paise more than the entry put there
+ * (GR-00027: ₹10,52,350.20 into stock, ₹10,52,350.00 on Feed Stock).
+ */
+async function billStockMovements(
+  tx: Tx,
+  c: BillComputation,
+  given?: Array<{ itemId: string; quantity: string; value: string }>,
+): Promise<Array<{ itemId: string; quantity: string; value: string }>> {
+  const movements = given ?? (await stockLines(tx, c));
+  const roundOffP = toPaise(c.totals.roundOff);
+  const firstItem = c.computedLines[0]?.itemId;
+  const carrier = roundOffP && firstItem ? movements.find((m) => m.itemId === firstItem) : undefined;
+  if (carrier) carrier.value = fromPaise(toPaise(carrier.value) + roundOffP);
+  return movements;
+}
+
+/**
+ * Editing a bill moves its stock by the difference.
+ *
+ * The edit reverses and re-posts the bill's journal, so the stock account
+ * follows the new lines; the quantities have to follow too, or Stock on Hand
+ * keeps what was first keyed (Mixiblend billed as 5,000 kg, corrected to
+ * 1,250 packets, still read 5,000 — 24 Oct 2026). The difference lands on
+ * the bill's own stock rows, same day and store, so the bill's movements sum
+ * to what it now says and a later void takes back exactly that.
+ *
+ * Left alone: a bill a goods receipt settled, whose stock is the weighed net
+ * off the lorry rather than the vendor's lines, and a bill that never moved
+ * stock at all.
+ */
+export async function restateBillStock(
+  tx: Tx,
+  billId: string,
+  before: BillComputation,
+  after: BillComputation,
+): Promise<void> {
+  const settled = await tx
+    .select({ id: officeReceipts.id })
+    .from(officeReceipts)
+    .where(eq(officeReceipts.billId, billId))
+    .limit(1);
+  if (settled.length) return;
+
+  const posted = await tx
+    .select({
+      itemId: inventoryTransactions.itemId,
+      stockLocationId: inventoryTransactions.stockLocationId,
+      transactionDate: inventoryTransactions.transactionDate,
+    })
+    .from(inventoryTransactions)
+    .where(and(eq(inventoryTransactions.sourceType, "bill"), eq(inventoryTransactions.sourceId, billId)))
+    .orderBy(asc(inventoryTransactions.createdAt));
+  if (!posted.length) return;
+
+  const delta = new Map<string, { qty: number; valueP: number }>();
+  const add = (ms: Array<{ itemId: string; quantity: string; value: string }>, sign: 1 | -1) => {
+    for (const m of ms) {
+      const d = delta.get(m.itemId) ?? { qty: 0, valueP: 0 };
+      d.qty += sign * Number(m.quantity);
+      d.valueP += sign * toPaise(m.value);
+      delta.set(m.itemId, d);
+    }
+  };
+  add(await billStockMovements(tx, before), -1);
+  add(await billStockMovements(tx, after), 1);
+
+  const first = posted[0]!;
+  const movements = [...delta]
+    .filter(([, d]) => Math.abs(d.qty) >= 0.0005 || d.valueP !== 0)
+    .map(([itemId, d]) => ({
+      itemId,
+      quantity: d.qty.toFixed(3),
+      value: fromPaise(d.valueP),
+      stockLocationId: (posted.find((p) => p.itemId === itemId) ?? first).stockLocationId ?? undefined,
+      notes: "Bill edited",
+    }));
+  if (!movements.length) return;
+  await moveStock(tx, {
+    movements,
+    transactionDate: first.transactionDate,
+    sourceType: "bill",
+    sourceId: billId,
+  });
+}
+
+/**
  * A bill's goods into stock, on the day they reached the gate.
  *
  * The vendor dates the bill when the lorry is loaded; the mill has the goods
@@ -774,15 +867,7 @@ export async function createBill(tx: Tx, args: CreateBillArgs) {
    * A negative line is a deduction, not a return of goods — short weight was
    * never received, so nothing comes back off the pile.
    */
-  // The bill's own round-off (total to the rupee) folds into the first line's
-  // account — the stock account, for goods — so the first line's material
-  // carries it too, or stock is worth paise more than the entry put there
-  // (GR-00027: ₹10,52,350.20 into stock, ₹10,52,350.00 on Feed Stock).
-  const movements = args.stockMovements ?? (await stockLines(tx, c));
-  const roundOffP = toPaise(c.totals.roundOff);
-  const firstItem = c.computedLines[0]?.itemId;
-  const carrier = roundOffP && firstItem ? movements.find((m) => m.itemId === firstItem) : undefined;
-  if (carrier) carrier.value = fromPaise(toPaise(carrier.value) + roundOffP);
+  const movements = await billStockMovements(tx, c, args.stockMovements);
   // The bill's own entry carries the goods only; the PO freight rides on its
   // own entry, so it joins the stock after the transit pair is sized.
   const transitMovements = movements.map((m) => ({ itemId: m.itemId, value: m.value }));

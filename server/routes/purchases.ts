@@ -70,6 +70,7 @@ import {
   loadVendor,
   postFreightJournal,
   resolveLineAccounts,
+  restateBillStock,
   saveBillLineTags,
   vendorCreditLineInputs,
 } from "../services/purchases";
@@ -863,28 +864,33 @@ purchasesRouter.patch(
 
         // Lines may be unchanged — fall back to what's already stored so freight
         // still re-allocates correctly against them.
-        let inputLines: Array<z.infer<typeof lineSchema>>;
-        if (body.lines) {
-          inputLines = body.lines;
-        } else {
-          const existing = await tx
-            .select()
-            .from(billLines)
-            .where(eq(billLines.billId, bill.id))
-            .orderBy(asc(billLines.lineOrder));
-          inputLines = existing.map((l) => ({
-            itemId: l.itemId ?? undefined,
-            accountId: l.accountId ?? undefined,
-            name: l.name,
-            description: l.description ?? undefined,
-            hsnOrSac: l.hsnOrSac ?? undefined,
-            quantity: l.quantity,
-            unit: l.unit ?? undefined,
-            rate: l.rate,
-            discountPercent: l.discountPercent,
-            taxId: l.taxId ?? undefined,
-          }));
-        }
+        const existing = await tx
+          .select()
+          .from(billLines)
+          .where(eq(billLines.billId, bill.id))
+          .orderBy(asc(billLines.lineOrder));
+        const storedLines: Array<z.infer<typeof lineSchema>> = existing.map((l) => ({
+          itemId: l.itemId ?? undefined,
+          accountId: l.accountId ?? undefined,
+          name: l.name,
+          description: l.description ?? undefined,
+          hsnOrSac: l.hsnOrSac ?? undefined,
+          quantity: l.quantity,
+          unit: l.unit ?? undefined,
+          rate: l.rate,
+          discountPercent: l.discountPercent,
+          taxId: l.taxId ?? undefined,
+        }));
+        const inputLines = body.lines ?? storedLines;
+        // The bill as it stood, so its stock can be moved by the difference.
+        const before = await computeBill(
+          tx,
+          await loadVendor(tx, bill.vendorId),
+          storedLines,
+          bill.freightAmount,
+          { amount: bill.adjustment, accountId: bill.adjustmentAccountId, description: bill.adjustmentDescription },
+          bill.tdsAmount,
+        );
 
         await saveCustomFieldValues(tx, "bill", bill.id, body.customFields);
 
@@ -907,6 +913,7 @@ purchasesRouter.patch(
           .returning({ id: billLines.id, lineOrder: billLines.lineOrder });
         await saveBillLineTags(tx, c, editedLines);
         await applyFreightToBillLines(tx, bill.id);
+        await restateBillStock(tx, bill.id, before, c);
 
         const jeId = await postJournal(tx, {
           entryDate: billDate,
