@@ -526,7 +526,7 @@ export function HomePage() {
         <div className="mx-auto max-w-[1800px] space-y-4 p-6 xl:p-8">
           {/* ── Farm hero — the reason there is a mill or a ledger at all ── */}
           <div className="grid gap-4 lg:grid-cols-3">
-            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-yolk-400 via-yolk-500 to-yolk-600 p-5 text-white shadow-[0_8px_30px_-12px_rgba(224,109,5,0.55)] lg:col-span-2">
+            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-yolk-400 via-yolk-500 to-yolk-600 p-5 text-white shadow-[0_8px_30px_-12px_color-mix(in_srgb,var(--color-yolk-600)_55%,transparent)] lg:col-span-2">
               {/* A quiet sun, not a texture — one soft circle, nothing more */}
               <div className="pointer-events-none absolute -right-10 -top-14 h-48 w-48 rounded-full bg-white/10" />
               <div className="relative flex items-start justify-between">

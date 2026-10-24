@@ -111,30 +111,37 @@
 }
 
 /* ── Niko red accent ──────────────────────────────────────────────────────
-   The logo file's own red, #c92026 (the PO letterhead's image), as its 600.
-   Crimson is a brighter, purer red; this one sits a touch towards rose. */
+   The logo file's own red, #c92026, matching the PO letterhead. It sits on
+   500 because 500 is the fill the app leans on (active nav, buttons, the
+   sidebar logo), and 400 stays almost as saturated: a lighter 400 turns the
+   hero gradients salmon and the whole app reads washed out beside the PO.
+   The washes (50–200) are near-neutral blush rather than pink for the same
+   reason. */
 [data-accent="niko"] {
-  --color-brand-50: #fdf2f3;
-  --color-brand-100: #fbe1e2;
-  --color-brand-200: #f6c4c6;
-  --color-brand-400: #e15a5f;
-  --color-brand-500: #d4343a;
-  --color-brand-600: #c92026;
-  --color-brand-700: #a81a20;
+  --color-brand-50: #fef6f6;
+  --color-brand-100: #fde6e7;
+  --color-brand-200: #f9cbcd;
+  --color-brand-300: #f09a9d;
+  --color-brand-400: #d92b31;
+  --color-brand-500: #c92026;
+  --color-brand-600: #b81c22;
+  --color-brand-700: #99171c;
+  --color-brand-800: #7d1418;
+  --color-brand-900: #661316;
 
-  --color-yolk-50: #fdf2f3;
-  --color-yolk-100: #fbe1e2;
-  --color-yolk-200: #f6c4c6;
-  --color-yolk-300: #ee989b;
-  --color-yolk-400: #e15a5f;
-  --color-yolk-500: #d4343a;
-  --color-yolk-600: #c92026;
-  --color-yolk-700: #a81a20;
-  --color-yolk-800: #8b181d;
-  --color-yolk-900: #74191d;
+  --color-yolk-50: #fef6f6;
+  --color-yolk-100: #fde6e7;
+  --color-yolk-200: #f9cbcd;
+  --color-yolk-300: #f09a9d;
+  --color-yolk-400: #d92b31;
+  --color-yolk-500: #c92026;
+  --color-yolk-600: #b81c22;
+  --color-yolk-700: #99171c;
+  --color-yolk-800: #7d1418;
+  --color-yolk-900: #661316;
 
   --color-primary: #c92026;
-  --color-ring: #d4343a;
+  --color-ring: #c92026;
 }
 
 /* ── Teal accent ──────────────────────────────────────────────────────────
