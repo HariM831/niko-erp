@@ -39,7 +39,7 @@ export function SummaryBanner({ primary, secondary, action }: { primary: BannerS
      * fixed sizes needed 423px in a 375px box and a crore-scale total lost its
      * last digits, which is the one thing the strip exists to show.
      */
-    <div className="border-b border-yolk-200/70 bg-gradient-to-r from-yolk-100 via-yolk-50 to-transparent px-4 py-3.5 sm:px-6 sm:py-4">
+    <div className="border-b border-yolk-200/70 tint-band bg-gradient-to-r from-yolk-100 via-yolk-50 to-transparent px-4 py-3.5 sm:px-6 sm:py-4">
       <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
         <div className="min-w-0">
           <div className="text-[10.5px] font-semibold uppercase tracking-wider text-yolk-700/80">

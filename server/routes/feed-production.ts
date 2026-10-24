@@ -299,14 +299,19 @@ export async function produceOne(
    * letting the material's stock go negative. Only the Amino import passes
    * it, for loads that were at the mill but not yet settled through the gate
    * when the batches were made; the routes never do.
+   *
+   * `allowRetired`: produce on a formula version that has since been replaced.
+   * Only a script booking batches the mill made on an earlier day passes it
+   * (SCADA batches never entered, 24 Oct 2026), so they go in on the recipe
+   * actually milled; the routes never do.
    */
-  run: { formulaId: string; batchCount: number; omitItemIds?: string[]; allowShort?: boolean },
+  run: { formulaId: string; batchCount: number; omitItemIds?: string[]; allowShort?: boolean; allowRetired?: boolean },
   body: { orderDate: string; locationId?: string; notes?: string | null },
   userId: string,
 ) {
   const formula = await tx.query.formulas.findFirst({ where: eq(formulas.id, run.formulaId) });
   if (!formula) throw new PostingError("Formula not found");
-  if (!formula.isActive) {
+  if (!formula.isActive && !run.allowRetired) {
     throw new PostingError(`${formula.name} v${formula.version} is retired — produce the live version`);
   }
   const fullRecipe = await tx

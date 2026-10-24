@@ -360,7 +360,7 @@ function PaymentSummaryBanner({ endpoint, side }: { endpoint: string; side: "rec
   const link = "text-brand-600 hover:underline";
   if (!open) {
     return (
-      <div className="flex items-center gap-3 border-b border-yolk-200/70 bg-gradient-to-r from-yolk-100 via-yolk-50 to-transparent px-4 py-2 sm:px-6">
+      <div className="flex items-center gap-3 border-b border-yolk-200/70 tint-band bg-gradient-to-r from-yolk-100 via-yolk-50 to-transparent px-4 py-2 sm:px-6">
         <span className="text-[10.5px] font-semibold uppercase tracking-wider text-yolk-700/80">Payment Summary</span>
         <button type="button" onClick={toggle} className={`ml-auto text-[12px] ${link}`}>
           Show Details
