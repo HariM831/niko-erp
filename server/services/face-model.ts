@@ -1,13 +1,15 @@
 /**
  * The roster's mean face, for centred matching (docs/face-matching-centred-plan.md).
  *
- * A FaceRes embedding is dominated by what every face shares — the model's
- * idea of a face, this camera, this light — and cosine counts that shared
- * bulk as agreement, which is why two strangers at this gate score 64%.
+ * A FaceRes embedding was dominated by what every face shares — the model's
+ * idea of a face, this camera, this light — and cosine counted that shared
+ * bulk as agreement, which is why two strangers at this gate scored 64%.
  * Subtracting the population's average first leaves what differs between
- * people. The average is taken here, once, and handed to every gate: two
- * clients computing it from their own slices of the roster would score the
- * same face differently.
+ * people. SFace, which replaced FaceRes on 23 Oct 2026, carries far less of
+ * it (two strangers' enrolments at 0.17 at the median), and the centred score
+ * is still only recorded beside the raw one, deciding nothing. The average is
+ * taken here, once, and handed to every gate: two clients computing it from
+ * their own slices of the roster would score the same face differently.
  *
  * Enrolment descriptors only, never taught captures: the mean is of the
  * people, not of how often each of them happens to walk past the camera.
@@ -64,7 +66,10 @@ export async function buildFaceModel(conn: Conn): Promise<FaceModel | null> {
  */
 export async function ensureFaceModel(conn: Conn, maxAgeHours = 20): Promise<{ model: FaceModel | null; built: boolean }> {
   const latest = await latestFaceModel(conn);
-  if (latest && Date.now() - latest.builtAt.getTime() < maxAgeHours * 3_600_000) return { model: latest, built: false };
+  // A mean of another length was taken over another model's vectors (FaceRes,
+  // before SFace) and centres nothing; rebuild it rather than wait the day out.
+  const current = latest && latest.mean.length === FACE_DIM;
+  if (current && Date.now() - latest.builtAt.getTime() < maxAgeHours * 3_600_000) return { model: latest, built: false };
   const model = await buildFaceModel(conn);
   return { model: model ?? latest, built: !!model };
 }

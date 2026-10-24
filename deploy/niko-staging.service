@@ -40,7 +40,9 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/srv/niko-staging/uploads
+# .cache: the face engine keeps its model weights there. The leading "-" lets
+# the unit start before the folder exists.
+ReadWritePaths=/srv/niko-staging/uploads -/srv/niko-staging/.cache
 ProtectKernelTunables=true
 ProtectControlGroups=true
 RestrictSUIDSGID=true

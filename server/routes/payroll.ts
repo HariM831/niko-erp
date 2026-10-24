@@ -36,6 +36,7 @@ import { db, type Tx } from "../db";
 import { requireAnyPermission, requirePermission } from "../lib/rbac";
 import { REPEAT_PUNCH_WINDOW_MS } from "./device";
 import { photoThumbnail, photoThumbnails } from "../services/photo";
+import { faceVector, warmFaceEngine } from "../services/face-engine";
 import { syncNightShiftBreakfast } from "../services/canteen";
 import { clashMessage, findIdClash, isAcceptableUpload, normAadhaar, normPan } from "../services/identity";
 import { isUsableEmbedding, judgeCapture, roundEmbedding, taughtCapturesByEmployee } from "../services/face-gallery";
@@ -620,6 +621,33 @@ payrollRouter.get("/face-standings", view, async (req, res) => {
   const days = Math.min(365, Math.max(7, Number(req.query.days) || 60));
   res.json(await faceStandings(db, days));
 });
+
+/**
+ * Faces are read on the server (services/face-engine.ts): every page that
+ * scans one — the gate, the canteen, enrolment — sends the picture here and
+ * gets SFace's vector back, then matches it against the roster as before.
+ */
+const faceScanPerm = requireAnyPermission([
+  ["payroll", "gate"], ["payroll", "canteen_punch"], ["payroll", "canteen"], ["payroll", "employees"],
+]);
+
+/** Loads the models (fetching them the first time) so the first scan does not wait on it. */
+payrollRouter.get("/face/ready", faceScanPerm, async (_req, res) => {
+  await warmFaceEngine();
+  res.json({ ok: true });
+});
+
+payrollRouter.post(
+  "/face/vector",
+  faceScanPerm,
+  // A camera frame or an enrolment photo as a JPEG data URL; the body limit is 2 MB.
+  validateBody(z.object({ photo: z.string().startsWith("data:image/") })),
+  async (req, res) => {
+    const f = await faceVector(req.body.photo);
+    if (!f) return res.json({ embedding: null, faceCount: 0 });
+    res.json({ embedding: roundEmbedding(f.vector), faceCount: f.faceCount, confidence: f.face.score });
+  },
+);
 
 /**
  * The roster's mean face, for centred matching. Both browser gates fetch it

@@ -114,6 +114,12 @@ fi
 # every npm call in this script.
 NPM_FLAGS=(--no-audit --no-fund)
 
+# onnxruntime-node (the face engine) ships its CPU runtime inside the package,
+# and on linux/x64 its postinstall also fetches the CUDA providers from NuGet —
+# hundreds of megabytes for a GPU this Droplet does not have, and an install
+# that fails whenever NuGet is slow. Skip them.
+export ONNXRUNTIME_NODE_INSTALL=skip
+
 # `npm ci` empties node_modules before it installs. So a prod-only install
 # followed by a full one is not two steps of one job — the second throws the
 # first away and does the work again. Install once, for the case at hand:

@@ -237,12 +237,12 @@ export function PayrollFaceEnrollmentPage() {
 
       {engineState === "loading" && (
         <div className="card mb-3 flex items-center gap-2 p-3 text-sm text-gray-500">
-          <Loader2 size={15} className="animate-spin" /> Loading face engine (first time ~8 MB, then cached)…
+          <Loader2 size={15} className="animate-spin" /> Starting the face engine…
         </div>
       )}
       {engineState === "failed" && (
         <div className="card mb-3 flex items-center gap-2 p-3 text-sm text-red-600">
-          <AlertTriangle size={15} /> Face engine failed to load. Check internet and reload.
+          <AlertTriangle size={15} /> The face engine could not start. Check the connection and reload.
         </div>
       )}
 

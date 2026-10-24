@@ -23,6 +23,7 @@ import { buildFaceHealth, formatFaceHealth } from "./face-health";
 import { syncNightShiftBreakfast } from "./canteen";
 import { istDate } from "./day-resolution";
 import { ensureFaceModel } from "./face-model";
+import { enrolFromPhotos } from "./face-enrol";
 
 const EVERY_MS = 3_600_000;
 /** Long enough after boot to be behind the migrations and the first requests. */
@@ -88,6 +89,11 @@ async function tick() {
       if (r.granted || r.withdrawn) console.log(`[canteen] night-shift breakfast: ${r.granted} granted, ${r.withdrawn} withdrawn`);
     }
 
+    // Anyone enrolled without a vector the engine can match — the whole roster
+    // right after a model change — is enrolled again from their photo.
+    const re = await enrolFromPhotos(db);
+    if (re.enrolled || re.noFace) console.log(`[faces] enrolled ${re.enrolled} from their photo; ${re.noFace} photo(s) with no face`);
+
     // The mean face for centred matching, once a day (docs/face-matching-centred-plan.md).
     if (faceModelCheckedOn !== today) {
       faceModelCheckedOn = today;
@@ -115,6 +121,16 @@ async function tick() {
 
 export function startFacePrune() {
   if (timer) return;
+  // Re-enrolment does not wait for the first tick: after a model change the
+  // gate has nobody to match until it has run.
+  void (async () => {
+    try {
+      const re = await enrolFromPhotos(db);
+      if (re.enrolled || re.noFace) console.log(`[faces] enrolled ${re.enrolled} from their photo at boot; ${re.noFace} photo(s) with no face`);
+    } catch (e) {
+      console.error("[faces] re-enrolment at boot failed:", e);
+    }
+  })();
   const first = setTimeout(() => void tick(), FIRST_DELAY_MS);
   first.unref?.();
   timer = setInterval(() => void tick(), EVERY_MS);

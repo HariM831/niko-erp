@@ -34,7 +34,7 @@ type Conn = Db | Tx;
 // The gate auto-accepts at this score, and only with a clear margin over the
 // runner-up. One definition, shared with the client that makes the decision.
 export { MATCH_MARGIN, MATCH_THRESHOLD } from "@shared/face";
-import { FACE_DIM, MATCH_MARGIN, MATCH_THRESHOLD, TEACH_OWN_FLOOR } from "@shared/face";
+import { FACE_DIM, LOOKALIKE_THRESHOLD, MATCH_MARGIN, MATCH_THRESHOLD, TEACH_OWN_FLOOR } from "@shared/face";
 
 /** HR's desk work, which is not a face failing. See the note above. */
 const HR_RESOLVED = sql`(p.resolution_note IS NOT NULL AND p.resolved_at IS NULL)`;
@@ -104,24 +104,13 @@ export interface FaceHealth {
    */
   misfiled: { total: number; shown: Array<{ filedUnder: string; looksLike: string | null; ownScore: number; otherScore: number; method: string; day: string }> };
   /**
-   * How much of the face model actually fired on each enrolment photo.
-   *
-   * The descriptor is mostly zeros where the model found nothing to say, so
-   * the count of non-zero dimensions is a plain measure of how much the photo
-   * gave it. A weak one is not merely a poorer match — sparse vectors that
-   * share their few live dimensions score high against EACH OTHER, so weak
-   * enrolments become mutually confusable as a group.
-   *
-   * This is the useful half of the report, because it is knowable the day the
-   * photo is taken rather than after somebody has failed at the gate a dozen
-   * times.
+   * Enrolments the report could compare. It used to count, too, how many of
+   * each FaceRes descriptor's 1024 numbers were not zero — a sparse one meant
+   * a photo that gave the model little. SFace fills all 128 for every face
+   * (127–128 across the roster, 24 Oct 2026), so that count says nothing and
+   * went; a poor photo now shows as a look-alike or as failures at the gate.
    */
-  enrolment: {
-    people: number;
-    medianActiveDims: number;
-    weakBelow: number;
-    weak: Array<{ name: string; activeDims: number; confusableWith: number }>;
-  };
+  enrolment: { people: number };
   /**
    * Groups of enrolments too close to tell apart, not pairs: they come in
    * cliques, and "78 pairs" hides that it is thirteen people.
@@ -226,6 +215,18 @@ export interface FaceStanding {
 const ENOUGH = 10;
 /** Above this share of hand-picked names at the gate, the enrolment is the problem. */
 const REENROL_AT = 0.3;
+
+/**
+ * When the face model in use began. A scan from before it was read by another
+ * model (FaceRes until 23 Oct 2026), whose scores sit on another scale and
+ * whose failures say nothing about how this one copes with a face — so who
+ * struggles, and how close matches run, count only from here.
+ *
+ * The server builds the first mean face for a new model within minutes of
+ * starting on it (face-prune.ts → ensureFaceModel), so the earliest build of
+ * this FACE_DIM marks the switch. Before there is one, nothing counts.
+ */
+const MODEL_SINCE = sql`coalesce((SELECT min(built_at) FROM face_models WHERE dim = ${FACE_DIM}), 'infinity'::timestamptz)`;
 const WATCH_AT = 0.15;
 
 export async function faceStandings(conn: Conn, days = 60): Promise<FaceStanding[]> {
@@ -238,6 +239,7 @@ export async function faceStandings(conn: Conn, days = 60): Promise<FaceStanding
                avg(p.match_score) AS score
           FROM punches p
          WHERE p.punch_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - ${days}::int
+           AND p.punched_at >= ${MODEL_SINCE}
            AND NOT ${HR_RESOLVED}
          GROUP BY p.employee_id
       ),
@@ -248,6 +250,7 @@ export async function faceStandings(conn: Conn, days = 60): Promise<FaceStanding
           FROM canteen_servings s
          WHERE s.employee_id IS NOT NULL
            AND s.meal_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - ${days}::int
+           AND s.served_at >= ${MODEL_SINCE}
          GROUP BY s.employee_id
       )
       SELECT e.id AS "employeeId", e.emp_code AS "empCode", e.name,
@@ -363,7 +366,7 @@ export async function buildFaceHealth(conn: Conn, days = 30): Promise<FaceHealth
              to_char(e.face_enrolled_at AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD') AS "enrolledOn"
         FROM punches p
         JOIN employees e ON e.id = p.employee_id
-       WHERE ${window} AND NOT ${HR_RESOLVED}
+       WHERE ${window} AND p.punched_at >= ${MODEL_SINCE} AND NOT ${HR_RESOLVED}
        GROUP BY e.id, e.name, e.emp_code, e.face_descriptor, e.face_enrolled_at
       HAVING count(*) FILTER (WHERE (p.method = 'manual' AND coalesce(p.manual_reason, 'no_match') = 'no_match')) > 0
        ORDER BY count(*) FILTER (WHERE (p.method = 'manual' AND coalesce(p.manual_reason, 'no_match') = 'no_match')) DESC, count(*) DESC
@@ -375,18 +378,20 @@ export async function buildFaceHealth(conn: Conn, days = 30): Promise<FaceHealth
   }>;
 
   /* ── How close the successes ran ────────────────────────────────────── */
+  // SFace's scale (24 Oct 2026, 934 gate scans against their own enrolment):
+  // 0.73 at the median, 0.61 at 1 in 10, 0.81 at 9 in 10. Under 0.60 is thin.
   const [m] = (
     await conn.execute(sql`
       SELECT count(*) FILTER (WHERE p.match_score IS NOT NULL)::int AS scored,
-             count(*) FILTER (WHERE p.match_score >= 0.9)::int AS band90,
-             count(*) FILTER (WHERE p.match_score >= 0.8 AND p.match_score < 0.9)::int AS band80,
-             count(*) FILTER (WHERE p.match_score >= 0.7 AND p.match_score < 0.8)::int AS band70,
+             count(*) FILTER (WHERE p.match_score >= 0.8)::int AS strong,
+             count(*) FILTER (WHERE p.match_score >= 0.7 AND p.match_score < 0.8)::int AS good,
+             count(*) FILTER (WHERE p.match_score >= 0.6 AND p.match_score < 0.7)::int AS fair,
              count(*) FILTER (WHERE p.match_score >= ${MATCH_THRESHOLD}::real
-                                AND p.match_score < 0.7)::int AS bandEdge
+                                AND p.match_score < 0.6)::int AS thin
         FROM punches p
-       WHERE ${window} AND NOT ${HR_RESOLVED} AND p.method <> 'manual'
+       WHERE ${window} AND p.punched_at >= ${MODEL_SINCE} AND NOT ${HR_RESOLVED} AND p.method <> 'manual'
     `)
-  ).rows as Array<{ scored: number; band90: number; band80: number; band70: number; bandedge: number }>;
+  ).rows as Array<{ scored: number; strong: number; good: number; fair: number; thin: number }>;
 
   /* ── The canteen ────────────────────────────────────────────────────── */
   const [c] = (
@@ -469,10 +474,10 @@ export async function buildFaceHealth(conn: Conn, days = 30): Promise<FaceHealth
     margins: {
       scored: m?.scored ?? 0,
       bands: [
-        { label: "0.90 and up", n: m?.band90 ?? 0 },
-        { label: "0.80 – 0.90", n: m?.band80 ?? 0 },
-        { label: "0.70 – 0.80", n: m?.band70 ?? 0 },
-        { label: `${MATCH_THRESHOLD.toFixed(2)} – 0.70 (thin)`, n: m?.bandedge ?? 0 },
+        { label: "0.80 and up", n: m?.strong ?? 0 },
+        { label: "0.70 – 0.80", n: m?.good ?? 0 },
+        { label: "0.60 – 0.70", n: m?.fair ?? 0 },
+        { label: `${MATCH_THRESHOLD.toFixed(2)} – 0.60 (thin)`, n: m?.thin ?? 0 },
       ],
     },
     gallery: g ?? { active: 0, noFace: 0, enrolmentOnly: 0, taught: 0, captures: 0 },
@@ -506,13 +511,9 @@ async function faceSeparation(conn: Conn): Promise<Pick<FaceHealth, "separation"
   // and two square roots — at 180 people this is 16,000 pairs.
   const unit = rows.map((r) => {
     let sq = 0;
-    let live = 0;
-    for (const x of r.d) {
-      sq += x * x;
-      if (x !== 0) live++;
-    }
+    for (const x of r.d) sq += x * x;
     const n = Math.sqrt(sq) || 1;
-    return { id: r.id, name: r.name, payType: r.pay_type, v: r.d.map((x) => x / n), live };
+    return { id: r.id, name: r.name, payType: r.pay_type, v: r.d.map((x) => x / n) };
   });
 
   const median = (xs: number[]) => (xs.length ? [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]! : null);
@@ -533,8 +534,13 @@ async function faceSeparation(conn: Conn): Promise<Pick<FaceHealth, "separation"
   const centredAll: number[] = [];
   const within: Record<string, number[]> = { salaried: [], daily_wage: [], across: [] };
 
-  /** Above this, two enrolment photos are close enough to be worth a look. */
-  const CONFUSABLE = 0.8;
+  /**
+   * Above this, two enrolment photos are close enough to be worth a look: the
+   * gate's own bar for a stranger at a real resemblance. On SFace two
+   * different people's enrolments sit at 0.17 at the median and 0.47 at 1 in
+   * 1,000 (24 Oct 2026, 20,100 pairs); FaceRes needed 0.80 on its scale.
+   */
+  const CONFUSABLE = LOOKALIKE_THRESHOLD;
   const all: number[] = [];
   const close: Array<{ a: string; b: string; similarity: number }> = [];
   for (let i = 0; i < unit.length; i++) {
@@ -552,12 +558,7 @@ async function faceSeparation(conn: Conn): Promise<Pick<FaceHealth, "separation"
   const q = (f: number) => (all.length ? all[Math.floor(f * (all.length - 1))]! : 0);
   close.sort((x, y) => y.similarity - x.similarity);
 
-  // How many others each face is confusable with, and the groups they form.
-  const degree = new Map<string, number>();
-  for (const c of close) {
-    degree.set(c.a, (degree.get(c.a) ?? 0) + 1);
-    degree.set(c.b, (degree.get(c.b) ?? 0) + 1);
-  }
+  // The groups confusable faces form.
   const clusters = componentsOf(close);
   centredAll.sort((x, y) => x - y);
 
@@ -590,28 +591,8 @@ async function faceSeparation(conn: Conn): Promise<Pick<FaceHealth, "separation"
   }
   misfiledAll.sort((a, b) => a.ownScore - b.ownScore);
 
-  const dims = unit.map((u) => u.live).sort((x, y) => x - y);
-  const medianDims = dims.length ? dims[Math.floor(dims.length / 2)]! : 0;
-  /*
-   * A rule of thumb, not a constant of nature: three quarters of the typical
-   * enrolment. On the imported roster it separates the confusable group from
-   * everyone else cleanly — none of them reaches 500 live dimensions and
-   * nobody outside falls below 506 — but the `confusableWith` column beside
-   * it is what confirms the reading, so a wrong cut shows up rather than
-   * quietly mislabelling somebody.
-   */
-  const weakBelow = Math.round(medianDims * 0.75);
-
   return {
-    enrolment: {
-      people: unit.length,
-      medianActiveDims: medianDims,
-      weakBelow,
-      weak: unit
-        .filter((u) => u.live < weakBelow)
-        .map((u) => ({ name: u.name, activeDims: u.live, confusableWith: degree.get(u.name) ?? 0 }))
-        .sort((x, y) => x.activeDims - y.activeDims),
-    },
+    enrolment: { people: unit.length },
     clusters,
     misfiled: { total: misfiledAll.length, shown: misfiledAll.slice(0, 20) },
     separation: {
@@ -716,7 +697,7 @@ export function adviseOn(r: FaceHealth): string[] {
   const big = r.clusters[0];
   if (big && big.members.length >= 3) {
     out.push(
-      `${big.members.length} enrolments are mutually indistinguishable — each within 0.80 of the others, against a typical ` +
+      `${big.members.length} enrolments are mutually indistinguishable — each within ${LOOKALIKE_THRESHOLD.toFixed(2)} of the others, against a typical ` +
         `pair of ${r.separation.median.toFixed(3)}. A group that size is not resemblance. Every one of them will be refused at the ` +
         "gate whichever of them steps up to it, because the runner-up is always another member of the group.",
     );
@@ -724,24 +705,12 @@ export function adviseOn(r: FaceHealth): string[] {
   } else if (r.lookalikes.total) {
     const p = r.lookalikes.shown[0]!;
     out.push(
-      `${r.lookalikes.total} pair(s) sit above 0.80 against a typical pair of ${r.separation.median.toFixed(3)}, closest ${p.a} ` +
+      `${r.lookalikes.total} pair(s) sit above ${LOOKALIKE_THRESHOLD.toFixed(2)} against a typical pair of ${r.separation.median.toFixed(3)}, closest ${p.a} ` +
         `and ${p.b} at ${p.similarity.toFixed(3)}. The gate refuses rather than guesses between them, so both read as failures ` +
         "until one is re-photographed.",
     );
   }
 
-  const weak = r.enrolment.weak;
-  if (weak.length) {
-    const alsoConfusable = weak.filter((w) => w.confusableWith > 0).length;
-    out.push(
-      `${weak.length} enrolment photo(s) gave the model very little to work with — under ${r.enrolment.weakBelow} of 1024 ` +
-        `dimensions against a typical ${r.enrolment.medianActiveDims}` +
-        (alsoConfusable ? `, and ${alsoConfusable} of them are in the confusable group above` : "") +
-        ". A sparse descriptor is not just a weaker match: sparse vectors resemble each OTHER, which is how they end up " +
-        "grouped. This is visible the day the photo is taken, so it is worth checking at enrolment rather than after a " +
-        "month of punching by hand.",
-    );
-  }
 
   if (r.canteen.plates > 0 && (r.canteen.rate ?? 0) >= 0.2) {
     out.push(`Canteen: ${pct(r.canteen.rate!)} of plates went out on a name tapped by hand.`);
@@ -843,21 +812,6 @@ export function formatFaceHealth(r: FaceHealth): string {
     }
     if (r.separation.skippedVectors) L.push(`  ${r.separation.skippedVectors} enrolment vector(s) left out: not ${FACE_DIM} finite numbers`);
     L.push(`  ${pct(r.separation.overThreshold)} of pairs sit above the ${MATCH_THRESHOLD.toFixed(2)} cutoff, so the margin rule is what keeps them apart, not the cutoff`);
-  }
-
-  if (r.enrolment.people) {
-    L.push("");
-    L.push("How much the model found in each enrolment photo");
-    L.push(`  typical photo lights up ${r.enrolment.medianActiveDims} of 1024 dimensions; anything under ${r.enrolment.weakBelow} is thin`);
-    if (r.enrolment.weak.length) {
-      L.push(`  ${r.enrolment.weak.length} below that line:`);
-      L.push(`    ${"name".padEnd(28)}${"dims".padStart(6)}${"confusable with".padStart(17)}`);
-      for (const w of r.enrolment.weak) {
-        L.push(`    ${w.name.slice(0, 27).padEnd(28)}${String(w.activeDims).padStart(6)}${String(w.confusableWith).padStart(17)}`);
-      }
-    } else {
-      L.push("  none below that line");
-    }
   }
 
   if (r.clusters.length) {

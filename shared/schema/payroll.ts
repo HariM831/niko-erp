@@ -157,7 +157,7 @@ export const employees = pgTable(
     photoHash: varchar("photo_hash", { length: 64 }),
     panDocUrl: text("pan_doc_url"),
     aadharDocUrl: text("aadhar_doc_url"),
-    /** Face embedding (Human FaceRes, 1024 floats). Matching is on-device. */
+    /** Face vector (SFace, 128 floats), made on the server from a photo (services/face-engine.ts). Matching is on-device. */
     faceDescriptor: jsonb("face_descriptor").$type<number[]>(),
     faceEnrolledAt: timestamp("face_enrolled_at", { withTimezone: true }),
     isActive: boolean("is_active").notNull().default(true),

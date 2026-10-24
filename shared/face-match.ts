@@ -18,7 +18,7 @@
  * CENTRED MATCHING (docs/face-matching-centred-plan.md). Given the roster's
  * mean face, the index subtracts it from every vector — and from each probe —
  * before scaling to unit length. What is left is what differs between people;
- * the shared bulk a FaceRes embedding carries (the model's idea of a face,
+ * the shared bulk an embedding carries (FaceRes's most of all: the model's idea of a face,
  * this camera, this light) no longer counts as agreement. With no mean the
  * index is exactly what it always was. Centred scores sit on their own scale:
  * the raw thresholds mean nothing to them.
