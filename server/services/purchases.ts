@@ -579,7 +579,7 @@ async function stockLines(
   const withItems = c.computedLines.filter((l) => l.itemId && Number(l.amount) > 0);
   if (!withItems.length) return [];
   const tracked = await tx
-    .select({ id: items.id })
+    .select({ id: items.id, unit: items.unit, unitBagWeightKg: items.unitBagWeightKg })
     .from(items)
     .where(
       and(
@@ -588,6 +588,7 @@ async function stockLines(
       ),
     );
   const ids = new Set(tracked.map((t) => t.id));
+  const byId = new Map(tracked.map((t) => [t.id, t]));
 
   /**
    * GST is a cost here (no input credit), and the journal folds it into the
@@ -613,13 +614,44 @@ async function stockLines(
     l.itemId && toPaise(l.amount) > 0 && ids.has(l.itemId)
       ? [{
           itemId: l.itemId,
-          quantity: Number(l.quantity).toFixed(3),
+          quantity: (Number(l.quantity) * stockUnitsPerLineUnit(byId.get(l.itemId)!, l.unit)).toFixed(3),
           // What the goods cost us: the line net of its own discount, plus
           // its share of the tax.
           value: fromPaise(toPaise(l.amount) + lineTaxP[i]!),
         }]
       : [],
   );
+}
+
+/**
+ * How many of the item's stock units one of the bill line's units is.
+ *
+ * A vendor bills premix by the 4 kg packet while the mill counts it in kg
+ * (Mixiblend, 24 Oct 2026): 1,250 packets on the bill are 5,000 kg in stock.
+ * kg and tonnes are weights; any other unit is the item's bag, through its
+ * bag weight. A line with no unit, the item's own unit, or a unit that cannot
+ * be weighed goes in as billed.
+ */
+function stockUnitsPerLineUnit(
+  item: { unit: string | null; unitBagWeightKg: string | null },
+  lineUnit: string | null | undefined,
+): number {
+  const norm = (u: string | null | undefined) => (u ?? "").trim().toLowerCase();
+  const from = norm(lineUnit);
+  const to = norm(item.unit);
+  if (!from || !to || from === to) return 1;
+  const bag = Number(item.unitBagWeightKg ?? 0);
+  const kgOf = (u: string) =>
+    ["kg", "kgs", "kilogram", "kilograms"].includes(u)
+      ? 1
+      : ["t", "mt", "ton", "tons", "tonne", "tonnes"].includes(u)
+        ? 1000
+        : bag > 0
+          ? bag
+          : null;
+  const fromKg = kgOf(from);
+  const toKg = kgOf(to);
+  return fromKg && toKg ? fromKg / toKg : 1;
 }
 
 /**

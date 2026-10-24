@@ -94,6 +94,27 @@ async function main() {
       check("repricing keeps the count", r.qty === 1250, String(r.qty));
       check("repricing moves the value by the difference", r.valueP - edited.valueP === 125000, String(r.valueP - edited.valueP));
 
+      // Counted in kg, billed by the 4 kg packet: the packets go in as kilos.
+      const [kgItem] = await tx
+        .insert(items)
+        .values({ name: "Zt Premix kg fixture", unit: "kg", unitBagWeightKg: "4", trackInventory: true, inventoryAccountId: stockAccount.id })
+        .returning();
+      const packets = await createBill(tx, {
+        vendor: v,
+        billDate: "2026-09-25",
+        lines: [{ itemId: kgItem!.id, name: "Zt Premix kg fixture", quantity: "1250", unit: "pcs", rate: "679" }],
+        postedBy: actor.id,
+      });
+      const p = await stockOf(packets.id);
+      check("packets billed go into a kg item as kilos", p.qty === 5000, String(p.qty));
+      const kilos = await createBill(tx, {
+        vendor: v,
+        billDate: "2026-09-25",
+        lines: [{ itemId: kgItem!.id, name: "Zt Premix kg fixture", quantity: "40", unit: "kg", rate: "170" }],
+        postedBy: actor.id,
+      });
+      check("kilos billed go in as billed", (await stockOf(kilos.id)).qty === 40);
+
       // A gate-settled bill's stock is the weighed net: an edit leaves it alone.
       const [receipt] = await tx.select({ id: officeReceipts.id }).from(officeReceipts).limit(1);
       if (receipt) {
