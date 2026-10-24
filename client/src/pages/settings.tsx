@@ -364,7 +364,7 @@ export function SettingsPage() {
 const ACCENT_CHOICES: Array<{ key: Accent; label: string; note: string; swatch: string }> = [
   { key: "yolk", label: "Yolk", note: "The original egg-yolk orange", swatch: "#e06d05" },
   { key: "crimson", label: "Crimson", note: "A bright, pure red", swatch: "#ce0d0d" },
-  { key: "niko", label: "Niko red", note: "Signal red on white, near-black rail", swatch: "#e30613" },
+  { key: "niko", label: "Niko red", note: "Gamosa red on white, near-black rail", swatch: "#d2171a" },
   { key: "terracotta", label: "Terracotta", note: "Earthier, deeper cousin of the yolk", swatch: "#b44a1e" },
   { key: "forest", label: "Forest", note: "Farm green, held dark to stay clear of success", swatch: "#2f7038" },
   { key: "teal", label: "Teal", note: "Cool and modern; darkens the sidebar", swatch: "#0d7c72" },

@@ -111,37 +111,38 @@
 }
 
 /* ── Niko red accent ──────────────────────────────────────────────────────
-   Signal red, #e30613, picked on 24 Oct 2026 against the logo after the
-   logo-file red (#c92026) still read faded on screen. 400 and 500 are the
+   Gamosa red, #d2171a, sampled from the lit thread of an Assamese gamosa
+   and picked on 24 Oct 2026; the logo-file red read faded and signal red
+   (#e30613) too cold beside the cloth. 400 and 500 are the
    same so the home hero is one flat red rather than a salmon-to-red sweep;
    600 is barely deeper, which keeps hover states visible. The rail goes
    near-black (brown dulled the red) and the page header goes white with a
    red rule instead of the pink wash. */
 [data-accent="niko"] {
-  --color-brand-50: #fff4f4;
-  --color-brand-100: #ffe3e4;
-  --color-brand-200: #ffc6c8;
-  --color-brand-300: #ff9a9e;
-  --color-brand-400: #e30613;
-  --color-brand-500: #e30613;
-  --color-brand-600: #d40512;
-  --color-brand-700: #b8040e;
-  --color-brand-800: #93040c;
-  --color-brand-900: #75050b;
+  --color-brand-50: #fdf4f3;
+  --color-brand-100: #fbe2e1;
+  --color-brand-200: #f6c4c3;
+  --color-brand-300: #ec9593;
+  --color-brand-400: #d2171a;
+  --color-brand-500: #d2171a;
+  --color-brand-600: #c21418;
+  --color-brand-700: #a31014;
+  --color-brand-800: #830e11;
+  --color-brand-900: #6a0e10;
 
-  --color-yolk-50: #fff4f4;
-  --color-yolk-100: #ffe3e4;
-  --color-yolk-200: #ffc6c8;
-  --color-yolk-300: #ff9a9e;
-  --color-yolk-400: #e30613;
-  --color-yolk-500: #e30613;
-  --color-yolk-600: #d40512;
-  --color-yolk-700: #b8040e;
-  --color-yolk-800: #93040c;
-  --color-yolk-900: #75050b;
+  --color-yolk-50: #fdf4f3;
+  --color-yolk-100: #fbe2e1;
+  --color-yolk-200: #f6c4c3;
+  --color-yolk-300: #ec9593;
+  --color-yolk-400: #d2171a;
+  --color-yolk-500: #d2171a;
+  --color-yolk-600: #c21418;
+  --color-yolk-700: #a31014;
+  --color-yolk-800: #830e11;
+  --color-yolk-900: #6a0e10;
 
-  --color-primary: #e30613;
-  --color-ring: #e30613;
+  --color-primary: #d2171a;
+  --color-ring: #d2171a;
 
   --color-sidebar: #1c1c1c;
   --color-sidebar-deep: #121212;
