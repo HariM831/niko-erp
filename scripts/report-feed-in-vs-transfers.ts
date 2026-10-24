@@ -44,6 +44,7 @@ async function main() {
   console.log("house  transfers        silo saw   matched  silo-only (no transfer)   transfers silo missed   blind days   house ate");
   const totals = { sent: 0, rose: 0, eaten: 0, only: 0 };
   const detail: string[] = [];
+  const arrivals: string[] = [];
   const siloByDay = new Map<string, Map<string, number>>(); // house → day → kg
   const ist = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
   for (const h of houses) {
@@ -58,6 +59,11 @@ async function main() {
       for (const k of r.tankers) {
         if (k.move.kg < 1_000) continue;
         rose += k.move.kg;
+        arrivals.push(
+          `${h.code}  ${k.move.start.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false })}  ` +
+            `${Math.round(k.move.kg).toLocaleString("en-IN").padStart(7)} kg  ` +
+            (k.transfer ? `${k.transfer.number} (${k.transfer.transferDate}, ${Math.round(k.transfer.quantityKg).toLocaleString("en-IN")} kg)` : "— no transfer"),
+        );
         const byDay = siloByDay.get(h.code) ?? new Map<string, number>();
         byDay.set(ist(k.move.start), (byDay.get(ist(k.move.start)) ?? 0) + k.move.kg);
         siloByDay.set(h.code, byDay);
@@ -96,6 +102,19 @@ async function main() {
   ).rows as Array<{ name: string; made: number; sent: number; on_hand: number }>;
   console.log("\nMILL — made, sent, on hand now (tonnes)");
   for (const m of mill) console.log(`  ${m.name.padEnd(14)} made ${t(m.made).padStart(7)}  sent ${t(m.sent).padStart(7)}  on hand ${t(m.on_hand).padStart(7)}`);
+
+  if (process.argv.includes("--arrivals")) {
+    console.log("
+EVERY SILO ARRIVAL (≥ 1 t), shed by shed
+");
+    let last = "";
+    for (const a of arrivals) {
+      const code = a.slice(0, 2);
+      if (code !== last) console.log("");
+      last = code;
+      console.log(`  ${a}`);
+    }
+  }
 
   if (process.argv.includes("--daily")) {
     const made = new Map(
