@@ -111,37 +111,41 @@
 }
 
 /* ── Niko red accent ──────────────────────────────────────────────────────
-   The logo file's own red, #c92026, matching the PO letterhead. It sits on
-   500 because 500 is the fill the app leans on (active nav, buttons, the
-   sidebar logo), and 400 stays almost as saturated: a lighter 400 turns the
-   hero gradients salmon and the whole app reads washed out beside the PO.
-   The washes (50–200) are near-neutral blush rather than pink for the same
-   reason. */
+   Signal red, #e30613, picked on 24 Oct 2026 against the logo after the
+   logo-file red (#c92026) still read faded on screen. 400 and 500 are the
+   same so the home hero is one flat red rather than a salmon-to-red sweep;
+   600 is barely deeper, which keeps hover states visible. The rail goes
+   near-black (brown dulled the red) and the page header goes white with a
+   red rule instead of the pink wash. */
 [data-accent="niko"] {
-  --color-brand-50: #fef6f6;
-  --color-brand-100: #fde6e7;
-  --color-brand-200: #f9cbcd;
-  --color-brand-300: #f09a9d;
-  --color-brand-400: #d92b31;
-  --color-brand-500: #c92026;
-  --color-brand-600: #b81c22;
-  --color-brand-700: #99171c;
-  --color-brand-800: #7d1418;
-  --color-brand-900: #661316;
+  --color-brand-50: #fff4f4;
+  --color-brand-100: #ffe3e4;
+  --color-brand-200: #ffc6c8;
+  --color-brand-300: #ff9a9e;
+  --color-brand-400: #e30613;
+  --color-brand-500: #e30613;
+  --color-brand-600: #d40512;
+  --color-brand-700: #b8040e;
+  --color-brand-800: #93040c;
+  --color-brand-900: #75050b;
 
-  --color-yolk-50: #fef6f6;
-  --color-yolk-100: #fde6e7;
-  --color-yolk-200: #f9cbcd;
-  --color-yolk-300: #f09a9d;
-  --color-yolk-400: #d92b31;
-  --color-yolk-500: #c92026;
-  --color-yolk-600: #b81c22;
-  --color-yolk-700: #99171c;
-  --color-yolk-800: #7d1418;
-  --color-yolk-900: #661316;
+  --color-yolk-50: #fff4f4;
+  --color-yolk-100: #ffe3e4;
+  --color-yolk-200: #ffc6c8;
+  --color-yolk-300: #ff9a9e;
+  --color-yolk-400: #e30613;
+  --color-yolk-500: #e30613;
+  --color-yolk-600: #d40512;
+  --color-yolk-700: #b8040e;
+  --color-yolk-800: #93040c;
+  --color-yolk-900: #75050b;
 
-  --color-primary: #c92026;
-  --color-ring: #c92026;
+  --color-primary: #e30613;
+  --color-ring: #e30613;
+
+  --color-sidebar: #1c1c1c;
+  --color-sidebar-deep: #121212;
+  --color-sidebar-hover: #2c2c2c;
 }
 
 /* ── Teal accent ──────────────────────────────────────────────────────────
@@ -410,6 +414,12 @@ body {
  */
 .page-header {
   @apply border-b border-yolk-200/70 bg-gradient-to-r from-yolk-100 via-yolk-50 to-transparent;
+}
+
+/* Niko red keeps its headers white like the PO letterhead: a pink wash under
+   a signal red reads faded. */
+[data-accent="niko"] .page-header {
+  @apply border-brand-500 bg-white bg-none;
 }
 
 .table-surface {
