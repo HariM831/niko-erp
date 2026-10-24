@@ -112,7 +112,7 @@ export function EggCalendarPage() {
           <button onClick={() => setMonth(shiftMonth(month, -1))} className="rounded-md border border-border p-2 hover:bg-muted">
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <span className="min-w-[10rem] text-center text-sm font-medium">{monthName(month)}</span>
+          <span className="min-w-[7rem] text-center text-sm font-medium sm:min-w-[10rem]">{monthName(month)}</span>
           <button onClick={() => setMonth(shiftMonth(month, 1))} className="rounded-md border border-border p-2 hover:bg-muted">
             <ChevronRight className="h-4 w-4" />
           </button>
@@ -122,8 +122,8 @@ export function EggCalendarPage() {
       {loading ? (
         <div className="py-16 text-center text-sm text-muted-foreground">reading…</div>
       ) : (
-        <div className="table-surface p-3">
-          <div className="grid grid-cols-7 gap-1.5">
+        <div className="table-surface p-2 sm:p-3">
+          <div className="grid grid-cols-7 gap-1 sm:gap-1.5">
             {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
               <div key={d} className="pb-1 text-center text-[11px] font-semibold uppercase text-muted-foreground">
                 {d}
@@ -162,7 +162,7 @@ export function EggCalendarPage() {
                 <button
                   key={d.date}
                   onClick={() => setOpen(d.date)}
-                  className={`min-h-[84px] rounded-md border p-1.5 text-left align-top transition-colors hover:bg-muted/60 ${
+                  className={`min-h-[56px] rounded-md border p-0.5 text-left sm:min-h-[84px] sm:p-1.5 align-top transition-colors hover:bg-muted/60 ${
                     tone || "border-border/60"
                   } ${d.date === today ? "ring-1 ring-primary" : ""} ${past ? "opacity-70" : ""}`}
                 >
@@ -183,7 +183,7 @@ export function EggCalendarPage() {
                   </div>
                   {d.committed > 0 && (
                     <div
-                      className="mt-0.5 text-[11px] leading-tight"
+                      className="mt-0.5 text-[10px] leading-tight sm:text-[11px]"
                       title={
                         supply != null
                           ? `${fmtBoxes(d.opening ?? 0)} on the shelf + ${fmtBoxes(d.production ?? 0)} ${d.graded ? "graded" : "expected"} = ${fmtBoxes(supply)}; ${fmtBoxes(d.closing ?? 0)} left after orders`
@@ -192,24 +192,26 @@ export function EggCalendarPage() {
                     >
                       {/* Orders / what is left to sell after them — the projected closing (the user, 1 Oct 2026). */}
                       <span className="font-medium tabular-nums">{fmtBoxes(d.committed)}</span>
-                      <span className={`font-medium tabular-nums ${cover}`}>
-                        {" "}/ {d.closing != null ? fmtBoxes(d.closing) : "?"}
+                      <span className={`block font-medium tabular-nums sm:inline ${cover}`}>
+                        <span className="hidden sm:inline"> / </span>
+                        {d.closing != null ? fmtBoxes(d.closing) : "?"}
                       </span>
                     </div>
                   )}
                   {d.committed === 0 && !past && d.closing != null && (
-                    <div className="mt-0.5 text-[10px] text-muted-foreground">{fmtBoxes(d.closing)} on shelf</div>
+                    <div className="mt-0.5 hidden text-[10px] text-muted-foreground sm:block">{fmtBoxes(d.closing)} on shelf</div>
                   )}
+                  {/* The detail lines are for a screen with room; a phone opens the day for them. */}
                   {d.dispatched > 0 && (
-                    <div className="text-[10px] text-success">↑ {fmtBoxes(d.dispatched)} loaded</div>
+                    <div className="hidden text-[10px] text-success sm:block">↑ {fmtBoxes(d.dispatched)} loaded</div>
                   )}
                   {/* Booked but never loaded in niko: still on the stock ledger. */}
                   {past && d.committed > d.dispatched && (
-                    <div className="text-[10px] font-medium text-destructive">{fmtBoxes(d.committed - d.dispatched)} not loaded</div>
+                    <div className="hidden text-[10px] font-medium text-destructive sm:block">{fmtBoxes(d.committed - d.dispatched)} not loaded</div>
                   )}
-                  {d.skipped > 0 && <div className="text-[10px] text-muted-foreground">{fmtBoxes(d.skipped)} skipped</div>}
+                  {d.skipped > 0 && <div className="hidden text-[10px] text-muted-foreground sm:block">{fmtBoxes(d.skipped)} skipped</div>}
                   {past && d.production != null && d.committed === 0 && (
-                    <div className="text-[10px] text-muted-foreground">{fmtBoxes(d.production)} produced</div>
+                    <div className="hidden text-[10px] text-muted-foreground sm:block">{fmtBoxes(d.production)} produced</div>
                   )}
                 </button>
               );
