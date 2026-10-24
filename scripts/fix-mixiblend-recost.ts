@@ -151,11 +151,11 @@ async function main() {
                 const old = await tx.select().from(journalEntryLines).where(eq(journalEntryLines.entryId, t!.journalEntryId));
                 if (old.length !== 2) throw new Error(`${t!.number}'s journal has ${old.length} lines, expected 2`);
                 await reverseJournal(tx, t!.journalEntryId, t!.transferDate, actor.id);
-                const [je] = (await tx.execute(sql`SELECT narration FROM journal_entries WHERE id = ${t!.journalEntryId}::uuid`)).rows as Array<{ narration: string }>;
+                const [je] = (await tx.execute(sql`SELECT narration, source_type FROM journal_entries WHERE id = ${t!.journalEntryId}::uuid`)).rows as Array<{ narration: string; source_type: string }>;
                 const jeId = await postJournal(tx, {
                   entryDate: t!.transferDate,
                   narration: `${je!.narration} (recosted: Mixiblend premix)`,
-                  sourceType: "feed_transfer",
+                  sourceType: je!.source_type as Parameters<typeof postJournal>[1]["sourceType"],
                   sourceId: t!.id,
                   postedBy: actor.id,
                   lines: old.map((l) =>
