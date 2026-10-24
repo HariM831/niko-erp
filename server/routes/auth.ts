@@ -69,7 +69,7 @@ authRouter.post("/login", validateBody(loginSchema), async (req, res) => {
       roleName: role?.name ?? "",
       permissions: role?.permissions ?? {},
     };
-    res.json({ user: req.session.user });
+    res.json({ user: { ...req.session.user, accent: user.accent } });
   });
 });
 
@@ -94,7 +94,7 @@ authRouter.get("/me", requireAuth, async (req, res) => {
   const id = req.session.user!.id;
   const row = await db.query.users.findFirst({
     where: eq(users.id, id),
-    columns: { id: true, name: true, username: true, isActive: true, roleId: true },
+    columns: { id: true, name: true, username: true, isActive: true, roleId: true, accent: true },
   });
   if (!row || !row.isActive) {
     return req.session.destroy(() => res.status(401).json({ error: "Not authenticated" }));
@@ -109,7 +109,17 @@ authRouter.get("/me", requireAuth, async (req, res) => {
     roleName: role?.name ?? "",
     permissions: role?.permissions ?? {},
   };
-  res.json({ user: req.session.user });
+  res.json({ user: { ...req.session.user, accent: row.accent } });
+});
+
+// The accent is a name the client owns the list of; the server only keeps it
+// clean. A name a later build drops falls back to the default on the client.
+const accentSchema = z.object({ accent: z.string().regex(/^[a-z]{1,20}$/) });
+
+authRouter.put("/accent", requireAuth, validateBody(accentSchema), async (req, res) => {
+  const { accent } = req.body as z.infer<typeof accentSchema>;
+  await db.update(users).set({ accent }).where(eq(users.id, req.session.user!.id));
+  res.json({ ok: true });
 });
 
 const changePasswordSchema = z.object({

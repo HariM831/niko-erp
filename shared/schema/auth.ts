@@ -33,6 +33,8 @@ export const users = pgTable("users", {
   isActive: boolean("is_active").notNull().default(true),
   failedLoginAttempts: integer("failed_login_attempts").notNull().default(0),
   lockedUntil: timestamp("locked_until"),
+  // Settings › Appearance choice; null = the app's default accent.
+  accent: varchar("accent", { length: 20 }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

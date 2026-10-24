@@ -1,6 +1,7 @@
 import { clearRosters } from "./lib/roster-cache";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { api } from "./api";
+import { DEFAULT_ACCENT, getAccent, isAccent, setAccent } from "./theme";
 
 export interface SessionUser {
   id: string;
@@ -8,6 +9,18 @@ export interface SessionUser {
   username: string;
   roleName: string;
   permissions: Record<string, string[]>;
+  /** Their Settings › Appearance choice; null when they never chose. */
+  accent?: string | null;
+}
+
+// The account, not the browser, decides the accent: a shared office PC takes
+// on whoever signs in, and a new device shows the choice made elsewhere. The
+// browser copy is only for painting before /me answers.
+function takeAccount(user: SessionUser) {
+  const want = isAccent(user.accent) ? user.accent : DEFAULT_ACCENT;
+  if (want !== getAccent() || document.documentElement.getAttribute("data-accent") !== (want === "yolk" ? null : want)) {
+    setAccent(want);
+  }
 }
 
 interface AuthContextValue {
@@ -26,7 +39,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     api<{ user: SessionUser }>("/api/auth/me")
-      .then((d) => setUser(d.user))
+      .then((d) => {
+        takeAccount(d.user);
+        setUser(d.user);
+      })
       .catch(() => setUser(null))
       .finally(() => setLoading(false));
   }, []);
@@ -36,6 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       method: "POST",
       body: { username, password },
     });
+    takeAccount(d.user);
     setUser(d.user);
   };
 

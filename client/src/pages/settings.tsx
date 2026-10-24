@@ -374,9 +374,12 @@ const ACCENT_CHOICES: Array<{ key: Accent; label: string; note: string; swatch: 
 function AppearanceSection() {
   const [accent, setLocal] = useState<Accent>(() => getAccent());
 
+  // Saved to the account so it follows the user to any browser; painted at
+  // once rather than after the save, which only fails if the session lapsed.
   const choose = (key: Accent) => {
     setAccent(key);
     setLocal(key);
+    void api("/api/auth/accent", { method: "PUT", body: { accent: key } }).catch(() => {});
   };
 
   return (

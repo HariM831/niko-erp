@@ -1,5 +1,5 @@
 /**
- * Yolk is the default the stylesheet defines on :root, so it is the one
+ * Yolk is the palette the stylesheet defines on :root, so it is the one
  * accent that carries no attribute. Every other name here must have a
  * matching [data-accent="..."] block in index.css.
  */
@@ -7,9 +7,13 @@ export const ACCENTS = ["yolk", "crimson", "niko", "terracotta", "forest", "teal
 
 export type Accent = (typeof ACCENTS)[number];
 
+// What a user who never chose sees (Niko red since 24 Oct 2026). index.html
+// carries the same name for the first paint.
+export const DEFAULT_ACCENT: Accent = "niko";
+
 const KEY = "niko.accent";
 
-function isAccent(v: string | null): v is Accent {
+export function isAccent(v: string | null | undefined): v is Accent {
   return !!v && (ACCENTS as readonly string[]).includes(v);
 }
 
@@ -17,7 +21,7 @@ export function getAccent(): Accent {
   const stored = localStorage.getItem(KEY);
   // Anything unrecognised (an older build's name, a hand-edited value) falls
   // back rather than leaving the app with an accent that has no CSS behind it.
-  return isAccent(stored) ? stored : "yolk";
+  return isAccent(stored) ? stored : DEFAULT_ACCENT;
 }
 
 export function setAccent(accent: Accent) {
