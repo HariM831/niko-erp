@@ -1,63 +1,53 @@
 /**
  * The faces the gate matches against.
  *
- * Enrolment gives a worker one photo, taken once, usually in whatever light
- * the office had that morning. Every scan for the rest of their employment is
- * compared against it, so a bad enrolment is a bad match forever — and the
- * worker cannot fix it, because the thing that would fix it (a good capture at
- * the gate) was computed, used, and thrown away.
+ * A worker's gallery is the gate photo they first passed through on each of
+ * their last 7 days at the gate — the first scan of the day that passed the
+ * check below, read by SFace on the phone and kept on its punch. Their
+ * enrolment photo is used only while they have none of those: a new joiner,
+ * or someone back from more than two months away. Enrolment is one photo taken
+ * once in whatever light the office had; the gate's own photos are this
+ * camera, this light, this season's face. (Decided 24 Oct 2026,
+ * docs/face-sface-plan.md.)
  *
- * So each scan's embedding is kept on its punch, and a person's gallery is
- * their enrolment descriptor plus the recent ones. A face matches on its BEST
- * descriptor, so more of them can only help — the risk is not a weaker match,
- * it is a capture filed under the wrong person, which is why every capture
- * stays traceable to the punch and the method that produced it.
+ * The rules that make it survive real life:
  *
- * Two rules make the gallery survive real life:
+ *  - The window counts DAYS THAT HAVE A TAUGHT SCAN, not calendar days. A
+ *    calendar window empties itself over leave or a weekly off and leaves the
+ *    worker back on their enrolment photo alone.
+ *  - Nothing older than GALLERY_MAX_AGE_DAYS: a face drifts.
+ *  - One scan per day, the first that passed. A scan that failed the check
+ *    (a stranger scored as well, or it did not look like its owner) is kept
+ *    on its punch but teaches nobody, and the day's next scan is tried.
  *
- *  - The window counts DAYS THAT HAVE A CAPTURE, not calendar days. A
- *    calendar window empties itself over leave, a weekly off or a quiet week
- *    at the gate, and leaves the worker back on their enrolment photo alone —
- *    which is the state they could not recover from in the first place.
- *  - One capture per day, picked in SQL. A busy morning is six near-identical
- *    vectors and there is no reason to carry six of them.
- *
- * The read and the prune are driven by the same two constants below, so what
- * is served and what is stored cannot drift apart and leave the gate matching
- * against vectors that are about to be deleted.
+ * Every scan's vector is kept, taught or not, and nothing prunes them: they
+ * are a kilobyte a punch, and the history is worth more than the space.
  */
 import { FACE_DIM, LOOKALIKE_THRESHOLD, MATCH_MARGIN, MATCH_THRESHOLD, TEACH_OWN_FLOOR } from "@shared/face";
-import { isNotNull, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import type { Db, Tx } from "../db";
-import { punches } from "@shared/schema";
 
 type Conn = Db | Tx;
 
-/** Days WITH a capture, not calendar days — see the note above. */
-export const GALLERY_DAYS = 5;
+/** Days WITH a taught scan, not calendar days — see the note above. */
+export const GALLERY_DAYS = 7;
 
-/**
- * However few captures a worker has, nothing older than this is served. A
- * face drifts, and a two-year-old vector that still matches is as likely to be
- * matching the wrong person as the right one.
- */
+/** However few days a worker has, nothing older than this is served. */
 export const GALLERY_MAX_AGE_DAYS = 60;
 
 /**
  * 4 dp, the same rounding the device pull has always applied. Measured over
  * 7,140 real descriptor pairs it moves a similarity score by at most 0.00001,
- * and it is two and a half times fewer bytes — which is what makes carrying
- * several descriptors per person affordable at all.
+ * and it is two and a half times fewer bytes.
  */
 export function roundEmbedding(e: number[]): number[] {
   return e.map((n) => Math.round(n * 10_000) / 10_000);
 }
 
 /**
- * Only a real vector teaches: FACE_DIM finite numbers. One of another length
- * scores zero against every real face, so it never matches anybody — but the
- * gallery keeps one capture a day, and it would be kept in place of one that
- * does.
+ * Only a real vector counts: FACE_DIM finite numbers. One of another length
+ * (a FaceRes vector from a phone still on the old page) scores zero against
+ * every real face, so it is not kept as one.
  */
 export function isUsableEmbedding(v: unknown): v is number[] {
   return Array.isArray(v) && v.length === FACE_DIM && v.every((n) => typeof n === "number" && Number.isFinite(n));
@@ -69,13 +59,9 @@ export interface TaughtCapture {
 }
 
 /**
- * One capture per day, for each employee's newest GALLERY_DAYS days that have
- * one, nothing older than GALLERY_MAX_AGE_DAYS.
- *
- * The per-day pick and the per-employee limit both happen in SQL. Fetching
- * every capture and thinning them in JS means reading a morning's six
- * near-identical vectors to serve one of them, and these are the heaviest rows
- * in the payload.
+ * The first taught scan of each of a worker's newest GALLERY_DAYS days that
+ * have one, nothing older than GALLERY_MAX_AGE_DAYS. Picked in SQL: these are
+ * the heaviest values the roster carries.
  */
 export async function taughtCaptures(conn: Conn, employeeIds?: string[]): Promise<TaughtCapture[]> {
   const rows = await conn.execute(sql`
@@ -83,7 +69,8 @@ export async function taughtCaptures(conn: Conn, employeeIds?: string[]): Promis
       SELECT DISTINCT ON (employee_id, punch_date)
              employee_id, punch_date, face_embedding
         FROM punches
-       WHERE face_embedding IS NOT NULL
+       WHERE face_taught
+         AND face_embedding IS NOT NULL
          AND punch_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - ${GALLERY_MAX_AGE_DAYS}::int
          ${
            // The codebase's idiom for a list parameter: drizzle expands a JS
@@ -93,9 +80,8 @@ export async function taughtCaptures(conn: Conn, employeeIds?: string[]): Promis
              ? sql`AND employee_id IN (${sql.join(employeeIds.map((id) => sql`${id}::uuid`), sql`, `)})`
              : sql``
          }
-       -- Within a day, the latest scan: the gate is busiest at the start of a
-       -- shift and the light only improves from there.
-       ORDER BY employee_id, punch_date, punched_at DESC
+       -- Within a day, the first scan that passed.
+       ORDER BY employee_id, punch_date, punched_at ASC
     ),
     ranked AS (
       SELECT employee_id, face_embedding,
@@ -106,13 +92,12 @@ export async function taughtCaptures(conn: Conn, employeeIds?: string[]): Promis
       FROM ranked
      WHERE rn <= ${GALLERY_DAYS}
   `);
-  return (rows.rows as Array<{ employee_id: string; face_embedding: number[] }>).map((r) => ({
-    employeeId: r.employee_id,
-    embedding: r.face_embedding,
-  }));
+  return (rows.rows as Array<{ employee_id: string; face_embedding: number[] }>)
+    .filter((r) => isUsableEmbedding(r.face_embedding))
+    .map((r) => ({ employeeId: r.employee_id, embedding: r.face_embedding }));
 }
 
-/** Captures keyed by employee, ready to append to their enrolment descriptor. */
+/** Taught scans keyed by employee. */
 export async function taughtCapturesByEmployee(conn: Conn, employeeIds?: string[]): Promise<Map<string, number[][]>> {
   const out = new Map<string, number[][]>();
   for (const c of await taughtCaptures(conn, employeeIds)) {
@@ -124,120 +109,13 @@ export async function taughtCapturesByEmployee(conn: Conn, employeeIds?: string[
 }
 
 /**
- * Clear the vectors the roster no longer serves.
- *
- * Keyed on exactly what `taughtCaptures` returns, so the stored set and the
- * served set are the same set by construction. The punch rows themselves are
- * untouched: they are the attendance record, and only the vector ages out.
+ * What a worker is matched against: their gate photos when they have any,
+ * their enrolment photo only when they have none. Every reader — the gate,
+ * the canteen, the guard below — goes through this, so they all agree.
  */
-export async function pruneTaughtCaptures(conn: Conn): Promise<number> {
-  const res = await conn.execute(sql`
-    WITH per_day AS (
-      SELECT DISTINCT ON (employee_id, punch_date)
-             id, employee_id, punch_date
-        FROM punches
-       WHERE face_embedding IS NOT NULL
-         AND punch_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - ${GALLERY_MAX_AGE_DAYS}::int
-       ORDER BY employee_id, punch_date, punched_at DESC
-    ),
-    keep AS (
-      SELECT id FROM (
-        SELECT id, row_number() OVER (PARTITION BY employee_id ORDER BY punch_date DESC) AS rn
-          FROM per_day
-      ) r WHERE rn <= ${GALLERY_DAYS}
-    )
-    UPDATE punches
-       SET face_embedding = NULL
-     WHERE face_embedding IS NOT NULL
-       AND id NOT IN (SELECT id FROM keep)
-  `);
-  return res.rowCount ?? 0;
-}
-
-/* ── The canteen's own captures ───────────────────────────────────────────
- *
- * The canteen matched only against the gate's captures, so a face in the
- * canteen's light was always judged against how it looked at the gate — 46%
- * of plates went out on a hand-picked name against the gate's 4%
- * (docs/canteen-face-matching-plan.md). Its own scans now teach a gallery of
- * their own, by the same two rules as the gate's, and are served to the
- * canteen only: a mistake at the counter never reaches attendance.
- */
-
-/** One canteen capture a day, newest GALLERY_DAYS capture-days, nothing older than GALLERY_MAX_AGE_DAYS. */
-export async function canteenCaptures(conn: Conn, employeeIds?: string[]): Promise<TaughtCapture[]> {
-  const rows = await conn.execute(sql`
-    WITH per_day AS (
-      SELECT DISTINCT ON (employee_id, meal_date)
-             employee_id, meal_date, face_embedding
-        FROM canteen_servings
-       WHERE face_embedding IS NOT NULL
-         AND employee_id IS NOT NULL
-         AND meal_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - ${GALLERY_MAX_AGE_DAYS}::int
-         ${
-           employeeIds?.length
-             ? sql`AND employee_id IN (${sql.join(employeeIds.map((id) => sql`${id}::uuid`), sql`, `)})`
-             : sql``
-         }
-       -- The day's latest plate: lunch and dinner are lit better than breakfast.
-       ORDER BY employee_id, meal_date, served_at DESC
-    ),
-    ranked AS (
-      SELECT employee_id, face_embedding,
-             row_number() OVER (PARTITION BY employee_id ORDER BY meal_date DESC) AS rn
-        FROM per_day
-    )
-    SELECT employee_id, face_embedding FROM ranked WHERE rn <= ${GALLERY_DAYS}
-  `);
-  return (rows.rows as Array<{ employee_id: string; face_embedding: number[] }>).map((r) => ({
-    employeeId: r.employee_id,
-    embedding: r.face_embedding,
-  }));
-}
-
-export async function canteenCapturesByEmployee(conn: Conn, employeeIds?: string[]): Promise<Map<string, number[][]>> {
-  const out = new Map<string, number[][]>();
-  for (const c of await canteenCaptures(conn, employeeIds)) {
-    const list = out.get(c.employeeId) ?? [];
-    list.push(c.embedding);
-    out.set(c.employeeId, list);
-  }
-  return out;
-}
-
-/** The canteen's prune, keyed on exactly what `canteenCaptures` serves. */
-export async function pruneCanteenCaptures(conn: Conn): Promise<number> {
-  const res = await conn.execute(sql`
-    WITH per_day AS (
-      SELECT DISTINCT ON (employee_id, meal_date)
-             id, employee_id, meal_date
-        FROM canteen_servings
-       WHERE face_embedding IS NOT NULL
-         AND employee_id IS NOT NULL
-         AND meal_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - ${GALLERY_MAX_AGE_DAYS}::int
-       ORDER BY employee_id, meal_date, served_at DESC
-    ),
-    keep AS (
-      SELECT id FROM (
-        SELECT id, row_number() OVER (PARTITION BY employee_id ORDER BY meal_date DESC) AS rn
-          FROM per_day
-      ) r WHERE rn <= ${GALLERY_DAYS}
-    )
-    UPDATE canteen_servings
-       SET face_embedding = NULL
-     WHERE face_embedding IS NOT NULL
-       AND id NOT IN (SELECT id FROM keep)
-  `);
-  return res.rowCount ?? 0;
-}
-
-/** How many captures are being stored, for the prune to report against. */
-export async function taughtCaptureCount(conn: Conn): Promise<number> {
-  const [row] = await conn
-    .select({ n: sql<number>`count(*)::int` })
-    .from(punches)
-    .where(isNotNull(punches.faceEmbedding));
-  return row?.n ?? 0;
+export function galleryOf(enrolment: unknown, taught: number[][] | undefined): number[][] {
+  if (taught?.length) return taught;
+  return isUsableEmbedding(enrolment) ? [roundEmbedding(enrolment)] : [];
 }
 
 /* ── Whose face is this? ───────────────────────────────────────────────── */
@@ -283,15 +161,13 @@ export interface CaptureVerdict {
  * learned under the picked name it starts that person's gallery drifting toward
  * a stranger. So it must also look at least somewhat like its owner.
  *
- * A gallery is the enrolment descriptor plus the taught captures — exactly what
- * the gate matches against, so this agrees with what the guard just saw.
+ * A gallery is what galleryOf serves — exactly what the gate matches against,
+ * so this agrees with what the guard just saw.
  */
 export async function judgeCapture(
   conn: Conn,
   selectedId: string,
   embedding: number[],
-  /** Extra captures per person — the canteen judges against its own as well. */
-  extra?: Map<string, number[][]>,
 ): Promise<CaptureVerdict> {
   const people = await conn.execute(sql`
     SELECT id, name, emp_code, face_descriptor
@@ -302,11 +178,7 @@ export async function judgeCapture(
   let ownScore = 0;
   let best: CaptureVerdict["lookalike"] = null;
   for (const p of people.rows as Array<{ id: string; name: string; emp_code: string; face_descriptor: number[] | null }>) {
-    const gallery = [
-      ...(isUsableEmbedding(p.face_descriptor) ? [p.face_descriptor] : []),
-      ...(taught.get(p.id) ?? []),
-      ...(extra?.get(p.id) ?? []),
-    ];
+    const gallery = galleryOf(p.face_descriptor, taught.get(p.id));
     let score = 0;
     for (const g of gallery) score = Math.max(score, cosine(embedding, g));
     if (p.id === selectedId) ownScore = score;

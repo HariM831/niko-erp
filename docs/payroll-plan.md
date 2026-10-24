@@ -219,7 +219,9 @@ flat grey headers, no outer borders, `tabular-nums`, 25/page `table-pager`. Use 
   → override), Team grid (all employees × days, bulk override), Leave (apply/approve + balance),
   Exceptions (open punches → resolve), Roster (shift assignments).
 - **Gate**: the browser kiosk ported from Amino `gate.tsx` + `client/src/lib/face.ts`
-  (@vladmandic/human from CDN, on-device matching, threshold + margin, relearn on drift);
+  (faces read on the phone by SFace since 24 Oct 2026, `client/src/lib/face-engine.ts` —
+  docs/face-sface-plan.md; on-device matching, threshold + margin; matched against the first
+  gate photo of each of the last 7 days);
   punches via `POST /api/payroll/punches`. **Face enrolment** page ported from `face-enrollment.tsx`.
 - **Pay Inputs**: one table with kind filter, add dialog (kind-specific fields), approve/reject;
   Advances section with outstanding and a Recovery dialog (EMI, implied schedule).

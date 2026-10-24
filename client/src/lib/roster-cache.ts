@@ -18,7 +18,7 @@ const DB = "niko-gate";
 const STORE = "roster";
 const MAX_AGE_MS = 24 * 3_600_000;
 /** Bump when the face model or the vector length changes. */
-export const ROSTER_MODEL_TAG = "human@3.3.5/1024";
+export const ROSTER_MODEL_TAG = "sface-2021dec/128";
 
 export interface CachedRoster<T> {
   cursor: number;

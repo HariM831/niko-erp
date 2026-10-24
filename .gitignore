@@ -43,3 +43,7 @@ tmp-grain-tiles/
 # The office's vendor bank sheet and the review built from it: account numbers
 # of everyone we pay. Same rule as the people export — never in git.
 docs/vendor-bank-details-*.xlsx
+
+# The face engine's model weights (server/services/face-engine.ts): fetched on
+# first use and checked against their pinned sha256, never committed.
+.cache/face-models/

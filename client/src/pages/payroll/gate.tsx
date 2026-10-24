@@ -1,8 +1,8 @@
 /**
  * Gate — the browser kiosk. Point the camera at the worker, scan, confirm.
  *
- * Ported from Amino's gate: @vladmandic/human runs fully in the browser
- * (client/src/lib/face.ts), matching happens on-device against the gallery
+ * Ported from Amino's gate. The frame is read on the phone (SFace, via
+ * client/src/lib/face.ts), matching happens on-device against the gallery
  * from GET /api/payroll/employees/gallery, and the punch goes to
  * POST /api/payroll/punches. Manual selection appears only after a failed
  * scan so face recognition stays the primary flow.
@@ -21,7 +21,7 @@ import {
 import { ApiError, api } from "../../api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  DEFAULT_MATCH_THRESHOLD, MIN_MATCH_MARGIN, frameToDataUrl, getFaceEmbedding, loadFaceEngine, looksSpoofed,
+  DEFAULT_MATCH_THRESHOLD, MIN_MATCH_MARGIN, frameToDataUrl, getFaceEmbedding, loadFaceEngine,
 } from "../../lib/face";
 import { Avatar, Badge, ErrorBanner, PageHeader, fmtTime, istToday, useErr } from "../../components/payroll/ui";
 
@@ -31,9 +31,9 @@ interface GalleryEmployee {
   name: string;
   payType: string;
   /**
-   * The enrolment descriptor first, then whatever the gate has taught itself
-   * from this worker's own scans. A face is scored on its best one, so a
-   * short gallery is only ever a weaker match, never a wrong one.
+   * The first gate photo of each of this worker's last 7 days at the gate,
+   * or their enrolment photo while they have none. A face is scored on its
+   * best one.
    */
   descriptors: number[][];
   photoUrl: string | null;
@@ -71,7 +71,6 @@ type Stage =
        * instead of photographing the same person a second time.
        */
       embedding?: number[] | null;
-      spoofed?: boolean;
       /** The runner-up's score and name, when it was the margin that failed rather than the cutoff. */
       runnerUp?: { name: string; score: number } | null;
     }
@@ -309,11 +308,6 @@ export function PayrollGatePage() {
         setStage({ kind: "nomatch", score: 0, closest: null, photo });
         return;
       }
-      // Anti-spoofing: a printed photo or a phone screen is rejected outright.
-      if (looksSpoofed(face)) {
-        setStage({ kind: "nomatch", score: 0, closest: null, photo, spoofed: true });
-        return;
-      }
       const match = findBestMatchIndexed(face.embedding, matchIndex);
       const employee = match.id ? empById.get(match.id) ?? null : null;
       // Auto-accept needs BOTH the absolute score over the threshold AND a
@@ -450,7 +444,6 @@ export function PayrollGatePage() {
       }
       const face = await getFaceEmbedding(video);
       if (!face.ok) { setManualCapture(null); setErr("No face detected — face the camera in good light and capture again."); return; }
-      if (looksSpoofed(face)) { setManualCapture(null); setErr("That looks like a photo or a screen, not a live face."); return; }
       setManualCapture({ photo, embedding: face.embedding ?? null });
       setErr(null);
       if (navigator.vibrate) navigator.vibrate(50);
@@ -563,12 +556,12 @@ export function PayrollGatePage() {
 
       {engineState === "loading" && (
         <div className="card flex items-center gap-2 p-3 text-sm text-gray-500">
-          <Loader2 size={15} className="animate-spin" /> Loading face engine (first time ~8 MB, then cached)…
+          <Loader2 size={15} className="animate-spin" /> Starting the face engine (the first time on this phone it downloads about 53 MB)…
         </div>
       )}
       {engineState === "failed" && (
         <div className="card flex items-center gap-2 p-3 text-sm text-red-600">
-          <AlertTriangle size={15} /> Face engine failed to load. Check internet and reload the page.
+          <AlertTriangle size={15} /> The face engine could not start. Check the connection and reload the page.
         </div>
       )}
       {scanImpossible && (
@@ -630,11 +623,9 @@ export function PayrollGatePage() {
               <AlertTriangle size={30} className="text-amber-400" />
               <div className="text-center">
                 <div className="font-bold">
-                  {stage.spoofed ? "Photo or screen detected" : stage.closest || stage.score > 0 ? "No confident match" : "No face detected"}
+                  {stage.closest || stage.score > 0 ? "No confident match" : "No face detected"}
                 </div>
-                {stage.spoofed ? (
-                  <div className="mt-1 text-sm text-white/70">This looks like a photo, not a live person. The worker must be at the gate.</div>
-                ) : stage.runnerUp ? (
+                {stage.runnerUp ? (
                   <div className="mt-1 text-sm text-white/70">
                     {stage.closest!.name} {(stage.score * 100).toFixed(0)}% and {stage.runnerUp.name}{" "}
                     {(stage.runnerUp.score * 100).toFixed(0)}% — too alike to choose between. Pick the worker by name.
@@ -655,7 +646,7 @@ export function PayrollGatePage() {
                   onClick={() =>
                     openManual(
                       "no_match",
-                      stage.photo && stage.embedding && !stage.spoofed ? { photo: stage.photo, embedding: stage.embedding } : null,
+                      stage.photo && stage.embedding ? { photo: stage.photo, embedding: stage.embedding } : null,
                     )
                   }
                 >

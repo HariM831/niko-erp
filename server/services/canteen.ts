@@ -23,7 +23,7 @@ import { DEFAULT_MEAL_WINDOWS, MEALS, istTimeHHMM, mealForTime, type Meal, type 
 import type { Db, Tx } from "../db";
 import { PostingError } from "./posting";
 import { acceptCentred } from "./face-model";
-import { canteenCapturesByEmployee, isUsableEmbedding, judgeCapture, roundEmbedding } from "./face-gallery";
+import { isUsableEmbedding, roundEmbedding } from "./face-gallery";
 import { carryOverIn, isOvernightShift, istDate } from "./day-resolution";
 
 type Conn = Db | Tx;
@@ -84,7 +84,7 @@ export interface BrowserServing {
   accuracyM?: number | null;
   /** What centred matching made of the scan (services/face-model.ts); recorded, never used to decide. */
   centred?: { modelId: string; matchId: string | null; score: number; secondScore: number } | null;
-  /** The face the scan found, when it found one — what may teach the canteen's gallery. */
+  /** The face the scan found, when it found one; kept on the plate. */
   faceEmbedding?: number[] | null;
   /** The frame, kept for a hand-picked plate only, so HR can see what the camera saw. */
   photoUrl?: string | null;
@@ -139,17 +139,10 @@ export async function recordBrowserServing(conn: Conn, userId: string, input: Br
     ineligible = meal === "breakfast" ? !(e?.breakfast || e?.breakfastAuto) : !e?.dinner;
   }
 
-  // The canteen learns its own faces. A face match teaches; a hand-picked name
-  // teaches only when the gate's own check passes — the face looks enough like
-  // the person picked and nobody else clearly better — judged against the
-  // canteen's captures too. The plate is served either way: the counter is
-  // not the place to argue.
+  // The scan's vector is kept on the plate. Since 24 Oct 2026 the canteen
+  // matches against the gate's gallery and teaches nobody
+  // (docs/face-sface-plan.md), so nothing here is judged.
   const emb = isUsableEmbedding(input.faceEmbedding) ? roundEmbedding(input.faceEmbedding) : null;
-  let teach = false;
-  if (emb) {
-    if (input.method === "face") teach = true;
-    else teach = (await judgeCapture(conn, emp.id, emb, await canteenCapturesByEmployee(conn))).teach;
-  }
   const scan = input.scan ?? null;
 
   const [serving] = await conn
@@ -175,7 +168,7 @@ export async function recordBrowserServing(conn: Conn, userId: string, input: Br
       accuracyM: input.accuracyM ?? null,
       attendancePresent: await presentForCanteen(conn, emp.id, mealDate, at),
       reconciledAt: at,
-      faceEmbedding: teach ? emb : null,
+      faceEmbedding: emb,
       photoUrl: input.method === "manual" ? (input.photoUrl ?? null) : null,
       scanScore: scan?.score ?? null,
       scanClosestId: scan?.closestId ?? null,

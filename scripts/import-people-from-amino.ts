@@ -1,16 +1,19 @@
 /**
  * Bring the people across from Amino — employees, daily-wage workers, and
- * every face the gate already knows.
+ * who the gate already knows.
  *
  * Dry by default: it resolves everything, says what it would write, and stops.
  * `--apply` writes, in ONE transaction, so a failure half-way leaves nothing
  * behind rather than a payroll that is half here.
  *
- * The faces transfer verbatim. Both apps pin @vladmandic/human@3.3.5 with the
- * same model files, so a descriptor enrolled on Amino matches on niko's
- * devices without anyone standing in front of a camera again. The export
- * stamps its model; a stamp this file doesn't recognise stops the import,
- * because a database full of unmatchable vectors LOOKS enrolled.
+ * Amino's face vectors are not copied. They are Human's FaceRes, and niko
+ * reads faces with SFace since 23 Oct 2026 (docs/face-sface-plan.md): a
+ * FaceRes vector matches nobody, and written over an SFace one it would undo
+ * a worker's enrolment while looking enrolled. Instead a worker Amino had
+ * enrolled is marked enrolled here with no vector; run
+ * scripts/sface-switch-over.ts afterwards and it reads their face from the
+ * photo that comes with them — the same way every face was made again when
+ * SFace took over.
  *
  * Mapping notes, the non-obvious ones:
  *
@@ -46,12 +49,9 @@ const arg = (name: string) => {
 const DIR = arg("dir") ?? "people-export";
 const APPLY = process.argv.includes("--apply");
 
-const KNOWN_MODEL = "@vladmandic/human@3.3.5 faceres";
-
 type Row = Record<string, unknown>;
 const exp = JSON.parse(await readFile(path.join(DIR, "people-export.json"), "utf8")) as {
   exportedAt: string;
-  faceModel: string;
   data: { employees: Row[]; wage_workers: Row[]; wage_roles: Row[] };
 };
 
@@ -127,14 +127,6 @@ const problem = (m: string) => {
 say("\n  IMPORT PEOPLE FROM AMINO");
 say(`  export of ${exp.exportedAt}${APPLY ? "" : "   (dry run — add --apply to write)"}`);
 
-if (exp.faceModel !== KNOWN_MODEL) {
-  say(`\n  REFUSING: export says its faces are "${exp.faceModel}",`);
-  say(`  this import only understands "${KNOWN_MODEL}".`);
-  say(`  A vector from another model would sit in the database looking enrolled`);
-  say(`  and never match a face at the gate.\n`);
-  process.exit(1);
-}
-
 /** Re-inline a photo file as the data URL niko stores. */
 let photosMissing = 0;
 const inhale = async (file: unknown): Promise<string | null> => {
@@ -143,9 +135,9 @@ const inhale = async (file: unknown): Promise<string | null> => {
   try {
     buf = await readFile(path.join(DIR, "photos", file));
   } catch {
-    // The JSON travels ahead of its photos folder sometimes. Faces still
-    // import (matching is on the descriptor) and a re-run with the folder
-    // present fills the photos in, because everything upserts.
+    // The JSON travels ahead of its photos folder sometimes. The person still
+    // imports, marked enrolled; their face is read once a re-run with the
+    // folder present fills the photo in, because everything upserts.
     photosMissing++;
     return null;
   }
@@ -153,15 +145,8 @@ const inhale = async (file: unknown): Promise<string | null> => {
   return `data:${mime};base64,${buf.toString("base64")}`;
 };
 
-const face = (r: Row, who: string): number[] | null => {
-  const d = r.face_descriptor;
-  if (!Array.isArray(d) || d.length === 0) return null;
-  if (d.length !== 1024) {
-    problem(`${who}: descriptor has ${d.length} floats, expected 1024 — skipped, re-enrol on niko`);
-    return null;
-  }
-  return d as number[];
-};
+/** Amino had a face on file for them. Only that is taken, not the vector (see the top). */
+const enrolledOnAmino = (r: Row) => Array.isArray(r.face_descriptor) && r.face_descriptor.length > 0;
 
 try {
   await db.transaction(async (tx) => {
@@ -243,8 +228,8 @@ try {
       }
 
       const photoUrl = await inhale(e.photo_file);
-      const descriptor = face(e, `${empCode} ${name}`);
-      if (descriptor) facesIn++;
+      const hadFace = enrolledOnAmino(e);
+      if (hadFace) facesIn++;
 
       const values = {
         empCode,
@@ -276,8 +261,9 @@ try {
         photoHash: photoUrl ? sha256(photoUrl) : null,
         panDocUrl: await inhale(e.pan_doc_file),
         aadharDocUrl: await inhale(e.aadhar_doc_file),
-        faceDescriptor: descriptor,
-        faceEnrolledAt: descriptor ? new Date(s(e.face_enrolled_at) ?? s(e.created_at) ?? Date.now()) : null,
+        // Read from the photo by the server, not copied (see the top).
+        faceDescriptor: null,
+        faceEnrolledAt: hadFace ? new Date(s(e.face_enrolled_at) ?? s(e.created_at) ?? Date.now()) : null,
         isActive: e.is_active !== false,
         updatedAt: new Date(),
       };
@@ -295,7 +281,7 @@ try {
       idByName.set(fold(name), idByName.has(fold(name)) ? null : id);
       if (s(e.reporting_authority)) reporting.push({ empCode, boss: s(e.reporting_authority)! });
     }
-    say(`  employees           ${created} created, ${updated} updated, ${facesIn} faces`);
+    say(`  employees           ${created} created, ${updated} updated, ${facesIn} enrolled (faces read from photos)`);
 
     // ── Wage workers become daily-wage employees ───────
     //
@@ -336,8 +322,8 @@ try {
       if (roleName && !wageRoleId) problem(`${empCode} ${name}: role "${roleName}" not on the rate card`);
 
       const photoUrl = await inhale(w.photo_file);
-      const descriptor = face(w, `${empCode} ${name}`);
-      if (descriptor) wFaces++;
+      const hadFace = enrolledOnAmino(w);
+      if (hadFace) wFaces++;
 
       const values = {
         empCode,
@@ -352,8 +338,8 @@ try {
         aadharNumber: idNum(w.aadhar_number, 12, `${empCode} ${name}`, "Aadhar"),
         photoUrl,
         photoHash: photoUrl ? sha256(photoUrl) : null,
-        faceDescriptor: descriptor,
-        faceEnrolledAt: descriptor ? new Date(s(w.created_at) ?? Date.now()) : null,
+        faceDescriptor: null,
+        faceEnrolledAt: hadFace ? new Date(s(w.created_at) ?? Date.now()) : null,
         isActive: w.is_active !== false,
         updatedAt: new Date(),
       };
@@ -367,7 +353,7 @@ try {
         wCreated++;
       }
     }
-    say(`  wage workers        ${wCreated} created, ${wUpdated} updated, ${wFaces} faces  (codes W-0001…)`);
+    say(`  wage workers        ${wCreated} created, ${wUpdated} updated, ${wFaces} enrolled  (codes W-0001…)`);
 
     // ── Reporting lines, by exact name ─────────────────
     let wired = 0;
@@ -394,12 +380,12 @@ try {
 } catch (e) {
   if (!(e instanceof DryRun)) throw e;
   if (photosMissing) say(`
-  NOTE: ${photosMissing} photo files absent, descriptors imported; photos await the folder`);
+  NOTE: ${photosMissing} photo files absent; those faces are read once the photos arrive`);
   say(`\n  dry run rolled back — nothing written${problems ? ` (${problems} problems above)` : ""}\n`);
   process.exit(problems ? 1 : 0);
 }
 
 if (photosMissing) say(`
-  NOTE: ${photosMissing} photo files absent, descriptors imported; photos await the folder`);
+  NOTE: ${photosMissing} photo files absent; those faces are read once the photos arrive`);
 say(`\n  applied${problems ? ` with ${problems} problems noted above` : ", clean"}\n`);
 process.exit(0);

@@ -1,12 +1,12 @@
 /**
- * The canteen learns its own faces (docs/canteen-face-matching-plan.md), inside
- * a transaction that is rolled back.
+ * What a canteen plate keeps of the face that was scanned, inside a
+ * transaction that is rolled back. Since 24 Oct 2026 the canteen matches
+ * against the gate's gallery and teaches nobody (docs/face-sface-plan.md).
  *
  *   a face-matched plate keeps its face, its scan, and no photo
- *   a hand-picked plate keeps the frame and the scan; its face teaches only
- *     when the gate's own check passes for the person picked
- *   the canteen's captures are served to the canteen and never to the gate
- *   the prune keeps exactly what the canteen roster serves
+ *   a hand-picked plate keeps its face, the frame and the scan, whoever it
+ *     looks like
+ *   nothing a plate keeps reaches the gate's gallery, and nothing is pruned
  *
  * Run: npx tsx scripts/check-canteen-scan.ts
  */
@@ -16,7 +16,7 @@ import { canteens, canteenServings, employees, locations, users } from "@shared/
 import { FACE_DIM } from "@shared/face";
 import { db } from "../server/db";
 import { recordBrowserServing } from "../server/services/canteen";
-import { canteenCaptures, pruneCanteenCaptures, taughtCaptures } from "../server/services/face-gallery";
+import { taughtCaptures } from "../server/services/face-gallery";
 import { addDays, istDate } from "../server/services/day-resolution";
 
 let failures = 0;
@@ -63,38 +63,32 @@ try {
 
     console.log("\n  what a plate keeps\n");
     const f = await plate(a.id, "face", between(A, noise, 0.9), at(today, "13:00"));
-    ok("a face-matched plate keeps its face to teach", Array.isArray(f.faceEmbedding) && f.faceEmbedding.length === FACE_DIM);
+    ok("a face-matched plate keeps its face", Array.isArray(f.faceEmbedding) && f.faceEmbedding.length === FACE_DIM);
     ok("and its scan: score, closest, frames", f.scanScore !== null && f.scanClosestId === a.id && f.scanFrames === 3);
     ok("but no photo — only a hand-picked plate keeps one", f.photoUrl === null);
 
     const good = await plate(b.id, "manual", between(B, noise, 0.6), at(today, "13:01"));
-    ok("hand-picked, the face looks enough like B: it teaches", good.faceEmbedding !== null && good.state === "name_matched");
+    ok("hand-picked, the face looks like B: kept", good.faceEmbedding !== null && good.state === "name_matched");
     ok("and the frame is kept for HR", good.photoUrl === PHOTO);
 
     const wrong = await plate(c.id, "manual", between(A, noise, 0.9), at(today, "13:02"));
-    ok("hand-picked as C, but the face is clearly A's: served, teaches nothing", wrong.faceEmbedding === null && wrong.state === "name_matched");
+    ok("hand-picked as C, but the face is clearly A's: served, and its face kept as it was", wrong.faceEmbedding !== null && wrong.state === "name_matched");
     ok("the plate still records what the scan saw", wrong.scanScore !== null && wrong.photoUrl === PHOTO);
 
     const nobody = await plate(a.id, "manual", noise, at(today, "20:00"));
-    ok("hand-picked, a face that looks like nobody: teaches nothing", nobody.faceEmbedding === null);
+    ok("hand-picked, a face that looks like nobody: kept too", nobody.faceEmbedding !== null);
 
     const camOff = await plate(b.id, "manual", null, at(today, "20:01"), { scan: null, photoUrl: null });
-    ok("picked with the camera off: nothing to teach, nothing to show", camOff.faceEmbedding === null && camOff.scanScore === null && camOff.photoUrl === null);
+    ok("picked with the camera off: no face, nothing to show", camOff.faceEmbedding === null && camOff.scanScore === null && camOff.photoUrl === null);
 
     console.log("\n  who is served what\n");
-    const own = await canteenCaptures(tx, [a.id, b.id, c.id]);
-    ok("the canteen's gallery has A's and B's taught faces, not C's", own.some((x) => x.employeeId === a.id) && own.some((x) => x.employeeId === b.id) && !own.some((x) => x.employeeId === c.id));
     const gate = await taughtCaptures(tx, [a.id, b.id, c.id]);
     ok("the gate's gallery is untouched by the canteen", gate.length === 0);
 
-    console.log("\n  the prune\n");
-    // Seven earlier days of A's lunches: only the newest five capture-days are served.
+    console.log("\n  nothing is pruned\n");
     for (let i = 1; i <= 7; i++) await plate(a.id, "face", between(A, noise, 0.85), at(addDays(today, -i), "13:00"));
-    const beforeA = (await canteenCaptures(tx, [a.id])).length;
-    ok("A is served five capture-days, one capture each", beforeA === 5, String(beforeA));
-    const cleared = await pruneCanteenCaptures(tx);
     const stored = (await tx.execute(sql`SELECT count(*)::int AS n FROM canteen_servings WHERE employee_id = ${a.id}::uuid AND face_embedding IS NOT NULL`)).rows[0] as { n: number };
-    ok("the prune clears what is no longer served, and keeps what is", cleared >= 3 && stored.n === 5, `cleared ${cleared}, kept ${stored.n}`);
+    ok("every plate of A's keeps its face", stored.n === 9, String(stored.n));
     ok("and the plates themselves stay", ((await tx.select({ n: sql<number>`count(*)::int` }).from(canteenServings).where(inArray(canteenServings.employeeId, [a.id])))[0]!.n) === 9);
 
     throw new Rollback();

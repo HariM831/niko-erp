@@ -1,24 +1,18 @@
 /**
- * Nightly clear-out of the face vectors the roster no longer serves.
+ * The hourly face tick: night-shift breakfast, the mean face, old photographs
+ * and the nightly face health report.
  *
- * Every scan at the gate leaves an embedding on its punch, so this grows by
- * roughly two rows per worker per day and each row is about 5 KB. Left alone
- * that is a few hundred megabytes a year of vectors nobody will ever match
- * against, because the gallery only ever offers the newest few days.
- *
- * The prune is keyed on exactly what the gallery read returns, so it cannot
- * delete something the gate is about to be offered — the two share their
- * constants rather than agreeing by eye.
+ * It used to clear the face vectors the roster no longer served. Since 24 Oct
+ * 2026 every scan's vector is kept (services/face-gallery.ts): an SFace vector
+ * is about a kilobyte, and the history is worth more than the space.
  *
  * Hourly rather than at a fixed hour: a gate runs all day and the server is
  * restarted often enough that a once-a-day slot is missed as often as it is
- * hit. The work is a single UPDATE over an indexed predicate, and after the
- * first pass of any day it finds almost nothing to do.
+ * hit.
  */
 import { sql } from "drizzle-orm";
 import { PHOTO_RETENTION_DAYS } from "@shared/canteen";
 import { db } from "../db";
-import { pruneCanteenCaptures, pruneTaughtCaptures, taughtCaptureCount } from "./face-gallery";
 import { buildFaceHealth, formatFaceHealth } from "./face-health";
 import { syncNightShiftBreakfast } from "./canteen";
 import { istDate } from "./day-resolution";
@@ -72,13 +66,6 @@ async function tick() {
   if (running) return; // a slow pass holds the next back rather than stacking
   running = true;
   try {
-    const cleared = (await pruneTaughtCaptures(db)) + (await pruneCanteenCaptures(db));
-    // Silent when there was nothing to do, which is most hours. A log line
-    // every hour saying "0" is a log nobody reads by the second week.
-    if (cleared > 0) {
-      console.log(`[faces] cleared ${cleared} aged-out capture(s); ${await taughtCaptureCount(db)} in the galleries`);
-    }
-
     // An assignment that starts today grants breakfast today, and one that
     // ended yesterday takes it back, without anybody saving anything.
     const today = istDate();

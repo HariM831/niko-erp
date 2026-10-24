@@ -5,8 +5,7 @@
  * The history import ran on 25 Sep 2026 and took every punch Amino had by
  * then. Amino's gates went on recording that afternoon and into 26 Sep, while
  * niko's own gate started on the 26th, so niko is missing those crossings:
- * people show an entry and no exit on 25 Sep, and the face captures for those
- * punches (scripts/import-face-captures-from-amino.ts) had nowhere to land.
+ * people show an entry and no exit on 25 Sep.
  *
  * Re-running the whole history import would do more than add punches: it
  * overwrites canteen meal eligibility and the closed months' attendance with

@@ -30,7 +30,7 @@ import { SearchSelect } from "../../components/search-select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge, ErrorBanner, PageHeader, istToday, useErr } from "../../components/payroll/ui";
 import { DateInput } from "../../components/date-input";
-import { DEFAULT_MATCH_THRESHOLD, MIN_MATCH_MARGIN, frameToDataUrl, getFaceEmbedding, looksSpoofed } from "../../lib/face";
+import { DEFAULT_MATCH_THRESHOLD, MIN_MATCH_MARGIN, frameToDataUrl, getFaceEmbedding } from "../../lib/face";
 import { loadRoster, saveRoster } from "../../lib/roster-cache";
 import { useCamera } from "../../lib/use-camera";
 import { buildMatchIndex, findBestMatchIndexed } from "@shared/face-match";
@@ -55,7 +55,7 @@ type Stage =
   | { kind: "idle" }
   | { kind: "matching" }
   | { kind: "confirm"; person: Person; method: "face" | "manual"; score: number | null; centred?: CentredResult | null }
-  | { kind: "nomatch"; spoofed?: boolean }
+  | { kind: "nomatch" }
   | { kind: "posting" }
   | { kind: "served"; plate: Served }
   | { kind: "duplicate"; name: string; message: string; token: string; at: string };
@@ -196,19 +196,17 @@ export function PayrollCanteenGatePage() {
       // If none does, the best of them is what the record keeps.
       let best: { m: ReturnType<typeof findBestMatchIndexed>; embedding: number[]; photo: string } | null = null;
       let frames = 0;
-      let spoofed = false;
       for (let i = 0; i < BURST_FRAMES; i++) {
         if (i > 0) await pause(BURST_GAP_MS);
         frames++;
         const photo = frameToDataUrl(video);
         const face = await getFaceEmbedding(video);
         if (!face.ok || !face.embedding) continue;
-        if (looksSpoofed(face)) { spoofed = true; continue; }
         const m = findBestMatchIndexed(face.embedding, index);
         if (!best || m.score > best.m.score) best = { m, embedding: face.embedding, photo };
         if (m.id && m.score >= DEFAULT_MATCH_THRESHOLD && m.score - m.secondScore >= MIN_MATCH_MARGIN) break;
       }
-      if (!best) { setStage({ kind: "nomatch", spoofed }); return; }
+      if (!best) { setStage({ kind: "nomatch" }); return; }
       const { m } = best;
       lastScan.current = {
         at: Date.now(),
@@ -343,7 +341,7 @@ export function PayrollCanteenGatePage() {
 
       {engineState === "loading" && (
         <div className="card mb-3 flex items-center gap-2 p-3 text-sm text-gray-500">
-          <Loader2 size={15} className="animate-spin" /> Loading face engine (first time ~8 MB, then cached)…
+          <Loader2 size={15} className="animate-spin" /> Starting the face engine (the first time on this phone it downloads about 53 MB)…
         </div>
       )}
       {scanImpossible && (
@@ -388,7 +386,7 @@ export function PayrollCanteenGatePage() {
 
           {stage.kind === "nomatch" && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80 p-4 text-center text-white">
-              <div className="text-lg font-semibold">{stage.spoofed ? "That looks like a photo or a screen" : "Not recognised"}</div>
+              <div className="text-lg font-semibold">Not recognised</div>
               <div className="text-sm text-white/70">Face the camera in good light and try again.</div>
               <div className="flex gap-2">
                 <button className="btn-secondary" onClick={() => setStage({ kind: "idle" })}>Try again</button>

@@ -34,6 +34,7 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { users } from "./auth";
 import { journalEntries } from "./accounting";
 import { locations } from "./locations";
@@ -157,8 +158,10 @@ export const employees = pgTable(
     photoHash: varchar("photo_hash", { length: 64 }),
     panDocUrl: text("pan_doc_url"),
     aadharDocUrl: text("aadhar_doc_url"),
-    /** Face embedding (Human FaceRes, 1024 floats). Matching is on-device. */
+    /** Face vector (SFace, 128 floats) of the enrolment photo, read on the phone (client/src/lib/face-engine.ts). Matching is on-device. */
     faceDescriptor: jsonb("face_descriptor").$type<number[]>(),
+    /** The FaceRes descriptor this worker had before SFace (migration 0138), kept as it was; never matched. */
+    faceDescriptorFaceres: jsonb("face_descriptor_faceres").$type<number[]>(),
     faceEnrolledAt: timestamp("face_enrolled_at", { withTimezone: true }),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -281,12 +284,15 @@ export const punches = pgTable(
     locationId: uuid("location_id").references(() => locations.id),
     photoUrl: text("photo_url"),
     /**
-     * The embedding of the face that was scanned, kept so a worker's gallery
-     * grows past the one photo taken at enrolment. Nulled by the nightly
-     * prune once it falls outside what the roster serves; the punch itself is
-     * the attendance record and outlives its vector by years.
+     * The SFace vector of the face that was scanned. Kept on every punch that
+     * had one, taught or not; the gallery serves only the taught ones
+     * (services/face-gallery.ts).
      */
     faceEmbedding: jsonb("face_embedding").$type<number[]>(),
+    /** The scan passed the check that lets it into its worker's gallery. */
+    faceTaught: boolean("face_taught").notNull().default(false),
+    /** The FaceRes vector this punch had before SFace (migration 0138), kept as it was; never matched. */
+    faceEmbeddingFaceres: jsonb("face_embedding_faceres").$type<number[]>(),
     /**
      * What centred matching made of the same face, recorded beside the raw
      * decision and never used for it (docs/face-matching-centred-plan.md): the
@@ -312,6 +318,8 @@ export const punches = pgTable(
   (t) => [
     index("ix_punches_emp_day").on(t.employeeId, t.punchDate),
     index("ix_punches_day").on(t.punchDate),
+    // The gallery's read: a worker's taught scans, newest days first.
+    index("ix_punches_face_taught").on(t.employeeId, t.punchDate, t.punchedAt).where(sql`${t.faceTaught}`),
   ],
 );
 

@@ -38,7 +38,7 @@ import { REPEAT_PUNCH_WINDOW_MS } from "./device";
 import { photoThumbnail, photoThumbnails } from "../services/photo";
 import { syncNightShiftBreakfast } from "../services/canteen";
 import { clashMessage, findIdClash, isAcceptableUpload, normAadhaar, normPan } from "../services/identity";
-import { isUsableEmbedding, judgeCapture, roundEmbedding, taughtCapturesByEmployee } from "../services/face-gallery";
+import { galleryOf, isUsableEmbedding, judgeCapture, roundEmbedding, taughtCapturesByEmployee } from "../services/face-gallery";
 import { acceptCentred, latestFaceModel } from "../services/face-model";
 import { adviseOn, buildFaceHealth, faceStandings, formatFaceHealth } from "../services/face-health";
 import { looseNumber, nonBlank, timeOfDay, validateBody } from "../lib/validate";
@@ -663,7 +663,7 @@ payrollRouter.get("/employees/gallery", gatePerm, async (req, res) => {
   const changedAt = sql<number>`(EXTRACT(EPOCH FROM GREATEST(
     employees.updated_at,
     COALESCE((SELECT max(p.punched_at) FROM punches p
-               WHERE p.employee_id = employees.id AND p.face_embedding IS NOT NULL), 'epoch'::timestamptz)
+               WHERE p.employee_id = employees.id AND p.face_taught), 'epoch'::timestamptz)
   )) * 1000)::float8`;
 
   const rows = await db
@@ -697,10 +697,9 @@ payrollRouter.get("/employees/gallery", gatePerm, async (req, res) => {
       name: r.name,
       payType: r.payType,
       photoUrl: thumbs[i],
-      // Enrolment first, then what the gate has taught itself. A face is
-      // scored on its BEST descriptor, so the order is for readers, not
-      // for the matcher.
-      descriptors: [roundEmbedding(r.faceDescriptor!), ...(taught.get(r.id) ?? [])],
+      // The first gate photo of each of their last 7 days at the gate; the
+      // enrolment photo only while they have none (services/face-gallery.ts).
+      descriptors: galleryOf(r.faceDescriptor, taught.get(r.id)),
     })),
     // Left, deactivated, or had their enrolment cleared. Named rather than
     // simply absent, because the kiosk is holding a copy it has to drop.
@@ -1224,7 +1223,9 @@ export async function recordGatePunch(tx: Tx, b: GatePunch, userId: string) {
       longitude: b.longitude ?? null,
       accuracyM: b.accuracyM ?? null,
       photoUrl: keepPhoto ? (b.photoUrl ?? null) : null,
-      faceEmbedding: teach && isUsableEmbedding(b.faceEmbedding) ? roundEmbedding(b.faceEmbedding) : null,
+      // Every scan's vector is kept; only a taught one joins the gallery.
+      faceEmbedding: isUsableEmbedding(b.faceEmbedding) ? roundEmbedding(b.faceEmbedding) : null,
+      faceTaught: teach,
       manualReason: b.method === "manual" ? (b.manualReason ?? null) : null,
       ...(await acceptCentred(tx, b.centred)),
       markedBy: userId,

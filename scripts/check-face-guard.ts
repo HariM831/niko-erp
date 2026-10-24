@@ -13,7 +13,8 @@
  *   A's face picked as A                 → taught
  *   a stranger's face picked as B        → not a conflict, but not taught
  *   someone with no gallery at all       → never taught by hand
- *   a taught capture counts as gallery   → B's drifted look is recognised as B
+ *   a taught capture is the gallery      → B's drifted look is recognised as B,
+ *                                          and his enrolment photo steps aside
  *
  * Run: npx tsx scripts/check-face-guard.ts
  */
@@ -42,9 +43,9 @@ const between = (a: number[], b: number[], cosToA: number) => {
 };
 
 console.log("\n  vectors\n");
-ok("1024 finite numbers is a face", isUsableEmbedding(axis(0)));
-ok("192 numbers — the phone app's model — is not", !isUsableEmbedding(Array(192).fill(0.1)));
-ok("1023 numbers is not", !isUsableEmbedding(Array(FACE_DIM - 1).fill(0.1)));
+ok(`${FACE_DIM} finite numbers is a face`, isUsableEmbedding(axis(0)));
+ok("1024 numbers — FaceRes, before SFace — is not", !isUsableEmbedding(Array(1024).fill(0.1)));
+ok(`${FACE_DIM - 1} numbers is not`, !isUsableEmbedding(Array(FACE_DIM - 1).fill(0.1)));
 ok("a NaN in it is not", !isUsableEmbedding([...axis(0).slice(1), Number.NaN]));
 
 try {
@@ -98,10 +99,14 @@ try {
       const rest = Math.sqrt(1 - own * own - toA * toA);
       return B.map((v, k) => own * v + toA * A[k]! + rest * axis(3)[k]!);
     };
-    v = await judgeCapture(tx, b.id, face(0.55, 0.65));
-    ok("a weak photo of B with A at chance level is not called A's", v.lookalike === null, `own 0.55, A 0.65 < ${LOOKALIKE_THRESHOLD}`);
+    // On SFace's scale (shared/face.ts): a weak own photo at 0.45, the closest
+    // stranger at 0.52 — over the match threshold and clear of the margin, so
+    // A contests it, but under the look-alike bar, which 0.62 is over.
+    const weak = 0.45, chance = 0.52, resemblance = 0.62;
+    v = await judgeCapture(tx, b.id, face(weak, chance));
+    ok("a weak photo of B with A at chance level is not called A's", v.lookalike === null, `own ${weak}, A ${chance} < ${LOOKALIKE_THRESHOLD}`);
     ok("…and is punched untaught, because A contests it", v.contested && !v.teach);
-    v = await judgeCapture(tx, b.id, face(0.55, 0.75));
+    v = await judgeCapture(tx, b.id, face(weak, resemblance));
     ok("a stranger at a real resemblance is still named", v.lookalike?.id === a.id && !v.teach, `A ${v.lookalike?.score.toFixed(2) ?? "—"}`);
 
     // B has changed since enrolment; the gate has taught itself his new look.
@@ -109,10 +114,13 @@ try {
     const newLook = between(B, stranger, 0.3);
     await tx.insert(punches).values({
       employeeId: b.id, type: "in", punchDate: istDate(), method: "face", matchScore: 0.8,
-      faceEmbedding: roundEmbedding(newLook), markedBy: user.id,
+      faceEmbedding: roundEmbedding(newLook), faceTaught: true, markedBy: user.id,
     });
     v = await judgeCapture(tx, b.id, newLook);
-    ok("a taught capture counts as gallery", v.teach && v.ownScore > 0.99, `own ${v.ownScore.toFixed(2)}`);
+    ok("a taught capture is the gallery", v.teach && v.ownScore > 0.99, `own ${v.ownScore.toFixed(2)}`);
+    // Once B has a taught scan, his enrolment photo is not matched against.
+    v = await judgeCapture(tx, b.id, B);
+    ok("…and the enrolment photo steps aside", Math.abs(v.ownScore - 0.3) < 0.01, `own ${v.ownScore.toFixed(2)} against the new look alone`);
 
     throw new Rollback();
   });

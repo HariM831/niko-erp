@@ -1,43 +1,19 @@
-// Face recognition helpers — runs fully in the browser, no external API calls.
+// Face recognition helpers. The face is read here, on the phone, by OpenCV's
+// SFace (client/src/lib/face-engine.ts, the arithmetic in shared/face-engine.ts),
+// and matched here against the roster the page downloaded (shared/face-match.ts).
+// Nothing but the punch itself goes to the server.
 //
-// Uses @vladmandic/human (loaded once from CDN, then cached by the browser).
-// Each face is converted to an embedding (array of numbers). Two embeddings of
-// the same person are numerically close; we match with cosine similarity.
+// Human's FaceRes used to run in this file. It put the wrong name on 16 gate
+// scans in 100 where SFace puts it on about 1 (docs/face-sface-plan.md).
 //
-// No biometric data ever leaves the app: embeddings are stored in our own DB
-// and matching happens on-device.
+// What went with it: Human's photo-or-screen check. A guard holds the phone at
+// the gate and sees who stands in front of it; a check of its own comes back
+// with the cameras that will not have a guard.
 
-let humanPromise: Promise<any> | null = null;
-
-// Pin to an exact version so a jsDelivr resolution swap can't put the runtime
-// out of sync with the model weights. Load models from the SAME `@vladmandic/human`
-// package (it ships a `/models/` directory) rather than the separate
-// `@vladmandic/human-models` package — the latter is over jsDelivr's 150 MB
-// package-size limit, so every model URL under it returns 403/404 and
-// `human.detect()` crashes deep inside TF.js with
-// "Cannot read properties of undefined (reading 'inputNodes')" when it tries
-// to run a model that never loaded.
-const HUMAN_CDN = "https://cdn.jsdelivr.net/npm/@vladmandic/human@3.3.5/dist/human.esm.js";
-const MODEL_BASE = "https://cdn.jsdelivr.net/npm/@vladmandic/human@3.3.5/models/";
-
-/** Similarity above which we auto-accept a match (tunable on the gate page).
- *
- * FaceRes embeddings (the descriptor Human returns) score roughly:
- *   • same person, good conditions       0.75 – 0.95
- *   • same person, different light/angle 0.60 – 0.75
- *   • different person, similar looks    0.35 – 0.55
- *   • random different person            0.10 – 0.30
- *
- * A 0.55 cutoff sits right in the false-accept zone — two different farm
- * workers can easily land there. 0.60 is the floor of the same-person band:
- * the gallery is Amino's mugshot-style enrolment photos while the live gate
- * sees a different camera against a busy yard, and that systematic gap parked
- * genuine workers at 0.60–0.65, each one bounced to manual. The margin rule
- * below still defers any close call — 0.61 only auto-accepts when the
- * runner-up is at 0.56 or worse, which is already different-person territory.
- * Re-enrolling someone at the gate camera lifts their scores well clear.
- */
 import { MATCH_MARGIN, MATCH_THRESHOLD } from "@shared/face";
+import { readCanvasFace, startFaceEngine } from "./face-engine";
+
+/** Similarity above which we auto-accept a match (SFace cosine; shared/face.ts has the reasoning). */
 export const DEFAULT_MATCH_THRESHOLD = MATCH_THRESHOLD;
 
 /** Minimum gap between the top match and the runner-up for an auto-accept.
@@ -45,67 +21,13 @@ export const DEFAULT_MATCH_THRESHOLD = MATCH_THRESHOLD;
  * each other. */
 export const MIN_MATCH_MARGIN = MATCH_MARGIN;
 
-/** Minimum anti-spoof ("real face") score to accept a capture.
- *
- * Human's antispoof model returns `real` 0..1 — a printed photo or a face on
- * a phone screen typically scores well below 0.5, a live face well above 0.7.
- * 0.6 rejects lazy photo-of-a-photo attempts without bouncing legitimate
- * workers in poor light. If either score is missing (model failed to load on
- * an old device) the check passes — the guard remains the human backstop, as
- * per the original design. */
-export const MIN_REAL_SCORE = 0.6;
-
-/** True when a capture looks like a photo/screen rather than a live person.
- * Conservative: only flags when the model actually produced a score. */
-export function looksSpoofed(face: { real?: number; live?: number }): boolean {
-  const real = typeof face.real === "number" ? face.real : null;
-  const live = typeof face.live === "number" ? face.live : null;
-  if (real !== null && real < MIN_REAL_SCORE) return true;
-  if (live !== null && live < MIN_REAL_SCORE) return true;
-  return false;
-}
-
-export async function loadFaceEngine(): Promise<any> {
-  if (!humanPromise) {
-    humanPromise = (async () => {
-      const mod: any = await import(/* @vite-ignore */ HUMAN_CDN);
-      const Human = mod.Human ?? mod.default;
-      const human = new Human({
-        modelBasePath: MODEL_BASE,
-        cacheSensitivity: 0,
-        filter: { enabled: true, equalization: true },
-        face: {
-          enabled: true,
-          // 0.4 minConfidence with the 1024-px resize gives a clean face crop
-          // (~500 px face) — no need for the lax 0.2 setting which was a
-          // band-aid for the smaller 640-px resize we used briefly.
-          detector: { rotation: true, maxDetected: 5, minConfidence: 0.4 },
-          mesh: { enabled: true },
-          iris: { enabled: false },
-          emotion: { enabled: false },
-          description: { enabled: true }, // produces the embedding
-          // Anti-spoofing: `antispoof` scores whether the face is a real face
-          // vs a printed photo / phone screen; `liveness` scores whether the
-          // input looks like a live camera capture. Both are small models
-          // (<1 MB each, cached like the rest). Scores surface on FaceResult
-          // and the gate page rejects captures below MIN_REAL_SCORE.
-          antispoof: { enabled: true },
-          liveness: { enabled: true },
-        },
-        body: { enabled: false },
-        hand: { enabled: false },
-        object: { enabled: false },
-        gesture: { enabled: false },
-        segmentation: { enabled: false },
-      });
-      await human.load();
-      return human;
-    })().catch((err) => {
-      humanPromise = null; // allow retry on transient network failure
-      throw err;
-    });
-  }
-  return humanPromise;
+/**
+ * Resolves once the engine has started on this phone: downloaded the first
+ * time (~53 MB), from the phone's own cache after that. A page shows "loading"
+ * until then.
+ */
+export async function loadFaceEngine(): Promise<void> {
+  await startFaceEngine();
 }
 
 export interface FaceResult {
@@ -114,101 +36,30 @@ export interface FaceResult {
   faceCount: number;
   /** detector confidence 0..1 for the detected face */
   confidence?: number;
-  /** anti-spoof score 0..1 — low means "looks like a photo/screen" */
-  real?: number;
-  /** liveness score 0..1 — low means "doesn't look like a live capture" */
-  live?: number;
   error?: string;
 }
 
-/** Detect a single face in an image/video/canvas and return its embedding. */
+/**
+ * The picture is read at most this size: big enough that a face across the
+ * gate keeps its detail, small enough that a phone shrinks it quickly.
+ * Separate from the 400 px audit photo, which is what gets stored.
+ */
+const SCAN_MAX_PX = 960;
+
+/** Read the largest face in an image/video/canvas and return its vector. */
 export async function getFaceEmbedding(
   input: HTMLImageElement | HTMLCanvasElement | HTMLVideoElement,
 ): Promise<FaceResult> {
-  const human = await loadFaceEngine();
-  // Race detect() with a timeout: Human/TF.js can silently hang when an internal
-  // model failed to load or the library/models packages are out of sync — the
-  // outer promise never resolves and the caller ends up in an infinite spinner.
-  // Ten seconds is a generous cap for a resized ≤640px photo on mobile.
-  const DETECT_TIMEOUT_MS = 10_000;
-  const result: any = await Promise.race([
-    human.detect(input),
-    new Promise((_, reject) =>
-      setTimeout(
-        () => reject(new Error("Face detection timed out — reload the page and try again")),
-        DETECT_TIMEOUT_MS,
-      ),
-    ),
-  ]);
-  const faces = (result?.face || []).filter((f: any) => Array.isArray(f.embedding) && f.embedding.length > 0);
-  if (faces.length === 0) {
-    return { ok: false, faceCount: 0, error: "No face detected" };
-  }
-  if (faces.length > 1) {
-    // pick the largest face but flag the count so callers can warn
-    faces.sort((a: any, b: any) => (b.box?.[2] || 0) * (b.box?.[3] || 0) - (a.box?.[2] || 0) * (a.box?.[3] || 0));
-  }
-  const face = faces[0];
-  return {
-    ok: true,
-    embedding: Array.from(face.embedding as number[]),
-    faceCount: faces.length,
-    confidence: face.faceScore ?? face.score,
-    real: typeof face.real === "number" ? face.real : undefined,
-    live: typeof face.live === "number" ? face.live : undefined,
-  };
-}
-
-export function cosineSimilarity(a: number[], b: number[]): number {
-  if (!a?.length || !b?.length || a.length !== b.length) return 0;
-  let dot = 0, na = 0, nb = 0;
-  for (let i = 0; i < a.length; i++) {
-    const x = a[i]!, y = b[i]!;
-    dot += x * y;
-    na += x * x;
-    nb += y * y;
-  }
-  const denom = Math.sqrt(na) * Math.sqrt(nb);
-  return denom === 0 ? 0 : dot / denom;
-}
-
-export interface MatchCandidate {
-  id: string;
-  /** enrollment descriptor plus any recent live-capture embeddings — a person
-   * matches on their BEST descriptor, which tolerates lighting/pose drift */
-  descriptors: number[][];
-}
-
-export interface MatchResult {
-  /** id of the best candidate, or null if none */
-  id: string | null;
-  /** similarity 0..1 of the best candidate */
-  score: number;
-  /** similarity of the runner-up PERSON (useful to judge ambiguity) */
-  secondScore: number;
-}
-
-/** Find the best-matching candidate for an embedding. Each candidate is scored
- * by their best descriptor; secondScore is the best score of a DIFFERENT person. */
-export function findBestMatch(embedding: number[], candidates: MatchCandidate[]): MatchResult {
-  let best: string | null = null;
-  let bestScore = -1;
-  let secondScore = -1;
-  for (const c of candidates) {
-    let s = -1;
-    for (const d of c.descriptors) {
-      const v = cosineSimilarity(embedding, d);
-      if (v > s) s = v;
-    }
-    if (s > bestScore) {
-      secondScore = bestScore;
-      bestScore = s;
-      best = c.id;
-    } else if (s > secondScore) {
-      secondScore = s;
-    }
-  }
-  return { id: best, score: Math.max(0, bestScore), secondScore: Math.max(0, secondScore) };
+  const w = input instanceof HTMLVideoElement ? input.videoWidth : input instanceof HTMLImageElement ? input.naturalWidth : input.width;
+  const h = input instanceof HTMLVideoElement ? input.videoHeight : input instanceof HTMLImageElement ? input.naturalHeight : input.height;
+  const scale = Math.min(1, SCAN_MAX_PX / Math.max(w || 1, h || 1));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(w * scale);
+  canvas.height = Math.round(h * scale);
+  canvas.getContext("2d", { willReadFrequently: true })!.drawImage(input, 0, 0, canvas.width, canvas.height);
+  const f = await readCanvasFace(canvas);
+  if (!f) return { ok: false, faceCount: 0, error: "No face detected" };
+  return { ok: true, embedding: f.vector, faceCount: f.faceCount, confidence: f.face.score };
 }
 
 /** Load an image src (data URL or http) into an HTMLImageElement. */
@@ -241,10 +92,9 @@ export function frameToDataUrl(
 
 /** Resize an uploaded photo to a bounded JPEG data URL (for employee photos).
  *
- * maxDim was 640 but that shrank the face crop below BlazeFace + mesh's reliable
- * detection window on typical 12 MP mobile portraits (~160 px face → dropped by
- * the mesh pass → "no face found"). 1024 gives a ~500-px face and detects
- * cleanly while still keeping the stored JPEG well under the server's 2 MB cap.
+ * 1024 px keeps a portrait's face a few hundred pixels across, plenty for the
+ * server's face engine, while keeping the stored JPEG well under the server's
+ * 2 MB cap.
  */
 export async function resizePhotoFile(file: File, maxDim = 1024, quality = 0.8): Promise<string> {
   const dataUrl: string = await new Promise((resolve, reject) => {

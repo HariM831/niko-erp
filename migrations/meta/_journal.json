@@ -995,6 +995,13 @@
       "when": 1793404800000,
       "tag": "0137_user_accent",
       "breakpoints": true
+    },
+    {
+      "idx": 139,
+      "version": "7",
+      "when": 1793491200000,
+      "tag": "0138_sface_faces",
+      "breakpoints": true
     }
   ]
 }
