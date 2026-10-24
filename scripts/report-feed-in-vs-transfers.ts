@@ -44,6 +44,8 @@ async function main() {
   console.log("house  transfers        silo saw   matched  silo-only (no transfer)   transfers silo missed   blind days   house ate");
   const totals = { sent: 0, rose: 0, eaten: 0, only: 0 };
   const detail: string[] = [];
+  const siloByDay = new Map<string, Map<string, number>>(); // house → day → kg
+  const ist = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
   for (const h of houses) {
     if (!h.sent && !h.eaten && !h.iot) continue;
     let rose = 0;
@@ -56,6 +58,9 @@ async function main() {
       for (const k of r.tankers) {
         if (k.move.kg < 1_000) continue;
         rose += k.move.kg;
+        const byDay = siloByDay.get(h.code) ?? new Map<string, number>();
+        byDay.set(ist(k.move.start), (byDay.get(ist(k.move.start)) ?? 0) + k.move.kg);
+        siloByDay.set(h.code, byDay);
         if (k.transfer) matched += k.move.kg;
         else {
           only += k.move.kg;
@@ -92,7 +97,56 @@ async function main() {
   console.log("\nMILL — made, sent, on hand now (tonnes)");
   for (const m of mill) console.log(`  ${m.name.padEnd(14)} made ${t(m.made).padStart(7)}  sent ${t(m.sent).padStart(7)}  on hand ${t(m.on_hand).padStart(7)}`);
 
-  if (detail.length) {
+  if (process.argv.includes("--daily")) {
+    const made = new Map(
+      ((await db.execute(sql`
+        SELECT transaction_date::text AS d, sum(quantity)::float8 AS kg FROM inventory_transactions
+         WHERE source_type = 'feed_mill' AND quantity > 0 AND transaction_date BETWEEN ${FROM}::date AND ${TO}::date
+           AND item_id IN (SELECT output_item_id FROM formulas)
+         GROUP BY 1`)).rows as Array<{ d: string; kg: number }>).map((r) => [r.d, r.kg]),
+    );
+    const perHouse = (
+      await db.execute(sql`
+        WITH days AS (SELECT generate_series(${FROM}::date, ${TO}::date, '1 day')::date AS d)
+        SELECT days.d::text AS d, h.code,
+               coalesce((SELECT sum(quantity_kg) FROM feed_transfers ft WHERE ft.to_house_id = h.id AND ft.status <> 'void' AND ft.transfer_date = days.d), 0)::float8 AS sent,
+               (SELECT sum(pd.feed_consumed_kg) FROM placement_days pd JOIN flock_placements fp ON fp.id = pd.placement_id
+                 WHERE fp.house_id = h.id AND pd.day = days.d)::float8 AS eaten
+          FROM days CROSS JOIN houses h
+         WHERE h.code IN ('L2', 'L3', 'L4', 'L5')
+         ORDER BY 1, h.display_order`)
+    ).rows as Array<{ d: string; code: string; sent: number; eaten: number | null }>;
+    const days = [...new Set(perHouse.map((r) => r.d))];
+    const table = (title: string, codes: string[], withMade: boolean) => {
+      console.log(`
+${title} (kg)
+`);
+      console.log(`day        ${withMade ? "  produced " : ""}  transferred   silo saw   house ate`);
+      const tot = { made: 0, sent: 0, silo: 0, eaten: 0 };
+      for (const d of days) {
+        const rows = perHouse.filter((r) => r.d === d && codes.includes(r.code));
+        const sent = rows.reduce((a, r) => a + r.sent, 0);
+        const silo = codes.reduce((a, c) => a + (siloByDay.get(c)?.get(d) ?? 0), 0);
+        const eatenRows = rows.filter((r) => r.eaten != null);
+        const eaten = eatenRows.reduce((a, r) => a + r.eaten!, 0);
+        const m = withMade ? (made.get(d) ?? 0) : 0;
+        tot.made += m;
+        tot.sent += sent;
+        tot.silo += silo;
+        tot.eaten += eaten;
+        const k = (n: number) => Math.round(n).toLocaleString("en-IN").padStart(10);
+        console.log(
+          `${d}  ${withMade ? k(m) + " " : ""}  ${k(sent)}  ${k(silo)}  ${k(eaten)}${eatenRows.length < rows.length ? ` (${eatenRows.length}/${rows.length} houses)` : ""}`,
+        );
+      }
+      const k = (n: number) => Math.round(n).toLocaleString("en-IN").padStart(10);
+      console.log(`TOTAL       ${withMade ? k(tot.made) + " " : ""}  ${k(tot.sent)}  ${k(tot.silo)}  ${k(tot.eaten)}`);
+    };
+    table("ALL FOUR LAYING HOUSES (L2–L5), MILL PRODUCTION BESIDE", ["L2", "L3", "L4", "L5"], true);
+    for (const c of ["L2", "L3", "L4", "L5"]) table(c, [c], false);
+  }
+
+  if (detail.length && !process.argv.includes("--daily")) {
     console.log("\nSILO RISES WITH NO TRANSFER (≥ 1 t)");
     for (const d of detail) console.log(d);
   }
