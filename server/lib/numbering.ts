@@ -1,7 +1,22 @@
 import { and, eq, sql } from "drizzle-orm";
-import { documentSeries, numberSeries } from "@shared/schema";
+import { documentSeries, numberSeries, orgProfile } from "@shared/schema";
 import type { Tx } from "../db";
 import { PostingError } from "../services/posting";
+
+/** Stands in a prefix for the financial year: "A-PO-{FY}-" issues A-PO-27-0001 in FY 2026-27. */
+const FY_TOKEN = "{FY}";
+
+/**
+ * The financial year as a prefix shows it: the two-digit year it ends in.
+ * 3 Oct 2026 with an April start is FY 2026-27, so "27"; from 1 Apr 2027,
+ * "28". With a January start the year is the calendar year, so "26".
+ */
+export function fyTag(date: string, start = "04-01"): string {
+  const year = Number(date.slice(0, 4));
+  const from = date.slice(5, 10) >= start ? year : year - 1;
+  const ends = start === "01-01" ? from : from + 1;
+  return String(ends % 100).padStart(2, "0");
+}
 
 /**
  * Claim the next document number, atomically, inside the caller's transaction.
@@ -11,11 +26,19 @@ import { PostingError } from "../services/posting";
  * use the default. The row-level lock taken by UPDATE serialises concurrent
  * claims; a rolled-back transaction releases the number only if no later number
  * was issued (acceptable gap-on-failure semantics).
+ *
+ * A prefix holding {FY} numbers each financial year from 0001 again, by the
+ * document's own `date`: A-PO-27-0412 on 31 Mar 2027, A-PO-28-0001 on 1 Apr.
+ * The count is then taken from the numbers the year already has, under the
+ * same row lock — one counter cannot serve two years, and a PO keyed in April
+ * but dated March still lands in March's year. Only for entities listed in
+ * NUMBER_SOURCES, and only safe where a document is never deleted.
  */
 export async function nextDocumentNumber(
   tx: Tx,
   entity: string,
   seriesId?: string | null,
+  date?: string,
 ): Promise<string> {
   const resolvedSeriesId = seriesId ?? (await defaultSeriesId(tx));
 
@@ -44,11 +67,53 @@ export async function nextDocumentNumber(
       `No numbering is configured for "${entity}" in the selected number series`,
     );
   }
-  return `${row.prefix}${String(row.claimed).padStart(row.padding, "0")}`;
+  if (!row.prefix.includes(FY_TOKEN)) {
+    return `${row.prefix}${String(row.claimed).padStart(row.padding, "0")}`;
+  }
+
+  const source = NUMBER_SOURCES[entity];
+  if (!source || !date) {
+    throw new PostingError(`The "${entity}" number series uses {FY}, which needs a dated document`);
+  }
+  const [org] = await tx.select({ fyStart: orgProfile.fiscalYearStart }).from(orgProfile).limit(1);
+  const prefix = row.prefix.replace(FY_TOKEN, fyTag(date, org?.fyStart));
+  const highest = await highestNumber(tx, source, prefix);
+  const claimed = highest + 1;
+  // The counter follows the year, so Settings shows the number coming next.
+  await tx
+    .update(documentSeries)
+    .set({ nextNumber: claimed + 1 })
+    .where(and(eq(documentSeries.entity, entity), eq(documentSeries.seriesId, resolvedSeriesId)));
+  return `${prefix}${String(claimed).padStart(row.padding, "0")}`;
+}
+
+/** The highest all-digit sequence after `prefix` in a source table, or 0. */
+async function highestNumber(
+  tx: Tx,
+  source: { table: string; column: string },
+  prefix: string,
+): Promise<number> {
+  const table = sql.identifier(source.table);
+  const column = sql.identifier(source.column);
+  // The sequence is whatever follows the prefix. Only all-digit remainders
+  // count, so a hand-edited or imported number in some other shape is
+  // ignored rather than crashing the cast.
+  // The ::int cast is load-bearing. A bare bind parameter here is typed as
+  // text, which silently selects substring(string from pattern) — the regex
+  // form — and every number comes back empty.
+  const suffixFrom = sql`${prefix.length + 1}::int`;
+  const result = await tx.execute(sql`
+    SELECT COALESCE(MAX(substring(${column} from ${suffixFrom})::bigint), 0) AS max_seq
+    FROM ${table}
+    WHERE ${column} LIKE ${`${prefix}%`}
+      AND substring(${column} from ${suffixFrom}) ~ '^[0-9]+$'
+  `);
+  return Number((result.rows[0] as { max_seq: string } | undefined)?.max_seq ?? 0);
 }
 
 /**
- * Tables a released number can be reclaimed from.
+ * Tables a series' issued numbers can be read back from: to reclaim a released
+ * number, or to count a {FY} prefix's year.
  *
  * A whitelist rather than a computed table name: `entity` reaches this from a
  * route, and an identifier interpolated into DDL-shaped SQL is exactly the
@@ -56,6 +121,7 @@ export async function nextDocumentNumber(
  */
 const NUMBER_SOURCES: Record<string, { table: string; column: string }> = {
   office_receipt: { table: "office_receipts", column: "number" },
+  purchase_order: { table: "purchase_orders", column: "number" },
 };
 
 /**
@@ -96,25 +162,8 @@ export async function resyncDocumentNumber(tx: Tx, entity: string): Promise<void
     .where(eq(documentSeries.entity, entity))
     .for("update");
 
-  const table = sql.identifier(source.table);
-  const column = sql.identifier(source.column);
-
   for (const series of rows) {
-    // The sequence is whatever follows the prefix. Only all-digit remainders
-    // count, so a hand-edited or imported number in some other shape is
-    // ignored rather than crashing the cast.
-    // The ::int cast is load-bearing. A bare bind parameter here is typed as
-    // text, which silently selects substring(string from pattern) — the regex
-    // form — and every number comes back empty.
-    const suffixFrom = sql`${series.prefix.length + 1}::int`;
-    const result = await tx.execute(sql`
-      SELECT COALESCE(MAX(substring(${column} from ${suffixFrom})::bigint), 0) AS max_seq
-      FROM ${table}
-      WHERE ${column} LIKE ${`${series.prefix}%`}
-        AND substring(${column} from ${suffixFrom}) ~ '^[0-9]+$'
-    `);
-    const highest = Number((result.rows[0] as { max_seq: string } | undefined)?.max_seq ?? 0);
-    const shouldBe = highest + 1;
+    const shouldBe = (await highestNumber(tx, source, series.prefix)) + 1;
     // Only ever downwards, and never into a gap in the middle.
     if (shouldBe >= series.nextNumber) continue;
 

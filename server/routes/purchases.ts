@@ -415,7 +415,7 @@ purchasesRouter.post(
           resolvedLines as DocLineInput[],
           vendor.placeOfSupplyState,
         );
-        const number = await nextDocumentNumber(tx, "purchase_order", body.seriesId);
+        const number = await nextDocumentNumber(tx, "purchase_order", body.seriesId, body.orderDate);
         const { lines: computedLines, ...headerTotals } = totals;
 
         // Stamped at creation only. Editing the order later leaves whatever

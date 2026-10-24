@@ -52,7 +52,7 @@ async function main() {
     if (!vendor || !maize || !dorb) throw new Error("could not make the scratch vendor and materials");
     console.log(`  Vendor: ${vendor.name}\n`);
 
-    const number = await nextDocumentNumber(tx, "purchase_order");
+    const number = await nextDocumentNumber(tx, "purchase_order", null, "2026-08-10");
     const [row] = await tx
       .insert(purchaseOrders)
       .values({

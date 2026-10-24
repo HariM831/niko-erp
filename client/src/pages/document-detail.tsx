@@ -439,7 +439,6 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
         gstin?: string;
         phone?: string;
         email?: string;
-        fiscalYearStart?: string;
       } | null>("/api/settings/org"),
   });
   /** A PO's "Deliver To": the location its location-lookup custom field picks, if it has one. */
@@ -577,8 +576,12 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
           <button
             onClick={() => {
               // The sheet alone, not the app around it — see print-sheet.ts.
-              // The title is the PDF's suggested file name.
-              const name = [config.titlePrefix, doc.number, contact?.displayName].filter(Boolean).join(" ");
+              // The title is the PDF's suggested file name. A PO's is its number
+              // alone, A-PO-27-0037.pdf, as the vendor files it.
+              const name =
+                kind === "purchase-order"
+                  ? (doc.number as string)
+                  : [config.titlePrefix, doc.number, contact?.displayName].filter(Boolean).join(" ");
               if (sheetRef.current) void printSheet(sheetRef.current, name);
               else window.print();
             }}

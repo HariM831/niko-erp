@@ -32,8 +32,6 @@ export interface PoLetterheadProps {
     city?: string;
     state?: string;
     pincode?: string;
-    /** "MM-DD" the financial year starts on; "04-01" in India. */
-    fiscalYearStart?: string;
   } | null;
   /** The location picked in the PO's "Deliver To" field; without one, the org profile's address prints. */
   deliverTo?: { name: string; lines: string[] } | null;
@@ -50,19 +48,6 @@ export interface PoLetterheadProps {
   termsAndConditions?: string | null;
   formatNum: (v: string | number) => string;
   slashDate: (d: string) => string;
-}
-
-/**
- * The PO number as printed, with its financial year after the prefix:
- * PO-00025 dated 3 Oct 2026 prints as PO-2627-00025 with an April start, or
- * PO-2026-00025 for a calendar year. Print only — the stored number, and the
- * one the lists and search show, stays PO-00025.
- */
-function printedNumber(number: string, date: string, start = "04-01"): string {
-  const year = Number(date.slice(0, 4));
-  const from = date.slice(5, 10) >= start ? year : year - 1;
-  const fy = start === "01-01" ? String(from) : `${from % 100}`.padStart(2, "0") + `${(from + 1) % 100}`.padStart(2, "0");
-  return number.replace(/^(.*?)(\d+)$/, `$1${fy}-$2`);
 }
 
 export function PoLetterheadSheet(p: PoLetterheadProps) {
@@ -89,8 +74,8 @@ export function PoLetterheadSheet(p: PoLetterheadProps) {
 
         <div className="flex border-b border-[#c9c9c9]">
           <div className="lh-kv flex-1 px-[2.5mm] py-[3mm]">
-            <span className="lh-lbl">#</span>
-            <span className="lh-bold">{printedNumber(p.number, p.orderDate, p.org?.fiscalYearStart)}</span>
+            <span className="lh-lbl">Purchase Order #</span>
+            <span className="lh-bold">{p.number}</span>
             <span className="lh-lbl">Purchase Order Date</span>
             <span className="lh-bold">{p.slashDate(p.orderDate)}</span>
             {p.terms && (
