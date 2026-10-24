@@ -3,7 +3,7 @@
  * accent that carries no attribute. Every other name here must have a
  * matching [data-accent="..."] block in index.css.
  */
-export const ACCENTS = ["yolk", "crimson", "terracotta", "forest", "teal", "indigo"] as const;
+export const ACCENTS = ["yolk", "crimson", "niko", "terracotta", "forest", "teal", "indigo"] as const;
 
 export type Accent = (typeof ACCENTS)[number];
 

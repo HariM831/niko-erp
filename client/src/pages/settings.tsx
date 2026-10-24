@@ -363,7 +363,8 @@ export function SettingsPage() {
 // use, so the dot shows the colour the screens will actually be built from.
 const ACCENT_CHOICES: Array<{ key: Accent; label: string; note: string; swatch: string }> = [
   { key: "yolk", label: "Yolk", note: "The original egg-yolk orange", swatch: "#e06d05" },
-  { key: "crimson", label: "Crimson", note: "The niko logo red", swatch: "#ce0d0d" },
+  { key: "crimson", label: "Crimson", note: "A bright, pure red", swatch: "#ce0d0d" },
+  { key: "niko", label: "Niko red", note: "The logo's exact red, as on the PO", swatch: "#c92026" },
   { key: "terracotta", label: "Terracotta", note: "Earthier, deeper cousin of the yolk", swatch: "#b44a1e" },
   { key: "forest", label: "Forest", note: "Farm green, held dark to stay clear of success", swatch: "#2f7038" },
   { key: "teal", label: "Teal", note: "Cool and modern; darkens the sidebar", swatch: "#0d7c72" },

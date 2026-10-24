@@ -110,6 +110,33 @@
   --color-ring: #de2020;
 }
 
+/* ── Niko red accent ──────────────────────────────────────────────────────
+   The logo file's own red, #c92026 (the PO letterhead's image), as its 600.
+   Crimson is a brighter, purer red; this one sits a touch towards rose. */
+[data-accent="niko"] {
+  --color-brand-50: #fdf2f3;
+  --color-brand-100: #fbe1e2;
+  --color-brand-200: #f6c4c6;
+  --color-brand-400: #e15a5f;
+  --color-brand-500: #d4343a;
+  --color-brand-600: #c92026;
+  --color-brand-700: #a81a20;
+
+  --color-yolk-50: #fdf2f3;
+  --color-yolk-100: #fbe1e2;
+  --color-yolk-200: #f6c4c6;
+  --color-yolk-300: #ee989b;
+  --color-yolk-400: #e15a5f;
+  --color-yolk-500: #d4343a;
+  --color-yolk-600: #c92026;
+  --color-yolk-700: #a81a20;
+  --color-yolk-800: #8b181d;
+  --color-yolk-900: #74191d;
+
+  --color-primary: #c92026;
+  --color-ring: #d4343a;
+}
+
 /* ── Teal accent ──────────────────────────────────────────────────────────
    Kept well clear of the mint used for "success", so a teal button never
    reads as a status. The rail moves off its warm brown here: charcoal sits
