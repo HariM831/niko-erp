@@ -29,7 +29,7 @@ import { requireAnyPermission, requirePermission } from "../lib/rbac";
 import { DuplicatePlate, mealWindowsFor, presentForCanteen, recordBrowserServing } from "../services/canteen";
 import { PostingError } from "../services/posting";
 import { LOCATION_REQUIRED, isRealPoint } from "../services/punch-sites";
-import { canteenCapturesByEmployee, taughtCapturesByEmployee, roundEmbedding } from "../services/face-gallery";
+import { galleryOf, taughtCapturesByEmployee } from "../services/face-gallery";
 import { istTimeHHMM, mealForTime, MEAL_LABEL } from "@shared/canteen";
 import { timeOfDay, validateBody } from "../lib/validate";
 
@@ -229,7 +229,6 @@ const servingCols = {
   scanScore: canteenServings.scanScore,
   scanFrames: canteenServings.scanFrames,
   scanClosestName: sql<string | null>`(SELECT e2.name FROM employees e2 WHERE e2.id = ${canteenServings.scanClosestId})`,
-  taught: sql<boolean>`${canteenServings.faceEmbedding} IS NOT NULL`,
   attendancePresent: canteenServings.attendancePresent,
   reconciledAt: canteenServings.reconciledAt,
   syncedAt: canteenServings.syncedAt,
@@ -520,19 +519,16 @@ canteenRouter.get("/gate/roster", serve, async (req, res) => {
   const since = Number(req.query.since) || 0;
   /*
    * A cursor, as the gate's gallery has (payroll.ts /employees/gallery): with
-   * the canteen's own captures a person carries up to eleven descriptors, and
-   * the whole roster every five minutes was megabytes for a handful of
-   * changes. A person changed when their row did, their meal list did, or a
-   * capture was taught at the gate or the counter. Plain SQL with the table
-   * named, for the reason given there.
+   * up to seven descriptors a person, the whole roster every five minutes
+   * was megabytes for a handful of changes. A person changed when their row
+   * did, their meal list did, or the gate was taught a scan of them. Plain
+   * SQL with the table named, for the reason given there.
    */
   const changedAt = sql<number>`(EXTRACT(EPOCH FROM GREATEST(
     employees.updated_at,
     COALESCE((SELECT max(m.updated_at) FROM canteen_meal_eligibility m WHERE m.employee_id = employees.id), 'epoch'::timestamptz),
     COALESCE((SELECT max(p.punched_at) FROM punches p
-               WHERE p.employee_id = employees.id AND p.face_embedding IS NOT NULL), 'epoch'::timestamptz),
-    COALESCE((SELECT max(c.served_at) FROM canteen_servings c
-               WHERE c.employee_id = employees.id AND c.face_embedding IS NOT NULL), 'epoch'::timestamptz)
+               WHERE p.employee_id = employees.id AND p.face_taught), 'epoch'::timestamptz)
   )) * 1000)::float8`;
   const rows = await db
     .select({
@@ -554,15 +550,13 @@ canteenRouter.get("/gate/roster", serve, async (req, res) => {
   const live = rows.filter((r) => r.isActive);
   const ids = live.filter((p) => p.faceDescriptor).map((p) => p.id);
   const taught = await taughtCapturesByEmployee(db, ids);
-  const own = await canteenCapturesByEmployee(db, ids);
   res.json({
     cursor: rows.reduce((max, r) => Math.max(max, r.changedAt), since),
     people: live.map(({ faceDescriptor, changedAt: _c, isActive: _a, ...p }) => ({
       ...p,
-      // Enrolment, the gate's captures, then the canteen's own.
-      descriptors: faceDescriptor
-        ? [roundEmbedding(faceDescriptor as number[]), ...(taught.get(p.id) ?? []), ...(own.get(p.id) ?? [])]
-        : [],
+      // The gate's gallery, the same one the gate matches against
+      // (services/face-gallery.ts); the canteen's own scans teach nobody.
+      descriptors: faceDescriptor ? galleryOf(faceDescriptor, taught.get(p.id)) : [],
     })),
     deleted: rows.filter((r) => !r.isActive).map((r) => r.id),
   });

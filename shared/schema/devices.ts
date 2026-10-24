@@ -222,11 +222,13 @@ export const canteenServings = pgTable(
     authorisedBy: uuid("authorised_by").references(() => staffPins.id),
     photoUrl: text("photo_url"),
     /**
-     * The scanned face, kept only when it may teach the canteen's own gallery:
-     * a face match, or a hand-pick among the scan's five closest
-     * (docs/canteen-face-matching-plan.md). Aged out like the gate's captures.
+     * The SFace vector of the scanned face, kept on every plate that had one.
+     * Since 24 Oct 2026 the canteen matches against the gate's gallery and its
+     * own scans teach nobody (docs/face-sface-plan.md).
      */
     faceEmbedding: jsonb("face_embedding").$type<number[]>(),
+    /** The FaceRes vector this plate had before SFace (migration 0138), kept as it was; never matched. */
+    faceEmbeddingFaceres: jsonb("face_embedding_faceres").$type<number[]>(),
     /** What the scan made of the face — on a face match and a hand-pick alike. */
     scanScore: real("scan_score"),
     scanClosestId: uuid("scan_closest_id").references(() => employees.id),

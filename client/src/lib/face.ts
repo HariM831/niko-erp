@@ -1,19 +1,17 @@
-// Face recognition helpers. The face is read on the server: a page sends the
-// picture to POST /api/payroll/face/vector and gets the face's vector back
-// (server/services/face-engine.ts, OpenCV's SFace). Matching the vector against
-// the roster still happens here, on the device (shared/face-match.ts).
+// Face recognition helpers. The face is read here, on the phone, by OpenCV's
+// SFace (client/src/lib/face-engine.ts, the arithmetic in shared/face-engine.ts),
+// and matched here against the roster the page downloaded (shared/face-match.ts).
+// Nothing but the punch itself goes to the server.
 //
-// Human's FaceRes used to run in this file, in the browser. It put the wrong
-// name on 16 gate scans in 100 where SFace puts it on about 1
-// (docs/face-sface-plan.md), and the model now lives in one place for the
-// gate, the canteen, enrolment and a CCTV box later.
+// Human's FaceRes used to run in this file. It put the wrong name on 16 gate
+// scans in 100 where SFace puts it on about 1 (docs/face-sface-plan.md).
 //
 // What went with it: Human's photo-or-screen check. A guard holds the phone at
-// the gate and sees who stands in front of it; a check of its own comes back,
-// on the server, with the cameras that will not have a guard.
+// the gate and sees who stands in front of it; a check of its own comes back
+// with the cameras that will not have a guard.
 
 import { MATCH_MARGIN, MATCH_THRESHOLD } from "@shared/face";
-import { api } from "../api";
+import { readCanvasFace, startFaceEngine } from "./face-engine";
 
 /** Similarity above which we auto-accept a match (SFace cosine; shared/face.ts has the reasoning). */
 export const DEFAULT_MATCH_THRESHOLD = MATCH_THRESHOLD;
@@ -23,18 +21,13 @@ export const DEFAULT_MATCH_THRESHOLD = MATCH_THRESHOLD;
  * each other. */
 export const MIN_MATCH_MARGIN = MATCH_MARGIN;
 
-let ready: Promise<void> | null = null;
-
-/** Resolves once the server's face engine is loaded; a page shows "loading" until then. */
-export function loadFaceEngine(): Promise<void> {
-  ready ??= api("/api/payroll/face/ready").then(
-    () => undefined,
-    (err) => {
-      ready = null; // allow a retry after a network blip
-      throw err;
-    },
-  );
-  return ready;
+/**
+ * Resolves once the engine has started on this phone: downloaded the first
+ * time (~53 MB), from the phone's own cache after that. A page shows "loading"
+ * until then.
+ */
+export async function loadFaceEngine(): Promise<void> {
+  await startFaceEngine();
 }
 
 export interface FaceResult {
@@ -47,12 +40,11 @@ export interface FaceResult {
 }
 
 /**
- * The picture sent for reading: big enough that a face across the gate keeps
- * its detail, small enough to post quickly (~100 KB). Separate from the 400 px
- * audit photo, which is what gets stored.
+ * The picture is read at most this size: big enough that a face across the
+ * gate keeps its detail, small enough that a phone shrinks it quickly.
+ * Separate from the 400 px audit photo, which is what gets stored.
  */
 const SCAN_MAX_PX = 960;
-const SCAN_QUALITY = 0.85;
 
 /** Read the largest face in an image/video/canvas and return its vector. */
 export async function getFaceEmbedding(
@@ -64,13 +56,10 @@ export async function getFaceEmbedding(
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(w * scale);
   canvas.height = Math.round(h * scale);
-  canvas.getContext("2d")!.drawImage(input, 0, 0, canvas.width, canvas.height);
-  const r = await api<{ embedding: number[] | null; faceCount: number; confidence?: number }>("/api/payroll/face/vector", {
-    method: "POST",
-    body: { photo: canvas.toDataURL("image/jpeg", SCAN_QUALITY) },
-  });
-  if (!r.embedding) return { ok: false, faceCount: 0, error: "No face detected" };
-  return { ok: true, embedding: r.embedding, faceCount: r.faceCount, confidence: r.confidence };
+  canvas.getContext("2d", { willReadFrequently: true })!.drawImage(input, 0, 0, canvas.width, canvas.height);
+  const f = await readCanvasFace(canvas);
+  if (!f) return { ok: false, faceCount: 0, error: "No face detected" };
+  return { ok: true, embedding: f.vector, faceCount: f.faceCount, confidence: f.face.score };
 }
 
 /** Load an image src (data URL or http) into an HTMLImageElement. */

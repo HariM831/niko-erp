@@ -42,7 +42,6 @@ interface Serving {
   scanScore?: number | null;
   scanFrames?: number | null;
   scanClosestName?: string | null;
-  taught?: boolean;
   servedAt: string;
   tokenNumber: string;
   outsideWindow: boolean;

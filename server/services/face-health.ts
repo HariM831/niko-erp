@@ -35,6 +35,7 @@ type Conn = Db | Tx;
 // runner-up. One definition, shared with the client that makes the decision.
 export { MATCH_MARGIN, MATCH_THRESHOLD } from "@shared/face";
 import { FACE_DIM, LOOKALIKE_THRESHOLD, MATCH_MARGIN, MATCH_THRESHOLD, TEACH_OWN_FLOOR } from "@shared/face";
+import { GALLERY_DAYS } from "./face-gallery";
 
 /** HR's desk work, which is not a face failing. See the note above. */
 const HR_RESOLVED = sql`(p.resolution_note IS NOT NULL AND p.resolved_at IS NULL)`;
@@ -62,8 +63,6 @@ export interface FaceHealth {
     pickedWasClosest: number;
     /** Hand-picks that had a scan recorded at all (since 1 Oct 2026). */
     pickedWithScan: number;
-    /** Plates whose face now teaches the canteen's own gallery. */
-    taught: number;
   };
   /** Who the gate keeps failing to recognise, worst first. */
   strugglers: Array<{
@@ -361,7 +360,7 @@ export async function buildFaceHealth(conn: Conn, days = 30): Promise<FaceHealth
              count(*)::int AS scans,
              count(*) FILTER (WHERE (p.method = 'manual' AND coalesce(p.manual_reason, 'no_match') = 'no_match'))::int AS failures,
              (SELECT count(DISTINCT c.punch_date)::int FROM punches c
-               WHERE c.employee_id = e.id AND c.face_embedding IS NOT NULL) AS taught,
+               WHERE c.employee_id = e.id AND c.face_taught) AS taught,
              (e.face_descriptor IS NOT NULL) AS enrolled,
              to_char(e.face_enrolled_at AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM-DD') AS "enrolledOn"
         FROM punches p
@@ -424,11 +423,10 @@ export async function buildFaceHealth(conn: Conn, days = 30): Promise<FaceHealth
   const [cScan] = (
     await conn.execute(sql`
       SELECT count(*) FILTER (WHERE state = 'name_matched' AND scan_score IS NOT NULL)::int AS "withScan",
-             count(*) FILTER (WHERE state = 'name_matched' AND scan_closest_id = employee_id)::int AS "wasClosest",
-             count(*) FILTER (WHERE face_embedding IS NOT NULL)::int AS taught
+             count(*) FILTER (WHERE state = 'name_matched' AND scan_closest_id = employee_id)::int AS "wasClosest"
         FROM canteen_servings WHERE ${canteenWindow}
     `)
-  ).rows as Array<{ withScan: number; wasClosest: number; taught: number }>;
+  ).rows as Array<{ withScan: number; wasClosest: number }>;
 
   /* ── What the galleries look like ───────────────────────────────────── */
   const [g] = (
@@ -440,7 +438,7 @@ export async function buildFaceHealth(conn: Conn, days = 30): Promise<FaceHealth
              COALESCE(sum(t.n), 0)::int AS captures
         FROM employees e
         LEFT JOIN (SELECT employee_id, count(*)::int AS n FROM punches
-                    WHERE face_embedding IS NOT NULL GROUP BY employee_id) t
+                    WHERE face_taught GROUP BY employee_id) t
                ON t.employee_id = e.id
        WHERE e.is_active
     `)
@@ -460,7 +458,6 @@ export async function buildFaceHealth(conn: Conn, days = 30): Promise<FaceHealth
       byHour: cByHour,
       pickedWasClosest: cScan?.wasClosest ?? 0,
       pickedWithScan: cScan?.withScan ?? 0,
-      taught: cScan?.taught ?? 0,
     },
     strugglers: strugglers.map((s) => ({
       name: s.name,
@@ -468,7 +465,8 @@ export async function buildFaceHealth(conn: Conn, days = 30): Promise<FaceHealth
       scans: s.scans,
       failures: s.failures,
       rate: s.failures / s.scans,
-      descriptors: (s.enrolled ? 1 : 0) + s.taught,
+      // What the gate serves them: their taught days, or the enrolment photo alone.
+      descriptors: s.taught ? Math.min(s.taught, GALLERY_DAYS) : s.enrolled ? 1 : 0,
       enrolledOn: s.enrolledOn,
     })),
     margins: {
@@ -568,7 +566,7 @@ async function faceSeparation(conn: Conn): Promise<Pick<FaceHealth, "separation"
     await conn.execute(sql`
       SELECT employee_id, method, punch_date::text AS day, face_embedding AS e
         FROM punches
-       WHERE face_embedding IS NOT NULL
+       WHERE face_taught AND face_embedding IS NOT NULL
          AND punch_date >= (now() AT TIME ZONE 'Asia/Kolkata')::date - 60
     `)
   ).rows as Array<{ employee_id: string; method: string; day: string; e: number[] }>;
@@ -743,7 +741,6 @@ export function formatFaceHealth(r: FaceHealth): string {
       if (r.canteen.pickedWithScan) {
         L.push(`  hand-picked after a scan: ${r.canteen.pickedWithScan}; the scan had already named that person in ${r.canteen.pickedWasClosest} (${pct(r.canteen.pickedWasClosest / r.canteen.pickedWithScan)}) — close, not sure enough`);
       }
-      L.push(`  plates teaching the canteen's own gallery: ${r.canteen.taught}`);
     }
     if (r.centred?.recorded) {
       const line = (label: string, b: CentredBand) =>
@@ -830,7 +827,7 @@ export function formatFaceHealth(r: FaceHealth): string {
     for (const m of r.misfiled.shown) {
       L.push(`    ${m.filedUnder.slice(0, 25).padEnd(26)}${m.ownScore.toFixed(2).padStart(6)}  ${(m.looksLike ?? "nobody in particular").slice(0, 25).padEnd(26)}${m.otherScore.toFixed(2).padStart(6)}  ${m.method.padEnd(8)} ${m.day}`);
     }
-    L.push("  Each one drags that person's gallery toward someone else. They age out in 60 days; clear them sooner by setting face_embedding to NULL on those punches.");
+    L.push("  Each one drags that person's gallery toward someone else. They age out in 60 days; take one out sooner by setting face_taught to false on its punch.");
   }
 
   const advice = r.advice.length ? r.advice : adviseOn(r);

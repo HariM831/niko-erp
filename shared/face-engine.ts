@@ -1,16 +1,19 @@
 /**
- * The face engine: a photo in, a 128-number SFace vector out. Every face
- * vector the app stores or matches is made here.
+ * The face engine's arithmetic: a picture in, a 128-number SFace vector out.
  *
- * It replaced Human's FaceRes, which ran on the phone. On the farm's own gate
- * photos FaceRes put the wrong name on 16 scans in 100 against a single
- * enrolment photo, 28 in 100 after dark; OpenCV's SFace on the same photos
- * about 1 in 100, and none after dark. It is Apache-2.0, so it may be used here
- * without asking anyone (docs/face-sface-plan.md has the test).
+ * It runs on the phone (client/src/lib/face-engine.ts, onnxruntime-web) for
+ * every scan and enrolment, and in scripts on the server
+ * (scripts/lib/face-engine-node.ts, onnxruntime-node) for the one-off reading
+ * of photos already on file. Both feed this file the same pixels and get the
+ * same vector back; only how a model is run differs, and each side supplies
+ * that (`FaceRuntime`). Even the shrinking is done here, not by a canvas or
+ * sharp: on 30 farm photos the phone's canvas shrink alone moved a vector as
+ * far as 0.91 from the script's. The running server never loads a model.
  *
- * It runs on the server so the model lives in one place: the gate and canteen
- * pages, enrolment, and a CCTV box later all send a photo and get the same
- * vector back, and changing the model never means changing a phone.
+ * It replaced Human's FaceRes. On the farm's own gate photos FaceRes put the
+ * wrong name on 16 scans in 100 against a single enrolment photo, 28 in 100
+ * after dark; OpenCV's SFace on the same photos about 1 in 100, and none after
+ * dark. It is Apache-2.0 (docs/face-sface-plan.md has the test).
  *
  * Two small ONNX models, both from OpenCV Zoo and pinned by revision and hash:
  *
@@ -25,18 +28,10 @@
  * face_recognize.cpp. On 300 farm photos the vectors agree with OpenCV's own at
  * a median cosine of 0.999 (worst 0.93); scripts/check-face-engine.ts keeps the
  * arithmetic honest.
- *
- * The weights are fetched once into FACE_MODELS_DIR (default .cache/face-models,
- * beside TimesFM's cache) and checked against their sha256 before first use; a
- * file that does not match is refused, not run. */
-import { createHash } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import path from "node:path";
-import * as ort from "onnxruntime-node";
-import sharp from "sharp";
-import { FACE_DIM } from "@shared/face";
+ */
+import { FACE_DIM } from "./face";
 
-const MODELS = {
+export const FACE_MODELS = {
   yunet: {
     file: "face_detection_yunet_2023mar.onnx",
     url: "https://huggingface.co/opencv/face_detection_yunet/resolve/3cc26e7f1014a5ee5d74a42acee58bafc9d0a310/face_detection_yunet_2023mar.onnx",
@@ -49,17 +44,17 @@ const MODELS = {
   },
 } as const;
 
-const modelsDir = () => path.resolve(process.env.FACE_MODELS_DIR ?? ".cache/face-models");
+export type FaceModelName = keyof typeof FACE_MODELS;
 
 /** YuNet's ONNX takes a fixed 640×640 picture; anything bigger is shrunk to fit first. */
-const DET_SIZE = 640;
+export const DET_SIZE = 640;
 /** OpenCV's defaults for FaceDetectorYN, and what the gate-photo test ran with. */
 const SCORE_THRESHOLD = 0.6;
 const NMS_THRESHOLD = 0.3;
 const STRIDES = [8, 16, 32] as const;
 
 /** Where SFace expects the five points in its 112×112 crop (OpenCV alignCrop). */
-const CROP = 112;
+export const CROP = 112;
 export const TEMPLATE: readonly [number, number][] = [
   [38.2946, 51.6963],
   [73.5318, 51.5014],
@@ -68,65 +63,27 @@ export const TEMPLATE: readonly [number, number][] = [
   [70.7299, 92.2041],
 ];
 
-async function modelBytes(m: (typeof MODELS)[keyof typeof MODELS]): Promise<Buffer> {
-  const where = path.join(modelsDir(), m.file);
-  const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
-  try {
-    const b = await readFile(where);
-    if (sha(b) === m.sha256) return b;
-  } catch {
-    // not fetched yet
-  }
-  const res = await fetch(m.url);
-  if (!res.ok) throw new Error(`face engine: could not fetch ${m.file} (HTTP ${res.status})`);
-  const b = Buffer.from(await res.arrayBuffer());
-  if (sha(b) !== m.sha256) throw new Error(`face engine: ${m.file} does not match its pinned sha256`);
-  // Written aside and renamed, so a fetch cut off half way never leaves a file
-  // that is read as the model next time. A folder the service may not write
-  // (systemd's ReadWritePaths) costs a fetch per boot, not the engine.
-  try {
-    await mkdir(modelsDir(), { recursive: true });
-    await writeFile(`${where}.part`, b);
-    await rename(`${where}.part`, where);
-  } catch (e) {
-    console.warn(`[faces] could not keep ${m.file} in ${modelsDir()}; it will be fetched again next boot:`, (e as Error).message);
-  }
-  return b;
-}
-
-let sessions: Promise<{ det: ort.InferenceSession; rec: ort.InferenceSession }> | null = null;
-
-function engine() {
-  sessions ??= (async () => {
-    // Two threads each: the engine shares the box with the web server, and a
-    // gate scan is one face, which SFace does in a few milliseconds anyway.
-    const opts: ort.InferenceSession.SessionOptions = { intraOpNumThreads: 2, interOpNumThreads: 1, logSeverityLevel: 3 };
-    const [det, rec] = await Promise.all([
-      modelBytes(MODELS.yunet).then((b) => ort.InferenceSession.create(b, opts)),
-      modelBytes(MODELS.sface).then((b) => ort.InferenceSession.create(b, opts)),
-    ]);
-    return { det, rec };
-  })().catch((e) => {
-    sessions = null; // let the next call try again rather than caching the failure
-    throw e;
-  });
-  return sessions;
-}
-
-/** Fetch and load both models now, so the first scan does not pay for it. */
-export async function warmFaceEngine(): Promise<void> {
-  await engine();
-}
-
-/** An RGB picture, row by row, 3 bytes a pixel. */
-interface Rgb {
-  data: Buffer;
+/**
+ * A picture, row by row: 3 bytes a pixel (RGB), or 4 (RGBA, as a canvas gives
+ * it — the fourth is ignored).
+ */
+export interface Picture {
+  data: Uint8Array | Uint8ClampedArray;
   width: number;
   height: number;
+  channels: 3 | 4;
+}
+
+/** What each side supplies: how to run the two models. */
+export interface FaceRuntime {
+  /** YuNet on a 1×3×640×640 BGR tensor; its outputs by name (cls_8, obj_8, bbox_8, kps_8, …). */
+  detect(input: Float32Array): Promise<Record<string, Float32Array>>;
+  /** SFace on a 1×3×112×112 RGB tensor; its raw FACE_DIM numbers. */
+  embed(input: Float32Array): Promise<Float32Array>;
 }
 
 export interface DetectedFace {
-  /** Box in the photo's own pixels. */
+  /** Box in the picture's own pixels. */
   x: number;
   y: number;
   w: number;
@@ -141,14 +98,8 @@ export interface FaceVector {
   /** FACE_DIM numbers, scaled to unit length. */
   vector: number[];
   face: DetectedFace;
-  /** How many faces the photo held; the largest is the one returned. */
+  /** How many faces the picture held; the largest is the one returned. */
   faceCount: number;
-}
-
-/** Decode any photo sharp reads, turned the way its EXIF says it was held. */
-async function decode(photo: Buffer): Promise<Rgb> {
-  const { data, info } = await sharp(photo).rotate().removeAlpha().toColourspace("srgb").raw().toBuffer({ resolveWithObject: true });
-  return { data, width: info.width, height: info.height };
 }
 
 const iou = (a: DetectedFace, b: DetectedFace) => {
@@ -160,45 +111,77 @@ const iou = (a: DetectedFace, b: DetectedFace) => {
   return inter / (a.w * a.h + b.w * b.h - inter || 1);
 };
 
-/** Every face YuNet sees, best first, in the photo's own pixels. */
-export async function detectFaces(img: Rgb): Promise<DetectedFace[]> {
-  const { det } = await engine();
+/**
+ * The picture scaled to w×h as cv2.resize's INTER_LINEAR does it: each output
+ * pixel's centre mapped back into the source, bilinear between the four
+ * nearest, edges clamped. RGB out, whatever came in.
+ */
+export function shrink(img: Picture, w: number, h: number): Picture {
+  const ch = img.channels;
+  const out = new Uint8Array(w * h * 3);
+  const sx = img.width / w;
+  const sy = img.height / h;
+  for (let y = 0; y < h; y++) {
+    let fy = (y + 0.5) * sy - 0.5;
+    if (fy < 0) fy = 0;
+    let y0 = Math.floor(fy);
+    if (y0 >= img.height - 1) { y0 = img.height - 1; fy = y0; }
+    const y1 = Math.min(y0 + 1, img.height - 1);
+    const wy = fy - y0;
+    for (let x = 0; x < w; x++) {
+      let fx = (x + 0.5) * sx - 0.5;
+      if (fx < 0) fx = 0;
+      let x0 = Math.floor(fx);
+      if (x0 >= img.width - 1) { x0 = img.width - 1; fx = x0; }
+      const x1 = Math.min(x0 + 1, img.width - 1);
+      const wx = fx - x0;
+      const a = (y0 * img.width + x0) * ch, b = (y0 * img.width + x1) * ch;
+      const c = (y1 * img.width + x0) * ch, d = (y1 * img.width + x1) * ch;
+      for (let k = 0; k < 3; k++) {
+        const top = img.data[a + k]! * (1 - wx) + img.data[b + k]! * wx;
+        const bottom = img.data[c + k]! * (1 - wx) + img.data[d + k]! * wx;
+        out[(y * w + x) * 3 + k] = Math.round(top * (1 - wy) + bottom * wy);
+      }
+    }
+  }
+  return { data: out, width: w, height: h, channels: 3 };
+}
+
+/** Every face YuNet sees, best first, in the picture's own pixels. */
+export async function detectFaces(rt: FaceRuntime, img: Picture): Promise<DetectedFace[]> {
   // Shrink to fit 640×640 and pad the rest with black, top-left aligned —
   // what FaceDetectorYN does with its own padding, so the grid lines up.
   const scale = Math.min(1, DET_SIZE / Math.max(img.width, img.height));
   const w = Math.round(img.width * scale);
   const h = Math.round(img.height * scale);
-  // Linear, as cv2.resize does. With sharp's default (lanczos) the vectors
-  // agreed with OpenCV's less well on the farm's photos: worst 0.82 against 0.93.
-  const small = scale < 1
-    ? await sharp(img.data, { raw: { width: img.width, height: img.height, channels: 3 } }).resize(w, h, { kernel: "linear" }).raw().toBuffer()
-    : img.data;
+  const small = scale < 1 ? shrink(img, w, h) : img;
+  const ch = small.channels;
   // Blue, green, red planes: YuNet was trained on OpenCV's BGR order.
   const plane = DET_SIZE * DET_SIZE;
   const input = new Float32Array(3 * plane);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      const s = (y * w + x) * 3;
+      const s = (y * w + x) * ch;
       const d = y * DET_SIZE + x;
-      input[d] = small[s + 2]!;
-      input[plane + d] = small[s + 1]!;
-      input[2 * plane + d] = small[s]!;
+      input[d] = small.data[s + 2]!;
+      input[plane + d] = small.data[s + 1]!;
+      input[2 * plane + d] = small.data[s]!;
     }
   }
-  const out = await det.run({ [det.inputNames[0]!]: new ort.Tensor("float32", input, [1, 3, DET_SIZE, DET_SIZE]) });
+  const out = await rt.detect(input);
 
   const found: DetectedFace[] = [];
+  const clamp = (v: number) => Math.min(1, Math.max(0, v));
   for (const stride of STRIDES) {
-    const cls = out[`cls_${stride}`]!.data as Float32Array;
-    const obj = out[`obj_${stride}`]!.data as Float32Array;
-    const box = out[`bbox_${stride}`]!.data as Float32Array;
-    const kps = out[`kps_${stride}`]!.data as Float32Array;
+    const cls = out[`cls_${stride}`]!;
+    const obj = out[`obj_${stride}`]!;
+    const box = out[`bbox_${stride}`]!;
+    const kps = out[`kps_${stride}`]!;
     const cols = DET_SIZE / stride;
     const rows = DET_SIZE / stride;
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         const i = r * cols + c;
-        const clamp = (v: number) => Math.min(1, Math.max(0, v));
         const score = Math.sqrt(clamp(cls[i]!) * clamp(obj[i]!));
         if (score < SCORE_THRESHOLD) continue;
         const cx = (c + box[i * 4]!) * stride;
@@ -223,7 +206,7 @@ export async function detectFaces(img: Rgb): Promise<DetectedFace[]> {
 /**
  * The similarity transform (turn, scale, shift — no stretching) that best
  * carries the five detected points onto SFace's template, by least squares.
- * Returned as the 2×3 matrix [a -b tx; b a ty] from photo to crop.
+ * Returned as the 2×3 matrix [a -b tx; b a ty] from picture to crop.
  */
 export function similarity(src: [number, number][]): [number, number, number, number] {
   const n = src.length;
@@ -243,13 +226,14 @@ export function similarity(src: [number, number][]): [number, number, number, nu
   return [a, b, dx - (a * sx - b * sy), dy - (b * sx + a * sy)];
 }
 
-/** The 112×112 crop SFace reads, sampled from the photo with bilinear weights; outside the photo is black. */
-export function alignCrop(img: Rgb, points: [number, number][]): Buffer {
+/** The 112×112 RGB crop SFace reads, sampled from the picture with bilinear weights; outside the picture is black. */
+export function alignCrop(img: Picture, points: [number, number][]): Uint8Array {
   const [a, b, tx, ty] = similarity(points);
   // Inverse of [a -b; b a]: walk the crop's pixels and ask where each came from.
   const det = a * a + b * b;
   const ia = a / det, ib = b / det;
-  const out = Buffer.alloc(CROP * CROP * 3);
+  const chs = img.channels;
+  const out = new Uint8Array(CROP * CROP * 3);
   for (let y = 0; y < CROP; y++) {
     for (let x = 0; x < CROP; x++) {
       const u = x - tx, v = y - ty;
@@ -259,7 +243,7 @@ export function alignCrop(img: Rgb, points: [number, number][]): Buffer {
       const fx = px - x0, fy = py - y0;
       for (let ch = 0; ch < 3; ch++) {
         const at = (xx: number, yy: number) =>
-          xx < 0 || yy < 0 || xx >= img.width || yy >= img.height ? 0 : img.data[(yy * img.width + xx) * 3 + ch]!;
+          xx < 0 || yy < 0 || xx >= img.width || yy >= img.height ? 0 : img.data[(yy * img.width + xx) * chs + ch]!;
         const val = (1 - fy) * ((1 - fx) * at(x0, y0) + fx * at(x0 + 1, y0)) + fy * ((1 - fx) * at(x0, y0 + 1) + fx * at(x0 + 1, y0 + 1));
         out[(y * CROP + x) * 3 + ch] = Math.round(val);
       }
@@ -269,8 +253,7 @@ export function alignCrop(img: Rgb, points: [number, number][]): Buffer {
 }
 
 /** SFace's vector for an aligned crop, scaled to unit length. */
-export async function embedCrop(crop: Buffer): Promise<number[]> {
-  const { rec } = await engine();
+export async function embedCrop(rt: FaceRuntime, crop: Uint8Array): Promise<number[]> {
   // Red, green, blue planes, 0..255 unscaled: blobFromImage(crop, 1, …, swapRB=true).
   const plane = CROP * CROP;
   const input = new Float32Array(3 * plane);
@@ -279,40 +262,18 @@ export async function embedCrop(crop: Buffer): Promise<number[]> {
     input[plane + i] = crop[i * 3 + 1]!;
     input[2 * plane + i] = crop[i * 3 + 2]!;
   }
-  const out = await rec.run({ [rec.inputNames[0]!]: new ort.Tensor("float32", input, [1, 3, CROP, CROP]) });
-  const raw = Array.from(out[rec.outputNames[0]!]!.data as Float32Array);
+  const raw = Array.from(await rt.embed(input));
   if (raw.length !== FACE_DIM) throw new Error(`face engine: SFace gave ${raw.length} numbers, expected ${FACE_DIM}`);
   const len = Math.sqrt(raw.reduce((s, v) => s + v * v, 0)) || 1;
   return raw.map((v) => v / len);
 }
 
-const DATA_URL = /^data:image\/[\w.+-]+;base64,(.+)$/s;
-
-/**
- * The SFace vector of the largest face in a photo — a Buffer, or a data URL as
- * the app stores photos — or null when there is no face in it. Throws only when
- * the engine itself cannot run (models missing and unfetchable), never for a
- * photo that is merely unreadable: that is just "no face".
- */
-export async function faceVector(photo: Buffer | string): Promise<FaceVector | null> {
-  let bytes: Buffer;
-  if (typeof photo === "string") {
-    const m = DATA_URL.exec(photo);
-    if (!m) return null;
-    bytes = Buffer.from(m[1]!, "base64");
-  } else {
-    bytes = photo;
-  }
-  let img: Rgb;
-  try {
-    img = await decode(bytes);
-  } catch {
-    return null;
-  }
-  const faces = await detectFaces(img);
+/** The SFace vector of the largest face in a picture, or null when it holds none. */
+export async function readFace(rt: FaceRuntime, img: Picture): Promise<FaceVector | null> {
+  const faces = await detectFaces(rt, img);
   if (!faces.length) return null;
   // The largest is the person at the gate; anyone behind them is smaller.
   const face = faces.reduce((a, b) => (b.w * b.h > a.w * a.h ? b : a));
-  const vector = await embedCrop(alignCrop(img, face.points));
+  const vector = await embedCrop(rt, alignCrop(img, face.points));
   return { vector, face, faceCount: faces.length };
 }

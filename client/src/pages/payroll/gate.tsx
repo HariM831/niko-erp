@@ -1,7 +1,7 @@
 /**
  * Gate — the browser kiosk. Point the camera at the worker, scan, confirm.
  *
- * Ported from Amino's gate. The frame is read on the server (SFace, via
+ * Ported from Amino's gate. The frame is read on the phone (SFace, via
  * client/src/lib/face.ts), matching happens on-device against the gallery
  * from GET /api/payroll/employees/gallery, and the punch goes to
  * POST /api/payroll/punches. Manual selection appears only after a failed
@@ -31,9 +31,9 @@ interface GalleryEmployee {
   name: string;
   payType: string;
   /**
-   * The enrolment descriptor first, then whatever the gate has taught itself
-   * from this worker's own scans. A face is scored on its best one, so a
-   * short gallery is only ever a weaker match, never a wrong one.
+   * The first gate photo of each of this worker's last 7 days at the gate,
+   * or their enrolment photo while they have none. A face is scored on its
+   * best one.
    */
   descriptors: number[][];
   photoUrl: string | null;
@@ -556,7 +556,7 @@ export function PayrollGatePage() {
 
       {engineState === "loading" && (
         <div className="card flex items-center gap-2 p-3 text-sm text-gray-500">
-          <Loader2 size={15} className="animate-spin" /> Starting the face engine…
+          <Loader2 size={15} className="animate-spin" /> Starting the face engine (the first time on this phone it downloads about 53 MB)…
         </div>
       )}
       {engineState === "failed" && (

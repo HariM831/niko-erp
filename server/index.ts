@@ -48,6 +48,7 @@ import { drEggsyRouter } from "./routes/dr-eggsy";
 import { eggSalesRouter } from "./routes/egg-sales";
 import { bossViewRouter } from "./routes/boss-view";
 import { payrollRouter } from "./routes/payroll";
+import { faceEngineRouter } from "./routes/face-engine";
 import { canteenRouter } from "./routes/canteen";
 import { deviceRouter } from "./routes/device";
 import { settingsRouter } from "./routes/settings";
@@ -190,6 +191,8 @@ app.use("/api/farms/dr-eggsy", requireAuth, drEggsyRouter);
 app.use("/api/sales/eggs", requireAuth, eggSalesRouter);
 app.use("/api/boss-view", requireAuth, bossViewRouter);
 app.use("/api/payroll", requireAuth, payrollRouter);
+// The models and runtime the gate, canteen and enrolment pages read faces with.
+app.use("/api/face-engine", requireAuth, faceEngineRouter);
 app.use("/api/canteen", requireAuth, canteenRouter);
 // Deliberately NOT behind requireAuth: the paired gate and canteen phones
 // authenticate with a device bearer token (see routes/device.ts). The admin

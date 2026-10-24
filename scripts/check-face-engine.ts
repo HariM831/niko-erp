@@ -1,5 +1,6 @@
 /**
- * The server's face engine (services/face-engine.ts), checked in two parts.
+ * The face engine (shared/face-engine.ts, run here by scripts/lib/face-engine-node.ts),
+ * checked in two parts.
  *
  * Arithmetic, on made-up points and pictures — no face needed, and exact:
  *
@@ -21,7 +22,8 @@ import { isNotNull } from "drizzle-orm";
 import sharp from "sharp";
 import { FACE_DIM } from "@shared/face";
 import { employees } from "@shared/schema";
-import { alignCrop, faceVector, similarity, TEMPLATE } from "../server/services/face-engine";
+import { alignCrop, shrink, similarity, TEMPLATE } from "@shared/face-engine";
+import { faceVector } from "./lib/face-engine-node";
 
 let failures = 0;
 const ok = (label: string, cond: boolean, detail = "") => {
@@ -48,8 +50,21 @@ console.log("\nArithmetic");
 {
   const data = Buffer.alloc(112 * 112 * 3);
   for (let i = 0; i < data.length; i++) data[i] = (i * 7919) % 251;
-  const crop = alignCrop({ data, width: 112, height: 112 }, TEMPLATE.map(([x, y]) => [x, y]));
-  ok("a picture whose points are the template → crop is the picture", crop.equals(data));
+  const crop = alignCrop({ data, width: 112, height: 112, channels: 3 }, TEMPLATE.map(([x, y]) => [x, y]));
+  ok("a picture whose points are the template → crop is the picture", Buffer.from(crop).equals(data));
+  // The phone hands the engine a canvas's RGBA; the fourth byte must change nothing.
+  const rgba = new Uint8Array(112 * 112 * 4);
+  for (let p = 0; p < 112 * 112; p++) {
+    rgba.set(data.subarray(p * 3, p * 3 + 3), p * 4);
+    rgba[p * 4 + 3] = (p * 31) % 256;
+  }
+  const fromRgba = alignCrop({ data: rgba, width: 112, height: 112, channels: 4 }, TEMPLATE.map(([x, y]) => [x, y]));
+  ok("the same picture as RGBA (the phone's canvas) → the same crop", Buffer.from(fromRgba).equals(data));
+  ok("shrunk to its own size → the picture itself", Buffer.from(shrink({ data, width: 112, height: 112, channels: 3 }, 112, 112).data).equals(data));
+  const half = shrink({ data: rgba, width: 112, height: 112, channels: 4 }, 56, 56);
+  // Halving lands each output pixel between four source pixels: their mean.
+  const want = Math.round((data[0]! + data[3]! + data[112 * 3]! + data[112 * 3 + 3]!) / 4);
+  ok("halved → each pixel the mean of the four it covers", Math.abs(half.data[0]! - want) <= 1, `${half.data[0]} vs ${want}`);
 }
 {
   const grey = await sharp({ create: { width: 320, height: 240, channels: 3, background: { r: 128, g: 128, b: 128 } } }).jpeg().toBuffer();

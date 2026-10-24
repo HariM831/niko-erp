@@ -13,7 +13,8 @@
  *   A's face picked as A                 → taught
  *   a stranger's face picked as B        → not a conflict, but not taught
  *   someone with no gallery at all       → never taught by hand
- *   a taught capture counts as gallery   → B's drifted look is recognised as B
+ *   a taught capture is the gallery      → B's drifted look is recognised as B,
+ *                                          and his enrolment photo steps aside
  *
  * Run: npx tsx scripts/check-face-guard.ts
  */
@@ -42,9 +43,9 @@ const between = (a: number[], b: number[], cosToA: number) => {
 };
 
 console.log("\n  vectors\n");
-ok("1024 finite numbers is a face", isUsableEmbedding(axis(0)));
-ok("192 numbers — the phone app's model — is not", !isUsableEmbedding(Array(192).fill(0.1)));
-ok("1023 numbers is not", !isUsableEmbedding(Array(FACE_DIM - 1).fill(0.1)));
+ok(`${FACE_DIM} finite numbers is a face`, isUsableEmbedding(axis(0)));
+ok("1024 numbers — FaceRes, before SFace — is not", !isUsableEmbedding(Array(1024).fill(0.1)));
+ok(`${FACE_DIM - 1} numbers is not`, !isUsableEmbedding(Array(FACE_DIM - 1).fill(0.1)));
 ok("a NaN in it is not", !isUsableEmbedding([...axis(0).slice(1), Number.NaN]));
 
 try {
@@ -113,10 +114,13 @@ try {
     const newLook = between(B, stranger, 0.3);
     await tx.insert(punches).values({
       employeeId: b.id, type: "in", punchDate: istDate(), method: "face", matchScore: 0.8,
-      faceEmbedding: roundEmbedding(newLook), markedBy: user.id,
+      faceEmbedding: roundEmbedding(newLook), faceTaught: true, markedBy: user.id,
     });
     v = await judgeCapture(tx, b.id, newLook);
-    ok("a taught capture counts as gallery", v.teach && v.ownScore > 0.99, `own ${v.ownScore.toFixed(2)}`);
+    ok("a taught capture is the gallery", v.teach && v.ownScore > 0.99, `own ${v.ownScore.toFixed(2)}`);
+    // Once B has a taught scan, his enrolment photo is not matched against.
+    v = await judgeCapture(tx, b.id, B);
+    ok("…and the enrolment photo steps aside", Math.abs(v.ownScore - 0.3) < 0.01, `own ${v.ownScore.toFixed(2)} against the new look alone`);
 
     throw new Rollback();
   });

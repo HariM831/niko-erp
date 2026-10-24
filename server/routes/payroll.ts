@@ -36,10 +36,9 @@ import { db, type Tx } from "../db";
 import { requireAnyPermission, requirePermission } from "../lib/rbac";
 import { REPEAT_PUNCH_WINDOW_MS } from "./device";
 import { photoThumbnail, photoThumbnails } from "../services/photo";
-import { faceVector, warmFaceEngine } from "../services/face-engine";
 import { syncNightShiftBreakfast } from "../services/canteen";
 import { clashMessage, findIdClash, isAcceptableUpload, normAadhaar, normPan } from "../services/identity";
-import { isUsableEmbedding, judgeCapture, roundEmbedding, taughtCapturesByEmployee } from "../services/face-gallery";
+import { galleryOf, isUsableEmbedding, judgeCapture, roundEmbedding, taughtCapturesByEmployee } from "../services/face-gallery";
 import { acceptCentred, latestFaceModel } from "../services/face-model";
 import { adviseOn, buildFaceHealth, faceStandings, formatFaceHealth } from "../services/face-health";
 import { looseNumber, nonBlank, timeOfDay, validateBody } from "../lib/validate";
@@ -623,33 +622,6 @@ payrollRouter.get("/face-standings", view, async (req, res) => {
 });
 
 /**
- * Faces are read on the server (services/face-engine.ts): every page that
- * scans one — the gate, the canteen, enrolment — sends the picture here and
- * gets SFace's vector back, then matches it against the roster as before.
- */
-const faceScanPerm = requireAnyPermission([
-  ["payroll", "gate"], ["payroll", "canteen_punch"], ["payroll", "canteen"], ["payroll", "employees"],
-]);
-
-/** Loads the models (fetching them the first time) so the first scan does not wait on it. */
-payrollRouter.get("/face/ready", faceScanPerm, async (_req, res) => {
-  await warmFaceEngine();
-  res.json({ ok: true });
-});
-
-payrollRouter.post(
-  "/face/vector",
-  faceScanPerm,
-  // A camera frame or an enrolment photo as a JPEG data URL; the body limit is 2 MB.
-  validateBody(z.object({ photo: z.string().startsWith("data:image/") })),
-  async (req, res) => {
-    const f = await faceVector(req.body.photo);
-    if (!f) return res.json({ embedding: null, faceCount: 0 });
-    res.json({ embedding: roundEmbedding(f.vector), faceCount: f.faceCount, confidence: f.face.score });
-  },
-);
-
-/**
  * The roster's mean face, for centred matching. Both browser gates fetch it
  * and score every face both ways; the raw score still decides. Null before the
  * first build. Rounded like the gallery descriptors it is subtracted from.
@@ -691,7 +663,7 @@ payrollRouter.get("/employees/gallery", gatePerm, async (req, res) => {
   const changedAt = sql<number>`(EXTRACT(EPOCH FROM GREATEST(
     employees.updated_at,
     COALESCE((SELECT max(p.punched_at) FROM punches p
-               WHERE p.employee_id = employees.id AND p.face_embedding IS NOT NULL), 'epoch'::timestamptz)
+               WHERE p.employee_id = employees.id AND p.face_taught), 'epoch'::timestamptz)
   )) * 1000)::float8`;
 
   const rows = await db
@@ -725,10 +697,9 @@ payrollRouter.get("/employees/gallery", gatePerm, async (req, res) => {
       name: r.name,
       payType: r.payType,
       photoUrl: thumbs[i],
-      // Enrolment first, then what the gate has taught itself. A face is
-      // scored on its BEST descriptor, so the order is for readers, not
-      // for the matcher.
-      descriptors: [roundEmbedding(r.faceDescriptor!), ...(taught.get(r.id) ?? [])],
+      // The first gate photo of each of their last 7 days at the gate; the
+      // enrolment photo only while they have none (services/face-gallery.ts).
+      descriptors: galleryOf(r.faceDescriptor, taught.get(r.id)),
     })),
     // Left, deactivated, or had their enrolment cleared. Named rather than
     // simply absent, because the kiosk is holding a copy it has to drop.
@@ -1252,7 +1223,9 @@ export async function recordGatePunch(tx: Tx, b: GatePunch, userId: string) {
       longitude: b.longitude ?? null,
       accuracyM: b.accuracyM ?? null,
       photoUrl: keepPhoto ? (b.photoUrl ?? null) : null,
-      faceEmbedding: teach && isUsableEmbedding(b.faceEmbedding) ? roundEmbedding(b.faceEmbedding) : null,
+      // Every scan's vector is kept; only a taught one joins the gallery.
+      faceEmbedding: isUsableEmbedding(b.faceEmbedding) ? roundEmbedding(b.faceEmbedding) : null,
+      faceTaught: teach,
       manualReason: b.method === "manual" ? (b.manualReason ?? null) : null,
       ...(await acceptCentred(tx, b.centred)),
       markedBy: userId,

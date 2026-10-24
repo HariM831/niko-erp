@@ -10,9 +10,10 @@
  * reads faces with SFace since 23 Oct 2026 (docs/face-sface-plan.md): a
  * FaceRes vector matches nobody, and written over an SFace one it would undo
  * a worker's enrolment while looking enrolled. Instead a worker Amino had
- * enrolled is marked enrolled here with no vector, and the server reads their
- * face from the photo that comes with them (services/face-enrol.ts) — the
- * same way every face was made again when SFace took over.
+ * enrolled is marked enrolled here with no vector; run
+ * scripts/sface-switch-over.ts afterwards and it reads their face from the
+ * photo that comes with them — the same way every face was made again when
+ * SFace took over.
  *
  * Mapping notes, the non-obvious ones:
  *

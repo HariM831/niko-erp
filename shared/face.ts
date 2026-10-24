@@ -6,9 +6,9 @@
  */
 
 /**
- * Length of a face vector: OpenCV's SFace, made on the server
- * (server/services/face-engine.ts). Before 23 Oct 2026 it was 1024, Human's
- * FaceRes; those vectors were cleared, not converted. Anything
+ * Length of a face vector: OpenCV's SFace, read on the phone
+ * (shared/face-engine.ts). Before 24 Oct 2026 it was 1024, Human's
+ * FaceRes; those vectors were kept in *_faceres columns, not converted. Anything
  * else is not a face this system can compare — a vector of another length
  * scores zero against every real one, so it can never match, but it can sit in
  * a gallery displacing a capture that would have.

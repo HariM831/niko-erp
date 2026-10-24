@@ -341,7 +341,7 @@ export function PayrollCanteenGatePage() {
 
       {engineState === "loading" && (
         <div className="card mb-3 flex items-center gap-2 p-3 text-sm text-gray-500">
-          <Loader2 size={15} className="animate-spin" /> Starting the face engine…
+          <Loader2 size={15} className="animate-spin" /> Starting the face engine (the first time on this phone it downloads about 53 MB)…
         </div>
       )}
       {scanImpossible && (
