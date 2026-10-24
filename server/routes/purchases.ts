@@ -191,6 +191,8 @@ const poSchema = z.object({
   /** Freight we pay the transporter: per ton on the vendor's billed kilos, or a lump sum a truck. */
   freightBasis: z.enum(["none", "per_ton", "per_truck"]).optional(),
   freightRate: money.optional(),
+  /** Custom field values — a location-lookup field is what prints under "Deliver To". */
+  customFields: z.record(z.string(), z.any()).optional(),
   lines: z
     .array(
       lineSchema.extend({
@@ -268,7 +270,13 @@ purchasesRouter.get("/orders/:id", requirePermission("purchases", "view"), async
     ? await db.select({ name: users.name }).from(users).where(eq(users.id, po.extraAllowanceBy))
     : [];
   const orgPct = Number((await getPreferences(db)).poOverDeliveryPct);
-  res.json({ ...po, lines, allowance: { orgPct, extraPct: Number(po.extraAllowancePct), by: ext?.name ?? null } });
+  const customFieldValues = await readCustomFieldValues(db, "purchase_order", po.id);
+  res.json({
+    ...po,
+    lines,
+    customFieldValues,
+    allowance: { orgPct, extraPct: Number(po.extraAllowancePct), by: ext?.name ?? null },
+  });
 });
 
 /** A PO posts no journal, so editing is a plain re-state — but not once it's been billed. */
@@ -279,7 +287,11 @@ purchasesRouter.patch(
   async (req, res) => {
     const body = req.body as PurchaseOrderEdit;
     try {
-      const result = await db.transaction((tx) => editPurchaseOrder(tx, req.params.id!, body));
+      const result = await db.transaction(async (tx) => {
+        const po = await editPurchaseOrder(tx, req.params.id!, body);
+        await saveCustomFieldValues(tx, "purchase_order", po.id, body.customFields);
+        return po;
+      });
       res.json(result);
     } catch (err) {
       if (!handlePostingError(err, res)) throw err;
@@ -404,7 +416,7 @@ purchasesRouter.post(
           resolvedLines as DocLineInput[],
           vendor.placeOfSupplyState,
         );
-        const number = await nextDocumentNumber(tx, "purchase_order", body.seriesId);
+        const number = await nextDocumentNumber(tx, "purchase_order", body.seriesId, body.orderDate);
         const { lines: computedLines, ...headerTotals } = totals;
 
         // Stamped at creation only. Editing the order later leaves whatever
@@ -436,6 +448,7 @@ purchasesRouter.post(
             purchaseOrderId: po!.id,
           })),
         );
+        await saveCustomFieldValues(tx, "purchase_order", po!.id, body.customFields);
         return po!;
       });
       res.status(201).json(result);

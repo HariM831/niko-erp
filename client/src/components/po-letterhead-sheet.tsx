@@ -3,12 +3,13 @@ import logoUrl from "../assets/letterhead-logo.png";
 import bandUrl from "../assets/letterhead-band.png";
 
 /**
- * A purchase order on the company letterhead (22 Oct 2026).
+ * A purchase order on the company letterhead (22 Oct 2026; Amino Farms logo
+ * in red, 24 Oct 2026).
  *
  * The content is the PO's own — the same fields, in the same places, as the
  * Zoho-style sheet every other document prints. Only the look comes from the
- * letterhead: the niko logo, red accents, and the band and company lines at
- * the foot of the page.
+ * letterhead: the Amino Farms logo in red, red accents, and the band and
+ * company lines at the foot of the page.
  */
 export interface PoLetterheadProps {
   number: string;
@@ -25,7 +26,15 @@ export interface PoLetterheadProps {
   vendorLink?: React.ReactNode;
   vendorAddress: string[];
   vendorGstin?: string;
-  org?: { name: string; address?: string; city?: string; state?: string; pincode?: string } | null;
+  org?: {
+    name: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    pincode?: string;
+  } | null;
+  /** The location picked in the PO's "Deliver To" field; without one, the org profile's address prints. */
+  deliverTo?: { name: string; lines: string[] } | null;
   pdfFields: Array<{ fieldId: string; label: string; display: string }>;
   lines: Array<{ id: string; name: string; description?: string; quantity: string; unit?: string; rate: string; amount: string }>;
   subTotal: string;
@@ -56,7 +65,7 @@ export function PoLetterheadSheet(p: PoLetterheadProps) {
     <div className="letterhead flex min-h-[297mm] flex-col">
       <div className="flex-1 px-[16mm] pt-[14mm]">
         <header className="flex items-start justify-between border-b border-[#cb1e25] pb-[5mm]">
-          <img src={logoUrl} alt="niko eggs" className="-mt-[2mm] ml-[2mm] w-[32mm]" />
+          <img src={logoUrl} alt="Amino Farms" className="-mt-[2mm] ml-[2mm] w-[32mm]" />
           <div className="text-right">
             <div className="lh-bold mt-[7mm] text-[22pt] leading-none">PURCHASE ORDER</div>
             <div className="lh-bold mt-[2mm] text-[9.5pt] text-[#cb1e25]">{p.org?.name || "Amino Farms Private Limited"}</div>
@@ -65,7 +74,7 @@ export function PoLetterheadSheet(p: PoLetterheadProps) {
 
         <div className="flex border-b border-[#c9c9c9]">
           <div className="lh-kv flex-1 px-[2.5mm] py-[3mm]">
-            <span className="lh-lbl">#</span>
+            <span className="lh-lbl">Purchase Order #</span>
             <span className="lh-bold">{p.number}</span>
             <span className="lh-lbl">Purchase Order Date</span>
             <span className="lh-bold">{p.slashDate(p.orderDate)}</span>
@@ -126,9 +135,20 @@ export function PoLetterheadSheet(p: PoLetterheadProps) {
           <div className="flex-1 border-l border-[#c9c9c9] px-[2.5mm] py-[3mm]">
             <div className="lh-bold mb-[1.5mm] text-[#cb1e25]">Deliver To</div>
             <div className="lh-bold text-[10.5pt]">{p.org?.name}</div>
-            {p.org?.address && <div>{p.org.address}</div>}
-            {[p.org?.city, p.org?.pincode, p.org?.state].some(Boolean) && (
-              <div>{[p.org?.city, p.org?.pincode, p.org?.state].filter(Boolean).join(" ")}</div>
+            {p.deliverTo ? (
+              <>
+                <div className="lh-bold">{p.deliverTo.name}</div>
+                {p.deliverTo.lines.map((l, i) => (
+                  <div key={i}>{l}</div>
+                ))}
+              </>
+            ) : (
+              <>
+                {p.org?.address && <div>{p.org.address}</div>}
+                {[p.org?.city, p.org?.pincode, p.org?.state].some(Boolean) && (
+                  <div>{[p.org?.city, p.org?.pincode, p.org?.state].filter(Boolean).join(" ")}</div>
+                )}
+              </>
             )}
             <div>India</div>
           </div>

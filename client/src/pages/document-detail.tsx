@@ -441,6 +441,30 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
         email?: string;
       } | null>("/api/settings/org"),
   });
+  /** A PO's "Deliver To": the location its location-lookup custom field picks, if it has one. */
+  const deliverToField =
+    kind === "purchase-order"
+      ? ((doc?.customFieldValues ?? []) as Array<{ fieldId: string; dataType: string; lookupEntity: string | null; raw: unknown }>).find(
+          (f) => f.dataType === "lookup" && f.lookupEntity === "location" && !!f.raw,
+        )
+      : undefined;
+  const { data: locations } = useQuery({
+    queryKey: ["lookup", "location"],
+    queryFn: () =>
+      api<
+        Array<{
+          id: string;
+          name: string;
+          addressLine1: string | null;
+          addressLine2: string | null;
+          city: string | null;
+          state: string | null;
+          pincode: string | null;
+        }>
+      >("/api/locations"),
+    enabled: !!deliverToField,
+  });
+  const deliverTo = deliverToField ? locations?.find((l) => l.id === deliverToField.raw) : undefined;
 
   if (!config) return <div className="p-8 text-sm text-gray-500">Unknown document type.</div>;
   if (isLoading) return <div className="p-8 text-sm text-gray-500">Loading…</div>;
@@ -477,12 +501,15 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
   const isSales = ["invoice", "credit-note"].includes(kind);
   const paymentModule = isSales ? "sales" : "purchases";
 
-  const allCustomFields = (doc.customFieldValues ?? []) as Array<{
-    fieldId: string;
-    label: string;
-    display: string;
-    showInPdf: boolean;
-  }>;
+  // A PO's "Deliver To" prints in its own block, so it is left out of the custom field lists.
+  const allCustomFields = (
+    (doc.customFieldValues ?? []) as Array<{
+      fieldId: string;
+      label: string;
+      display: string;
+      showInPdf: boolean;
+    }>
+  ).filter((f) => f.fieldId !== deliverToField?.fieldId);
   const pdfFields = allCustomFields.filter((f) => f.showInPdf);
   const screenOnlyFields = allCustomFields.filter((f) => !f.showInPdf);
   const supply = placeOfSupply(contact?.placeOfSupplyState);
@@ -549,8 +576,12 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
           <button
             onClick={() => {
               // The sheet alone, not the app around it — see print-sheet.ts.
-              // The title is the PDF's suggested file name.
-              const name = [config.titlePrefix, doc.number, contact?.displayName].filter(Boolean).join(" ");
+              // The title is the PDF's suggested file name. A PO's is its number
+              // alone, A-PO-27-0037.pdf, as the vendor files it.
+              const name =
+                kind === "purchase-order"
+                  ? (doc.number as string)
+                  : [config.titlePrefix, doc.number, contact?.displayName].filter(Boolean).join(" ");
               if (sheetRef.current) void printSheet(sheetRef.current, name);
               else window.print();
             }}
@@ -689,6 +720,16 @@ export function DocumentDetailPage({ kind, id }: { kind: string; id: string }) {
               vendorAddress={addressLines(billingAddr)}
               vendorGstin={contact?.gstin}
               org={org}
+              deliverTo={
+                deliverTo && {
+                  name: deliverTo.name,
+                  lines: [
+                    deliverTo.addressLine1,
+                    deliverTo.addressLine2,
+                    [deliverTo.city, deliverTo.pincode, deliverTo.state].filter(Boolean).join(" "),
+                  ].filter((l): l is string => !!l),
+                }
+              }
               pdfFields={pdfFields}
               lines={goodsLines.filter((l) => !prefs?.hideZeroValueLines || Number(l.amount) !== 0)}
               subTotal={doc.subTotal as string}

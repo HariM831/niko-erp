@@ -773,7 +773,7 @@ body {
 }
 .letterhead .lh-kv {
   display: grid;
-  grid-template-columns: 32mm 1fr;
+  grid-template-columns: 38mm 1fr;
   row-gap: 1.4mm;
   align-items: baseline;
   align-content: start;

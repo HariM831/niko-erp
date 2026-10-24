@@ -117,7 +117,7 @@ export interface ResolveContext {
   /** employeeId → assignments, any order. */
   assignmentsByEmp: Map<string, AssignmentLike[]>;
   shiftById: Map<string, ShiftLike>;
-  /** IST today — a day after this with no punches is not written at all. */
+  /** IST today — a day after this with no punches and no approved leave is not written at all. */
   today: string;
   /** The instant of resolving; decides whether a night shift may still be open. */
   now: Date;
@@ -263,8 +263,8 @@ export function buildHolidayMap(
 
 /**
  * Resolve one employee-day. Returns null for days outside the employee's
- * service (before joining, after leaving) and for future days with no punch —
- * those get no row.
+ * service (before joining, after leaving) and for future days with no punch
+ * and no approved leave — those get no row.
  */
 export function resolveDay(employee: EmployeeLike, day: string, ctx: ResolveContext): DayResolution | null {
   if (employee.dateOfJoining && day < employee.dateOfJoining) return null;
@@ -310,7 +310,12 @@ export function resolveDay(employee: EmployeeLike, day: string, ctx: ResolveCont
     };
   }
 
-  if (day > ctx.today) return null;
+  // A future day is not written — except under an approved leave. Leave is
+  // decided in advance, and an approval for next week that only showed once
+  // somebody pressed Recompute after the days had passed was invisible on the
+  // calendar and the grid (24 Oct 2026: a CL for 26–29 Oct read blank). A
+  // punch on the day still wins: the gate recomputes it.
+  if (day > ctx.today && !leave) return null;
   if (holiday) return { status: "HO", source: "holiday", workedHours: 0, openIn: false, compOffEligible: false, shift };
   if (leave) return { status: "L", source: "leave", workedHours: 0, openIn: false, compOffEligible: false, shift };
   if (wo) return { status: "WO", source: "weekly_off", workedHours: 0, openIn: false, compOffEligible: false, shift };

@@ -283,6 +283,8 @@ export interface ResolvedValue {
   fieldId: string;
   label: string;
   dataType: string;
+  /** What a lookup points at — "location", "contact" and so on; null otherwise. */
+  lookupEntity: string | null;
   showInPdf: boolean;
   /** Ready to display. */
   display: string;
@@ -341,6 +343,7 @@ export async function readCustomFieldValues(
       fieldId: def.id,
       label: def.label,
       dataType: def.dataType,
+      lookupEntity: def.lookupEntity,
       showInPdf: def.showInPdf,
     };
 

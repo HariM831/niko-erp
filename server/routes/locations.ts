@@ -4,7 +4,7 @@ import { z } from "zod";
 import { forgetSites } from "../services/punch-sites";
 import { locations, stockLocations } from "@shared/schema";
 import { db } from "../db";
-import { requirePermission } from "../lib/rbac";
+import { requireAnyPermission, requirePermission } from "../lib/rbac";
 import { gstStateCode, validateBody } from "../lib/validate";
 
 export const locationsRouter = Router();
@@ -57,13 +57,21 @@ const locationSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
-locationsRouter.get("/", requirePermission("settings", "view"), async (_req, res) => {
-  const rows = await db
-    .select()
-    .from(locations)
-    .orderBy(asc(locations.type), asc(locations.name));
-  res.json(rows);
-});
+// Purchases reads the list too: a PO's "Deliver To" field picks one of these.
+locationsRouter.get(
+  "/",
+  requireAnyPermission([
+    ["settings", "view"],
+    ["purchases", "view"],
+  ]),
+  async (_req, res) => {
+    const rows = await db
+      .select()
+      .from(locations)
+      .orderBy(asc(locations.type), asc(locations.name));
+    res.json(rows);
+  },
+);
 
 locationsRouter.post(
   "/",
