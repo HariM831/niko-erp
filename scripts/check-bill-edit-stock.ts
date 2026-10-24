@@ -9,9 +9,10 @@
  *
  * Run: npx tsx scripts/check-bill-edit-stock.ts
  */
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { accounts, contacts, inventoryTransactions, items, officeReceipts, users } from "@shared/schema";
 import { db } from "../server/db";
+import { advanceSeriesPast } from "../server/lib/numbering";
 import { computeBill, createBill, loadVendor, restateBillStock } from "../server/services/purchases";
 
 let failed = 0;
@@ -40,6 +41,13 @@ async function main() {
 
   try {
     await db.transaction(async (tx) => {
+      // A database whose bill counter trails bills loaded directly would hand
+      // createBill a number already taken. Moved past them here, rolled back.
+      const [{ top }] = (await tx.execute(
+        sql`SELECT coalesce(max(substring(number from '[0-9]+$')::int), 0) AS top FROM bills WHERE number ~ '^BILL-[0-9]+$'`,
+      )).rows as Array<{ top: number }>;
+      await advanceSeriesPast(tx, "bill", "BILL-", Number(top) + 1);
+
       const [item] = await tx
         .insert(items)
         .values({ name: "Zt Premix fixture", unit: "pcs", trackInventory: true, inventoryAccountId: stockAccount.id })
